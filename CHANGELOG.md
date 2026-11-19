@@ -10,7 +10,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Cancelling a Dash Flows refresh again stops a source from starting when the cancel lands while a tool call is being prepared. [#528](https://github.com/cuttlely/cuttlely/pull/528).
 -   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
 
 ## [1.7.9] - 2026-11-17

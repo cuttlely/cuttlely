@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 const claim = { token: 'lease', revision: 1, definition: { harness: 'synthetic-contract' } }
 const store = {
     assertActive: jest.fn(),
@@ -220,57 +222,18 @@ it('materializes the pinned Harness canvas even if the name remaps before refres
     expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
 })
 
-// The store the refresh sees in each mode. Switch off: the SQLite store, whose synchronous check is wrapped in an async
-// method (asyncStore in packages/harness/dashflows.mjs), so a cancelled refresh rejects without awaiting anything.
-// Switch on: the application-database store, whose check awaits a query before it rejects.
-const cancelledCheck = {
-    'off (SQLite store)': (cancelled: () => boolean) =>
-        (async () => {
-            if (cancelled()) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
-        }) as () => Promise<void>,
-    'on (application-database store)': (cancelled: () => boolean) => async () => {
-        await new Promise((resolve) => setImmediate(resolve))
-        if (cancelled()) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
-    }
-}
-it.each(Object.keys(cancelledCheck) as Array<keyof typeof cancelledCheck>)(
-    'starts no source when the refresh is cancelled while a tool call is being prepared, switch %s',
-    async (mode) => {
-        let cancelled = false
-        const check = cancelledCheck[mode](() => cancelled)
-        let refusals = 0
-        store.assertActive.mockImplementation(() =>
-            check().catch((error: unknown) => {
-                refusals++
-                throw error
-            })
-        )
-        // As materializeCached does, await each progress write before the next step.
-        materialize.mockImplementationOnce(async (_definition, _record, invoke, _cache, _preferCache, progress) => {
-            await progress({ phase: 'views', completed: 0, total: 1, active: [] })
-            await invoke({ specialist: 'analyst', name: queryName('test'), bindingIndex: 2 }, { month: '2026-10-01' })
-            return { id: 'new' }
-        })
-        let sourceStarts = 0
-        // The bridge's order for one tool call (executeModule): prepare the node (awaits), await beforeCall, run
-        // assertCall with nothing awaited, then start the source.
-        execute.mockImplementationOnce(async (...call: unknown[]) => {
-            const options = call[4] as { beforeCall?: () => unknown; assertCall?: () => unknown }
-            cancelled = true // Cancel refresh lands while the node is being prepared.
-            await new Promise((resolve) => setImmediate(resolve))
-            if (options.beforeCall) await options.beforeCall()
-            if (options.assertCall) options.assertCall()
-            sourceStarts++
-            return 'late-source-result'
-        })
-        try {
-            await expect(refreshDashboard('dashboard', 'team-a')).rejects.toMatchObject({ statusCode: 409 })
-            // The cancel is seen by the store check in this mode; the question is only whether it comes before the source.
-            expect(refusals).toBeGreaterThan(0)
-            expect(sourceStarts).toBe(0)
-            expect(store.settle.mock.calls[0][3]).toBeNull()
-        } finally {
-            store.assertActive.mockImplementation(() => undefined)
-        }
-    }
-)
+// Runs the refresh against the real tool bridge in a child Node process (see index.cancel-bridge.child.mjs), once per
+// store: switch off (SQLite store, synchronous check behind an async method) and switch on (application-database store,
+// awaited query). The cancel lands while the bridge is preparing the source node.
+it.each(['sqlite', 'postgres'])('starts no source when the refresh is cancelled while a tool call is being prepared, %s store', (mode) => {
+    const child = path.join(__dirname, 'index.cancel-bridge.child.mjs')
+    const result = spawnSync(process.execPath, [child, mode], { encoding: 'utf8', env: process.env })
+    if (result.status !== 0) throw new Error(`child exited ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    const outcome = JSON.parse(result.stdout.trim().split('\n').pop() as string)
+    expect(outcome.mode).toBe(mode)
+    expect(outcome.statusCode).toBe(409)
+    // The store check saw the cancel; the question is only whether it came before the source started.
+    expect(outcome.refusals).toBeGreaterThan(0)
+    expect(outcome.sourceStarts).toBe(0)
+    expect(outcome.settledSnapshot).toBeNull()
+})
