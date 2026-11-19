@@ -27,7 +27,7 @@ class MockDashFlowError extends Error {
 const mockOpenDashStore = jest.fn(() => ({ list: async () => [{ id: 'board', definition: { title: 'Board' } }] }))
 jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockOpenDashStore(), DashFlowError: MockDashFlowError }) }))
 jest.mock('../dashflows/enabled', () => ({ dashFlowsEnabled: () => true }))
-import { accessKeyOptions, createAccessKey, target } from './management'
+import { accessKeyOptions, createAccessKey, target, validateAccessKey } from './management'
 const app = express()
 app.use(express.json())
 app.use((req, _res, next) => {
@@ -38,6 +38,7 @@ app.post('/keys/:id/rotate', (req, res, next) => {
     void target(req).then((key) => res.json({ id: key.id }), next)
 })
 app.post('/keys', createAccessKey)
+app.post('/keys/validate', validateAccessKey)
 app.get('/keys/options', accessKeyOptions)
 app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
     res.status(error.statusCode || 500).json({ message: error.message })
@@ -129,4 +130,39 @@ it('lists the other resources and leaves Dash Flows out while its storage is mid
     expect(midMove.status).toBe(200)
     expect(midMove.body.resources).toEqual([])
     expect(midMove.body.scopes.length).toBeGreaterThan(0)
+    expect(listed.body.dashFlowsMidMove).toBe(false)
+    expect(midMove.body.dashFlowsMidMove).toBe(true)
+})
+
+it('answers 503, not 403, when validating or saving a Dash Flows grant while its storage is mid-move', async () => {
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    mockActorPermissions.add('apikeys:create')
+    mockOpenDashStore.mockImplementation(() => {
+        throw new MockDashFlowError(503, 'Dash Flows storage is mid-move; check the start log.')
+    })
+    const body = {
+        keyName: 'Board key',
+        permissions: ['chatflows:view'],
+        resources: [{ resourceType: 'DASHFLOW', resourceId: 'board' }],
+        accessPolicy: { scopes: ['predict'] }
+    }
+    const midMove = 'Dash Flows storage is mid-move; its grants are kept and can be edited after the next start.'
+    try {
+        const validated = await request(app).post('/keys/validate').send(body)
+        expect(validated.status).toBe(503)
+        expect(validated.body.message).toBe(midMove)
+        const saved = await request(app).post('/keys').send(body)
+        expect(saved.status).toBe(503)
+        expect(saved.body.message).toBe(midMove)
+        expect(mockTransaction).not.toHaveBeenCalled()
+        // Any other unavailable resource is still refused as before.
+        const other = await request(app)
+            .post('/keys')
+            .send({ ...body, resources: [{ resourceType: 'CHATFLOW', resourceId: 'gone' }] })
+        expect(other.status).toBe(403)
+    } finally {
+        mockOpenDashStore.mockReset()
+        mockOpenDashStore.mockImplementation(() => ({ list: async () => [{ id: 'board', definition: { title: 'Board' } }] }))
+        mockActorPermissions.delete('apikeys:create')
+    }
 })

@@ -84,8 +84,16 @@ async function assertTarget(req: Request, row: ApiKey, grants: ApiKeyResource[])
         }
     }
 }
+/** Shown, and answered with 503, while Dash Flows storage is mid-move and its dashboards cannot be listed. */
+export const DASH_FLOWS_MID_MOVE_GRANTS = 'Dash Flows storage is mid-move; its grants are kept and can be edited after the next start.'
+function unavailableGrant(grant: ResourceGrant, dashFlowsMidMove: boolean, message: string): AppError {
+    return grant.resourceType === 'DASHFLOW' && dashFlowsMidMove
+        ? new AppError(503, DASH_FLOWS_MID_MOVE_GRANTS)
+        : new AppError(403, message)
+}
 async function choices(req: Request) {
     const user = interactive(req)
+    let dashFlowsMidMove = false
     const flows = await (await accessData()).getRepository(ChatFlow).findBy({ workspaceId: user.activeWorkspaceId })
     const resources: Array<ResourceGrant & { name: string; requiredHarnesses: string[] }> = []
     for (const flow of flows) {
@@ -110,6 +118,7 @@ async function choices(req: Request) {
         } catch (error) {
             // While Dash Flows storage is mid-move (503), list every other resource and leave Dash Flows out.
             if (!(error instanceof mod.DashFlowError && (error as any).status === 503)) throw error
+            dashFlowsMidMove = true
         }
         for (const row of rows)
             resources.push({
@@ -121,7 +130,13 @@ async function choices(req: Request) {
     }
     const scopes = []
     for (const [scope, permissions] of Object.entries(OPERATIONS)) if (await hasAnyPermission(req, ...permissions)) scopes.push(scope)
-    return { resources, scopes, rollout: accessRollout(), canGrantAll: await hasAnyPermission(req, 'apikeys:grant-all') }
+    return {
+        resources,
+        scopes,
+        rollout: accessRollout(),
+        canGrantAll: await hasAnyPermission(req, 'apikeys:grant-all'),
+        dashFlowsMidMove
+    }
 }
 export const accessKeyOptions: RequestHandler = action(choices)
 
@@ -135,7 +150,11 @@ async function requirements(req: Request) {
     let canFix = true
     for (const resource of resources) {
         if (!available.resources.some((r) => r.resourceType === resource.resourceType && r.resourceId === resource.resourceId))
-            throw new AppError(403, `This resource is unavailable or outside your permissions. Remove its grant. Help: ${ACCESS_KEY_DOCS}`)
+            throw unavailableGrant(
+                resource,
+                available.dashFlowsMidMove,
+                `This resource is unavailable or outside your permissions. Remove its grant. Help: ${ACCESS_KEY_DOCS}`
+            )
     }
     if (!resources.length && !policy.allResources) {
         missing.push('Choose at least one flow or resource for this key.')
@@ -224,7 +243,7 @@ async function policyInput(req: Request, checkDependencies = true) {
     if (policy.scopes.some((s) => !available.scopes.includes(s))) throw new AppError(403, 'You cannot grant these operations.')
     for (const grant of resources) {
         if (!available.resources.some((r) => r.resourceType === grant.resourceType && r.resourceId === grant.resourceId))
-            throw new AppError(403, 'You cannot grant this resource.')
+            throw unavailableGrant(grant, available.dashFlowsMidMove, 'You cannot grant this resource.')
     }
     const permissions = req.body.permissions
     if (!Array.isArray(permissions) || !permissions.every((p) => typeof p === 'string'))

@@ -5,7 +5,7 @@ import { accessRollout } from './rollout'
 import { RequestHandler } from 'express'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
-import { AccessKeyUnavailableError } from './errors'
+import { AccessKeyDashFlowsMidMoveError, AccessKeyUnavailableError } from './errors'
 import { normalizeApiPath } from '../../identity/apiGate'
 import { accessData } from './data'
 import { accessContext, authenticateRequest, authorizeKey, flowResource } from './authorization'
@@ -106,8 +106,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             operation = read ? 'dashflow:read' : 'dashflow:report'
             const { runtime } = await import('../dashflows')
             const mod = await runtime()
-            const store = mod.dashStore()
             try {
+                const store = mod.dashStore()
                 if (read) {
                     if (parts[2] === 'refresh-status') await store.status(parts[1], key.workspaceId)
                     else await store.published(parts[1], key.workspaceId)
@@ -127,6 +127,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     harnessIds[harness.name] = harness.id
                 }
             } catch (error) {
+                if (error instanceof mod.DashFlowError && (error as any).status === 503)
+                    throw new AccessKeyDashFlowsMidMoveError((error as Error).message)
                 if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
                 throw error
             }
@@ -205,7 +207,11 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
     })().then(
         () => next(),
         (error) => {
-            if (accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500))
+            if (
+                accessRollout() === 'on' &&
+                !(error instanceof AppError && error.statusCode < 500) &&
+                !(error instanceof AccessKeyDashFlowsMidMoveError)
+            )
                 return next(new AccessKeyUnavailableError())
             next(error)
         }

@@ -1216,8 +1216,8 @@ it('predict without its view permission names the exact missing permission and l
     expect(mockConsume).not.toHaveBeenCalled()
 })
 it('answers 503 when Dash Flows storage is mid-move, without charging', async () => {
-    // Opening the store throws before the route's own mapping; enforced rollout turns any server-side failure into the
-    // unavailable answer, so the caller sees 503, not 500. Off and shadow never admit a scoped key (see above).
+    // The caller sees 503 with the mid-move text, not 500 and not the generic unavailable text. Off and shadow never admit
+    // a scoped key (see above).
     mockKeys.set('fixture-token', key({ scopes: ['dashflow:read'] }))
     grant('dashboard', 'DASHFLOW')
     mockOpenDashStore.mockImplementationOnce(() => {
@@ -1230,6 +1230,7 @@ it('answers 503 when Dash Flows storage is mid-move, without charging', async ()
     )
     const response = await request(app).get('/api/v1/dashflows/dashboard/published').set('Authorization', 'Bearer fixture-token')
     expect(response.status).toBe(503)
+    expect(response.body.message).toBe('Dash Flows storage is mid-move; check the start log.')
     expect(mockOpenDashStore).toHaveBeenCalled()
     expect(mockConsume).not.toHaveBeenCalled()
 })
