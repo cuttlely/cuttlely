@@ -463,7 +463,7 @@ const MESSAGES = {
     notMoved: (code) =>
         `Dash Flows is in the application database, but dashflows.sqlite could not be moved aside (${code}). It was left in place and is not used; the move aside finishes at the next start.`,
     diverged:
-        'Dash Flows storage move stopped: dashflows.sqlite differs from the copy already in the application database, and no switch-off was recorded. Nothing was switched; Dash Flows keeps using dashflows.sqlite. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
+        'Dash Flows storage move stopped: dashflows.sqlite differs from the copy in the application database, and no switch-off was recorded. Dash Flows serves dashflows.sqlite; changes made in the application database since the copy are kept there but not shown. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
 }
 const errorCode = (error) =>
     String(error?.code || error?.name || 'error')
@@ -559,9 +559,17 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
             if (marker && !marker.rolledBackAt) return { outcome: 'diverged', digest }
             if (marker) {
                 // Re-enable after a rollback: keep the Postgres copy (Founder decision Q2). The marker takes this
-                // file's digest, so if the move aside does not finish now, the next start only finishes it.
+                // file's digest, so if the move aside does not finish now, the next start only finishes it. `rows`
+                // and `copiedAt` still describe the first copy; `copiedDigest` keeps its fingerprint and
+                // `reusedRows`/`reusedAt` describe the reused file.
                 const { rolledBackAt: _rolledBackAt, ...rest } = marker
-                await writeMarker(q, { ...rest, sourceDigest: digest.all, reusedAt: new Date().toISOString() })
+                await writeMarker(q, {
+                    ...rest,
+                    copiedDigest: rest.copiedDigest ?? marker.sourceDigest,
+                    sourceDigest: digest.all,
+                    reusedRows: counts(digest),
+                    reusedAt: new Date().toISOString()
+                })
                 return { outcome: 'reused', digest }
             }
             await q(`TRUNCATE ${S}.dash_flow, ${S}.dash_flow_query_cache, ${S}.dash_flow_public_report, ${S}.dash_flow_refresh_status`)
