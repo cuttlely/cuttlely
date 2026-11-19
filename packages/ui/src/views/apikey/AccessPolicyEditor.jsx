@@ -39,8 +39,11 @@ export default function AccessPolicyEditor({
     const update = (name, value) => setPolicy((current) => ({ ...current, [name]: value }))
     const toggleScope = (scope) =>
         update('scopes', policy.scopes.includes(scope) ? policy.scopes.filter((s) => s !== scope) : [...policy.scopes, scope])
+    // While Dash Flows storage is mid-move its dashboards are not listed; their grants are kept, not unavailable.
     const unavailable = resources.filter(
-        (grant) => !(options.resources || []).some((r) => r.resourceType === grant.resourceType && r.resourceId === grant.resourceId)
+        (grant) =>
+            !(options.dashFlowsMidMove && grant.resourceType === 'DASHFLOW') &&
+            !(options.resources || []).some((r) => r.resourceType === grant.resourceType && r.resourceId === grant.resourceId)
     )
     return (
         <Stack spacing={2} sx={{ mt: 2 }}>
@@ -199,6 +202,9 @@ export default function AccessPolicyEditor({
                             })}
                     </Box>
                 ))}
+            {options.dashFlowsMidMove && (
+                <Alert severity='info'>Dash Flows storage is mid-move; its grants are kept and can be edited after the next start.</Alert>
+            )}
             {unavailable.map((grant) => (
                 <Alert severity='warning' key={`${grant.resourceType}:${grant.resourceId}`}>
                     Unavailable resource: {grant.resourceType} {grant.resourceId}. It may have been deleted or you may no longer have

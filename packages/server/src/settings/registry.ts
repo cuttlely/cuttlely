@@ -2020,6 +2020,11 @@ export const KEPT_OUT: KeptOutGroup[] = [
         why: 'Creates the first owner on an empty database at start. A browser must never set an account password or the email that receives one.'
     },
     {
+        group: 'Application database stores',
+        keys: ['CUTTLELY_APP_DATABASE_STORES'],
+        why: 'Moving stores into the application database happens at start, with every other instance stopped; it is set on the host, never in saved settings.'
+    },
+    {
         group: 'Inbound access rollout',
         keys: ['CUTTLELY_API_KEY_INSTANCES'],
         why: 'Replica admission must be configured by the deployment operator, outside browser settings.'
@@ -2176,6 +2181,7 @@ export interface ReadOnlyDef {
  */
 export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
     { key: 'CUTTLELY_API_KEY_INSTANCES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'CUTTLELY_APP_DATABASE_STORES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
     { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'CUTTLELY_DATA_DIR', readOnly: true, check: 'nonblank', whenUnset: 'default' },

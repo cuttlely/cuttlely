@@ -276,6 +276,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 -   `docs/how-to/dashflows.md`: builder, source contracts, refresh, team publication and operating limits.
 -   `packages/harness/dashflows.mjs` and its co-located tests: typed materialization and SQLite snapshot storage.
+-   `packages/harness/dashflows-postgres.mjs`, `dashflows-postgres.test.mjs` and `test/dashflows-pg.mjs`: the application-database backend, boot copy/verify, rollback and privilege refusal behind `CUTTLELY_APP_DATABASE_STORES`; `dashflows.test.mjs` runs its store suite on both backends.
 -   `packages/server/src/services/dashflows/` and `routes/dashflows/`: authenticated workspace API and schedule polling.
 -   `packages/ui/src/views/dashflows/`: canvas, source binding, evidence, team view and source-field preset.
 
