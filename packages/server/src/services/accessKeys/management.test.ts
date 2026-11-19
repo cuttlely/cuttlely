@@ -19,7 +19,15 @@ jest.mock('./data', () => ({
     })
 }))
 jest.mock('../apikey', () => ({ __esModule: true, default: { getAllApiKeys: async () => [mockKey] }, validatePermissions: jest.fn() }))
-import { createAccessKey, target } from './management'
+class MockDashFlowError extends Error {
+    constructor(readonly status: number, message: string) {
+        super(message)
+    }
+}
+const mockOpenDashStore = jest.fn(() => ({ list: async () => [{ id: 'board', definition: { title: 'Board' } }] }))
+jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockOpenDashStore(), DashFlowError: MockDashFlowError }) }))
+jest.mock('../dashflows/enabled', () => ({ dashFlowsEnabled: () => true }))
+import { accessKeyOptions, createAccessKey, target } from './management'
 const app = express()
 app.use(express.json())
 app.use((req, _res, next) => {
@@ -30,6 +38,7 @@ app.post('/keys/:id/rotate', (req, res, next) => {
     void target(req).then((key) => res.json({ id: key.id }), next)
 })
 app.post('/keys', createAccessKey)
+app.get('/keys/options', accessKeyOptions)
 app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
     res.status(error.statusCode || 500).json({ message: error.message })
 )
@@ -106,4 +115,18 @@ it('refuses prediction policies missing view permission before minting a secret'
     expect(response.body.message).toContain('predict needs chatflows:view or agentflows:view')
     expect(response.body.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
     expect(mockTransaction).not.toHaveBeenCalled()
+})
+
+it('lists the other resources and leaves Dash Flows out while its storage is mid-move', async () => {
+    mockGrants = []
+    const listed = await request(app).get('/keys/options')
+    expect(listed.status).toBe(200)
+    expect(listed.body.resources).toEqual([{ resourceType: 'DASHFLOW', resourceId: 'board', name: 'Board', requiredHarnesses: [] }])
+    mockOpenDashStore.mockImplementationOnce(() => {
+        throw new MockDashFlowError(503, 'Dash Flows storage is mid-move; check the start log.')
+    })
+    const midMove = await request(app).get('/keys/options')
+    expect(midMove.status).toBe(200)
+    expect(midMove.body.resources).toEqual([])
+    expect(midMove.body.scopes.length).toBeGreaterThan(0)
 })

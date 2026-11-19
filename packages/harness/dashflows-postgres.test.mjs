@@ -47,11 +47,16 @@ const snapshot = (id) => ({ id, cards: [{ cardId: card.id, rows: [{ region: SNAP
 const allLogs = []
 const capture = () => {
     const lines = []
+    const errors = []
     const push = (line) => {
         lines.push(line)
         allLogs.push(line)
     }
-    return { lines, log: { info: push, warn: push } }
+    const error = (line) => {
+        errors.push(line)
+        push(line)
+    }
+    return { lines, errors, log: { info: push, warn: push, error } }
 }
 const tempFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dashflow-move-')), 'dashflows.sqlite')
 const digestFile = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
@@ -557,7 +562,7 @@ pgTest('another process reading dashflows.sqlite during the move: the WAL is kep
         assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'copied' })
         assert.equal(
             lines.at(-1),
-            'Dash Flows is in the application database, but another process still has dashflows.sqlite open, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.'
+            'Dash Flows is in the application database, but another process is still reading dashflows.sqlite, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.'
         )
         assert.equal(fs.existsSync(file), true)
         assert.equal(fs.existsSync(`${file}-wal`), true)
@@ -611,10 +616,33 @@ pgTest(
     }
 )
 
+pgTest('a move aside that fails after the move itself says the file was moved, and Postgres serves', async () => {
+    const file = tempFile()
+    await seed(file)
+    const real = fs.chmodSync
+    const blocked = mock.method(fs, 'chmodSync', (target, mode) => {
+        if (String(target).endsWith('.migrated')) throw Object.assign(new Error('blocked'), { code: 'EPERM' })
+        return real(target, mode)
+    })
+    const { lines, log } = capture()
+    try {
+        assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'copied' })
+    } finally {
+        blocked.mock.restore()
+    }
+    assert.equal(
+        lines.at(-1),
+        'Dash Flows is in the application database. dashflows.sqlite was moved aside as dashflows.sqlite.migrated, but the move did not finish (EPERM): dashflows.sqlite.migrated may still be writable, and dashflows.sqlite-wal or dashflows.sqlite-shm may remain. Neither is used while CUTTLELY_APP_DATABASE_STORES stays on.'
+    )
+    assert.equal(fs.existsSync(file), false)
+    assert.notEqual(fs.statSync(`${file}.migrated`).mode & 0o777, 0o444)
+    assert.equal(dashStore().backend, 'postgres')
+})
+
 pgTest('a difference with no recorded switch-off is refused and stays on SQLite, dropping neither side', async () => {
     const file = tempFile()
     const seeded = await seed(file)
-    const { lines, log } = capture()
+    const { lines, errors, log } = capture()
     assert.equal((await init(file, log)).outcome, 'copied')
     const inPostgres = await dashStore().save(null, 'team-a', 'owner-1', onDemand('Only in Postgres'))
     setDashStore(null)
@@ -630,6 +658,8 @@ pgTest('a difference with no recorded switch-off is refused and stays on SQLite,
         lines.at(-1),
         'Dash Flows storage move stopped: dashflows.sqlite differs from the copy in the application database, and no switch-off was recorded. Dash Flows serves dashflows.sqlite; changes made in the application database since the copy are kept there but not shown. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
     )
+    // The refusal is logged at error level; nothing else is.
+    assert.deepEqual(errors, [lines.at(-1)])
     assert.deepEqual(await marker(), copied)
     assert.equal(fs.existsSync(file), true)
     assert.equal(fs.existsSync(`${file}.migrated`), false)

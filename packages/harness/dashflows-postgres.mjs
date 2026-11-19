@@ -459,9 +459,11 @@ const MESSAGES = {
         `Dash Flows could not open its tables in the application database (${code}). Its requests fail until the database is reachable.`,
     kept: 'Dash Flows is in the application database. dashflows.sqlite and dashflows.sqlite.migrated both exist and were left in place; remove or rename one to finish the move.',
     stillOpen:
-        'Dash Flows is in the application database, but another process still has dashflows.sqlite open, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.',
+        'Dash Flows is in the application database, but another process is still reading dashflows.sqlite, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.',
     notMoved: (code) =>
         `Dash Flows is in the application database, but dashflows.sqlite could not be moved aside (${code}). It was left in place and is not used; the move aside finishes at the next start.`,
+    partlyMoved: (code) =>
+        `Dash Flows is in the application database. dashflows.sqlite was moved aside as dashflows.sqlite.migrated, but the move did not finish (${code}): dashflows.sqlite.migrated may still be writable, and dashflows.sqlite-wal or dashflows.sqlite-shm may remain. Neither is used while CUTTLELY_APP_DATABASE_STORES stays on.`,
     diverged:
         'Dash Flows storage move stopped: dashflows.sqlite differs from the copy in the application database, and no switch-off was recorded. Dash Flows serves dashflows.sqlite; changes made in the application database since the copy are kept there but not shown. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
 }
@@ -521,6 +523,8 @@ async function preflight(file, { waitMs, pollMs }) {
 // Ends the SQLite transaction, checkpoints the WAL and keeps the file read-only beside the new store.
 // When both files already exist, neither is touched (design 4.9 (b)). When another process still reads the
 // file, the checkpoint cannot finish: the file and its WAL stay as they are, so the rollback file stays whole.
+// Only a reader holding a snapshot blocks the checkpoint; an idle connection in another process does not, so the
+// file can be moved while that process still has it open (pre-existing; stop other processes before switching on).
 function retire(db, file) {
     db.exec('ROLLBACK')
     const migrated = `${file}.migrated`
@@ -636,7 +640,7 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
     if (result.outcome === 'diverged') {
         db.exec('ROLLBACK')
         db.close()
-        log.warn(MESSAGES.diverged)
+        log.error(MESSAGES.diverged)
         return { outcome: 'diverged' }
     }
     if (result.outcome === 'reused') log.warn(MESSAGES.reused)
@@ -650,7 +654,9 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
         } catch {
             /* Already closed. */
         }
-        log.warn(MESSAGES.notMoved(errorCode(error)))
+        // The failure can come after the move itself (the read-only mode or the -wal/-shm cleanup); say which.
+        const partly = !fs.existsSync(file) && fs.existsSync(`${file}.migrated`)
+        log.warn((partly ? MESSAGES.partlyMoved : MESSAGES.notMoved)(errorCode(error)))
         return { outcome: result.outcome, rows: counts(result.digest), retired: 'failed' }
     }
     if (retired === 'kept') log.warn(MESSAGES.kept)

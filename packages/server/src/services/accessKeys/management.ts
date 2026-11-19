@@ -103,7 +103,15 @@ async function choices(req: Request) {
     const { dashFlowsEnabled } = await import('../dashflows/enabled')
     if (dashFlowsEnabled() && (await hasAnyPermission(req, 'chatflows:view'))) {
         const { runtime } = await import('../dashflows')
-        for (const row of await (await runtime()).dashStore().list(user.activeWorkspaceId))
+        const mod = await runtime()
+        let rows: any[] = []
+        try {
+            rows = await mod.dashStore().list(user.activeWorkspaceId)
+        } catch (error) {
+            // While Dash Flows storage is mid-move (503), list every other resource and leave Dash Flows out.
+            if (!(error instanceof mod.DashFlowError && (error as any).status === 503)) throw error
+        }
+        for (const row of rows)
             resources.push({
                 resourceType: 'DASHFLOW',
                 resourceId: row.id,

@@ -24,7 +24,8 @@ const mockDashStore = {
     get: jest.fn(() => ({ revision: 1, definition: { harness: 'draft' } })),
     published: jest.fn(() => ({ definition: { harness: 'published' }, snapshot: { accounts: ['account'] } }))
 }
-jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockDashStore, DashFlowError: MockDashFlowError }) }))
+const mockOpenDashStore = jest.fn(() => mockDashStore)
+jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockOpenDashStore(), DashFlowError: MockDashFlowError }) }))
 jest.mock('../../routes/dashflows/public', () => ({
     __esModule: true,
     default: require('express').Router(),
@@ -1212,5 +1213,23 @@ it('predict without its view permission names the exact missing permission and l
         statusCode: 403,
         message: expect.stringMatching(/chatflows:view.*https:\/\/cuttlely.com\/docs\/how-to\/access-keys\//)
     })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+it('answers 503 when Dash Flows storage is mid-move, without charging', async () => {
+    // Opening the store throws before the route's own mapping; enforced rollout turns any server-side failure into the
+    // unavailable answer, so the caller sees 503, not 500. Off and shadow never admit a scoped key (see above).
+    mockKeys.set('fixture-token', key({ scopes: ['dashflow:read'] }))
+    grant('dashboard', 'DASHFLOW')
+    mockOpenDashStore.mockImplementationOnce(() => {
+        throw new MockDashFlowError(503, 'Dash Flows storage is mid-move; check the start log.')
+    })
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    const response = await request(app).get('/api/v1/dashflows/dashboard/published').set('Authorization', 'Bearer fixture-token')
+    expect(response.status).toBe(503)
+    expect(mockOpenDashStore).toHaveBeenCalled()
     expect(mockConsume).not.toHaveBeenCalled()
 })

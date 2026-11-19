@@ -124,7 +124,8 @@ export class App {
             await registerAppCredentialSource(this.AppDataSource)
             await registerAppStoreSource(this.AppDataSource, {
                 info: (message) => logger.info(`[dashflows] ${message}`),
-                warn: (message) => logger.warn(`[dashflows] ${message}`)
+                warn: (message) => logger.warn(`[dashflows] ${message}`),
+                error: (message) => logger.error(`[dashflows] ${message}`)
             })
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {

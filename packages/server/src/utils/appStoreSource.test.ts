@@ -68,7 +68,7 @@ it('commits a transaction on one connection, and rolls it back on an error', asy
 it('hands the harness the app database dialect and a logger, and never fails the start', async () => {
     process.env.DATABASE_TYPE = 'mysql'
     const { dataSource } = fakeDataSource()
-    const log = { info: jest.fn(), warn: jest.fn() }
+    const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
     const initDashStore = jest.fn(async (options: any) => ({ backend: 'sqlite', dialect: options.source.dialect, log: options.log }))
     expect(await registerAppStoreSource(dataSource, log, async () => ({ initDashStore }))).toEqual({
         backend: 'sqlite',

@@ -7,7 +7,7 @@ import { DataSource, QueryRunner } from 'typeorm'
 // require() cannot load the ESM harness package, so keep a real dynamic import.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
-type Log = { info: (message: string) => void; warn: (message: string) => void }
+type Log = { info: (message: string) => void; warn: (message: string) => void; error: (message: string) => void }
 export type AppStoreSource = {
     dialect: string
     query: (sql: string, params?: unknown[]) => Promise<any[]>
