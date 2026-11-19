@@ -67,6 +67,7 @@ it('routes a refresh through the exact harness specialist binding and preserves 
             harness: { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' },
             bindingIndex: 2,
             flowOptions: { workspaceId: 'team-a' },
+            beforeCall: expect.any(Function),
             assertCall: expect.any(Function)
         }
     )
@@ -217,4 +218,31 @@ it('materializes the pinned Harness canvas even if the name remaps before refres
     expect(execute).toHaveBeenCalled()
     // Pin check consulted getHarness once; refresh must not re-resolve the remapped name.
     expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
+})
+
+it('starts no source when the refresh is cancelled while a tool call is being prepared', async () => {
+    // The store refuses every check once the refresh is cancelled, as the real store does with a 409.
+    let cancelled = false
+    store.assertActive.mockImplementation(async () => {
+        if (cancelled) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
+    })
+    let sourceStarts = 0
+    // The bridge's order for one tool call (executeModule): prepare the node (awaits), await beforeCall, run assertCall
+    // with nothing awaited, then start the source.
+    execute.mockImplementationOnce(async (...call: unknown[]) => {
+        const options = call[4] as { beforeCall?: () => unknown; assertCall?: () => unknown }
+        cancelled = true // Cancel refresh lands while the node is being prepared.
+        await new Promise((resolve) => setImmediate(resolve))
+        if (options.beforeCall) await options.beforeCall()
+        if (options.assertCall) options.assertCall()
+        sourceStarts++
+        return 'late-source-result'
+    })
+    try {
+        await expect(refreshDashboard('dashboard', 'team-a')).rejects.toMatchObject({ statusCode: 409 })
+        expect(sourceStarts).toBe(0)
+        expect(store.settle.mock.calls[0][3]).toBeNull()
+    } finally {
+        store.assertActive.mockImplementation(() => undefined)
+    }
 })

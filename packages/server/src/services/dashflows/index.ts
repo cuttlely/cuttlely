@@ -43,7 +43,9 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
         attempt(() => store.cancel(id, workspace, claim.token, 'interrupted')).catch(() => {
             /* Already finished or superseded. */
         })
-    // The tool bridge checks synchronously before each attempt; the awaited store check below sets this flag.
+    // The bridge awaits beforeCall once the tool is prepared and before the source starts, so a cancel that lands while
+    // the node is being prepared stops the call there. assertCall then runs synchronously before each attempt; it can
+    // only see a failed awaited store check, which sets this flag.
     let fenced: unknown
     const assertNotRestarting = () => {
         if (isDraining() || isShuttingDown()) {
@@ -100,6 +102,7 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
                     harness: record,
                     bindingIndex: item.bindingIndex,
                     ...context,
+                    beforeCall: assertActive,
                     assertCall: assertNotRestarting
                 })
                 await assertActive()
