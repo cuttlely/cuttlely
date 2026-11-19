@@ -220,29 +220,57 @@ it('materializes the pinned Harness canvas even if the name remaps before refres
     expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
 })
 
-it('starts no source when the refresh is cancelled while a tool call is being prepared', async () => {
-    // The store refuses every check once the refresh is cancelled, as the real store does with a 409.
-    let cancelled = false
-    store.assertActive.mockImplementation(async () => {
-        if (cancelled) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
-    })
-    let sourceStarts = 0
-    // The bridge's order for one tool call (executeModule): prepare the node (awaits), await beforeCall, run assertCall
-    // with nothing awaited, then start the source.
-    execute.mockImplementationOnce(async (...call: unknown[]) => {
-        const options = call[4] as { beforeCall?: () => unknown; assertCall?: () => unknown }
-        cancelled = true // Cancel refresh lands while the node is being prepared.
+// The store the refresh sees in each mode. Switch off: the SQLite store, whose synchronous check is wrapped in an async
+// method (asyncStore in packages/harness/dashflows.mjs), so a cancelled refresh rejects without awaiting anything.
+// Switch on: the application-database store, whose check awaits a query before it rejects.
+const cancelledCheck = {
+    'off (SQLite store)': (cancelled: () => boolean) =>
+        (async () => {
+            if (cancelled()) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
+        }) as () => Promise<void>,
+    'on (application-database store)': (cancelled: () => boolean) => async () => {
         await new Promise((resolve) => setImmediate(resolve))
-        if (options.beforeCall) await options.beforeCall()
-        if (options.assertCall) options.assertCall()
-        sourceStarts++
-        return 'late-source-result'
-    })
-    try {
-        await expect(refreshDashboard('dashboard', 'team-a')).rejects.toMatchObject({ statusCode: 409 })
-        expect(sourceStarts).toBe(0)
-        expect(store.settle.mock.calls[0][3]).toBeNull()
-    } finally {
-        store.assertActive.mockImplementation(() => undefined)
+        if (cancelled()) throw Object.assign(new DashFlowError('This refresh was cancelled, replaced or interrupted.'), { status: 409 })
     }
-})
+}
+it.each(Object.keys(cancelledCheck) as Array<keyof typeof cancelledCheck>)(
+    'starts no source when the refresh is cancelled while a tool call is being prepared, switch %s',
+    async (mode) => {
+        let cancelled = false
+        const check = cancelledCheck[mode](() => cancelled)
+        let refusals = 0
+        store.assertActive.mockImplementation(() =>
+            check().catch((error: unknown) => {
+                refusals++
+                throw error
+            })
+        )
+        // As materializeCached does, await each progress write before the next step.
+        materialize.mockImplementationOnce(async (_definition, _record, invoke, _cache, _preferCache, progress) => {
+            await progress({ phase: 'views', completed: 0, total: 1, active: [] })
+            await invoke({ specialist: 'analyst', name: queryName('test'), bindingIndex: 2 }, { month: '2026-10-01' })
+            return { id: 'new' }
+        })
+        let sourceStarts = 0
+        // The bridge's order for one tool call (executeModule): prepare the node (awaits), await beforeCall, run
+        // assertCall with nothing awaited, then start the source.
+        execute.mockImplementationOnce(async (...call: unknown[]) => {
+            const options = call[4] as { beforeCall?: () => unknown; assertCall?: () => unknown }
+            cancelled = true // Cancel refresh lands while the node is being prepared.
+            await new Promise((resolve) => setImmediate(resolve))
+            if (options.beforeCall) await options.beforeCall()
+            if (options.assertCall) options.assertCall()
+            sourceStarts++
+            return 'late-source-result'
+        })
+        try {
+            await expect(refreshDashboard('dashboard', 'team-a')).rejects.toMatchObject({ statusCode: 409 })
+            // The cancel is seen by the store check in this mode; the question is only whether it comes before the source.
+            expect(refusals).toBeGreaterThan(0)
+            expect(sourceStarts).toBe(0)
+            expect(store.settle.mock.calls[0][3]).toBeNull()
+        } finally {
+            store.assertActive.mockImplementation(() => undefined)
+        }
+    }
+)
