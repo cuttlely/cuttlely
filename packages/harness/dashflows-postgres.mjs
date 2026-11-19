@@ -415,13 +415,17 @@ function tableDigest({ key, columns }, rows) {
         .map((entry) => entry.line)
     return createHash('sha256').update(lines.join('\n')).digest('hex')
 }
+// What a person changes: create and delete change the rows, save bumps revision, publish and unpublish change
+// published. Refresh state (snapshot, error, next_refresh, refresh status, report slots) is left out. Used only to
+// judge "changed" on later starts; copy verification keeps using `all` (L2 ruling, design 4.10).
+const CONTENT = { key: ['id'], columns: ['id', 'workspace', 'owner', 'revision', 'definition', 'published'] }
 function digestOf(tables) {
     const parts = {}
     for (const spec of COPIED) parts[spec.table] = { rows: tables[spec.table].length, digest: tableDigest(spec, tables[spec.table]) }
     const all = createHash('sha256')
         .update(COPIED.map((spec) => `${spec.table}:${parts[spec.table].rows}:${parts[spec.table].digest}`).join('\n'))
         .digest('hex')
-    return { all, parts }
+    return { all, content: tableDigest(CONTENT, tables.dash_flow), parts }
 }
 const counts = (digest) => Object.fromEntries(Object.entries(digest.parts).map(([table, part]) => [table, part.rows]))
 
@@ -462,6 +466,8 @@ const MESSAGES = {
         'Dash Flows is in the application database, but another process is still reading dashflows.sqlite, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.',
     notMoved: (code) =>
         `Dash Flows is in the application database, but dashflows.sqlite could not be moved aside (${code}). It was left in place and is not used; the move aside finishes at the next start.`,
+    refreshOnly:
+        'Dash Flows is using the copy already in the application database. dashflows.sqlite changed after the copy only through refreshes (snapshots, errors, due times, report slots); those were not carried forward, and dashboards refresh again on their schedule.',
     partlyMoved: (code) =>
         `Dash Flows is in the application database. dashflows.sqlite was moved aside as dashflows.sqlite.migrated, but the move did not finish (${code}): dashflows.sqlite.migrated may still be writable, and dashflows.sqlite-wal or dashflows.sqlite-shm may remain. Neither is used while CUTTLELY_APP_DATABASE_STORES stays on.`,
     diverged:
@@ -559,6 +565,10 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
             await q(`SELECT pg_advisory_xact_lock(hashtext('dashflows-copy'))`)
             const marker = await readMarker(q)
             if (marker && marker.sourceDigest === digest.all && !marker.rolledBackAt) return { outcome: 'already-copied', digest }
+            // Changed only through refreshes since the copy: nothing a person made is lost, so finish the move. The
+            // marker is not rewritten, so a move aside that fails again reaches the same result next start.
+            if (marker && marker.contentDigest && marker.contentDigest === digest.content && !marker.rolledBackAt)
+                return { outcome: 'already-copied', digest, refreshOnly: true }
             // A difference with no recorded switch-off is not a rollback: refuse rather than drop either side.
             if (marker && !marker.rolledBackAt) return { outcome: 'diverged', digest }
             if (marker) {
@@ -571,6 +581,7 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
                     ...rest,
                     copiedDigest: rest.copiedDigest ?? marker.sourceDigest,
                     sourceDigest: digest.all,
+                    contentDigest: digest.content,
                     reusedRows: counts(digest),
                     reusedAt: new Date().toISOString()
                 })
@@ -619,7 +630,13 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
                 if (before.rows !== after.rows || before.digest !== after.digest)
                     throw new VerifyMismatch(spec.table, before.rows, after.rows)
             }
-            await writeMarker(q, { sourceDigest: digest.all, rows: counts(digest), copiedAt: new Date().toISOString(), version: 1 })
+            await writeMarker(q, {
+                sourceDigest: digest.all,
+                contentDigest: digest.content,
+                rows: counts(digest),
+                copiedAt: new Date().toISOString(),
+                version: 1
+            })
             return { outcome: 'copied', digest }
         })
     } catch (error) {
@@ -644,6 +661,7 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
         return { outcome: 'diverged' }
     }
     if (result.outcome === 'reused') log.warn(MESSAGES.reused)
+    if (result.refreshOnly) log.info(MESSAGES.refreshOnly)
     // The copy is committed from here on: Postgres serves even if the file cannot be moved aside.
     let retired
     try {

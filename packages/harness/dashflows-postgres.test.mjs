@@ -688,6 +688,153 @@ pgTest('a difference with no recorded switch-off is refused and stays on SQLite,
     assert.equal(fs.statSync(`${file}.migrated`).mode & 0o777, 0o444)
 })
 
+const byId = (rows) => [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+const REFRESH_ONLY =
+    'Dash Flows is using the copy already in the application database. dashflows.sqlite changed after the copy only through refreshes (snapshots, errors, due times, report slots); those were not carried forward, and dashboards refresh again on their schedule.'
+// The unfinished-move case (L2): a committed copy with no recorded switch-off, dashflows.sqlite back in place and no
+// .migrated, then one switched-off start. dashStore() then serves dashflows.sqlite.
+async function unfinishedMove(file, log) {
+    assert.equal((await init(file, log)).outcome, 'copied')
+    setDashStore(null)
+    fs.chmodSync(`${file}.migrated`, 0o644)
+    fs.renameSync(`${file}.migrated`, file)
+    assert.deepEqual(await initDashStore({ file, source: pg.source, enabled: false, log }), { backend: 'sqlite', outcome: 'unchanged' })
+    assert.equal(dashStore().backend, 'sqlite')
+    return { copied: await marker(), rows: byId(await pgRows('dash_flow')) }
+}
+const expectRefused = async (file, log, lines) => {
+    setDashStore(null)
+    assert.deepEqual(await init(file, log), { backend: 'sqlite', outcome: 'diverged' })
+    assert.ok(!lines.includes(REFRESH_ONLY))
+    assert.equal(fs.existsSync(file), true)
+    assert.equal(fs.existsSync(`${file}.migrated`), false)
+}
+
+pgTest('L2 a refresh while switched off during an unfinished move is not a change: the copy serves and refreshes resume', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    const { copied, rows } = await unfinishedMove(file, log)
+    const store = dashStore()
+    await store.settle(seeded.ids.due, 'team-b', await store.claim(seeded.ids.due, 'team-b'), snapshot('refreshed-while-off'), null)
+    await store.settle(seeded.ids.failed, 'team-a', await store.claim(seeded.ids.failed, 'team-a'), null, 'Failed while off')
+    setDashStore(null)
+    assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'already-copied' })
+    assert.ok(lines.includes(REFRESH_ONLY))
+    assert.deepEqual(await marker(), copied)
+    assert.deepEqual(byId(await pgRows('dash_flow')), rows)
+    assert.equal(fs.existsSync(file), false)
+    assert.equal(fs.statSync(`${file}.migrated`).mode & 0o777, 0o444)
+    // The refresh made while off is not carried forward: the due dashboard is due once, on Postgres.
+    assert.deepEqual(
+        (await dashStore().due()).map((row) => row.id),
+        [seeded.ids.due]
+    )
+    await dashStore().settle(seeded.ids.due, 'team-b', await dashStore().claim(seeded.ids.due, 'team-b'), snapshot('refreshed'), null)
+    assert.deepEqual(await dashStore().due(), [])
+})
+
+pgTest('L2 a public report slot taken while switched off during an unfinished move is not a change', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    const { copied } = await unfinishedMove(file, log)
+    await dashStore().attachPublicReport(await dashStore().reservePublicReport(seeded.publicToken), 'run-off')
+    setDashStore(null)
+    assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'already-copied' })
+    assert.ok(lines.includes(REFRESH_ONLY))
+    assert.deepEqual(await marker(), copied)
+    assert.equal(fs.existsSync(file), false)
+})
+
+pgTest('L2 a save while switched off during an unfinished move is a change and is refused', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    const { copied } = await unfinishedMove(file, log)
+    await dashStore().save(seeded.ids.private, 'team-a', 'owner-1', onDemand('Edited while off'), 1)
+    await expectRefused(file, log, lines)
+    assert.deepEqual(await marker(), copied)
+    assert.equal((await dashStore().get(seeded.ids.private, 'team-a')).definition.title, 'Edited while off')
+})
+
+pgTest('L2 an unpublish while switched off during an unfinished move is a change and is refused', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    await unfinishedMove(file, log)
+    await dashStore().unpublish(seeded.ids.public, 'team-a')
+    await expectRefused(file, log, lines)
+})
+
+pgTest('L2 a publish while switched off during an unfinished move is a change and is refused', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    await unfinishedMove(file, log)
+    await dashStore().publish(seeded.ids.failed, 'team-a', 1)
+    await expectRefused(file, log, lines)
+})
+
+pgTest('L2 a dashboard created while switched off during an unfinished move is a change and is refused', async () => {
+    const file = tempFile()
+    await seed(file)
+    const { lines, log } = capture()
+    await unfinishedMove(file, log)
+    const created = await dashStore().save(null, 'team-a', 'owner-1', onDemand('Created while off'))
+    await expectRefused(file, log, lines)
+    assert.ok(await dashStore().get(created.id, 'team-a'))
+})
+
+pgTest('L2 a dashboard deleted while switched off during an unfinished move is a change and is refused', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    await unfinishedMove(file, log)
+    setDashStore(null)
+    const db = new DatabaseSync(file)
+    db.prepare('DELETE FROM dash_flow WHERE id=?').run(seeded.ids.private)
+    db.close()
+    await expectRefused(file, log, lines)
+})
+
+pgTest('L2 a marker from before the content fingerprint keeps the old rule: a refresh-only difference is refused', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    const { copied } = await unfinishedMove(file, log)
+    const { contentDigest: _contentDigest, ...older } = copied
+    await pg.source.query(`UPDATE cuttlely_dashflows.dash_flow_store_meta SET value=$1 WHERE key='copy'`, [JSON.stringify(older)])
+    const store = dashStore()
+    await store.settle(seeded.ids.due, 'team-b', await store.claim(seeded.ids.due, 'team-b'), snapshot('refreshed-while-off'), null)
+    await expectRefused(file, log, lines)
+    assert.deepEqual(await marker(), older)
+})
+
+pgTest('L2 the marker gets the content fingerprint on the first copy and on reuse, and reuse still logs reused', async () => {
+    const file = tempFile()
+    await seed(file)
+    const { lines, log } = capture()
+    await init(file, log)
+    const first = await marker()
+    assert.match(first.contentDigest, /^[0-9a-f]{64}$/)
+    assert.equal(first.version, 1)
+    assert.equal((await initDashStore({ file, source: pg.source, enabled: false, log })).outcome, 'rolled-back')
+    await dashStore().save(null, 'team-a', 'owner-1', onDemand('Saved while off'))
+    setDashStore(null)
+    assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'reused' })
+    assert.ok(
+        lines.includes(
+            'Dash Flows is using the copy already in the application database. Changes made in dashflows.sqlite while CUTTLELY_APP_DATABASE_STORES was off were not carried forward.'
+        )
+    )
+    const reused = await marker()
+    assert.match(reused.contentDigest, /^[0-9a-f]{64}$/)
+    assert.notEqual(reused.contentDigest, first.contentDigest)
+    assert.equal(reused.version, 1)
+    assert.ok(!lines.includes(REFRESH_ONLY))
+})
+
 pgTest('AC15 a login without CREATE gets the named refusal and stays on SQLite', async () => {
     const role = `zz_dash_nocreate_${randomBytes(4).toString('hex')}`
     const password = randomBytes(12).toString('hex')
