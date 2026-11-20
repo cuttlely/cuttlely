@@ -530,6 +530,48 @@ wait_for_gateway
         }
     })
 
+    it('a replacement that never answers health uses the restart budget instead of staying refused', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-never-'))
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_HERMES_MAX_RESTARTS: '5',
+            CUTTLELY_HERMES_HEALTH_GRACE: '0',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '2',
+            CUTTLELY_HERMES_HEALTH_FAILS: '2',
+            health: 'replacement-never'
+        })
+        try {
+            const status = await waitForStatus(dir, (row) => row?.restarts >= 2, child, 20000)
+            assert.equal(status.state, 'restarting', child.output)
+            assert.match(child.output, /replacement did not answer health after start\. Restart 2 of 5/)
+        } finally {
+            await stopSupervisor(child, dir)
+        }
+    })
+
+    it('after a whole-stack restart the first runtime launch refuses agent calls until it answers health', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-stack-launch-'))
+        const { assertRuntimeAvailable } = await import('../packages/harness/availability.cjs')
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_STACK_RESTARTED: '1',
+            CUTTLELY_HERMES_HEALTH_GRACE: '60',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '15',
+            health: 'replacement-slow-first'
+        })
+        try {
+            const starting = await waitForStatus(dir, (row) => row?.state === 'restarting', child, 8000)
+            assert.equal(starting.restarts, 0)
+            assert.throws(
+                () => assertRuntimeAvailable(dir),
+                (error) => error.code === 'RUNTIME_UNAVAILABLE'
+            )
+            fs.writeFileSync(path.join(dir, 'replacement-ready'), '1')
+            await waitForStatus(dir, (row) => row?.state === 'up', child, 10000)
+            assert.doesNotThrow(() => assertRuntimeAvailable(dir))
+        } finally {
+            await stopSupervisor(child, dir)
+        }
+    })
+
     it('an exit during the warm-up grace restarts right away', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-exit-grace-'))
         const started = Number(process.hrtime.bigint() / 1000000n)
@@ -958,6 +1000,17 @@ function spawnSupervisor(dir, options) {
         return 0
     fi
     return 1
+}
+start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
+            : health === 'replacement-slow-first'
+            ? `hermes_answers_health() { [[ -f "$DATA/replacement-ready" ]]; }
+start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
+            : health === 'replacement-never'
+            ? `hermes_answers_health() {
+    n=$(cat "$PROBES")
+    n=$((n + 1))
+    echo "$n" > "$PROBES"
+    [[ "$n" -eq 1 ]]
 }
 start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
             : health === 'exit'

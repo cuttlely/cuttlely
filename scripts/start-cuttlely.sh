@@ -409,8 +409,11 @@ supervise_hermes() {
             echo "Hermes restarted pid ${HERMES_PID} (burst ${restarts} of ${HERMES_MAX_RESTARTS}, lifetime ${lifetime_restarts})." >&2
         fi
         local healthy_once=0 marked=0 ticks=0 fails=0 fail_started=0 posted=up healthy_since=""
-        if [[ "$restarts" -gt 0 ]]; then
-            # A replacement stays "restarting" (agent calls refused with 503) until its first health answer reopens it.
+        local replacing=0
+        # A replacement (after a runtime restart, or any launch in a stack restarted in place) stays "restarting", so
+        # agent calls get 503, until its first health answer reopens it.
+        if [[ "$restarts" -gt 0 || "${CUTTLELY_STACK_RESTARTED:-0}" == "1" ]]; then
+            replacing=1
             write_hermes_status restarting "$restarts" "${reason:-replacement starting}" "$HERMES_PID"
             posted=restarting
         else
@@ -446,6 +449,18 @@ supervise_hermes() {
                 else
                     # Only continuous /health answers count, even during warm-up or an open stream.
                     healthy_since=""
+                    # A replacement that never answers health is a failed start: it uses the restart budget, and so
+                    # reaches cooldown and the stack restart, instead of refusing agent calls forever.
+                    if [[ "$healthy_once" -eq 0 && "$replacing" -eq 1 ]] && awk -v now="$now" -v started="$started_at" -v grace="$CUTTLELY_HERMES_HEALTH_GRACE" -v window="$CUTTLELY_HERMES_HEALTH_WINDOW" 'BEGIN { exit !(now - started >= 2 * grace + window) }'; then
+                        restarts=$((restarts + 1))
+                        lifetime_restarts=$((lifetime_restarts + 1))
+                        marked=1
+                        reason="no health answer after start"
+                        echo "Hermes replacement did not answer health after start. Restart ${restarts} of ${HERMES_MAX_RESTARTS} (lifetime ${lifetime_restarts})." >&2
+                        write_hermes_status restarting "$restarts" "$reason" "$HERMES_PID"
+                        kill_hermes_pid "$HERMES_PID" "$reason"
+                        break
+                    fi
                     if [[ "$healthy_once" -eq 1 ]]; then
                         local in_grace=0 stream_open=0
                         if awk -v now="$now" -v started="$started_at" -v grace="$CUTTLELY_HERMES_HEALTH_GRACE" 'BEGIN { exit !(now - started < grace) }'; then
