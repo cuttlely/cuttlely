@@ -6,8 +6,9 @@ import path from 'node:path'
 import { api, check, flowFor, root, WS } from './lib.mjs'
 
 const etlStore = await import('../store.mjs')
-const { getRun, insertRun, updateRun } = await import('../runs.mjs')
+const { ACTIVE_STATUSES, getRun, insertRun, updateRun } = await import('../runs.mjs')
 const { blockRuns, isActive, unblockRuns } = await import('../runner.mjs')
+const { pipelineStats } = await import('../versions.mjs')
 
 const SETTINGS = { batchSize: 10, concurrency: 1, maxRetries: 1, maxErrors: 5 }
 const outcome = (promise) =>
@@ -151,4 +152,79 @@ async function settle(job) {
     } finally {
         unblockRuns(id)
     }
+}
+
+// Resume against a cancel that does not take the pipeline lock. A resume that read the run as paused and then wrote
+// 'queued' unconditionally would write over a cancel committed between the two, and the runner would launch the
+// cancelled run. activeRunFor builds its query with ACTIVE_STATUSES.map, the one call between resume's read of the run
+// and its status write, so a one-shot map on that array issues the cancel exactly there.
+async function pausedRun(id) {
+    await savePipeline(id)
+    blockRuns(id)
+    try {
+        const run = await insertRun({ pipelineId: id, version: 1, mode: 'full', settings: SETTINGS })
+        await updateRun(run.id, { status: 'paused' })
+        return run.id
+    } finally {
+        unblockRuns(id)
+    }
+}
+
+{
+    const id = 'run-control-resume-cancel'
+    await api.waitForIdle()
+    const runId = await pausedRun(id)
+    let cancel = null
+    let fired = 0
+    Object.defineProperty(ACTIVE_STATUSES, 'map', {
+        configurable: true,
+        value(...args) {
+            if (!cancel) {
+                fired += 1
+                cancel = outcome(api.cancelRun(runId))
+            }
+            return Array.prototype.map.apply(this, args)
+        }
+    })
+    let resume
+    try {
+        resume = await outcome(api.resumeRun(runId))
+    } finally {
+        delete ACTIVE_STATUSES.map
+    }
+    const cancelled = await cancel
+    await api.waitForIdle()
+    const stored = (await getRun(runId)).status
+    const chunks = (await pipelineStats(id)).chunks
+    const detail = JSON.stringify({ fired, resume, cancelled, stored, active: isActive(runId), chunks })
+    check(
+        'run control 8: a cancel between a resume reading the run and writing queued leaves the run cancelled and not launched',
+        fired === 1 &&
+            cancelled?.status === 200 &&
+            stored === 'cancelled' &&
+            !isActive(runId) &&
+            chunks === 0 &&
+            (resume.status === 200 || (resume.status === 409 && /cannot be resumed/.test(resume.message))),
+        detail
+    )
+}
+
+// A cancel committed before the resume reads the run: the resume sees 'cancelled' and is refused.
+{
+    const id = 'run-control-cancel-resume'
+    await api.waitForIdle()
+    const runId = await pausedRun(id)
+    const [cancelled, resume] = await Promise.all([outcome(api.cancelRun(runId)), outcome(api.resumeRun(runId))])
+    await api.waitForIdle()
+    const stored = (await getRun(runId)).status
+    const detail = JSON.stringify({ cancelled, resume, stored, active: isActive(runId) })
+    check(
+        'run control 9: a resume after a cancel in the same turn is refused with 409 and the run stays cancelled',
+        cancelled.status === 200 &&
+            resume.status === 409 &&
+            resume.message === 'A cancelled run cannot be resumed.' &&
+            stored === 'cancelled' &&
+            !isActive(runId),
+        detail
+    )
 }

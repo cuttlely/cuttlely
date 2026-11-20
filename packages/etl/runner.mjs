@@ -131,19 +131,24 @@ export async function resumeRun(runId) {
     return etlStore.withPipelineLock(pipelineId, () => resumeUnlocked(runId))
 }
 
+// Pause and cancel do not take the pipeline lock, so the read, the checks and the 'queued' write share one transaction:
+// a cancel lands wholly before it (and the resume is refused) or wholly after it (and cancels the queued run).
 async function resumeUnlocked(runId) {
-    const run = await requireRun(runId)
-    if (!['paused', 'failed'].includes(run.status)) throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
-    refuseWhileDeleting(run.pipelineId)
-    const other = await activeRunFor(run.pipelineId)
-    if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
-    await updateRun(runId, { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt })
-    await addEvent(
-        runId,
-        'info',
-        null,
-        run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.'
-    )
+    await etlStore.tx(async (t) => {
+        const run = await requireRun(runId, t)
+        if (!['paused', 'failed'].includes(run.status)) throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
+        refuseWhileDeleting(run.pipelineId)
+        const other = await activeRunFor(run.pipelineId, t)
+        if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
+        await updateRun(runId, { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt }, t)
+        await addEvent(
+            runId,
+            'info',
+            null,
+            run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.',
+            t
+        )
+    })
     await pump()
     return getRun(runId)
 }

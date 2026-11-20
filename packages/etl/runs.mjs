@@ -128,9 +128,9 @@ export async function runsWithStatus(statuses) {
     ).map(runRow)
 }
 
-export async function activeRunFor(pipelineId) {
+export async function activeRunFor(pipelineId, q = etlStore) {
     return runRow(
-        await etlStore.get(
+        await q.get(
             `SELECT * FROM runs WHERE pipeline_id = ? AND status IN (${ACTIVE_STATUSES.map(() => '?').join(
                 ', '
             )}) ORDER BY created_at DESC LIMIT 1`,
