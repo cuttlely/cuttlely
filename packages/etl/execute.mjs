@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { parseJson, stmt, tx } from './db.mjs'
+import { parseJson } from './db.mjs'
 import { EtlError, errorMessage } from './errors.mjs'
 import { embeddingFingerprint, LOCAL_STORE, stableStringify, storeFingerprint } from './graph.mjs'
 import { compareSegments } from './ignore.mjs'
@@ -11,6 +11,7 @@ import { Ledger, summaryOf } from './ledger.mjs'
 import { findServerPath, serverPrefixes, stripServerPaths } from './paths.mjs'
 import { finishMetadata, flattenLoaderMetadata, RecordReject } from './schema.mjs'
 import { checkPath, estimateSource, normalizeKey, sourceUnits } from './sources.mjs'
+import * as etlStore from './store.mjs'
 import { legacyDeleteFirst } from './store-adapter.mjs'
 import { openStore, storeScope } from './stores.mjs'
 import { clipText, isWellFormed, repairUnicode } from './text.mjs'
@@ -84,7 +85,7 @@ class RunState {
     }
 
     event(level, step, message) {
-        addEvent(this.run.id, level, step, message)
+        return addEvent(this.run.id, level, step, message)
     }
 
     sample() {
@@ -123,7 +124,7 @@ class RunState {
         })
     }
 
-    persist(force = false) {
+    async persist(force = false) {
         const t = Date.now()
         if (!force && t - this.lastPersist < PERSIST_MS) return
         this.lastPersist = t
@@ -133,57 +134,66 @@ class RunState {
         const totals = this.ledger.totals()
         this.counters.rejected = totals.rejected.total
         this.counters.filtered = totals.filtered.total
-        updateRun(this.run.id, { checkpoint: this.checkpoint, counters: this.counters, steps: this.steps })
+        await updateRun(this.run.id, { checkpoint: this.checkpoint, counters: this.counters, steps: this.steps })
     }
 }
 
-function lookupExisting(pipelineId, ids) {
+async function lookupExisting(pipelineId, ids) {
     if (!ids.length) return new Set()
-    const rows = stmt(`SELECT chunk_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`).all(pipelineId, ...ids)
+    const rows = await etlStore.all(`SELECT chunk_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`, [
+        pipelineId,
+        ...ids
+    ])
     return new Set(rows.map((row) => row.chunk_id))
 }
 
-function markSeen(pipelineId, runId, ids) {
+async function markSeen(pipelineId, runId, ids) {
     if (!ids.length) return
-    stmt(`UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`).run(runId, pipelineId, ...ids)
+    await etlStore.run(`UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`, [
+        runId,
+        pipelineId,
+        ...ids
+    ])
 }
 
-function markSourceSeen(pipelineId, runId, sourceId) {
-    tx(() => {
-        stmt('UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND source_id = ?').run(runId, pipelineId, sourceId)
-        stmt('UPDATE sources SET seen_run = ? WHERE pipeline_id = ? AND source_id = ?').run(runId, pipelineId, sourceId)
+async function markSourceSeen(pipelineId, runId, sourceId) {
+    await etlStore.tx(async (t) => {
+        await t.run('UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND source_id = ?', [runId, pipelineId, sourceId])
+        await t.run('UPDATE sources SET seen_run = ? WHERE pipeline_id = ? AND source_id = ?', [runId, pipelineId, sourceId])
     })
 }
 
-function insertRecords(pipelineId, runId, chunks) {
-    const insert = stmt(
-        'INSERT INTO records (pipeline_id, chunk_id, source_id, seen_run, doc_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET source_id = excluded.source_id, seen_run = excluded.seen_run, doc_key = excluded.doc_key'
-    )
-    tx(() => {
-        for (const chunk of chunks) insert.run(pipelineId, chunk.id, chunk.sourceId, runId, chunk.docKey || null)
+const INSERT_RECORD =
+    'INSERT INTO records (pipeline_id, chunk_id, source_id, seen_run, doc_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET source_id = excluded.source_id, seen_run = excluded.seen_run, doc_key = excluded.doc_key'
+
+async function insertRecords(pipelineId, runId, chunks) {
+    await etlStore.tx(async (t) => {
+        for (const chunk of chunks) await t.run(INSERT_RECORD, [pipelineId, chunk.id, chunk.sourceId, runId, chunk.docKey || null])
     })
 }
 
 // O6, keep last good: a rejected record's key keeps the vectors its previous version wrote, so the sweep leaves them.
 // Returns whether anything was kept. Not in full mode, which rebuilds from what this run accepted.
-function keepLastGood(pipelineId, runId, sourceId, docKey) {
-    const result = stmt(
-        'UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND source_id = ? AND doc_key = ? AND (seen_run IS NULL OR seen_run != ?)'
-    ).run(runId, pipelineId, sourceId, docKey, runId)
+async function keepLastGood(pipelineId, runId, sourceId, docKey) {
+    const result = await etlStore.run(
+        'UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND source_id = ? AND doc_key = ? AND (seen_run IS NULL OR seen_run != ?)',
+        [runId, pipelineId, sourceId, docKey, runId]
+    )
     return Number(result.changes) > 0
 }
 
 // Keys already written for these units (unchanged units this run skipped, or units committed before a resume), so a
 // duplicate key in a later unit is still caught.
-function recordedKeys(pipelineId, sourceIds, runId = null) {
+async function recordedKeys(pipelineId, sourceIds, runId = null) {
     const keys = []
     for (let i = 0; i < sourceIds.length; i += SWEEP_BATCH) {
         const slice = sourceIds.slice(i, i + SWEEP_BATCH)
-        const rows = stmt(
+        const rows = await etlStore.all(
             `SELECT DISTINCT doc_key FROM records WHERE pipeline_id = ? AND doc_key IS NOT NULL AND source_id IN (${inList(slice.length)})${
                 runId ? ' AND seen_run = ?' : ''
-            }`
-        ).all(pipelineId, ...slice, ...(runId ? [runId] : []))
+            }`,
+            [pipelineId, ...slice, ...(runId ? [runId] : [])]
+        )
         for (const row of rows) keys.push(row.doc_key)
     }
     return keys
@@ -237,42 +247,45 @@ export function rejectRatioGate(ledger, settings = {}) {
 }
 
 // Marks records without a doc_key that this run did not see as seen, so the sweep keeps them. Returns how many.
-function keepLegacyRecords(pipelineId, runId) {
-    const result = stmt(
-        'UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND doc_key IS NULL AND (seen_run IS NULL OR seen_run != ?)'
-    ).run(runId, pipelineId, runId)
+async function keepLegacyRecords(pipelineId, runId) {
+    const result = await etlStore.run(
+        'UPDATE records SET seen_run = ? WHERE pipeline_id = ? AND doc_key IS NULL AND (seen_run IS NULL OR seen_run != ?)',
+        [runId, pipelineId, runId]
+    )
     return Number(result.changes) || 0
 }
 
-function saveSource(pipelineId, runId, marker) {
-    stmt(
-        'INSERT INTO sources (pipeline_id, source_id, fingerprint, seen_run, chunks) VALUES (?, ?, ?, ?, ?) ON CONFLICT (pipeline_id, source_id) DO UPDATE SET fingerprint = excluded.fingerprint, seen_run = excluded.seen_run, chunks = excluded.chunks'
-    ).run(pipelineId, marker.sourceId, marker.fingerprint, runId, marker.chunks)
+async function saveSource(pipelineId, runId, marker) {
+    await etlStore.run(
+        'INSERT INTO sources (pipeline_id, source_id, fingerprint, seen_run, chunks) VALUES (?, ?, ?, ?, ?) ON CONFLICT (pipeline_id, source_id) DO UPDATE SET fingerprint = excluded.fingerprint, seen_run = excluded.seen_run, chunks = excluded.chunks',
+        [pipelineId, marker.sourceId, marker.fingerprint, runId, marker.chunks]
+    )
 }
 
 // A store write failed for these chunks. A source whose saved fingerprint already matches what was read
 // would look unchanged next run, so that fingerprint is cleared. A changed source keeps its previous one,
 // which already makes the next run re-read it. Returns the source ids.
-function flagFailedSources(pipelineId, chunks) {
+async function flagFailedSources(pipelineId, chunks) {
     const sources = new Map()
     for (const chunk of chunks) sources.set(chunk.sourceId, chunk.fingerprint || null)
-    const clear = stmt('UPDATE sources SET fingerprint = NULL WHERE pipeline_id = ? AND source_id = ? AND fingerprint = ?')
-    tx(() => {
-        for (const [sourceId, fingerprint] of sources) if (fingerprint) clear.run(pipelineId, sourceId, fingerprint)
+    const clear = 'UPDATE sources SET fingerprint = NULL WHERE pipeline_id = ? AND source_id = ? AND fingerprint = ?'
+    await etlStore.tx(async (t) => {
+        for (const [sourceId, fingerprint] of sources) if (fingerprint) await t.run(clear, [pipelineId, sourceId, fingerprint])
     })
     return [...sources.keys()]
 }
 
-function recordCount(pipelineId) {
-    return Number(stmt('SELECT COUNT(*) AS n FROM records WHERE pipeline_id = ?').get(pipelineId).n)
+async function recordCount(pipelineId) {
+    return Number((await etlStore.get('SELECT COUNT(*) AS n FROM records WHERE pipeline_id = ?', [pipelineId])).n)
 }
 
 // Another pipeline whose latest or served version writes to the same namespace or collection.
-function sharesScope(pipelineId, key) {
-    const rows = stmt(
+async function sharesScope(pipelineId, key) {
+    const rows = await etlStore.all(
         `SELECT p.id, p.name, v.spec FROM pipelines p JOIN pipeline_versions v ON v.pipeline_id = p.id
-         WHERE p.id != ? AND (v.version = p.served_version OR v.version = (SELECT MAX(version) FROM pipeline_versions WHERE pipeline_id = p.id))`
-    ).all(pipelineId)
+         WHERE p.id != ? AND (v.version = p.served_version OR v.version = (SELECT MAX(version) FROM pipeline_versions WHERE pipeline_id = p.id))`,
+        [pipelineId]
+    )
     return rows.some((row) => storeScope(parseJson(row.spec, null)?.store, row.name)?.key === key)
 }
 
@@ -288,7 +301,7 @@ async function storeCall(state, what, fn) {
     try {
         return { value: await fn() }
     } catch (first) {
-        state.event('warn', 'store', `The store ${what} call failed (${storeError(first)}); retrying once.`)
+        await state.event('warn', 'store', `The store ${what} call failed (${storeError(first)}); retrying once.`)
         try {
             return { value: await fn() }
         } catch (error) {
@@ -301,39 +314,42 @@ async function storeCall(state, what, fn) {
 // cannot be looked up one by one (no fetch API, or more than COUNT_FETCH_CAP records; E9b replaces that
 // fallback, which flags every source, with a sampled fetch).
 async function findMissing(pipelineId, store, state) {
-    if (!store.missing || recordCount(pipelineId) > COUNT_FETCH_CAP) return { value: null }
-    const ids = stmt('SELECT chunk_id FROM records WHERE pipeline_id = ?')
-        .all(pipelineId)
-        .map((row) => row.chunk_id)
+    if (!store.missing || (await recordCount(pipelineId)) > COUNT_FETCH_CAP) return { value: null }
+    const ids = (await etlStore.all('SELECT chunk_id FROM records WHERE pipeline_id = ?', [pipelineId])).map((row) => row.chunk_id)
     return storeCall(state, 'fetch', () => store.missing(ids))
 }
 
 // Sources whose vectors are missing from the store: drop the missing chunk ids from records (and the
 // adapter's id map), clear the source fingerprint, and the next run re-embeds only what is missing.
 // Without a per-id answer (missing is null), every source of the pipeline is flagged.
-function flagMissing(pipelineId, store, missing) {
+async function flagMissing(pipelineId, store, missing) {
     const sourceIds = new Set()
     if (missing) {
         for (let i = 0; i < missing.length; i += SWEEP_BATCH) {
             const slice = missing.slice(i, i + SWEEP_BATCH)
-            for (const row of stmt(
-                `SELECT DISTINCT source_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(slice.length)})`
-            ).all(pipelineId, ...slice))
+            for (const row of await etlStore.all(
+                `SELECT DISTINCT source_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(slice.length)})`,
+                [pipelineId, ...slice]
+            ))
                 sourceIds.add(row.source_id)
         }
-    } else for (const row of stmt('SELECT source_id FROM sources WHERE pipeline_id = ?').all(pipelineId)) sourceIds.add(row.source_id)
-    tx(() => {
+    } else
+        for (const row of await etlStore.all('SELECT source_id FROM sources WHERE pipeline_id = ?', [pipelineId]))
+            sourceIds.add(row.source_id)
+    await etlStore.tx(async (t) => {
         if (missing) {
             for (let i = 0; i < missing.length; i += SWEEP_BATCH) {
                 const slice = missing.slice(i, i + SWEEP_BATCH)
-                stmt(`DELETE FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(slice.length)})`).run(pipelineId, ...slice)
+                await t.run(`DELETE FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(slice.length)})`, [pipelineId, ...slice])
             }
         } else
-            for (const sourceId of sourceIds) stmt('DELETE FROM records WHERE pipeline_id = ? AND source_id = ?').run(pipelineId, sourceId)
+            for (const sourceId of sourceIds)
+                await t.run('DELETE FROM records WHERE pipeline_id = ? AND source_id = ?', [pipelineId, sourceId])
         for (const sourceId of sourceIds)
-            stmt('UPDATE sources SET fingerprint = NULL WHERE pipeline_id = ? AND source_id = ?').run(pipelineId, sourceId)
+            await t.run('UPDATE sources SET fingerprint = NULL WHERE pipeline_id = ? AND source_id = ?', [pipelineId, sourceId])
     })
-    if (missing) store.forget(missing)
+    // The adapter's id map is written through the store, so this stays outside the transaction above.
+    if (missing) await store.forget(missing)
     return { missing: missing ? missing.length : null, sourceIds: [...sourceIds].sort() }
 }
 
@@ -353,7 +369,7 @@ async function checkStoreCount({ pipeline, spec, store, state, ctx }) {
     let reason = null
     if (!store.canCount || !scope) reason = 'the store has no count API'
     else if (!scope.key) reason = scope.reason
-    else if (sharesScope(pipeline.id, scope.key)) reason = 'the namespace is shared with another pipeline'
+    else if (await sharesScope(pipeline.id, scope.key)) reason = 'the namespace is shared with another pipeline'
     if (reason) {
         state.counters.storeCount = { status: 'not verified', reason }
         return { verified: false }
@@ -370,8 +386,8 @@ async function checkStoreCount({ pipeline, spec, store, state, ctx }) {
     let countError = null
     let polls = 0
     for (;;) {
-        records = recordCount(pipeline.id)
-        stale = store.staleCount()
+        records = await recordCount(pipeline.id)
+        stale = await store.staleCount()
         const answer = await storeCall(state, 'count', () => store.count())
         polls += 1
         if (answer.error) {
@@ -391,7 +407,7 @@ async function checkStoreCount({ pipeline, spec, store, state, ctx }) {
             return { verified: true }
         }
         if (fetched.value?.length) {
-            const flagged = flagMissing(pipeline.id, store, fetched.value)
+            const flagged = await flagMissing(pipeline.id, store, fetched.value)
             state.counters.storeCount = { status: 'mismatch', ...count, sourceIds: flagged.sourceIds }
             return { verified: true, mismatch: { store: null, records, ...flagged } }
         }
@@ -435,7 +451,7 @@ async function checkStoreCount({ pipeline, spec, store, state, ctx }) {
             warning: `store_count_lagging: the store holds ${actual} vectors for this pipeline's namespace by its count but ETL records list ${records}; fetch-by-id finds all ${records} recorded chunk ids after ${polls} polls, so the count is still catching up and the run is served.`
         }
     }
-    const flagged = flagMissing(pipeline.id, store, missing)
+    const flagged = await flagMissing(pipeline.id, store, missing)
     state.counters.storeCount = { status: 'mismatch', ...count, sourceIds: flagged.sourceIds }
     return { verified: true, mismatch: { store: actual, records, ...flagged } }
 }
@@ -458,20 +474,23 @@ function unverifiedText({ store, records, error }) {
 
 // A run that fails store_count_unverified marks nothing synced: every source this run saved gets back the
 // fingerprint it had when the run started (none for a new source), so the next run re-reads it.
-function restoreFingerprints(pipelineId, runId, before) {
-    const rows = stmt('SELECT source_id, fingerprint FROM sources WHERE pipeline_id = ? AND seen_run = ?').all(pipelineId, runId)
-    const set = stmt('UPDATE sources SET fingerprint = ? WHERE pipeline_id = ? AND source_id = ?')
-    tx(() => {
+async function restoreFingerprints(pipelineId, runId, before) {
+    const rows = await etlStore.all('SELECT source_id, fingerprint FROM sources WHERE pipeline_id = ? AND seen_run = ?', [
+        pipelineId,
+        runId
+    ])
+    const set = 'UPDATE sources SET fingerprint = ? WHERE pipeline_id = ? AND source_id = ?'
+    await etlStore.tx(async (t) => {
         for (const row of rows) {
             const previous = before.has(row.source_id) ? before.get(row.source_id) : null
-            if (previous !== row.fingerprint) set.run(previous, pipelineId, row.source_id)
+            if (previous !== row.fingerprint) await t.run(set, [previous, pipelineId, row.source_id])
         }
     })
 }
 
-function unchangedSource(pipelineId, sourceId, fingerprint) {
+async function unchangedSource(pipelineId, sourceId, fingerprint) {
     if (!fingerprint) return false
-    const row = stmt('SELECT fingerprint FROM sources WHERE pipeline_id = ? AND source_id = ?').get(pipelineId, sourceId)
+    const row = await etlStore.get('SELECT fingerprint FROM sources WHERE pipeline_id = ? AND source_id = ?', [pipelineId, sourceId])
     return Boolean(row && row.fingerprint === fingerprint)
 }
 
@@ -500,8 +519,13 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
         let pendingSeed = []
         if (checkpoint && si === checkpoint.sourceIndex) {
             const prefix = `${nodeId}:`
-            const ids = stmt('SELECT DISTINCT source_id FROM records WHERE pipeline_id = ? AND seen_run = ? AND source_id LIKE ?')
-                .all(pipeline.id, run.id, `${nodeId}:%`)
+            const ids = (
+                await etlStore.all('SELECT DISTINCT source_id FROM records WHERE pipeline_id = ? AND seen_run = ? AND source_id LIKE ?', [
+                    pipeline.id,
+                    run.id,
+                    `${nodeId}:%`
+                ])
+            )
                 .map((row) => row.source_id)
                 .filter((id) => {
                     if (!id.startsWith(prefix)) return false
@@ -511,11 +535,11 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                     // No document in this unit is committed when the checkpoint replays its first record.
                     return order < 0 || checkpoint.done || Number(checkpoint.ordinal || 0) > 0
                 })
-            for (const key of recordedKeys(pipeline.id, ids, run.id)) seenKeys.add(key)
+            for (const key of await recordedKeys(pipeline.id, ids, run.id)) seenKeys.add(key)
         }
-        const seedKeys = () => {
+        const seedKeys = async () => {
             if (!pendingSeed.length) return
-            for (const key of recordedKeys(pipeline.id, pendingSeed)) seenKeys.add(key)
+            for (const key of await recordedKeys(pipeline.id, pendingSeed)) seenKeys.add(key)
             pendingSeed = []
         }
         state.step('load', { status: 'running' })
@@ -532,8 +556,8 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                 yield { ...done, kind: 'ignored', bytes: unit.bytes }
                 continue
             }
-            if (!resumeAt && !full && unchangedSource(pipeline.id, unit.sourceId, unit.fingerprint)) {
-                markSourceSeen(pipeline.id, run.id, unit.sourceId)
+            if (!resumeAt && !full && (await unchangedSource(pipeline.id, unit.sourceId, unit.fingerprint))) {
+                await markSourceSeen(pipeline.id, run.id, unit.sourceId)
                 pendingSeed.push(unit.sourceId)
                 yield { ...done, kind: 'skipped', bytes: unit.bytes }
                 continue
@@ -630,7 +654,7 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                             }
                         }
                         if (record.key) {
-                            seedKeys()
+                            await seedKeys()
                             if (seenKeys.has(record.key))
                                 throw new RecordReject(
                                     'duplicate_key',
@@ -648,7 +672,7 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                     try {
                         pieces = await splitDoc(splitter, shaped)
                     } catch (error) {
-                        state.event('warn', 'split', `${unit.key}: ${errorMessage(error)}`)
+                        await state.event('warn', 'split', `${unit.key}: ${errorMessage(error)}`)
                         yield reject({ reason: 'split_error', message: errorMessage(error) })
                         continue
                     }
@@ -694,7 +718,7 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                 // A missing key column, a bad header or a duplicate header is a pipeline problem: the run fails.
                 if (error?.fatal || isCrash(error)) throw error
                 // A unit that cannot be read keeps its old chunks: mark them seen so the sweep does not delete them.
-                markSourceSeen(pipeline.id, run.id, unit.sourceId)
+                await markSourceSeen(pipeline.id, run.id, unit.sourceId)
                 state.counters.unitsFailed += 1
                 state.counters.errors += 1
                 state.counters.firstDocumentError ||= {
@@ -702,7 +726,7 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                     message: clipText(errorMessage(error), 1200),
                     source: clipText(unit.key, 300)
                 }
-                state.event('error', 'load', `${unit.key}: ${errorMessage(error)}`)
+                await state.event('error', 'load', `${unit.key}: ${errorMessage(error)}`)
                 yield { ...done, kind: 'failed', bytes: Math.max(0, (unit.bytes || 0) - bytes) }
                 continue
             }
@@ -715,22 +739,22 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
 async function sweep({ pipeline, run, store, state, control, settings }) {
     state.checkpoint = { phase: 'sweep' }
     state.step('sweep', { status: 'running' })
-    state.persist(true)
-    const select = stmt('SELECT chunk_id FROM records WHERE pipeline_id = ? AND (seen_run IS NULL OR seen_run != ?) LIMIT ?')
+    await state.persist(true)
+    const select = 'SELECT chunk_id FROM records WHERE pipeline_id = ? AND (seen_run IS NULL OR seen_run != ?) LIMIT ?'
     for (;;) {
         if (control.stopRequested) return false
-        const ids = select.all(pipeline.id, run.id, SWEEP_BATCH).map((row) => row.chunk_id)
+        const ids = (await etlStore.all(select, [pipeline.id, run.id, SWEEP_BATCH])).map((row) => row.chunk_id)
         if (!ids.length) break
         await retrying(() => store.delete(ids), { maxRetries: settings.maxRetries, signal: control.signal })
-        tx(() => {
-            stmt(`DELETE FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`).run(pipeline.id, ...ids)
+        await etlStore.tx(async (t) => {
+            await t.run(`DELETE FROM records WHERE pipeline_id = ? AND chunk_id IN (${inList(ids.length)})`, [pipeline.id, ...ids])
         })
         state.counters.deleted += ids.length
         state.step('sweep', { deleted: state.counters.deleted })
-        state.persist()
+        await state.persist()
         await yieldToLoop()
     }
-    stmt('DELETE FROM sources WHERE pipeline_id = ? AND (seen_run IS NULL OR seen_run != ?)').run(pipeline.id, run.id)
+    await etlStore.run('DELETE FROM sources WHERE pipeline_id = ? AND (seen_run IS NULL OR seen_run != ?)', [pipeline.id, run.id])
     state.step('sweep', { status: 'done', deleted: state.counters.deleted })
     return true
 }
@@ -746,10 +770,10 @@ function parseFingerprint(text) {
 
 // The single execution seam. A later queue version calls this from a worker for a run id it dequeued.
 export async function executeRun(runId, { ctx = {}, control = { stopRequested: null } } = {}) {
-    let run = getRun(runId)
+    let run = await getRun(runId)
     if (!run) throw new EtlError('not_found', `Run ${runId} was not found.`, 404)
-    const pipeline = getPipeline(run.pipelineId)
-    const version = getVersion(run.pipelineId, run.version)
+    const pipeline = await getPipeline(run.pipelineId)
+    const version = await getVersion(run.pipelineId, run.version)
     if (!pipeline || !version) throw new EtlError('not_found', 'The pipeline or its version was deleted.', 404)
     const problems = version.problems?.problems || []
     // A blank Local Vector Store collection follows the pipeline's name. A run resumed under a name whose target differs
@@ -757,44 +781,47 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
     // target, the same way a new run does when the target changed. run_names keeps the old names for a delete.
     if (run.checkpoint && version.spec?.store) {
         const target = storeFingerprint(version.spec.store, pipeline.name)
-        const earlier = stmt('SELECT name FROM run_names WHERE run_id = ?')
-            .all(run.id)
-            .map((row) => row.name)
+        const earlier = (await etlStore.all('SELECT name FROM run_names WHERE run_id = ?', [run.id])).map((row) => row.name)
         if (earlier.some((name) => storeFingerprint(version.spec.store, name) !== target)) {
-            tx(() => {
-                stmt('DELETE FROM records WHERE pipeline_id = ?').run(pipeline.id)
-                stmt('DELETE FROM sources WHERE pipeline_id = ?').run(pipeline.id)
+            await etlStore.tx(async (t) => {
+                await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
+                await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
             })
-            updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() })
-            addEvent(
+            await updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() })
+            await addEvent(
                 run.id,
                 'info',
                 'store',
                 "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one."
             )
-            run = getRun(run.id)
+            run = await getRun(run.id)
         }
     }
     const state = new RunState(run)
     const settings = run.settings
-    const fail = (error) => {
-        state.persist(true)
-        updateRun(run.id, { status: 'failed', error: errorMessage(error), summary: state.summary(), finishedAt: new Date().toISOString() })
-        state.event('error', null, errorMessage(error))
+    const fail = async (error) => {
+        await state.persist(true)
+        await updateRun(run.id, {
+            status: 'failed',
+            error: errorMessage(error),
+            summary: state.summary(),
+            finishedAt: new Date().toISOString()
+        })
+        await state.event('error', null, errorMessage(error))
     }
     if (problems.length) {
-        fail(new EtlError('bad_pipeline', problems.join(' ')))
+        await fail(new EtlError('bad_pipeline', problems.join(' ')))
         return getRun(run.id)
     }
     const spec = version.spec
-    updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null })
-    stmt('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)').run(
+    await updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null })
+    await etlStore.run('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)', [
         run.id,
         pipeline.id,
         pipeline.workspaceId || null,
         pipeline.name
-    )
-    state.event(
+    ])
+    await state.event(
         'info',
         null,
         run.checkpoint ? `Resumed from checkpoint (attempt ${run.attempt}).` : `Started ${run.mode} run of version ${run.version}.`
@@ -825,20 +852,20 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         const previous = parseFingerprint(pipeline.indexFingerprint)
         if (!run.checkpoint && previous) {
             if (previous.store !== fingerprint.store) {
-                tx(() => {
-                    stmt('DELETE FROM records WHERE pipeline_id = ?').run(pipeline.id)
-                    stmt('DELETE FROM sources WHERE pipeline_id = ?').run(pipeline.id)
+                await etlStore.tx(async (t) => {
+                    await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
+                    await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
                 })
-                state.event('info', 'store', `The target changed to ${store.label}; every chunk is written there.`)
+                await state.event('info', 'store', `The target changed to ${store.label}; every chunk is written there.`)
             } else if (previous.embed !== fingerprint.embed && spec.store.nodeName === LOCAL_STORE) {
                 await store.reset()
-                tx(() => {
-                    stmt('DELETE FROM records WHERE pipeline_id = ?').run(pipeline.id)
-                    stmt('DELETE FROM sources WHERE pipeline_id = ?').run(pipeline.id)
+                await etlStore.tx(async (t) => {
+                    await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
+                    await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
                 })
-                state.event('info', 'embed', 'The embeddings model changed; the local collection is rebuilt.')
+                await state.event('info', 'embed', 'The embeddings model changed; the local collection is rebuilt.')
             } else if (previous.embed !== fingerprint.embed) {
-                state.event(
+                await state.event(
                     'info',
                     'embed',
                     'The embeddings model changed; every chunk is re-embedded and old vectors are deleted at the end.'
@@ -851,21 +878,22 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         // re-embedded in this run instead of being reported unchanged.
         if (!run.checkpoint && previous && previous.store === fingerprint.store && previous.storeCount !== STORE_COUNT_MARK) {
             if (previous.storeCount === STORE_COUNT_VERIFY)
-                state.event('info', 'store', 'The last run could not verify the store; verifying it before this run starts.')
+                await state.event('info', 'store', 'The last run could not verify the store; verifying it before this run starts.')
             const before = await checkStoreCount({ pipeline, spec, store, state, ctx })
             if (before.mismatch) {
-                state.event('warn', 'store', `${mismatchText(before.mismatch)} They are re-embedded in this run.`)
+                await state.event('warn', 'store', `${mismatchText(before.mismatch)} They are re-embedded in this run.`)
                 state.counters.storeCountBefore = state.counters.storeCount
-            } else if (before.unverified) state.event('warn', 'store', unverifiedText(before.unverified).replace(/ Previous .*$/, ''))
-            else if (before.warning) state.event('warn', 'store', before.warning)
+            } else if (before.unverified) await state.event('warn', 'store', unverifiedText(before.unverified).replace(/ Previous .*$/, ''))
+            else if (before.warning) await state.event('warn', 'store', before.warning)
             delete state.counters.storeCount
         }
 
         // Source fingerprints as the run found them, restored if the run fails store_count_unverified.
         const fingerprintsBefore = new Map(
-            stmt('SELECT source_id, fingerprint FROM sources WHERE pipeline_id = ?')
-                .all(pipeline.id)
-                .map((row) => [row.source_id, row.fingerprint])
+            (await etlStore.all('SELECT source_id, fingerprint FROM sources WHERE pipeline_id = ?', [pipeline.id])).map((row) => [
+                row.source_id,
+                row.fingerprint
+            ])
         )
         const sweeping = run.checkpoint?.phase === 'sweep'
         if (!sweeping && !state.counters.unitsTotal && !state.counters.bytesTotal) {
@@ -877,7 +905,7 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
                 } else state.counters.unitsTotal += 1
             }
         }
-        state.persist(true)
+        await state.persist(true)
 
         if (!sweeping) {
             const embedder = new Embedder(embeddings, {
@@ -886,7 +914,7 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
                 signal: control.abort?.signal,
                 onRetry: ({ attempt, kind, delayMs, error }) => {
                     state.counters.retries += 1
-                    state.event(
+                    return state.event(
                         'warn',
                         'embed',
                         `Retry ${attempt} after ${kind === 'rate_limit' ? 'a rate limit' : 'an error'} in ${delayMs} ms: ${errorMessage(
@@ -898,10 +926,14 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
             await pump({ spec, pipeline, run, state, ctx, embedFp, control, embedder, store, settings })
             if (control.stopRequested) {
                 const status = control.stopRequested === 'cancel' ? 'cancelled' : 'paused'
-                state.persist(true)
-                updateRun(run.id, { status, ...(status === 'cancelled' ? { finishedAt: new Date().toISOString() } : {}) })
-                state.event('info', null, status === 'paused' ? 'Paused at the last committed batch.' : 'Cancelled. Nothing was deleted.')
-                return getRun(run.id)
+                await state.persist(true)
+                await updateRun(run.id, { status, ...(status === 'cancelled' ? { finishedAt: new Date().toISOString() } : {}) })
+                await state.event(
+                    'info',
+                    null,
+                    status === 'paused' ? 'Paused at the last committed batch.' : 'Cancelled. Nothing was deleted.'
+                )
+                return await getRun(run.id)
             }
             for (const name of ['load', 'transform', 'split', 'embed', 'store']) state.step(name, { status: 'done' })
             state.ledger.assertBalanced('the end of the run')
@@ -909,7 +941,7 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
             // version stays, and the sources this run read are re-read next time.
             const gate = rejectRatioGate(state.ledger, settings)
             if (gate) {
-                restoreFingerprints(pipeline.id, run.id, fingerprintsBefore)
+                await restoreFingerprints(pipeline.id, run.id, fingerprintsBefore)
                 throw new EtlError('reject_ratio_exceeded', gate)
             }
         }
@@ -917,7 +949,7 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         // Legacy records (written before record keys, doc_key NULL) can't be matched to a rejected key, so only a run
         // that ends `succeeded` may sweep them (O6). A partial run marks them seen and counts them as kept.
         if (endsPartial) {
-            const kept = keepLegacyRecords(pipeline.id, run.id)
+            const kept = await keepLegacyRecords(pipeline.id, run.id)
             if (kept) {
                 state.counters.staleKept = (state.counters.staleKept || 0) + kept
                 state.counters.legacyKept = (state.counters.legacyKept || 0) + kept
@@ -928,30 +960,30 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         const counted = await checkStoreCount({ pipeline, spec, store, state, ctx })
         if (counted.mismatch) throw new EtlError('store_count_mismatch', mismatchText(counted.mismatch))
         if (counted.unverified) {
-            restoreFingerprints(pipeline.id, run.id, fingerprintsBefore)
+            await restoreFingerprints(pipeline.id, run.id, fingerprintsBefore)
             throw new EtlError('store_count_unverified', unverifiedText(counted.unverified))
         }
-        if (counted.warning) state.event('warn', 'store', counted.warning)
+        if (counted.warning) await state.event('warn', 'store', counted.warning)
         const finished = await sweep({ pipeline, run, store, state, control, settings })
         if (!finished) {
             const status = control.stopRequested === 'cancel' ? 'cancelled' : 'paused'
-            state.persist(true)
-            updateRun(run.id, { status })
-            return getRun(run.id)
+            await state.persist(true)
+            await updateRun(run.id, { status })
+            return await getRun(run.id)
         }
         fingerprint.storeCount = counted.verifyNext ? STORE_COUNT_VERIFY : STORE_COUNT_MARK
-        setServedVersion(pipeline.id, run.version, JSON.stringify(fingerprint))
+        await setServedVersion(pipeline.id, run.version, JSON.stringify(fingerprint))
         state.checkpoint = { phase: 'done' }
         state.live.etaSeconds = 0
-        state.persist(true)
+        await state.persist(true)
         const c = state.counters
         const summary = state.summary()
         // Spec 5.3.3: `partial` read to the end with the ledger balanced, under the reject-ratio gate, with rejects,
         // failed units or possible duplicates. It is served (O9). The rejects table is still E11.
         const status = endsPartial ? 'partial' : 'succeeded'
-        updateRun(run.id, { status, summary, finishedAt: new Date().toISOString() })
+        await updateRun(run.id, { status, summary, finishedAt: new Date().toISOString() })
         const kept = c.staleKept ? `, ${c.staleKept} keys kept their last good version` : ''
-        state.event(
+        await state.event(
             'info',
             null,
             `${status === 'partial' ? 'Partial' : 'Succeeded'}: ${summary.read} records read, ${summary.written.inserted} new, ${
@@ -964,11 +996,11 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         // A simulated kill (etl:check) leaves the run as a real one would: running, with its last checkpoint.
         if (isCrash(error)) throw error
         if (control.stopRequested && error?.code === 'aborted') {
-            state.persist(true)
-            updateRun(run.id, { status: control.stopRequested === 'cancel' ? 'cancelled' : 'paused' })
-        } else fail(error)
+            await state.persist(true)
+            await updateRun(run.id, { status: control.stopRequested === 'cancel' ? 'cancelled' : 'paused' })
+        } else await fail(error)
     }
-    run = getRun(run.id)
+    run = await getRun(run.id)
     return run
 }
 
@@ -982,7 +1014,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
     const ledger = state.ledger
 
     // Applies one record's ledger entry. A chunk-bearing record is written unless the store rejected one of its chunks.
-    const applyRecord = (record) => {
+    const applyRecord = async (record) => {
         ledger.read(record.nodeId)
         let { outcome, reason, message } = record
         if (outcome === 'written') {
@@ -1004,36 +1036,44 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
         }
         ledger.rejected(record.nodeId, reason)
         if (record.key && run.mode !== 'full' && reason !== 'duplicate_key' && reason !== 'store_rejected') {
-            if (keepLastGood(pipeline.id, run.id, record.sourceId, record.key))
+            if (await keepLastGood(pipeline.id, run.id, record.sourceId, record.key))
                 state.counters.staleKept = (state.counters.staleKept || 0) + 1
         }
         state.rejectEvents += 1
         if (state.rejectEvents <= REJECT_EVENTS) {
             const key = record.key ? ` (key "${clipText(record.key, 80)}")` : ''
-            state.event(
+            await state.event(
                 'warn',
                 'load',
                 clipText(`${record.unitKey} record ${record.ordinal}${key} rejected: ${reason}: ${message || reason}`, 2000)
             )
         } else if (state.rejectEvents === REJECT_EVENTS + 1)
-            state.event('warn', 'load', `More than ${REJECT_EVENTS} records were rejected; the run summary counts them all.`)
+            await state.event('warn', 'load', `More than ${REJECT_EVENTS} records were rejected; the run summary counts them all.`)
     }
 
+    // Batches commit strictly in order and one commit at a time: a later batch must not move the checkpoint or the
+    // ledger while an earlier batch's commit is still writing.
+    let committing = Promise.resolve()
     const commitReady = () => {
+        const next = committing.then(commitPending)
+        committing = next.catch(() => {})
+        return next
+    }
+    const commitPending = async () => {
         while (completed.has(nextCommit)) {
             const batch = completed.get(nextCommit)
             completed.delete(nextCommit)
             nextCommit += 1
             // Records first: a unit's records always come before its unitEnd marker.
-            for (const record of batch.records) applyRecord(record)
+            for (const record of batch.records) await applyRecord(record)
             const miscount = fault(ctx, 'ledger', batch)
             if (miscount) ledger.read(miscount.nodeId, miscount.n || 1)
             for (const marker of batch.markers) {
                 if (marker.kind === 'unitEnd') {
                     // A unit with a store-rejected record keeps its previous fingerprint, so the next run re-reads it,
                     // and keeps its old records, so the previous version of the rejected record keeps serving (E17).
-                    if (state.storeRejectedSources.has(marker.sourceId)) markSourceSeen(pipeline.id, run.id, marker.sourceId)
-                    else saveSource(pipeline.id, run.id, marker)
+                    if (state.storeRejectedSources.has(marker.sourceId)) await markSourceSeen(pipeline.id, run.id, marker.sourceId)
+                    else await saveSource(pipeline.id, run.id, marker)
                     state.counters.unitsDone += 1
                 } else if (marker.kind === 'skipped') {
                     state.counters.unitsDone += 1
@@ -1050,7 +1090,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
                 break
             }
         }
-        state.persist()
+        await state.persist()
     }
 
     // Upserts with bisection (E17): a 400/413/422 that names a payload problem is split until the bad chunk is
@@ -1088,12 +1128,12 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
         return { ok, bad }
     }
 
-    const failBatch = (fresh, error) => {
+    const failBatch = async (fresh, error) => {
         // Nothing of this batch is recorded, and its sources are not marked synced. The test-only
         // legacyDeleteFirst fault turns this off too, so etl:check can show the count check alone.
         if (!legacyDeleteFirst(ctx)) {
-            const sources = flagFailedSources(pipeline.id, fresh)
-            state.event(
+            const sources = await flagFailedSources(pipeline.id, fresh)
+            await state.event(
                 'warn',
                 'store',
                 `Store write failed for ${fresh.length} chunks; sources ${sources.join(', ')} are re-read next run.`
@@ -1112,13 +1152,13 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
         const existing =
             run.mode === 'full'
                 ? new Set()
-                : lookupExisting(
+                : await lookupExisting(
                       pipeline.id,
                       chunks.map((chunk) => chunk.id)
                   )
         const unchanged = chunks.filter((chunk) => existing.has(chunk.id))
         const fresh = chunks.filter((chunk) => !existing.has(chunk.id))
-        markSeen(
+        await markSeen(
             pipeline.id,
             run.id,
             unchanged.map((chunk) => chunk.id)
@@ -1142,10 +1182,10 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
         try {
             written = await writeChunks(fresh, vectors)
         } catch (error) {
-            failBatch(fresh, error)
+            await failBatch(fresh, error)
         }
         // Every chunk failed on its own: not a record problem (a store-wide schema problem, say), so the run fails.
-        if (!written.ok.length) failBatch(fresh, written.bad.values().next().value)
+        if (!written.ok.length) await failBatch(fresh, written.bad.values().next().value)
         let confirmed = written.ok.map((i) => fresh[i])
         if (written.bad.size) {
             const badRefs = new Map()
@@ -1165,7 +1205,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
                 confirmed = confirmed.filter((chunk) => !badRefs.has(chunk.recordRef))
             }
             state.counters.errors += badRefs.size
-            state.event(
+            await state.event(
                 'warn',
                 'store',
                 `The store rejected ${written.bad.size} of ${fresh.length} chunks; ${badRefs.size} records are rejected as store_rejected and the rest of the batch is written.`
@@ -1181,7 +1221,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
             }
         }
         state.counters.storeMs += Date.now() - t1
-        insertRecords(pipeline.id, run.id, confirmed)
+        await insertRecords(pipeline.id, run.id, confirmed)
         state.counters.embedded += confirmed.length
     }
 
@@ -1193,7 +1233,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
             .then(
                 () => {
                     completed.set(batch.seq, batch)
-                    commitReady()
+                    return commitReady()
                 },
                 (error) => {
                     if (!fatal) fatal = error
@@ -1212,7 +1252,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
         for await (const item of produce({ spec, pipeline, run, state, ctx, embedFp, control })) {
             const pause = yieldIfNeeded()
             if (pause) {
-                state.persist()
+                await state.persist()
                 await pause
             }
             if (control.stopRequested || fatal) break
@@ -1234,7 +1274,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
                 await dispatch(batch)
                 batch = newBatch()
                 state.step('load', { docs: state.counters.docsLoaded, units: state.counters.unitsDone })
-                state.persist()
+                await state.persist()
                 await yieldToLoop()
             }
         }
@@ -1243,7 +1283,7 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
     }
     if (!control.stopRequested && !fatal && (batch.chunks.length || batch.markers.length)) await dispatch(batch)
     await Promise.all(inflight)
-    commitReady()
+    await commitReady()
     state.step('load', { docs: state.counters.docsLoaded, units: state.counters.unitsDone })
     if (fatal) {
         for (const name of ['embed', 'store']) if (state.steps[name].status === 'running') state.step(name, { status: 'failed' })

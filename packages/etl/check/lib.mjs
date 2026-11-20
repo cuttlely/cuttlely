@@ -63,9 +63,9 @@ export const flowFor = (file, collection) => ({
 })
 
 export async function runPipeline(id, name, flow, mode = 'incremental') {
-    const saved = api.recordVersion({ workspaceId: WS, id, name, flowData: flow })
+    const saved = await api.recordVersion({ workspaceId: WS, id, name, flowData: flow })
     check(`${name} compiles`, saved.problems.length === 0, saved.problems.join('; '))
-    const run = api.startRun(id, { mode, settings: { batchSize: 32, concurrency: 2, maxRetries: 2, maxErrors: 5 } })
+    const run = await api.startRun(id, { mode, settings: { batchSize: 32, concurrency: 2, maxRetries: 2, maxErrors: 5 } })
     await api.waitForIdle()
     return api.runDetail(run.id)
 }

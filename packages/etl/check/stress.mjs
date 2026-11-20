@@ -76,12 +76,12 @@ const timer = setInterval(() => {
     samples.push({ rss: mem.rss, heap: mem.heapUsed, external: mem.external })
 }, 250)
 const startedAt = performance.now()
-api.recordVersion({ workspaceId: WS, id: 'stress', name: 'Stress', flowData: stressFlow })
-const stressRun = api.startRun('stress', { settings: { batchSize: 256, concurrency: 2, maxRetries: 1, maxErrors: 10 } })
+await api.recordVersion({ workspaceId: WS, id: 'stress', name: 'Stress', flowData: stressFlow })
+const stressRun = await api.startRun('stress', { settings: { batchSize: 256, concurrency: 2, maxRetries: 1, maxErrors: 10 } })
 await api.waitForIdle()
 clearInterval(timer)
 const elapsed = (performance.now() - startedAt) / 1000
-const done = api.runDetail(stressRun.id)
+const done = await api.runDetail(stressRun.id)
 const peakRss = Math.max(...samples.map((sample) => sample.rss))
 const peakHeap = Math.max(...samples.map((sample) => sample.heap))
 const csvBytes = fs.statSync(csvFile).size
@@ -107,9 +107,9 @@ check('stress embeds the csv and the repo files', chunks === 1000401, String(chu
 check('stress memory stays under 600 MB', peakRss < 600e6, `${report.peakRssMb} MB`)
 
 const againAt = performance.now()
-const again = api.startRun('stress', { settings: { batchSize: 256, concurrency: 2, maxRetries: 1, maxErrors: 10 } })
+const again = await api.startRun('stress', { settings: { batchSize: 256, concurrency: 2, maxRetries: 1, maxErrors: 10 } })
 await api.waitForIdle()
-const second = api.runDetail(again.id)
+const second = await api.runDetail(again.id)
 const skipSeconds = Math.round(((performance.now() - againAt) / 1000) * 10) / 10
 check(
     'second stress run embeds nothing',

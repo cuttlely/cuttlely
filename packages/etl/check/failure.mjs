@@ -98,12 +98,12 @@ import { api, check, root, WS } from './lib.mjs'
     })
     const settings = { batchSize: 2, concurrency: 1, maxRetries: 0, maxErrors: 5 }
     const run = async (id, mode, extra = {}) => {
-        const started = api.startRun(id, { mode, settings: { ...settings, ...extra } })
-        let detail = api.runDetail(started.id)
+        const started = await api.startRun(id, { mode, settings: { ...settings, ...extra } })
+        let detail = await api.runDetail(started.id)
         while (['queued', 'running', 'pausing', 'cancelling'].includes(detail.status)) {
             await api.waitForIdle()
             await new Promise((resolve) => setImmediate(resolve))
-            detail = api.runDetail(started.id)
+            detail = await api.runDetail(started.id)
         }
         return detail
     }
@@ -128,7 +128,12 @@ import { api, check, root, WS } from './lib.mjs'
         const fast = { now: () => clock, sleep: async (ms) => (clock += ms) }
         const ctx = { workspaceId: WS, embeddingsDouble: embedder, storeClients: { pinecone: t.fake }, storeCountSettle: fast, ...ctxExtra }
         api.configureRunner({ contextFor: () => ctx })
-        const saved = api.recordVersion({ workspaceId: WS, id: `e9a-${key}`, name: `E9a ${key}`, flowData: pineFlow(file, `e9a-${key}`) })
+        const saved = await api.recordVersion({
+            workspaceId: WS,
+            id: `e9a-${key}`,
+            name: `E9a ${key}`,
+            flowData: pineFlow(file, `e9a-${key}`)
+        })
         if (saved.problems.length) throw new Error(saved.problems.join('; '))
         const first = await run(`e9a-${key}`, 'incremental')
         if (first.status !== 'succeeded' || t.fake.rows.size !== ROWS)
@@ -269,7 +274,7 @@ import { api, check, root, WS } from './lib.mjs'
         const lost = t.fake.rows.size
         const rerun = await run(id, 'incremental')
         const sourceId = stmt('SELECT source_id FROM sources WHERE pipeline_id = ?').get(id)?.source_id
-        const events = rerun.events || api.runDetail(rerun.id).events || []
+        const events = rerun.events || (await api.runDetail(rerun.id)).events || []
         const flagged = fingerprintOf(id)
         check(
             'E9a 62: with the write fix off, detection alone ends the rerun failed / store_count_mismatch with 31/29 and the source id',
@@ -349,7 +354,12 @@ import { api, check, root, WS } from './lib.mjs'
         t.fake.upsert = async (rows) => (batches++ === 0 ? undefined : write(rows))
         const ctx = { workspaceId: WS, embeddingsDouble: embedder, storeClients: { pinecone: t.fake }, storeCountSettle: settle }
         api.configureRunner({ contextFor: () => ctx })
-        api.recordVersion({ workspaceId: WS, id: 'e9a-settle-gap', name: 'E9a settle gap', flowData: pineFlow(file, 'e9a-settle-gap') })
+        await api.recordVersion({
+            workspaceId: WS,
+            id: 'e9a-settle-gap',
+            name: 'E9a settle gap',
+            flowData: pineFlow(file, 'e9a-settle-gap')
+        })
         clock = 0
         const gap = await run('e9a-settle-gap', 'incremental')
         const gapAt = clock
@@ -381,13 +391,13 @@ import { api, check, root, WS } from './lib.mjs'
             id: 'vs',
             data: { name: 'chroma', label: 'Chroma', category: 'Vector Stores', inputs: { collectionName: 'e9a' } }
         }
-        api.recordVersion({ workspaceId: WS, id: 'e9a-nocount', name: 'E9a nocount', flowData: chromaFlow })
+        await api.recordVersion({ workspaceId: WS, id: 'e9a-nocount', name: 'E9a nocount', flowData: chromaFlow })
         const noCount = await run('e9a-nocount', 'incremental')
-        api.recordVersion({ workspaceId: WS, id: 'e9a-default', name: 'E9a default', flowData: pineFlow(file, '') })
+        await api.recordVersion({ workspaceId: WS, id: 'e9a-default', name: 'E9a default', flowData: pineFlow(file, '') })
         const defaultNs = await run('e9a-default', 'incremental')
         api.configureRunner({ contextFor: () => ({ embeddingsDouble: embedder, storeClients: { pinecone: shared.fake } }) })
-        api.recordVersion({ workspaceId: WS, id: 'e9a-shared-a', name: 'E9a shared a', flowData: pineFlow(file, 'e9a-shared') })
-        api.recordVersion({ workspaceId: WS, id: 'e9a-shared-b', name: 'E9a shared b', flowData: pineFlow(file, 'e9a-shared') })
+        await api.recordVersion({ workspaceId: WS, id: 'e9a-shared-a', name: 'E9a shared a', flowData: pineFlow(file, 'e9a-shared') })
+        await api.recordVersion({ workspaceId: WS, id: 'e9a-shared-b', name: 'E9a shared b', flowData: pineFlow(file, 'e9a-shared') })
         const sharedRun = await run('e9a-shared-a', 'incremental')
         const notVerified = (detail) => detail.status === 'succeeded' && detail.counters.storeCount?.status === 'not verified'
         check(
@@ -568,7 +578,7 @@ import { api, check, root, WS } from './lib.mjs'
         failing(n.fake, 'fetch', '429', 2)
         const freshCtx = { ...ctx, storeClients: { pinecone: n.fake } }
         api.configureRunner({ contextFor: () => freshCtx })
-        api.recordVersion({
+        await api.recordVersion({
             workspaceId: WS,
             id: 'e9a-unverified-new',
             name: 'E9a unverified new',

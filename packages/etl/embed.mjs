@@ -149,7 +149,7 @@ export async function retrying(fn, { maxRetries = 6, baseMs = 500, signal, onRet
         if (kind === 'rate_limit') limiter?.onRateLimit()
         if ((kind !== 'transient' && kind !== 'rate_limit') || attempt >= maxRetries || failure?.code === 'aborted') throw failure
         const delayMs = Math.round(retryAfterMs(failure) ?? Math.min(60000, baseMs * 2 ** attempt) * (0.5 + Math.random() / 2))
-        onRetry?.({ attempt: attempt + 1, kind, delayMs, error: failure })
+        await onRetry?.({ attempt: attempt + 1, kind, delayMs, error: failure })
         await sleep(delayMs, signal)
     }
 }

@@ -1,12 +1,12 @@
 // Deleting a pipeline removes the vectors it wrote, not only ETL's own bookkeeping. Before this, the store kept every
 // vector and nothing left in ETL knew their ids, so they could never be cleaned up from Cuttlely.
-import { stmt } from './db.mjs'
 import { createEmbeddings } from './embed.mjs'
 import { errorMessage } from './errors.mjs'
 import { storeFingerprint } from './graph.mjs'
 import { clearRetrievalCache } from './retrieve.mjs'
 import { shapeFor } from './store-adapter.mjs'
 import { blockRuns, cancelRun, pipelineContext, unblockRuns, waitForRun } from './runner.mjs'
+import * as etlStore from './store.mjs'
 import { forgetPipelineStores, openStore } from './stores.mjs'
 import { deletePipeline as deletePipelineRows, getPipeline, getVersion } from './versions.mjs'
 
@@ -15,16 +15,20 @@ const ACTIVE = ['queued', 'running', 'pausing', 'paused', 'cancelling']
 
 // Every chunk id this pipeline wrote: the records ETL serves from, plus the provider id map (a chunk whose record was
 // already swept but whose vector delete has not finished is still in the map).
-function chunkIdsOf(pipelineId) {
+async function chunkIdsOf(pipelineId) {
     const ids = new Set()
-    for (const row of stmt('SELECT chunk_id FROM records WHERE pipeline_id = ?').all(pipelineId)) ids.add(row.chunk_id)
-    for (const row of stmt("SELECT chunk_id FROM vector_ids WHERE pipeline_id = ? AND chunk_id NOT LIKE 'stale:%'").all(pipelineId))
+    for (const row of await etlStore.all('SELECT chunk_id FROM records WHERE pipeline_id = ?', [pipelineId])) ids.add(row.chunk_id)
+    for (const row of await etlStore.all("SELECT chunk_id FROM vector_ids WHERE pipeline_id = ? AND chunk_id NOT LIKE 'stale:%'", [
+        pipelineId
+    ]))
         ids.add(row.chunk_id)
     return [...ids]
 }
 
-function parkedCount(pipelineId) {
-    return Number(stmt("SELECT COUNT(*) AS n FROM vector_ids WHERE pipeline_id = ? AND chunk_id LIKE 'stale:%'").get(pipelineId).n)
+async function parkedCount(pipelineId) {
+    return Number(
+        (await etlStore.get("SELECT COUNT(*) AS n FROM vector_ids WHERE pipeline_id = ? AND chunk_id LIKE 'stale:%'", [pipelineId])).n
+    )
 }
 
 // The stores the vectors can be in: the served version's store and the store of every version a run started on. A run
@@ -32,27 +36,28 @@ function parkedCount(pipelineId) {
 // them. Chunk ids are content hashes, so the current ids also match what an earlier store kept for unchanged content.
 // `current` marks the store the newest run wrote to: the provider id map (vector_ids) holds that store's ids.
 // run_names holds every pipeline name each run ran under, since a blank Local Vector Store collection follows the name.
-function targetSpecs(pipeline) {
+async function targetSpecs(pipeline) {
     // Only runs that began executing can have written; a queued run the delete cancelled never did.
     // A run from before run_names has no name; it ran under the current name as far as ETL can tell. When one run used
     // several names, the current name sorts first among them.
-    const started = stmt(
+    const started = await etlStore.all(
         `SELECT r.version AS version, n.name AS name, MAX(r.started_at) AS last FROM runs r
          LEFT JOIN run_names n ON n.run_id = r.id
          WHERE r.pipeline_id = ? AND r.started_at IS NOT NULL
-         GROUP BY r.version, n.name ORDER BY last DESC, (COALESCE(n.name, ?) = ?) DESC`
-    ).all(pipeline.id, pipeline.name, pipeline.name)
+         GROUP BY r.version, n.name ORDER BY last DESC, (COALESCE(n.name, ?) = ?) DESC`,
+        [pipeline.id, pipeline.name, pipeline.name]
+    )
     const ran = started.map((row) => ({ version: row.version, name: row.name || pipeline.name }))
     const served = pipeline.servedVersion
     const servedName = ran.find((use) => use.version === served)?.name ?? pipeline.name
     const uses = served ? [{ version: served, name: servedName }, ...ran] : ran
     const newest = ran[0] ?? uses[0]
-    const currentSpec = newest ? getVersion(pipeline.id, newest.version)?.spec : null
+    const currentSpec = newest ? (await getVersion(pipeline.id, newest.version))?.spec : null
     const currentKey = currentSpec?.store ? storeFingerprint(currentSpec.store, newest.name) : null
     const seen = new Set()
     const targets = []
     for (const { version, name } of uses) {
-        const spec = getVersion(pipeline.id, version)?.spec
+        const spec = (await getVersion(pipeline.id, version))?.spec
         if (!spec?.store) continue
         const key = storeFingerprint(spec.store, name)
         if (seen.has(key)) continue
@@ -75,12 +80,16 @@ function storeAccess({ spec, current }) {
     return current ? 'map' : 'unreachable'
 }
 
-// A run still writing would put vectors back after the purge. Cancel it and wait for the batches in flight.
+// A run still writing would put vectors back after the purge. Cancel it and wait for the batches in flight. The list is
+// read outside any transaction: cancelRun opens its own, and one opened inside another never starts.
 async function stopRuns(pipelineId) {
     const placeholders = ACTIVE.map(() => '?').join(', ')
-    for (const row of stmt(`SELECT id FROM runs WHERE pipeline_id = ? AND status IN (${placeholders})`).all(pipelineId, ...ACTIVE)) {
+    for (const row of await etlStore.all(`SELECT id FROM runs WHERE pipeline_id = ? AND status IN (${placeholders})`, [
+        pipelineId,
+        ...ACTIVE
+    ])) {
         try {
-            cancelRun(row.id)
+            await cancelRun(row.id)
         } catch {
             // Already finished between the query and the cancel.
         }
@@ -92,11 +101,11 @@ async function purge(pipeline, ctx) {
     const result = { deleted: 0, stores: [], errors: [] }
     const pipelineId = pipeline.id
     await stopRuns(pipelineId)
-    const ids = chunkIdsOf(pipelineId)
-    if (!ids.length && !parkedCount(pipelineId)) return result
+    const ids = await chunkIdsOf(pipelineId)
+    if (!ids.length && !(await parkedCount(pipelineId))) return result
     // Open every target first: each one loads the provider id map, which the first delete then clears.
     const opened = []
-    for (const target of targetSpecs(pipeline)) {
+    for (const target of await targetSpecs(pipeline)) {
         const { spec } = target
         const access = storeAccess(target)
         if (access === 'unreachable') {
@@ -150,20 +159,23 @@ async function purge(pipeline, ctx) {
 // Removes a pipeline: its vectors first, then its runs, versions, schedules and records. `ctx` defaults to the context the
 // runner uses for this pipeline, which carries the store's credential. The purge never throws: a store that cannot be
 // reached (a deleted credential, the network) is reported in `errors`, so the caller can still say what was left behind.
-// Runs stay blocked until the rows are gone, so a schedule or a click cannot start one and write vectors back.
+// Runs stay blocked until the rows are gone, so a schedule or a click cannot start one and write vectors back. Blocking
+// comes before the first await; the pipeline lock (see runner.mjs) is then held across the purge and the row delete.
 export async function deletePipeline(pipelineId, { ctx } = {}) {
-    const pipeline = getPipeline(pipelineId)
     blockRuns(pipelineId)
     try {
-        let purged = { deleted: 0, stores: [], errors: [] }
-        if (pipeline) {
-            const context = ctx ?? (await pipelineContext(pipeline).catch(() => ({})))
-            purged = await purge(pipeline, context || {})
-        }
-        deletePipelineRows(pipelineId)
-        forgetPipelineStores(pipelineId)
-        clearRetrievalCache()
-        return purged
+        return await etlStore.withPipelineLock(pipelineId, async () => {
+            const pipeline = await getPipeline(pipelineId)
+            let purged = { deleted: 0, stores: [], errors: [] }
+            if (pipeline) {
+                const context = ctx ?? (await pipelineContext(pipeline).catch(() => ({})))
+                purged = await purge(pipeline, context || {})
+            }
+            await deletePipelineRows(pipelineId)
+            forgetPipelineStores(pipelineId)
+            clearRetrievalCache()
+            return purged
+        })
     } finally {
         unblockRuns(pipelineId)
     }

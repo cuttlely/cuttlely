@@ -325,7 +325,7 @@ export async function openStore(
         client = await liveClient(shape, spec, embeddings, ctx)
         if (!ctx.storeClients?.[spec.nodeName] && spec.nodeName === 'memoryVectorStore' && key) processStores.set(key, client)
     }
-    const adapted = adaptStore(shape, client, { pipelineId, legacyDeleteFirst: legacyDeleteFirst(ctx), onStale, rawIds, skipParked })
+    const adapted = await adaptStore(shape, client, { pipelineId, legacyDeleteFirst: legacyDeleteFirst(ctx), onStale, rawIds, skipParked })
     return {
         kind: spec.nodeName,
         label: spec.label,

@@ -81,7 +81,7 @@ function pineFlow(file, ns) {
             rows.records === 0 &&
             rows.vectorIds === 0 &&
             rows.runs === 0 &&
-            !api.getPipeline('purge-drop'),
+            !(await api.getPipeline('purge-drop')),
         JSON.stringify({ before, after, result, rows })
     )
 }
@@ -122,7 +122,7 @@ function pineFlow(file, ns) {
             result.deleted === 0 &&
             result.errors.length === 1 &&
             /Service unavailable/.test(result.errors[0].error) &&
-            !api.getPipeline('purge-down') &&
+            !(await api.getPipeline('purge-down')) &&
             rowsFor('purge-down').records === 0,
         JSON.stringify({ threw: threw?.message, result })
     )
@@ -131,11 +131,11 @@ function pineFlow(file, ns) {
 // A pipeline that never ran has nothing in a store; deleting it opens no store.
 {
     api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
-    api.recordVersion({ workspaceId: WS, id: 'purge-new', name: 'Purge new', flowData: flowFor(csv('purge-new', 2), 'purge-new') })
+    await api.recordVersion({ workspaceId: WS, id: 'purge-new', name: 'Purge new', flowData: flowFor(csv('purge-new', 2), 'purge-new') })
     const result = await api.deletePipeline('purge-new')
     check(
         'purge 4: deleting a pipeline that never ran removes it without touching a store',
-        result.deleted === 0 && result.stores.length === 0 && result.errors.length === 0 && !api.getPipeline('purge-new'),
+        result.deleted === 0 && result.stores.length === 0 && result.errors.length === 0 && !(await api.getPipeline('purge-new')),
         JSON.stringify(result)
     )
 }
@@ -185,9 +185,9 @@ function pineFlow(file, ns) {
         return original(ids)
     }
     const refusals = []
-    const attempt = (action) => {
+    const attempt = async (action) => {
         try {
-            action()
+            await action()
             refusals.push('allowed')
         } catch (error) {
             refusals.push(error.code || error.message)
@@ -195,8 +195,8 @@ function pineFlow(file, ns) {
     }
     const deleting = api.deletePipeline('purge-race')
     await inside
-    attempt(() => api.startRun('purge-race'))
-    attempt(() => api.resumeRun(run.id))
+    await attempt(() => api.startRun('purge-race'))
+    await attempt(() => api.resumeRun(run.id))
     release()
     const deleted = await deleting
     fake.deleteMany = original
@@ -213,7 +213,7 @@ function pineFlow(file, ns) {
             deleted.errors.length === 0 &&
             left === 0 &&
             again.status === 'succeeded' &&
-            !api.getPipeline('purge-race'),
+            !(await api.getPipeline('purge-race')),
         JSON.stringify({ refusals, deleted, left, again: again.status })
     )
 }
@@ -238,7 +238,7 @@ function pineFlow(file, ns) {
             result.stores.length === 0 &&
             result.errors.length === 1 &&
             /1 parked vector ids could not be deleted \(Service unavailable/.test(result.errors[0].error) &&
-            !api.getPipeline('purge-parked'),
+            !(await api.getPipeline('purge-parked')),
         JSON.stringify(result)
     )
 }
@@ -273,7 +273,7 @@ function pineFlow(file, ns) {
             result.errors.length === 1 &&
             result.errors[0].store === 'SingleStore' &&
             /makes up its own vector ids/.test(result.errors[0].error) &&
-            !api.getPipeline('purge-append'),
+            !(await api.getPipeline('purge-append')),
         JSON.stringify({
             first: first.status,
             second: second.status,
@@ -340,7 +340,12 @@ function pineFlow(file, ns) {
         data: { name: 'singlestore', label: 'SingleStore', category: 'Vector Stores', inputs: {}, credential: 'single-cred' }
     }
     const first = await runPipeline('purge-queued', 'Purge queued', singleFlow)
-    const next = api.recordVersion({ workspaceId: WS, id: 'purge-queued', name: 'Purge queued', flowData: pineFlow(file, 'purge-queued') })
+    const next = await api.recordVersion({
+        workspaceId: WS,
+        id: 'purge-queued',
+        name: 'Purge queued',
+        flowData: pineFlow(file, 'purge-queued')
+    })
     const now = new Date(Date.now() + 1000).toISOString()
     stmt(
         "INSERT INTO runs (id, pipeline_id, version, mode, status, created_at, updated_at) VALUES (?, ?, ?, 'incremental', 'queued', ?, ?)"
@@ -413,18 +418,18 @@ function pineFlow(file, ns) {
         await gateReleased
     }
     api.configureRunner({ contextFor: () => ({ workspaceId: WS, embedGate }) })
-    api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume first', flowData: flow })
-    const started = api.startRun('purge-resume', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
+    await api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume first', flowData: flow })
+    const started = await api.startRun('purge-resume', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
     const held = await Promise.race([gateReached, new Promise((resolve) => setTimeout(() => resolve(false), 10000))])
-    const pausing = held ? api.pauseRun(started.id).status : 'gate not reached'
+    const pausing = held ? (await api.pauseRun(started.id)).status : 'gate not reached'
     api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
     releaseGate()
     await api.waitForIdle()
-    const paused = api.runDetail(started.id)
-    api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume second', flowData: flow })
-    api.resumeRun(started.id)
+    const paused = await api.runDetail(started.id)
+    await api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume second', flowData: flow })
+    await api.resumeRun(started.id)
     await api.waitForIdle()
-    const done = api.runDetail(started.id)
+    const done = await api.runDetail(started.id)
     const first = LocalVectorStore.open('Purge resume first')
     const second = LocalVectorStore.open('Purge resume second')
     const before = { first: first.count(), second: second.count() }

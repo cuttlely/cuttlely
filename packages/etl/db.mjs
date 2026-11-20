@@ -275,6 +275,7 @@ export function etlDir() {
     return process.env.CUTTLELY_ETL_DIR || path.join(dataRoot(), 'etl')
 }
 
+// For the SQLite backend (store.mjs) and check seeding only. Engine modules go through store.mjs.
 export function db() {
     const file = path.join(etlDir(), 'etl.sqlite')
     if (cached && cached.file === file) return cached.handle
@@ -287,6 +288,7 @@ export function db() {
     return handle
 }
 
+// For the SQLite backend (store.mjs) and check seeding only. Engine modules go through store.mjs.
 export function stmt(sql) {
     db()
     let prepared = cached.statements.get(sql)
@@ -295,19 +297,6 @@ export function stmt(sql) {
         cached.statements.set(sql, prepared)
     }
     return prepared
-}
-
-export function tx(fn) {
-    const handle = db()
-    handle.exec('BEGIN IMMEDIATE')
-    try {
-        const result = fn(handle)
-        handle.exec('COMMIT')
-        return result
-    } catch (error) {
-        handle.exec('ROLLBACK')
-        throw error
-    }
 }
 
 export function closeDb() {

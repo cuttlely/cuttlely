@@ -153,27 +153,27 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     for (let i = 0; i < 8000; i += 1) lines.push(`R${i},Item ${i},waterproof alpine tent number ${i}`)
     fs.writeFileSync(file, lines.join('\n'))
     api.configureRunner({ contextFor: () => ({ embedDelayMs: 20 }) })
-    api.recordVersion({ workspaceId: WS, id: 'pause', name: 'Pause', flowData: flowFor(file, 'pause') })
-    const started = api.startRun('pause', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
-    let progressed = api.runDetail(started.id)
+    await api.recordVersion({ workspaceId: WS, id: 'pause', name: 'Pause', flowData: flowFor(file, 'pause') })
+    const started = await api.startRun('pause', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
+    let progressed = await api.runDetail(started.id)
     for (let i = 0; i < 400 && progressed.counters.embedded < 80 && progressed.status !== 'succeeded'; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 15))
-        progressed = api.runDetail(started.id)
+        progressed = await api.runDetail(started.id)
     }
     check('pause test caught the run mid-flight', progressed.status !== 'succeeded' && progressed.counters.embedded > 0, progressed.status)
-    api.pauseRun(started.id)
+    await api.pauseRun(started.id)
     api.configureRunner({ contextFor: () => ({}) })
     await api.waitForIdle()
-    const paused = api.runDetail(started.id)
+    const paused = await api.runDetail(started.id)
     check(
         'pause stops at a checkpoint',
         paused.status === 'paused' && paused.checkpoint && paused.counters.embedded > 0 && paused.counters.embedded < 8000,
         `${paused.status} embedded ${paused.counters.embedded}`
     )
     const embedded = paused.counters.embedded
-    api.resumeRun(started.id)
+    await api.resumeRun(started.id)
     await api.waitForIdle()
-    const done = api.runDetail(started.id)
+    const done = await api.runDetail(started.id)
     check(
         'resume finishes the same run',
         done.status === 'succeeded' && done.counters.embedded === 8000 && done.id === started.id,
@@ -185,10 +185,10 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
 {
     const file = path.join(root, 'restart.csv')
     fs.writeFileSync(file, ['sku,name,notes', ...Array.from({ length: 60 }, (_, i) => `K${i},Kit ${i},first aid kit`)].join('\n'))
-    api.recordVersion({ workspaceId: WS, id: 'restart', name: 'Restart', flowData: flowFor(file, 'restart') })
+    await api.recordVersion({ workspaceId: WS, id: 'restart', name: 'Restart', flowData: flowFor(file, 'restart') })
     const { executeRun } = await import('../execute.mjs')
     const { insertRun, updateRun } = await import('../runs.mjs')
-    const run = insertRun({
+    const run = await insertRun({
         pipelineId: 'restart',
         version: 1,
         mode: 'incremental',
@@ -198,17 +198,17 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     const running = executeRun(run.id, { control })
     for (let i = 0; i < 200; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 10))
-        if (api.runDetail(run.id).counters.embedded > 10) break
+        if ((await api.runDetail(run.id)).counters.embedded > 10) break
     }
     control.stopRequested = 'pause'
     await running
-    const interrupted = api.runDetail(run.id)
-    updateRun(run.id, { status: 'running' })
+    const interrupted = await api.runDetail(run.id)
+    await updateRun(run.id, { status: 'running' })
     const { resumeInterruptedRuns, waitForIdle } = await import('../runner.mjs')
-    const resumed = resumeInterruptedRuns()
+    const resumed = await resumeInterruptedRuns()
     check('restart finds the interrupted run', resumed.includes(run.id), resumed.join())
     await waitForIdle()
-    const done = api.runDetail(run.id)
+    const done = await api.runDetail(run.id)
     check(
         'restart continues from the checkpoint',
         done.status === 'succeeded' && done.counters.embedded === 60 && done.counters.embedded >= interrupted.counters.embedded,
@@ -246,10 +246,10 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
 
     const otherFile = path.join(root, 'gear-other.csv')
     fs.writeFileSync(otherFile, 'sku,name,notes\nX1,Crate,tenant canary brass\n')
-    api.recordVersion({ workspaceId: 'ws-other', id: 'gear-other', name: 'Gear', flowData: flowFor(otherFile, 'gear-other') })
-    const otherRun = api.startRun('gear-other', { mode: 'incremental', settings: { batchSize: 32, concurrency: 1, maxRetries: 0 } })
+    await api.recordVersion({ workspaceId: 'ws-other', id: 'gear-other', name: 'Gear', flowData: flowFor(otherFile, 'gear-other') })
+    const otherRun = await api.startRun('gear-other', { mode: 'incremental', settings: { batchSize: 32, concurrency: 1, maxRetries: 0 } })
     await api.waitForIdle()
-    const otherDetail = api.runDetail(otherRun.id)
+    const otherDetail = await api.runDetail(otherRun.id)
     check('the other workspace pipeline ran', otherDetail.status === 'succeeded', otherDetail.status)
     const ownHit = await executeModule(
         { nodeName: 'etlRetriever', inputs: { pipeline: 'Gear', topK: 1 }, outputs: { output: 'tool' } },
@@ -333,7 +333,7 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     const doc = (text) => ({ pageContent: text, metadata: { source: 'gear.csv' } })
     for (const shape of SHAPES) {
         if (!shape.adaptable || shape.kind === 'local') continue
-        const store = adaptStore(shape, createFake(shape), { pipelineId: `shape-${shape.nodeName}` })
+        const store = await adaptStore(shape, createFake(shape), { pipelineId: `shape-${shape.nodeName}` })
         await store.upsert(['a', 'b', 'c'], [vec(1), vec(0.2), vec(0.4)], [doc('tent'), doc('stove'), doc('pad')])
         await store.upsert(['a'], [vec(1)], [doc('tent')])
         await store.upsert(['b2'], [vec(0)], [doc('liquid fuel')])
@@ -509,45 +509,48 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     )
     const file = path.join(root, 'sched.csv')
     fs.writeFileSync(file, 'sku,name,notes\nA1,Tent,ridge\n')
-    api.recordVersion({ workspaceId: WS, id: 'sched', name: 'Sched', flowData: flowFor(file, 'sched') })
-    const created = api.createSchedule('sched', { kind: 'interval', every: 15, unit: 'minutes' })
+    await api.recordVersion({ workspaceId: WS, id: 'sched', name: 'Sched', flowData: flowFor(file, 'sched') })
+    const created = await api.createSchedule('sched', { kind: 'interval', every: 15, unit: 'minutes' })
     check('a new schedule defaults to incremental', created.mode === 'incremental' && created.nextRunAt === '2026-10-03T15:15:00.000Z')
     when = new Date('2026-10-03T15:15:00.000Z')
-    api.tickSchedules()
-    const started = api.pipelineRuns('sched')
+    await api.tickSchedules()
+    const started = await api.pipelineRuns('sched')
     check('a due schedule starts an incremental run', started.length === 1 && started[0].mode === 'incremental', started[0]?.mode)
     when = new Date('2026-10-03T15:30:00.000Z')
-    api.tickSchedules()
-    const skipped = api.getSchedule(created.id)
+    await api.tickSchedules()
+    const skipped = await api.getSchedule(created.id)
     check(
         'an overlapping tick is skipped',
-        skipped.lastResult === 'skipped' && /still/.test(skipped.lastReason || '') && api.pipelineRuns('sched').length === 1,
+        skipped.lastResult === 'skipped' && /still/.test(skipped.lastReason || '') && (await api.pipelineRuns('sched')).length === 1,
         skipped.lastReason
     )
-    api.pauseSchedule(created.id)
+    await api.pauseSchedule(created.id)
     when = new Date('2026-10-03T15:45:00.000Z')
-    api.tickSchedules()
-    check('a paused schedule does not fire', api.getSchedule(created.id).status === 'paused' && api.pipelineRuns('sched').length === 1)
+    await api.tickSchedules()
+    check(
+        'a paused schedule does not fire',
+        (await api.getSchedule(created.id)).status === 'paused' && (await api.pipelineRuns('sched')).length === 1
+    )
     api.stopScheduler()
     const file2 = path.join(root, 'sched2.csv')
     fs.writeFileSync(file2, 'sku,name,notes\nB1,Lamp,head\n')
-    api.recordVersion({ workspaceId: WS, id: 'sched2', name: 'Sched Two', flowData: flowFor(file2, 'sched2') })
-    const second = api.createSchedule('sched2', { every: 10, unit: 'minutes' })
+    await api.recordVersion({ workspaceId: WS, id: 'sched2', name: 'Sched Two', flowData: flowFor(file2, 'sched2') })
+    const second = await api.createSchedule('sched2', { every: 10, unit: 'minutes' })
     when = new Date(second.nextRunAt)
-    api.bootEtl()
-    const restarted = api.pipelineRuns('sched2')
+    await api.bootEtl()
+    const restarted = await api.pipelineRuns('sched2')
     check(
         'a restart fires a due schedule and leaves a paused one paused',
-        restarted.length === 1 && restarted[0].mode === 'incremental' && api.getSchedule(created.id).status === 'paused',
-        `${restarted.length} ${restarted[0]?.mode} ${api.getSchedule(created.id).status}`
+        restarted.length === 1 && restarted[0].mode === 'incremental' && (await api.getSchedule(created.id)).status === 'paused',
+        `${restarted.length} ${restarted[0]?.mode} ${(await api.getSchedule(created.id)).status}`
     )
     api.stopScheduler()
-    api.cancelRun(started[0].id)
+    await api.cancelRun(started[0].id)
     await api.waitForIdle()
-    const resumed = api.resumeSchedule(created.id)
+    const resumed = await api.resumeSchedule(created.id)
     when = new Date(resumed.nextRunAt)
-    api.tickSchedules()
-    const afterResume = api.pipelineRuns('sched')
+    await api.tickSchedules()
+    const afterResume = await api.pipelineRuns('sched')
     check('resuming a schedule lets the next tick run', afterResume.length >= 2, String(afterResume.length))
     api.stopScheduler()
     api.configureRunner({ contextFor: () => ({}) })
@@ -597,27 +600,27 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     check('a namespace is at most 512 characters', /512/.test(problem('n'.repeat(513))), problem('n'.repeat(513)))
     check('a specific namespace compiles', problem('ns-alpha') === '' && problem('  ns-alpha  ') === '')
 
-    const saved = api.recordVersion({ workspaceId: WS, id: 'ns-catalog', name: 'Namespace catalog', flowData: pineFlow('ns-alpha') })
+    const saved = await api.recordVersion({ workspaceId: WS, id: 'ns-catalog', name: 'Namespace catalog', flowData: pineFlow('ns-alpha') })
     check(
         'the namespace is saved before it is written',
-        saved.problems.length === 0 && api.namespaceOptions('Namespace catalog', WS).length === 0
+        saved.problems.length === 0 && (await api.namespaceOptions('Namespace catalog', WS)).length === 0
     )
 
     const fake = createFake(shapeFor('pinecone'))
     fake.namespace = 'ns-alpha'
     api.configureRunner({ contextFor: () => ({ storeClients: { pinecone: fake } }) })
     const finish = async (run) => {
-        let detail = api.runDetail(run.id)
+        let detail = await api.runDetail(run.id)
         while (['queued', 'running', 'pausing', 'cancelling'].includes(detail.status)) {
             await api.waitForIdle()
             await new Promise((resolve) => setImmediate(resolve))
-            detail = api.runDetail(run.id)
+            detail = await api.runDetail(run.id)
         }
         return detail
     }
-    const first = api.startRun('ns-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
+    const first = await api.startRun('ns-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
     const firstDetail = await finish(first)
-    const listed = api.namespaceOptions('Namespace catalog', WS)
+    const listed = await api.namespaceOptions('Namespace catalog', WS)
     check(
         'a successful run lists the namespace it created',
         firstDetail.status === 'succeeded' &&
@@ -642,10 +645,10 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     check('a namespace the pipeline has not written is refused', refused === 'not_found', refused)
 
     fake.namespace = 'ns-beta'
-    api.recordVersion({ workspaceId: WS, id: 'ns-catalog', name: 'Namespace catalog', flowData: pineFlow('ns-beta') })
-    const second = api.startRun('ns-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
+    await api.recordVersion({ workspaceId: WS, id: 'ns-catalog', name: 'Namespace catalog', flowData: pineFlow('ns-beta') })
+    const second = await api.startRun('ns-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
     const secondDetail = await finish(second)
-    const both = api.namespaceOptions('Namespace catalog', WS).map((option) => `${option.name}:${option.description}`)
+    const both = (await api.namespaceOptions('Namespace catalog', WS)).map((option) => `${option.name}:${option.description}`)
     const served = await api.searchPipeline('Namespace catalog', 'brass lantern', { k: 1, ctx })
     const older = await api.searchPipeline('Namespace catalog', 'brass lantern', { k: 1, namespace: 'ns-alpha', ctx })
     check(
@@ -660,23 +663,23 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     )
     check(
         'a default Pinecone namespace and a local collection are not listed',
-        api.namespaceOptions('Hosted', WS).length === 0 && api.namespaceOptions('Gear', WS).length === 0
+        (await api.namespaceOptions('Hosted', WS)).length === 0 && (await api.namespaceOptions('Gear', WS)).length === 0
     )
     let other = ''
     let missingWs = ''
     try {
-        api.namespaceOptions('Namespace catalog', 'ws-other')
+        await api.namespaceOptions('Namespace catalog', 'ws-other')
     } catch (error) {
         other = `${error.code}:${error.status}`
     }
     try {
-        api.namespaceOptions('Namespace catalog')
+        await api.namespaceOptions('Namespace catalog')
     } catch (error) {
         missingWs = error.code
     }
     check(
         'namespace options stay in the pipeline’s workspace',
-        other === 'not_found:404' && missingWs === 'workspace_required' && api.namespaceOptions('', WS).length === 0,
+        other === 'not_found:404' && missingWs === 'workspace_required' && (await api.namespaceOptions('', WS)).length === 0,
         `${other} ${missingWs}`
     )
 
@@ -742,7 +745,7 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
             return [[{ pageContent: 'from the endpoint', metadata: { source: 'redis' }, id: 'r1' }, 0.8]]
         }
     }
-    const redis = adaptStore(shapeFor('redis'), endpoint, { pipelineId: 'redis-endpoint' })
+    const redis = await adaptStore(shapeFor('redis'), endpoint, { pipelineId: 'redis-endpoint' })
     await redis.upsert(['a'], [[1, 0, 0]], [{ pageContent: 'ignored', metadata: {} }])
     const redisHit = await redis.search([1, 0, 0], 1)
     const textStore = {
@@ -756,7 +759,7 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
             return [[{ pageContent: `heard ${query}`, metadata: {}, id: 'v1' }, 1]]
         }
     }
-    const vectara = adaptStore(shapeFor('vectara'), textStore, { pipelineId: 'vectara-endpoint' })
+    const vectara = await adaptStore(shapeFor('vectara'), textStore, { pipelineId: 'vectara-endpoint' })
     const vectaraHit = await vectara.search([1, 0], 1, 'cobalt')
     check(
         'a retriever uses the store endpoint when that store does not keep a local row map',
@@ -792,23 +795,23 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
         ]
     })
     api.configureRunner({ contextFor: () => ({}) })
-    const saved = api.recordVersion({ workspaceId: WS, id: 'mem-catalog', name: 'Memory catalog', flowData: memoryFlow() })
+    const saved = await api.recordVersion({ workspaceId: WS, id: 'mem-catalog', name: 'Memory catalog', flowData: memoryFlow() })
     const finish = async (run) => {
-        let detail = api.runDetail(run.id)
+        let detail = await api.runDetail(run.id)
         while (['queued', 'running', 'pausing', 'cancelling'].includes(detail.status)) {
             await api.waitForIdle()
             await new Promise((resolve) => setImmediate(resolve))
-            detail = api.runDetail(run.id)
+            detail = await api.runDetail(run.id)
         }
         return detail
     }
     const first = await finish(
-        api.startRun('mem-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
+        await api.startRun('mem-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
     )
     const found = await api.searchPipeline('Memory catalog', 'cobalt lantern', { k: 2, ctx: { workspaceId: WS } })
     fs.writeFileSync(file, 'sku,name,notes\nM1,Memory note,cobalt revised\n')
     const second = await finish(
-        api.startRun('mem-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
+        await api.startRun('mem-catalog', { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0 } })
     )
     const revised = await api.searchPipeline('Memory catalog', 'cobalt revised', { k: 2, ctx: { workspaceId: WS } })
     const texts = (revised.results || []).map((hit) => hit.pageContent).join('\n')
@@ -829,7 +832,7 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
             texts.includes('revised') &&
             !texts.includes('lantern') &&
             docs.some((doc) => doc.pageContent.includes('revised')) &&
-            api.namespaceOptions('Memory catalog', WS).length === 0,
+            (await api.namespaceOptions('Memory catalog', WS)).length === 0,
         JSON.stringify({
             problems: saved.problems,
             first: first.status,

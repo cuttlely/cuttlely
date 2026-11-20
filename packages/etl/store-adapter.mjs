@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
-import { stmt } from './db.mjs'
 import { EtlError } from './errors.mjs'
+import * as etlStore from './store.mjs'
 
 // One identity adapter for every Flowise vector store. The shape table is how each
 // client's upsert, delete and query are spelled. The adapter keeps a chunk id → provider
@@ -61,11 +61,11 @@ export function shapeFor(nodeName) {
 export const STALE_PREFIX = 'stale:'
 const FETCH_BATCH = 100
 
-function loadIndex(pipelineId) {
+async function loadIndex(pipelineId) {
     const index = new Map()
     const stale = new Set()
     if (!pipelineId) return { index, stale }
-    for (const row of stmt('SELECT chunk_id, provider_id FROM vector_ids WHERE pipeline_id = ?').all(pipelineId)) {
+    for (const row of await etlStore.all('SELECT chunk_id, provider_id FROM vector_ids WHERE pipeline_id = ?', [pipelineId])) {
         if (row.chunk_id.startsWith(STALE_PREFIX)) stale.add(row.provider_id)
         else index.set(row.chunk_id, row.provider_id)
     }
@@ -73,22 +73,25 @@ function loadIndex(pipelineId) {
 }
 
 // Stale provider ids parked by a failed delete, for the store-count check: the store may still hold them.
-export function pendingStaleCount(pipelineId) {
+export async function pendingStaleCount(pipelineId) {
     if (!pipelineId) return 0
-    return Number(stmt("SELECT COUNT(*) AS n FROM vector_ids WHERE pipeline_id = ? AND chunk_id LIKE 'stale:%'").get(pipelineId).n)
+    return Number(
+        (await etlStore.get("SELECT COUNT(*) AS n FROM vector_ids WHERE pipeline_id = ? AND chunk_id LIKE 'stale:%'", [pipelineId])).n
+    )
 }
 
-function saveIndex(pipelineId, chunkId, providerId) {
+async function saveIndex(pipelineId, chunkId, providerId) {
     if (!pipelineId) return
-    stmt(
+    await etlStore.run(
         `INSERT INTO vector_ids (pipeline_id, chunk_id, provider_id) VALUES (?, ?, ?)
-         ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET provider_id = excluded.provider_id`
-    ).run(pipelineId, chunkId, providerId)
+         ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET provider_id = excluded.provider_id`,
+        [pipelineId, chunkId, providerId]
+    )
 }
 
-function dropIndex(pipelineId, chunkId) {
+async function dropIndex(pipelineId, chunkId) {
     if (!pipelineId) return
-    stmt('DELETE FROM vector_ids WHERE pipeline_id = ? AND chunk_id = ?').run(pipelineId, chunkId)
+    await etlStore.run('DELETE FROM vector_ids WHERE pipeline_id = ? AND chunk_id = ?', [pipelineId, chunkId])
 }
 
 function asArray(vector) {
@@ -620,7 +623,11 @@ export function legacyDeleteFirst(ctx) {
 // used before it moved, or a write that stopped before the map was saved). Only for stores whose provider ids are the
 // chunk ids (`stableIds`). `skipParked` leaves ids parked by an earlier failed delete alone, for a store they may not
 // belong to.
-export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = false, onStale, rawIds = false, skipParked = false } = {}) {
+export async function adaptStore(
+    shape,
+    client,
+    { pipelineId, legacyDeleteFirst = false, onStale, rawIds = false, skipParked = false } = {}
+) {
     if (!shape?.adaptable || !HANDLERS[shape.kind]) {
         const reason = shape?.reason || `${shape?.label || 'This store'} cannot take incremental chunk ids.`
         const fail = async () => {
@@ -629,11 +636,13 @@ export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = fals
         return { upsert: fail, delete: fail, search: fail, dump: () => [], canCount: false }
     }
     const handler = HANDLERS[shape.kind]
-    const loaded = loadIndex(pipelineId)
+    const loaded = await loadIndex(pipelineId)
     const index = rawIds ? new Map() : loaded.index
     const parked = skipParked ? new Set() : loaded.stale
     if (shape.kind === 'shadow' && pipelineId && client.rows.size === 0) {
-        for (const row of stmt('SELECT chunk_id, content, metadata, embedding FROM shadow_vectors WHERE pipeline_id = ?').all(pipelineId)) {
+        for (const row of await etlStore.all('SELECT chunk_id, content, metadata, embedding FROM shadow_vectors WHERE pipeline_id = ?', [
+            pipelineId
+        ])) {
             client.rows.set(row.chunk_id, {
                 text: row.content,
                 metadata: JSON.parse(row.metadata || '{}'),
@@ -641,12 +650,12 @@ export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = fals
             })
         }
     }
-    const park = (ids, error) => {
-        ids.forEach((id) => {
+    const park = async (ids, error) => {
+        for (const id of ids) {
             parked.add(id)
-            saveIndex(pipelineId, `${STALE_PREFIX}${id}`, id)
-        })
-        if (onStale) onStale(ids, error)
+            await saveIndex(pipelineId, `${STALE_PREFIX}${id}`, id)
+        }
+        if (onStale) await onStale(ids, error)
     }
     let parkedTried = false
     const clearParked = async () => {
@@ -656,13 +665,13 @@ export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = fals
         try {
             await handler.delete(client, ids)
         } catch (error) {
-            if (onStale) onStale(ids, error)
+            if (onStale) await onStale(ids, error)
             return
         }
-        ids.forEach((id) => {
+        for (const id of ids) {
             parked.delete(id)
-            dropIndex(pipelineId, `${STALE_PREFIX}${id}`)
-        })
+            await dropIndex(pipelineId, `${STALE_PREFIX}${id}`)
+        }
     }
     const canCount = typeof handler.canCount === 'function' && handler.canCount(client)
     return {
@@ -676,16 +685,18 @@ export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = fals
             }
             const written = await handler.upsert(client, ids, vectors, docs)
             const provider = Array.isArray(written) && written.length === ids.length ? written : ids
-            ids.forEach((id, i) => {
+            for (let i = 0; i < ids.length; i += 1) {
+                const id = ids[i]
                 index.set(id, String(provider[i]))
-                saveIndex(pipelineId, id, String(provider[i]))
+                await saveIndex(pipelineId, id, String(provider[i]))
                 if (shape.kind === 'shadow' && pipelineId) {
-                    stmt(
+                    await etlStore.run(
                         `INSERT INTO shadow_vectors (pipeline_id, chunk_id, content, metadata, embedding) VALUES (?, ?, ?, ?, ?)
-                         ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET content = excluded.content, metadata = excluded.metadata, embedding = excluded.embedding`
-                    ).run(pipelineId, id, docs[i].pageContent, JSON.stringify(docs[i].metadata || {}), JSON.stringify(asArray(vectors[i])))
+                         ON CONFLICT (pipeline_id, chunk_id) DO UPDATE SET content = excluded.content, metadata = excluded.metadata, embedding = excluded.embedding`,
+                        [pipelineId, id, docs[i].pageContent, JSON.stringify(docs[i].metadata || {}), JSON.stringify(asArray(vectors[i]))]
+                    )
                 }
-            })
+            }
             if (legacyDeleteFirst) return
             const kept = new Set(provider.map(String))
             const stale = previous.filter((old) => old && !kept.has(old))
@@ -693,26 +704,26 @@ export function adaptStore(shape, client, { pipelineId, legacyDeleteFirst = fals
             try {
                 await handler.delete(client, stale)
             } catch (error) {
-                park(stale, error)
+                await park(stale, error)
             }
         },
         async delete(ids) {
             await clearParked()
             const provider = rawIds ? ids : ids.map((id) => index.get(id)).filter(Boolean)
             if (provider.length) await handler.delete(client, provider)
-            ids.forEach((id) => {
+            for (const id of ids) {
                 index.delete(id)
-                dropIndex(pipelineId, id)
+                await dropIndex(pipelineId, id)
                 if (shape.kind === 'shadow' && pipelineId)
-                    stmt('DELETE FROM shadow_vectors WHERE pipeline_id = ? AND chunk_id = ?').run(pipelineId, id)
-            })
+                    await etlStore.run('DELETE FROM shadow_vectors WHERE pipeline_id = ? AND chunk_id = ?', [pipelineId, id])
+            }
         },
         // Forget chunk ids the store no longer holds, so the next write treats them as new.
-        forget(ids) {
-            ids.forEach((id) => {
+        async forget(ids) {
+            for (const id of ids) {
                 index.delete(id)
-                dropIndex(pipelineId, id)
-            })
+                await dropIndex(pipelineId, id)
+            }
         },
         search: (vector, k, queryText) => handler.query(client, vector, k, queryText),
         dump: () => handler.dump(client),

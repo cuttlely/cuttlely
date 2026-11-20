@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { now, parseJson, stmt } from './db.mjs'
+import { now, parseJson } from './db.mjs'
+import * as etlStore from './store.mjs'
 import { truncateCodePoints } from './text.mjs'
 
 export const ACTIVE_STATUSES = ['queued', 'running', 'pausing', 'cancelling']
@@ -89,57 +90,60 @@ function runRow(row) {
     }
 }
 
-export function insertRun({ pipelineId, version, mode, settings }) {
+export async function insertRun({ pipelineId, version, mode, settings }) {
     const id = crypto.randomUUID()
     const stamp = now()
-    stmt(
-        'INSERT INTO runs (id, pipeline_id, version, mode, status, settings, counters, steps, attempt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
-    ).run(
-        id,
-        pipelineId,
-        version,
-        mode,
-        'queued',
-        JSON.stringify(settings),
-        JSON.stringify(emptyCounters()),
-        JSON.stringify(emptySteps()),
-        stamp,
-        stamp
+    await etlStore.run(
+        'INSERT INTO runs (id, pipeline_id, version, mode, status, settings, counters, steps, attempt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)',
+        [
+            id,
+            pipelineId,
+            version,
+            mode,
+            'queued',
+            JSON.stringify(settings),
+            JSON.stringify(emptyCounters()),
+            JSON.stringify(emptySteps()),
+            stamp,
+            stamp
+        ]
     )
     return getRun(id)
 }
 
-export function getRun(id) {
-    return runRow(stmt('SELECT * FROM runs WHERE id = ?').get(id))
+// `q` is the store, or inside a transaction the transaction's handle.
+export async function getRun(id, q = etlStore) {
+    return runRow(await q.get('SELECT * FROM runs WHERE id = ?', [id]))
 }
 
-export function listRuns(pipelineId, limit = 50) {
-    return stmt('SELECT * FROM runs WHERE pipeline_id = ? ORDER BY created_at DESC LIMIT ?')
-        .all(pipelineId, Number(limit) || 50)
-        .map(runRow)
+export async function listRuns(pipelineId, limit = 50) {
+    return (
+        await etlStore.all('SELECT * FROM runs WHERE pipeline_id = ? ORDER BY created_at DESC LIMIT ?', [pipelineId, Number(limit) || 50])
+    ).map(runRow)
 }
 
-export function runsWithStatus(statuses) {
-    return stmt(`SELECT * FROM runs WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY created_at`)
-        .all(...statuses)
-        .map(runRow)
+export async function runsWithStatus(statuses) {
+    return (
+        await etlStore.all(`SELECT * FROM runs WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY created_at`, [...statuses])
+    ).map(runRow)
 }
 
-export function activeRunFor(pipelineId) {
+export async function activeRunFor(pipelineId) {
     return runRow(
-        stmt(
+        await etlStore.get(
             `SELECT * FROM runs WHERE pipeline_id = ? AND status IN (${ACTIVE_STATUSES.map(() => '?').join(
                 ', '
-            )}) ORDER BY created_at DESC LIMIT 1`
-        ).get(pipelineId, ...ACTIVE_STATUSES)
+            )}) ORDER BY created_at DESC LIMIT 1`,
+            [pipelineId, ...ACTIVE_STATUSES]
+        )
     )
 }
 
-export function lastRunFor(pipelineId) {
-    return runRow(stmt('SELECT * FROM runs WHERE pipeline_id = ? ORDER BY created_at DESC LIMIT 1').get(pipelineId))
+export async function lastRunFor(pipelineId) {
+    return runRow(await etlStore.get('SELECT * FROM runs WHERE pipeline_id = ? ORDER BY created_at DESC LIMIT 1', [pipelineId]))
 }
 
-export function updateRun(id, fields) {
+export async function updateRun(id, fields, q = etlStore) {
     const columns = {
         status: fields.status,
         checkpoint: fields.checkpoint === undefined ? undefined : JSON.stringify(fields.checkpoint),
@@ -153,23 +157,30 @@ export function updateRun(id, fields) {
     }
     const entries = Object.entries(columns).filter(([, value]) => value !== undefined)
     entries.push(['updated_at', now()])
-    stmt(`UPDATE runs SET ${entries.map(([key]) => `${key} = ?`).join(', ')} WHERE id = ?`).run(...entries.map(([, value]) => value), id)
+    await q.run(`UPDATE runs SET ${entries.map(([key]) => `${key} = ?`).join(', ')} WHERE id = ?`, [
+        ...entries.map(([, value]) => value),
+        id
+    ])
 }
 
-export function addEvent(runId, level, step, message) {
-    const count = stmt('SELECT COUNT(*) AS n FROM run_events WHERE run_id = ?').get(runId).n
+export async function addEvent(runId, level, step, message, q = etlStore) {
+    const count = (await q.get('SELECT COUNT(*) AS n FROM run_events WHERE run_id = ?', [runId])).n
     if (count >= EVENT_CAP && level !== 'error') return
-    stmt('INSERT INTO run_events (run_id, ts, level, step, message) VALUES (?, ?, ?, ?, ?)').run(
+    await q.run('INSERT INTO run_events (run_id, ts, level, step, message) VALUES (?, ?, ?, ?, ?)', [
         runId,
         now(),
         level,
         step || null,
         truncateCodePoints(String(message), 2000)
-    )
+    ])
 }
 
-export function listEvents(runId, { after = 0, limit = 200 } = {}) {
-    return stmt('SELECT id, ts, level, step, message FROM run_events WHERE run_id = ? AND id > ? ORDER BY id DESC LIMIT ?')
-        .all(runId, Number(after) || 0, Number(limit) || 200)
-        .reverse()
+export async function listEvents(runId, { after = 0, limit = 200 } = {}) {
+    return (
+        await etlStore.all('SELECT id, ts, level, step, message FROM run_events WHERE run_id = ? AND id > ? ORDER BY id DESC LIMIT ?', [
+            runId,
+            Number(after) || 0,
+            Number(limit) || 200
+        ])
+    ).reverse()
 }

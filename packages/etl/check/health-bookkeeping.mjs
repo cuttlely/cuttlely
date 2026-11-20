@@ -22,9 +22,9 @@ const flow = {
 }
 let server, worker, original
 try {
-    const p = api.recordVersion({ id: 'health-bookkeeping', name: 'Health fixture', workspaceId: WS, flowData: flow })
+    const p = await api.recordVersion({ id: 'health-bookkeeping', name: 'Health fixture', workspaceId: WS, flowData: flow })
     if (p.problems.length) throw Error(p.problems.join(';'))
-    api.startRun('health-bookkeeping')
+    await api.startRun('health-bookkeeping')
     await api.waitForIdle()
     server = http.createServer((_q, r) => r.end('pong'))
     await new Promise((r) => server.listen(0, '127.0.0.1', r))
@@ -48,9 +48,9 @@ try {
         }
         return original.call(this, sql)
     }
-    const run = api.startRun('health-bookkeeping', { settings: { batchSize: 64, concurrency: 4 } })
+    const run = await api.startRun('health-bookkeeping', { settings: { batchSize: 64, concurrency: 4 } })
     await api.waitForIdle()
-    const result = api.runDetail(run.id)
+    const result = await api.runDetail(run.id)
     check('health test exercised unchanged-source transactions', started)
     const health = await probe
     check('HTTP health responds during slow unchanged-source bookkeeping', health.http === 200, JSON.stringify(health))
