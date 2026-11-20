@@ -48,6 +48,29 @@ def _key(path: Path | str) -> str:
         return str(path)
 
 
+def _opened_db_path(conn: sqlite3.Connection, path: Path | str, uri: bool) -> Optional[str]:
+    """Like :func:`_canonical_db_path`, but a failed ``PRAGMA database_list`` (e.g. a busy schema
+    read) falls back to the path the caller opened instead of looking like an in-memory database:
+    an unowned file-backed connection would let a peer's last release close a probe under its locks."""
+    try:
+        row = conn.execute("PRAGMA database_list").fetchone()
+    except sqlite3.Error:
+        row = None
+    else:
+        if not row or len(row) < 3 or not row[2]:
+            return None  # SQLite itself reports no file: in-memory / temporary database
+        return _key(row[2])
+    text = str(path)
+    if uri and text.startswith("file:"):
+        target, _, query = text[len("file:"):].partition("?")
+        if "mode=memory" in query or target in ("", ":memory:"):
+            return None
+        return _key(target)
+    if text in ("", ":memory:"):
+        return None
+    return _key(text)
+
+
 def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
     """The on-disk path of ``main`` as SQLite reports it (immune to ``file:`` URIs, relative paths,
     symlinks). ``None`` for in-memory/unnamed databases, which cannot be byte-probed."""
@@ -191,7 +214,8 @@ def connect_tracked(
     with _live_lock:
         conn = opener(str(path), **kwargs)
         try:
-            resolved = _key(tracking_path) if tracking_path is not None else _canonical_db_path(conn)
+            resolved = (_key(tracking_path) if tracking_path is not None
+                        else _opened_db_path(conn, path, bool(kwargs.get("uri"))))
             if resolved is None:
                 return conn  # in-memory / unnamed: nothing on disk to byte-probe
             if not isinstance(conn, _TrackingMixin):

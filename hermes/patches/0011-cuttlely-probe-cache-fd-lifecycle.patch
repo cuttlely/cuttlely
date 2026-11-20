@@ -15,12 +15,12 @@ What: count SQLite header-probe owners by device/inode across every state databa
  hermes_cli/doctor_state.py                    |  10 +-
  .../observability/shared_metrics_snapshot.py  |   5 +-
  hermes_cli/sessions_cmd_journal_mode.py       |   4 +-
- hermes_cli/sqlite_safe_read.py                |  65 +++++--
+ hermes_cli/sqlite_safe_read.py                |  91 ++++++++--
  hermes_cli/sqlite_util.py                     |   4 +-
  hermes_state_dbfile.py                        | 166 ++++++++++++++----
  hermes_state_repair.py                        |  11 +-
  plugins/memory/honcho/cli.py                  |   4 +-
- 15 files changed, 254 insertions(+), 70 deletions(-)
+ 15 files changed, 279 insertions(+), 71 deletions(-)
 
 diff --git a/gateway/hosted_rooms.py b/gateway/hosted_rooms.py
 index 34165f228239660e54df95cb1997adf4e8d32e57..55c5fe6e877760401eec072638cd5194515fd20a 100644
@@ -270,7 +270,7 @@ index bb3e59457e5317273d334d27f85d762d5f691598..f322c2ff9a03927adc3b7244b0d15fbf
          print(f"✗ Cannot open {db_path}: {exc}")
          return 1
 diff --git a/hermes_cli/sqlite_safe_read.py b/hermes_cli/sqlite_safe_read.py
-index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef6795466d61 100644
+index 6ad3dc632b59749085976eeaf3d4889bf9566f24..c3bedc14873198f938df0bdaa94718e289a05326 100644
 --- a/hermes_cli/sqlite_safe_read.py
 +++ b/hermes_cli/sqlite_safe_read.py
 @@ -12,17 +12,23 @@ import contextlib
@@ -299,7 +299,37 @@ index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef67
  
  
  class UntrackableConnectionError(RuntimeError):
-@@ -54,11 +60,17 @@ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
+@@ -42,6 +48,29 @@ def _key(path: Path | str) -> str:
+         return str(path)
+ 
+ 
++def _opened_db_path(conn: sqlite3.Connection, path: Path | str, uri: bool) -> Optional[str]:
++    """Like :func:`_canonical_db_path`, but a failed ``PRAGMA database_list`` (e.g. a busy schema
++    read) falls back to the path the caller opened instead of looking like an in-memory database:
++    an unowned file-backed connection would let a peer's last release close a probe under its locks."""
++    try:
++        row = conn.execute("PRAGMA database_list").fetchone()
++    except sqlite3.Error:
++        row = None
++    else:
++        if not row or len(row) < 3 or not row[2]:
++            return None  # SQLite itself reports no file: in-memory / temporary database
++        return _key(row[2])
++    text = str(path)
++    if uri and text.startswith("file:"):
++        target, _, query = text[len("file:"):].partition("?")
++        if "mode=memory" in query or target in ("", ":memory:"):
++            return None
++        return _key(target)
++    if text in ("", ":memory:"):
++        return None
++    return _key(text)
++
++
+ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
+     """The on-disk path of ``main`` as SQLite reports it (immune to ``file:`` URIs, relative paths,
+     symlinks). ``None`` for in-memory/unnamed databases, which cannot be byte-probed."""
+@@ -54,11 +83,17 @@ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
      return _key(row[2])
  
  
@@ -321,7 +351,7 @@ index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef67
  
  
  def _track_key(key: str, delta: int = 1) -> None:
-@@ -70,10 +82,32 @@ def _track_key(key: str, delta: int = 1) -> None:
+@@ -70,10 +105,32 @@ def _track_key(key: str, delta: int = 1) -> None:
          _live_connections.pop(key, None)
  
  
@@ -357,7 +387,7 @@ index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef67
  
  
  def _live_main_key(key: str) -> Optional[str]:
-@@ -98,7 +132,7 @@ def has_live_connection(path: Path | str) -> bool:
+@@ -98,7 +155,7 @@ def has_live_connection(path: Path | str) -> bool:
          return _live_main_key(_key(path)) is not None
  
  
@@ -366,7 +396,7 @@ index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef67
      """Untrack-on-close behaviour, mixable into any Connection subclass.
  
      The real ``close()`` and the unregister happen together under ``_live_lock`` so a concurrent
-@@ -118,7 +152,7 @@ class _TrackingMixin:
+@@ -118,7 +175,7 @@ class _TrackingMixin:
              super().close()  # type: ignore[misc]
              if path is not None:
                  self._hermes_tracked_path = None
@@ -375,7 +405,17 @@ index 6ad3dc632b59749085976eeaf3d4889bf9566f24..fdef4d33da610abffffbcf8f0ad4ef67
  
  
  class TrackedConnection(_TrackingMixin, sqlite3.Connection):
-@@ -165,14 +199,15 @@ def connect_tracked(
+@@ -157,7 +214,8 @@ def connect_tracked(
+     with _live_lock:
+         conn = opener(str(path), **kwargs)
+         try:
+-            resolved = _key(tracking_path) if tracking_path is not None else _canonical_db_path(conn)
++            resolved = (_key(tracking_path) if tracking_path is not None
++                        else _opened_db_path(conn, path, bool(kwargs.get("uri"))))
+             if resolved is None:
+                 return conn  # in-memory / unnamed: nothing on disk to byte-probe
+             if not isinstance(conn, _TrackingMixin):
+@@ -165,14 +223,15 @@ def connect_tracked(
                  # simulating FTS5-less runtimes do this). Retag the instance's class so close()
                  # still releases the registry entry rather than silently losing probe safety.
                  conn = _retrofit_tracking(conn, resolved)

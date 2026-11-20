@@ -163,6 +163,72 @@ assert fd_count() == before
 )
 
 regression(
+    'a failed path lookup after open still registers the file-backed connection as an owner',
+    String.raw`
+path = root / 'state.db'
+plain_db(path).close()
+empty()
+
+def busy_lookup(target, **kwargs):
+    base = kwargs['factory']
+
+    class BusyLookup(base):
+        def execute(self, sql, *args):
+            if 'database_list' in sql:
+                raise sqlite3.OperationalError('database is locked')
+            return super().execute(sql, *args)
+
+    kwargs['factory'] = BusyLookup
+    return sqlite3.connect(target, **kwargs)
+
+for target, kwargs in ((path, {}), (f'file:{path}?mode=ro', {'uri': True})):
+    owner = connect_tracked(target, connect_fn=busy_lookup, **kwargs)
+    assert probes._HEADER_PROBE_OWNERS == {identity(path): 1}, probes._HEADER_PROBE_OWNERS
+    fd = probe_fd(path)
+    peer = plain_db(path)
+    peer.close()
+    os.fstat(fd)  # the busy-lookup owner still holds the inode
+    owner.close()
+    closed(fd)
+    empty()
+
+memory = connect_tracked(':memory:', connect_fn=busy_lookup)
+memory.close()
+empty()
+`,
+    { linux: true }
+)
+
+regression(
+    'the legacy hosted-room import owns the root state database while it reads it',
+    String.raw`
+import gateway.hosted_rooms_legacy_import as legacy_import
+import hermes_cli.sqlite_safe_read as tracking
+source = root / 'state.db'
+legacy = plain_db(source)
+legacy.execute('CREATE TABLE hosted_rooms (room_id TEXT PRIMARY KEY)')
+legacy.close()
+empty()
+target = sqlite3.connect(root / 'shared-state.db', isolation_level=None)
+target.execute('CREATE TABLE hosted_rooms (room_id TEXT PRIMARY KEY)')
+seen = []
+real = tracking.connect_tracked
+
+def watched(*args, **kwargs):
+    conn = real(*args, **kwargs)
+    seen.append(dict(probes._HEADER_PROBE_OWNERS))
+    return conn
+
+with patch.object(tracking, 'connect_tracked', watched):
+    assert legacy_import._copy_rows(target, source) == 0
+assert seen == [{identity(source): 1}], seen
+target.close()
+empty()
+`,
+    { linux: true }
+)
+
+regression(
     'SessionDB peers and an outstanding pooled reader each retain the shared probe',
     String.raw`
 path = root / 'state.db'
