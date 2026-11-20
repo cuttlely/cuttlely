@@ -223,8 +223,6 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Compose pulls the published Cuttlely image. If it cannot pull it, Compose builds the image from your checkout instead, which takes several minutes the first time, and each long build step says which of four it is. `docker compose ps` shows `(health: starting)` until Cuttlely is ready, then `(healthy)`. Opening [http://localhost:43117](http://localhost:43117) early shows a **Cuttlely is starting** page that opens Cuttlely by itself.
 
-    Container health checks use `/api/v1/ping/live`, which keeps the UI available during agent runtime recovery and still checks startup and the database. Use strict `/api/v1/ping` separately for monitoring and agent readiness. Verify the probe path on a custom gateway or load balancer after upgrading. [Health checks](./docs/how-to/reverse-proxy.md#health-checks).
-
     With Node 20+ and Docker you can skip the clone: `npx cuttlely start` pulls the image and runs it:
 
     ```bash
