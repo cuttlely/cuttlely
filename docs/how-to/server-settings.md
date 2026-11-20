@@ -93,7 +93,7 @@ The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime st
 
 ## Agent runtime recovery
 
-The start script supervises the agent runtime inside the image, including with plain `docker run` and no restart policy. These host environment variables apply after restarting the service; they are not controls in the settings panel.
+The start script supervises the agent runtime inside the image, including with plain `docker run` and no restart policy. These host environment variables apply after restarting the service; they are not controls in the settings panel. After a runtime restart, agent calls get `503 RUNTIME_UNAVAILABLE` with `Retry-After` until the replacement answers its first health check.
 
 | Variable                                      | Default | What it controls                                                                                                          |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |

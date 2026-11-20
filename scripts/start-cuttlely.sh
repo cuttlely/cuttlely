@@ -408,8 +408,14 @@ supervise_hermes() {
         if [[ "$lifetime_restarts" -gt 0 ]]; then
             echo "Hermes restarted pid ${HERMES_PID} (burst ${restarts} of ${HERMES_MAX_RESTARTS}, lifetime ${lifetime_restarts})." >&2
         fi
-        write_hermes_status up "$restarts" "" "$HERMES_PID"
         local healthy_once=0 marked=0 ticks=0 fails=0 fail_started=0 posted=up healthy_since=""
+        if [[ "$restarts" -gt 0 ]]; then
+            # A replacement stays "restarting" (agent calls refused with 503) until its first health answer reopens it.
+            write_hermes_status restarting "$restarts" "${reason:-replacement starting}" "$HERMES_PID"
+            posted=restarting
+        else
+            write_hermes_status up "$restarts" "" "$HERMES_PID"
+        fi
         local started_at now
         started_at="$(hermes_clock)"
         reason=""

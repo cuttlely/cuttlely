@@ -501,6 +501,35 @@ wait_for_gateway
         }
     })
 
+    it('a replacement runtime refuses agent calls until its first health answer', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-replacement-'))
+        const { assertRuntimeAvailable } = await import('../packages/harness/availability.cjs')
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_HERMES_MAX_RESTARTS: '3',
+            CUTTLELY_HERMES_HEALTH_GRACE: '0',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '2',
+            CUTTLELY_HERMES_HEALTH_FAILS: '2',
+            health: 'replacement-slow'
+        })
+        try {
+            await waitForStatus(dir, (row) => row?.restarts === 1, child, 15000)
+            // The replacement is running but has not answered health yet.
+            await delay(1500)
+            const starting = readHermesStatus(dir)
+            assert.equal(starting.state, 'restarting', child.output)
+            assert.throws(
+                () => assertRuntimeAvailable(dir),
+                (error) => error.code === 'RUNTIME_UNAVAILABLE'
+            )
+            fs.writeFileSync(path.join(dir, 'replacement-ready'), '1')
+            const up = await waitForStatus(dir, (row) => row?.state === 'up', child, 10000)
+            assert.equal(up.restarts, 1)
+            assert.doesNotThrow(() => assertRuntimeAvailable(dir))
+        } finally {
+            await stopSupervisor(child, dir)
+        }
+    })
+
     it('an exit during the warm-up grace restarts right away', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-exit-grace-'))
         const started = Number(process.hrtime.bigint() / 1000000n)
@@ -920,7 +949,18 @@ function superviseSource() {
 function spawnSupervisor(dir, options) {
     const health = options.health || 'fail-after-one'
     const healthBody =
-        health === 'exit'
+        health === 'replacement-slow'
+            ? `hermes_answers_health() {
+    n=$(cat "$PROBES")
+    n=$((n + 1))
+    echo "$n" > "$PROBES"
+    if [[ "$n" -eq 1 || -f "$DATA/replacement-ready" ]]; then
+        return 0
+    fi
+    return 1
+}
+start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
+            : health === 'exit'
             ? `hermes_answers_health() { return 1; }
 start_hermes_once() { "$NODE_BIN" -e 'process.exit(75)' & HERMES_PID=$!; }`
             : health === 'fail-then-recover'
