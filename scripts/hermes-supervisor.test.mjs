@@ -572,6 +572,50 @@ wait_for_gateway
         }
     })
 
+    it('a cold start (first launch, no stack restart) refuses agent calls until it answers health, then reopens', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-cold-start-'))
+        const { assertRuntimeAvailable } = await import('../packages/harness/availability.cjs')
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_STACK_RESTARTED: '',
+            CUTTLELY_HERMES_HEALTH_GRACE: '60',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '15',
+            health: 'replacement-slow-first'
+        })
+        try {
+            const starting = await waitForStatus(dir, (row) => row?.state === 'restarting', child, 8000)
+            assert.equal(starting.restarts, 0)
+            assert.equal(starting.detail, 'starting')
+            assert.throws(
+                () => assertRuntimeAvailable(dir),
+                (error) => error.code === 'RUNTIME_UNAVAILABLE'
+            )
+            fs.writeFileSync(path.join(dir, 'replacement-ready'), '1')
+            await waitForStatus(dir, (row) => row?.state === 'up', child, 10000)
+            assert.doesNotThrow(() => assertRuntimeAvailable(dir))
+        } finally {
+            await stopSupervisor(child, dir)
+        }
+    })
+
+    it('a cold start that never answers health uses the restart budget under the same deadline', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-cold-never-'))
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_STACK_RESTARTED: '',
+            CUTTLELY_HERMES_MAX_RESTARTS: '5',
+            CUTTLELY_HERMES_HEALTH_GRACE: '0',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '2',
+            CUTTLELY_HERMES_HEALTH_FAILS: '2',
+            health: 'replacement-slow-first'
+        })
+        try {
+            const status = await waitForStatus(dir, (row) => row?.restarts >= 1, child, 20000)
+            assert.equal(status.state, 'restarting', child.output)
+            assert.match(child.output, /did not answer health after start\. Restart 1 of 5/)
+        } finally {
+            await stopSupervisor(child, dir)
+        }
+    })
+
     it('an exit during the warm-up grace restarts right away', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-exit-grace-'))
         const started = Number(process.hrtime.bigint() / 1000000n)

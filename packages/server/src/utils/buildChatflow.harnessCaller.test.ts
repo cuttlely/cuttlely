@@ -3,11 +3,14 @@
  * behind it, so the flow's own key and that key's list apply, the same as on the prediction API.
  */
 import type { Request } from 'express'
-import { readFileSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 const jobs: Array<Record<string, unknown>> = []
 const getApiKeyById = jest.fn()
+// Records each key check and whether it charges (the third argument; omitted means charge).
+const validateFlowAPIKey = jest.fn(async (..._args: unknown[]) => true)
 
 const app = {
     AppDataSource: {
@@ -40,7 +43,15 @@ const app = {
 
 const flows: Record<string, Record<string, unknown>> = {
     keyed: { id: 'keyed', type: 'CHATFLOW', workspaceId: 'ws-1', apikeyid: 'key-1', flowData: '{"nodes":[],"edges":[]}' },
-    open: { id: 'open', type: 'CHATFLOW', workspaceId: 'ws-1', apikeyid: null, flowData: '{"nodes":[],"edges":[]}' }
+    open: { id: 'open', type: 'CHATFLOW', workspaceId: 'ws-1', apikeyid: null, flowData: '{"nodes":[],"edges":[]}' },
+    // A keyed flow with a Harness card, so it needs the agent runtime.
+    runtimeKeyed: {
+        id: 'runtimeKeyed',
+        type: 'CHATFLOW',
+        workspaceId: 'ws-1',
+        apikeyid: 'key-1',
+        flowData: JSON.stringify({ nodes: [{ id: 'harness_0', data: { name: 'harness' } }], edges: [] })
+    }
 }
 
 jest.mock('./getRunningExpressApp', () => ({ getRunningExpressApp: () => app }))
@@ -50,6 +61,7 @@ jest.mock('./quotaUsage', () => ({
     checkStorage: async () => undefined,
     updateStorageUsage: async () => undefined
 }))
+jest.mock('./validateKey', () => ({ validateFlowAPIKey: (...args: unknown[]) => validateFlowAPIKey(...args) }))
 jest.mock('./sessionOwnership', () => ({ bindRequestSession: () => ({ chatId: 'chat-1' }) }))
 jest.mock('../services/apikey', () => ({
     __esModule: true,
@@ -156,5 +168,61 @@ describe('the multi-agent flow reply', () => {
         expect(branch).toContain('apiMessage.harnessPayload = JSON.stringify(agentflowHarness)')
         const payload = harnessToolPayloadFor([{ trace: { tokens: { total: 42 } } }], 'answer')
         expect(payload?.trace?.tokens?.total ?? 42).toBe(42)
+    })
+})
+
+// Webhook, Orchestrate and A2A calls reach utilBuildChatflow as external requests. While the agent runtime is down a
+// flow that needs it is refused before its key is charged, so a caller retrying on Retry-After is not billed.
+describe('an external call to a flow that needs the agent runtime while the runtime is down', () => {
+    const savedMode = process.env.MODE
+    const savedDataDir = process.env.CUTTLELY_DATA_DIR
+    let dataDir = ''
+    const setRuntime = (state: string) =>
+        writeFileSync(join(dataDir, 'hermes-supervisor.json'), JSON.stringify({ state, restarts: 0, pid: 0 }))
+
+    beforeAll(() => {
+        process.env.MODE = 'queue'
+    })
+    afterAll(() => {
+        if (savedMode === undefined) delete process.env.MODE
+        else process.env.MODE = savedMode
+    })
+    beforeEach(() => {
+        jobs.length = 0
+        validateFlowAPIKey.mockReset()
+        validateFlowAPIKey.mockResolvedValue(true)
+        getApiKeyById.mockResolvedValue({ id: 'key-1', workspaceId: 'ws-1', harnesses: [] })
+        dataDir = mkdtempSync(join(tmpdir(), 'build-chatflow-runtime-'))
+        process.env.CUTTLELY_DATA_DIR = dataDir
+    })
+    afterEach(() => {
+        if (savedDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = savedDataDir
+        rmSync(dataDir, { recursive: true, force: true })
+    })
+
+    it('is refused with 503 RUNTIME_UNAVAILABLE and the key is never charged', async () => {
+        setRuntime('down')
+        await expect(utilBuildChatflow(mcpRequest('runtimeKeyed'), false)).rejects.toMatchObject({
+            statusCode: 503,
+            code: 'RUNTIME_UNAVAILABLE',
+            retryAfterSeconds: 5
+        })
+        expect(validateFlowAPIKey).toHaveBeenCalled()
+        for (const call of validateFlowAPIKey.mock.calls) expect(call[2]).toBe(false)
+        expect(jobs).toHaveLength(0)
+    })
+
+    it('a wrong key is still 401 while the runtime is down (the key decides first)', async () => {
+        setRuntime('down')
+        validateFlowAPIKey.mockResolvedValue(false)
+        await expect(utilBuildChatflow(mcpRequest('runtimeKeyed'), false)).rejects.toMatchObject({ statusCode: 401 })
+    })
+
+    it('with the runtime up the key is charged and the run starts', async () => {
+        setRuntime('up')
+        await utilBuildChatflow(mcpRequest('runtimeKeyed'), false)
+        expect(validateFlowAPIKey.mock.calls.map((call) => call[2])).toEqual([false, undefined])
+        expect(jobs).toHaveLength(1)
     })
 })

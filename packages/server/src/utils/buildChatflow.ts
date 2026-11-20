@@ -1310,15 +1310,23 @@ export const utilBuildChatflow = async (
     let stopWatchingClient = () => {}
 
     try {
-        // Validate API Key if its external API request
+        // Validate API Key if its external API request. The key is checked without charging first, so a flow that needs
+        // the agent runtime is refused while it is down before the key is charged (webhook, Orchestrate and A2A callers
+        // retry on Retry-After).
+        if (!isInternal) {
+            if (!(await validateFlowAPIKey(req, chatflow, false))) {
+                throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
+            }
+        }
+
+        assertFlowRuntimeAvailable(chatflow)
+
         if (!isInternal) {
             const isKeyValidated = await validateFlowAPIKey(req, chatflow)
             if (!isKeyValidated) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
             }
         }
-
-        assertFlowRuntimeAvailable(chatflow)
 
         // This can be public API, so we can only get orgId from the chatflow
         const chatflowWorkspaceId = chatflow.workspaceId

@@ -409,16 +409,15 @@ supervise_hermes() {
             echo "Hermes restarted pid ${HERMES_PID} (burst ${restarts} of ${HERMES_MAX_RESTARTS}, lifetime ${lifetime_restarts})." >&2
         fi
         local healthy_once=0 marked=0 ticks=0 fails=0 fail_started=0 posted=up healthy_since=""
-        local replacing=0
-        # A replacement (after a runtime restart, or any launch in a stack restarted in place) stays "restarting", so
-        # agent calls get 503, until its first health answer reopens it.
+        # Every launch (the cold start, a replacement after a runtime restart, or a launch in a stack restarted in place)
+        # stays "restarting", so agent calls get 503, until its first health answer reopens it. One that never answers
+        # within the deadline below counts as a failed start.
+        local replacing=1 start_reason="starting"
         if [[ "$restarts" -gt 0 || "${CUTTLELY_STACK_RESTARTED:-0}" == "1" ]]; then
-            replacing=1
-            write_hermes_status restarting "$restarts" "${reason:-replacement starting}" "$HERMES_PID"
-            posted=restarting
-        else
-            write_hermes_status up "$restarts" "" "$HERMES_PID"
+            start_reason="${reason:-replacement starting}"
         fi
+        write_hermes_status restarting "$restarts" "$start_reason" "$HERMES_PID"
+        posted=restarting
         local started_at now
         started_at="$(hermes_clock)"
         reason=""

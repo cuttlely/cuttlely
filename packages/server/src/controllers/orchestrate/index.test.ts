@@ -902,3 +902,24 @@ it.each(['inactive', 'caller policy'])('orchestrate preflight preserves the adap
         mockApiKeys.delete('preflight-key')
     }
 })
+
+// A run refused because the agent runtime is down answers 503 with Retry-After, so the caller knows when to retry.
+describe('Orchestrate answer while the agent runtime is unavailable', () => {
+    it('is 503 with the Retry-After the runtime refusal carries', async () => {
+        const { orchestrateErrorHandler } = jest.requireActual('../../routes/orchestrate')
+        const { toPredictionError } = jest.requireActual('../../utils/predictionErrors')
+        const refusal = toPredictionError(Object.assign(new Error('down'), { code: 'RUNTIME_UNAVAILABLE', statusCode: 503 }))
+        const app = express()
+        app.post('/run', (_req, _res, next) => next(refusal))
+        app.post('/other', (_req, _res, next) =>
+            next(new (jest.requireActual('../../errors/appError').AppError)(503, 'Access key verification is unavailable.'))
+        )
+        app.use(orchestrateErrorHandler)
+        const res = await request(app).post('/run')
+        expect(res.status).toBe(503)
+        expect(res.headers['retry-after']).toBe(String(refusal.retryAfterSeconds))
+        // Other 503s keep their answer without a retry hint.
+        const other = await request(app).post('/other')
+        expect(other.headers['retry-after']).toBeUndefined()
+    })
+})
