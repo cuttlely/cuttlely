@@ -60,54 +60,128 @@ def _prepare_connection_retirement():
     return retain
 
 
-# _read_sqlite_application_id runs on EVERY write (_raise_if_db_replaced) against the LIVE
-# state.db.  A bare open()/read()/close() there is the howtocorrupt §2.2 bug: close() cancels
-# every POSIX advisory lock this process holds on the file, dropping the writer's WAL-mode DMS
-# shared lock (see hermes_cli/sqlite_safe_read.py) so another process can treat this writer as
-# dead and rerun WAL-index recovery underneath it.  So the probe preads through a per-path fd
-# cached for the life of the process (opening never cancels locks).  When the path is re-pointed
-# at a new inode (the very replacement this probe detects) the stale fd is RETIRED, never closed
-# — closing it would cancel the live connection's locks.  Replacements are rare and halt writes.
-_HEADER_PROBE_LOCK = threading.Lock()
-_HEADER_PROBE_FDS: "dict[str, tuple[int, int, int]]" = {}  # key -> (fd, dev, ino)
-_RETIRED_HEADER_PROBE_FDS: "list[int]" = []  # intentionally never closed
+# Closing ANY fd for a SQLite file cancels this process's POSIX advisory locks
+# (sqlite.org/howtocorrupt.html#posix_advisory_locks_canceled_by_a_separate_thread_doing_close).
+# Count connection owners by inode, including aliases and retired path generations. The
+# connection lifecycle and probes share this lock, so the last release cannot race an open.
+_HEADER_PROBE_LOCK = threading.RLock()
+_HEADER_PROBE_OWNERS: "dict[tuple[int, int], int]" = {}
+_HEADER_PROBE_FDS: "dict[tuple[int, int], list[int]]" = {}
+# Only an fstat failure can leave a probe's inode unknown. Such probes must wait
+# for every current SQLite owner to close, rather than risk cancelling a peer's locks.
+_UNIDENTIFIED_HEADER_PROBE_FDS: "list[int]" = []
 _FTS_TABLE_NAMES = ("messages_fts", "messages_fts_trigram", "messages_fts_cjk")
 
 
+def _acquire_header_probe(db_path: Path) -> "Optional[tuple[int, int]]":
+    """Acquire for an open SQLite connection; caller holds the lock across open + acquire."""
+    with _HEADER_PROBE_LOCK:
+        identity = _stat_db_file_identity(Path(db_path))
+        if identity is not None:
+            _HEADER_PROBE_OWNERS[identity] = _HEADER_PROBE_OWNERS.get(identity, 0) + 1
+        return identity
+
+
+def _release_header_probe(identity: "Optional[tuple[int, int]]") -> None:
+    """Release ONLY after the owner's SQLite connection has successfully closed."""
+    if identity is None:
+        return
+    with _HEADER_PROBE_LOCK:
+        remaining = _HEADER_PROBE_OWNERS[identity] - 1
+        if remaining:
+            _HEADER_PROBE_OWNERS[identity] = remaining
+            return
+        del _HEADER_PROBE_OWNERS[identity]
+        # The last owner's SQLite connection is already closed: this process holds no
+        # SQLite locks on this inode. Keep the lock through close so a new owner cannot
+        # acquire locks between the zero count and closing the raw probe descriptors.
+        fds = _HEADER_PROBE_FDS.pop(identity, [])
+        if not _HEADER_PROBE_OWNERS:
+            fds.extend(_UNIDENTIFIED_HEADER_PROBE_FDS)
+            _UNIDENTIFIED_HEADER_PROBE_FDS.clear()
+        for fd in fds:
+            os.close(fd)
+
+
+class _HeaderProbeOwnerMixin:
+    """Connection ownership also survives SessionDB retirement and pooled-reader checkout."""
+
+    _hermes_probe_identity = None
+
+    def close(self) -> None:
+        with _HEADER_PROBE_LOCK:
+            super().close()
+            identity = self._hermes_probe_identity
+            self._hermes_probe_identity = None
+            _release_header_probe(identity)
+
+    def __del__(self) -> None:
+        with contextlib.suppress(Exception):
+            self.close()
+
+
 def _pread_db_range(db_path: Path, offset: int, length: int) -> "Optional[bytes]":
-    """Lock-safe raw read of a possibly-live SQLite database: POSIX preads from a cached,
-    never-closed fd (rebound when the path names a new inode); Windows reads plainly, since
-    advisory-lock cancellation is a POSIX-only hazard."""
+    """Read the current path generation; retain its probe only while an owner holds it.
+
+    No path cache survives replacement: stat/fstat select the inode on each probe. An
+    old inode's descriptor stays with its owners until their last connection closes.
+    Legacy probes with no owner are transient, under the same connection-lifecycle lock.
+    """
     from hermes_state import _IS_WINDOWS
     if _IS_WINDOWS:
         with contextlib.suppress(OSError), db_path.open("rb") as handle:
             handle.seek(offset)
             return handle.read(length)
         return None
-    key = str(db_path)
-    try:
-        st = os.stat(db_path)
-    except OSError:
-        return None
     with _HEADER_PROBE_LOCK:
-        cached = _HEADER_PROBE_FDS.get(key)
-        if cached is not None and (cached[1], cached[2]) != (st.st_dev, st.st_ino):
-            # Path re-pointed at a new file. Retire (never close) the old fd.
-            _RETIRED_HEADER_PROBE_FDS.append(_HEADER_PROBE_FDS.pop(key)[0])
-            cached = None
-        if cached is None:
+        if _UNIDENTIFIED_HEADER_PROBE_FDS:
+            # Retry the one unknown descriptor before allocating another. Repeated
+            # metadata failures must not accumulate probes behind a long-lived owner.
+            fd = _UNIDENTIFIED_HEADER_PROBE_FDS[0]
             try:
-                fd = os.open(db_path, os.O_RDONLY)
+                st = os.fstat(fd)
             except OSError:
                 return None
-            try:
-                fst = os.fstat(fd)
-            except OSError:
-                _RETIRED_HEADER_PROBE_FDS.append(fd)
-                return None
-            cached = _HEADER_PROBE_FDS[key] = (fd, fst.st_dev, fst.st_ino)
-        with contextlib.suppress(OSError):
-            return os.pread(cached[0], length, offset)
+            identity = (st.st_dev, st.st_ino)
+            _UNIDENTIFIED_HEADER_PROBE_FDS.clear()
+            if identity in _HEADER_PROBE_OWNERS:
+                _HEADER_PROBE_FDS.setdefault(identity, []).append(fd)
+            else:
+                os.close(fd)  # Its inode has no SQLite owners; opens remain excluded.
+        identity = _stat_db_file_identity(db_path)
+        if identity is None:
+            return None
+        cached = _HEADER_PROBE_FDS.get(identity)
+        if cached:
+            with contextlib.suppress(OSError):
+                return os.pread(cached[0], length, offset)
+            return None
+        try:
+            fd = os.open(db_path, os.O_RDONLY)
+        except OSError:
+            return None
+        # fstat is authoritative if another process replaced the path after stat.
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            if _HEADER_PROBE_OWNERS:
+                _UNIDENTIFIED_HEADER_PROBE_FDS.append(fd)
+            else:
+                os.close(fd)
+            return None
+        identity = (st.st_dev, st.st_ino)
+        owned = identity in _HEADER_PROBE_OWNERS
+        if owned:
+            # A replacement can land on an already-owned inode (e.g. a hard link).
+            # Even a duplicate fd must stay open until that inode has no owners.
+            _HEADER_PROBE_FDS.setdefault(identity, []).append(fd)
+        try:
+            with contextlib.suppress(OSError):
+                return os.pread(fd, length, offset)
+        finally:
+            if not owned:
+                # No SQLite owner of this inode, and opens are excluded by the lock.
+                os.close(fd)
     return None
 
 
@@ -580,9 +654,27 @@ def _connect_tracked_db(path, tracking_path=None, **kwargs):
     try:
         from hermes_cli.sqlite_safe_read import connect_tracked
     except ImportError:
-        logger.debug("hermes_cli.sqlite_safe_read unavailable; opening %s untracked "
-                     "(byte-probe guard inactive in this install)", path)
-        return sqlite3.connect(str(path), **kwargs)
+        # Scaffold/embed installs still need inode ownership even without the CLI's
+        # preopen guard. Use the same lifecycle lock and close-after-SQLite mixin.
+        factory = kwargs.get("factory", sqlite3.Connection)
+        if not issubclass(factory, _HeaderProbeOwnerMixin):
+            factory = type(f"ProbeOwned{factory.__name__}", (_HeaderProbeOwnerMixin, factory), {})
+        kwargs["factory"] = factory
+        with _HEADER_PROBE_LOCK:
+            conn = sqlite3.connect(str(path), **kwargs)
+            try:
+                resolved = tracking_path
+                if resolved is None:
+                    row = conn.execute("PRAGMA database_list").fetchone()
+                    resolved = row[2] if row else None
+                if resolved:
+                    conn._hermes_probe_identity = _acquire_header_probe(Path(resolved))
+                    if conn._hermes_probe_identity is None:
+                        raise sqlite3.OperationalError("cannot identify the opened database inode")
+                return conn
+            except BaseException:
+                conn.close()
+                raise
     # Open through THIS module's sqlite3.connect so tests patching hermes_state.sqlite3.connect keep control.
     return connect_tracked(path, tracking_path=tracking_path, connect_fn=sqlite3.connect, **kwargs)
 

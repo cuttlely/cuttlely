@@ -1,0 +1,706 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: probe cache fd lifecycle
+
+What: count SQLite header-probe owners by device/inode across every state database connection owner (SessionDB writers, pooled readers, ledger, maintenance, repair, backup and doctor helpers) and close probe descriptors once the last owner of that inode has closed its SQLite connection. Replaced path generations are fenced by inode and their probes close when unowned; unowned probes are transient. Why: the probe cache kept raw descriptors for the process lifetime and retired descriptors without closing them, so temporary-profile churn leaked one descriptor per profile until EMFILE (cuttlely#536). Closing only after the last SQLite owner closes keeps POSIX advisory-lock guarantees for peer connections.
+---
+ gateway/hosted_rooms.py                       |   4 +-
+ gateway/lifecycle_ledger.py                   |   4 +-
+ gateway/readiness.py                          |   4 +-
+ hermes_cli/approvals_suggest.py               |   5 +-
+ hermes_cli/backup.py                          |   5 +-
+ hermes_cli/backup_restore.py                  |  20 ++-
+ hermes_cli/backup_sqlite.py                   |  13 +-
+ hermes_cli/doctor_state.py                    |  10 +-
+ .../observability/shared_metrics_snapshot.py  |   5 +-
+ hermes_cli/sessions_cmd_journal_mode.py       |   4 +-
+ hermes_cli/sqlite_safe_read.py                |  91 ++++++++--
+ hermes_cli/sqlite_util.py                     |   4 +-
+ hermes_state_dbfile.py                        | 166 ++++++++++++++----
+ hermes_state_repair.py                        |  11 +-
+ plugins/memory/honcho/cli.py                  |   4 +-
+ 15 files changed, 279 insertions(+), 71 deletions(-)
+
+diff --git a/gateway/hosted_rooms.py b/gateway/hosted_rooms.py
+index 34165f228239660e54df95cb1997adf4e8d32e57..55c5fe6e877760401eec072638cd5194515fd20a 100644
+--- a/gateway/hosted_rooms.py
++++ b/gateway/hosted_rooms.py
+@@ -982,10 +982,12 @@ def append_event(
+ 
+ def _probe(path: Path, table: str, query: str, params: tuple[Any, ...], unavailable: str) -> bool:
+     """Non-blocking existence probe: short timeout, no schema creation or migration."""
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
+     if not path.is_file():
+         return False
+     try:
+-        with closing(sqlite3.connect(path, timeout=0.05)) as conn:
++        with closing(connect_tracked(path, connect_fn=sqlite3.connect, timeout=0.05)) as conn:
+             table_row = conn.execute(
+                 f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}' LIMIT 1").fetchone()
+             return table_row is not None and conn.execute(query, params).fetchone() is not None
+diff --git a/gateway/lifecycle_ledger.py b/gateway/lifecycle_ledger.py
+index 0c65956ea4fc7c36218fbea834995d91acf1b2b9..23dd27eacccd2afed4b775a44569492a20001f61 100644
+--- a/gateway/lifecycle_ledger.py
++++ b/gateway/lifecycle_ledger.py
+@@ -231,11 +231,13 @@ def check_state_db_integrity(home: Optional[Path] = None) -> str:
+     (renewed from a SQLite progress handler, #115542) so a long healthy check
+     on a huge store is not mistaken for a parked deadlock.
+     """
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
+     path = _home_path(home, "state.db")
+     if not path.exists():
+         return "absent"
+     try:
+-        with closing(sqlite3.connect(str(path))) as conn:
++        with closing(connect_tracked(path, connect_fn=sqlite3.connect)) as conn:
+             _install_integrity_check_lease(conn)
+             row = conn.execute("PRAGMA quick_check(1)").fetchone()
+     except Exception as exc:
+diff --git a/gateway/readiness.py b/gateway/readiness.py
+index 3de2f60eb497dab8367d59d0c8bf3078e71b28f8..739bc13311980087fd7fec3cd9631d597e0623aa 100644
+--- a/gateway/readiness.py
++++ b/gateway/readiness.py
+@@ -28,6 +28,7 @@ def _probe_state_db(home: Path) -> dict[str, Any]:
+     the latch here is what makes readiness and ``/api/status`` agree with the session list
+     (#72046). ``detail="corrupt"`` is the one reason string consumers key off."""
+     from hermes_state_health import STORAGE_CORRUPT, note_storage_error, storage_state
++    from hermes_cli.sqlite_safe_read import connect_tracked
+ 
+     path = home / "state.db"
+     if not path.exists():
+@@ -38,7 +39,8 @@ def _probe_state_db(home: Path) -> dict[str, Any]:
+         # Read-only schema query: catches unreadable/corrupt DBs without competing with
+         # writers. ``closing`` is required — sqlite3's context manager only commits/rolls
+         # back, never closes, so a bare ``with connect()`` leaks a connection per poll.
+-        with closing(sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1.0)) as conn:
++        with closing(connect_tracked(f"file:{path.as_posix()}?mode=ro", tracking_path=path,
++                                     connect_fn=sqlite3.connect, uri=True, timeout=1.0)) as conn:
+             # A readiness probe must never compete with normal state writers. See #69567, #69678.
+             conn.execute("PRAGMA query_only = ON")
+             conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+diff --git a/hermes_cli/approvals_suggest.py b/hermes_cli/approvals_suggest.py
+index cb3f1bd217e135114a8f9720cf0d9c3ad876c3fc..a46403a363b247173fad00d84e444dbd1ce2987d 100644
+--- a/hermes_cli/approvals_suggest.py
++++ b/hermes_cli/approvals_suggest.py
+@@ -92,7 +92,10 @@ def default_db_path() -> Path:
+ 
+ 
+ def _connect_readonly(db_path: Path) -> sqlite3.Connection:
+-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
++    return connect_tracked(f"file:{db_path}?mode=ro", tracking_path=db_path,
++                           connect_fn=sqlite3.connect, uri=True)
+ 
+ 
+ def _fetch_rows(cur) -> Iterator[tuple]:
+diff --git a/hermes_cli/backup.py b/hermes_cli/backup.py
+index 66ad325be78c9c4409bee947d19e119f09f3f0cf..cc136c8182438cfedf0b5c3ad6e30836a7c6678a 100644
+--- a/hermes_cli/backup.py
++++ b/hermes_cli/backup.py
+@@ -356,9 +356,12 @@ def _iter_backup_files(hermes_root: Path, out_path: Path, skipped_dirs: Optional
+ 
+ def _query_ro_sqlite(path: Path, fn):
+     """Run ``fn(conn)`` on a read-only connection to *path*; return ``(value, None)`` or ``(None, exc)``."""
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
+     conn = None
+     try:
+-        conn = sqlite3.connect(read_only_db_uri(path), uri=True, timeout=1.0)
++        conn = connect_tracked(read_only_db_uri(path), tracking_path=path,
++                               connect_fn=sqlite3.connect, uri=True, timeout=1.0)
+         return fn(conn), None
+     except Exception as exc:
+         return None, exc
+diff --git a/hermes_cli/backup_restore.py b/hermes_cli/backup_restore.py
+index d6e2a22488483dbce0d9331800e9cbf88942cecd..8ca1dba9c89857f6be2b961b3ad7c6241b591ef8 100644
+--- a/hermes_cli/backup_restore.py
++++ b/hermes_cli/backup_restore.py
+@@ -112,19 +112,23 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
+ 
+     dst_conn: Optional[sqlite3.Connection] = None
+     try:
+-        dst_conn = sqlite3.connect(str(dst))
++        from hermes_cli.sqlite_safe_read import connect_tracked
++
++        dst_conn = connect_tracked(dst, connect_fn=sqlite3.connect)
+         try:
+             # Force a WAL checkpoint so the backup starts from a clean
+             # state rather than writing on top of a deep WAL.
+             dst_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+         except Exception:
+             pass
+-        src_conn = sqlite3.connect(read_only_db_uri(src), uri=True)
++        src_conn = connect_tracked(read_only_db_uri(src), tracking_path=src,
++                                   connect_fn=sqlite3.connect, uri=True)
+         try:
+             src_conn.backup(dst_conn)
+         finally:
+             src_conn.close()
+         dst_conn.close()
++        dst_conn = None
+         # Restore original file permissions from the snapshot
+         try:
+             mode = src.stat().st_mode
+@@ -140,6 +144,7 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
+         if dst_conn is not None:
+             try:
+                 dst_conn.close()
++                dst_conn = None
+             except Exception:
+                 pass
+         # Fallback: unlink+move (the old approach).  This still works for
+@@ -204,6 +209,12 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
+         except Exception as exc2:
+             logger.error("Fallback restore also failed for %s -> %s: %s", src, dst, exc2)
+             return False
++    finally:
++        if dst_conn is not None:
++            try:
++                dst_conn.close()
++            except Exception:
++                pass
+ 
+ 
+ def _validate_backup_zip(zf: zipfile.ZipFile) -> tuple[bool, str]:
+@@ -393,7 +404,10 @@ def _count_session_rows(path: Path) -> Optional[Tuple[int, int]]:
+     if not path.is_file():
+         return None
+     try:
+-        conn = sqlite3.connect(read_only_db_uri(path), uri=True)
++        from hermes_cli.sqlite_safe_read import connect_tracked
++
++        conn = connect_tracked(read_only_db_uri(path), tracking_path=path,
++                               connect_fn=sqlite3.connect, uri=True)
+     except sqlite3.Error:
+         return None
+     try:
+diff --git a/hermes_cli/backup_sqlite.py b/hermes_cli/backup_sqlite.py
+index 1f0177b1db4175451a64b42968d86376e5b7cfcb..94381a123157e2e40aad1b795bd3dce5321b33af 100644
+--- a/hermes_cli/backup_sqlite.py
++++ b/hermes_cli/backup_sqlite.py
+@@ -28,6 +28,15 @@ def _close_quietly(conn: Optional[sqlite3.Connection]) -> None:
+             conn.close()
+ 
+ 
++def _connect_db(path, **kwargs) -> sqlite3.Connection:
++    # Direct execution is an independent, stdlib-only backup process. Imported runtime
++    # callers share SessionDB's probe ownership so closing a peer cannot release its locks.
++    if __name__ == "__main__":
++        return sqlite3.connect(path, **kwargs)
++    from hermes_cli.sqlite_safe_read import connect_tracked
++    return connect_tracked(path, connect_fn=sqlite3.connect, **kwargs)
++
++
+ def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float = 10.0) -> bool:
+     """Copy a SQLite database with the backup() API (WAL-safe consistent snapshot).
+ 
+@@ -52,8 +61,8 @@ def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float = 10.0) -> boo
+                 os.close(secure_fd)
+         # timeout=0.0 disables sqlite3's implicit busy wait so the progress callback owns the
+         # full locked-source deadline instead of adding the default timeout before each callback.
+-        conn = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=0.0)
+-        backup_conn = sqlite3.connect(str(dst))
++        conn = _connect_db(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=0.0)
++        backup_conn = _connect_db(str(dst))
+         busy_deadline = time.monotonic() + max(0.0, timeout_seconds)
+ 
+         def _check_backup_progress(status: int, _remaining: int, _total: int) -> None:
+diff --git a/hermes_cli/doctor_state.py b/hermes_cli/doctor_state.py
+index be60aee0196c06a9be713df15c14fb83299aa92f..e91bc6a3ea936db526b06bae07a9190e460a6142 100644
+--- a/hermes_cli/doctor_state.py
++++ b/hermes_cli/doctor_state.py
+@@ -286,7 +286,10 @@ def _check_scratch_dir(hermes_home: Path, _DHH: str) -> None:
+ def _session_count(state_db_path: Path):
+     import sqlite3
+     # mode=ro: doctor is a reader; a writable open of a gateway-held WAL DB is the second-writer class (#103339).
+-    conn = sqlite3.connect(read_only_db_uri(state_db_path), uri=True)
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
++    conn = connect_tracked(read_only_db_uri(state_db_path), tracking_path=state_db_path,
++                           connect_fn=sqlite3.connect, uri=True)
+     try:
+         return conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+     finally:
+@@ -312,7 +315,10 @@ def _write_health_reason(state_db_path: Path, *, should_fix: bool):
+     import tempfile
+     with tempfile.TemporaryDirectory() as tmp:
+         snapshot = Path(tmp) / "state.db"
+-        src = sqlite3.connect(read_only_db_uri(state_db_path), uri=True, timeout=1.0)
++        from hermes_cli.sqlite_safe_read import connect_tracked
++
++        src = connect_tracked(read_only_db_uri(state_db_path), tracking_path=state_db_path,
++                              connect_fn=sqlite3.connect, uri=True, timeout=1.0)
+         try:
+             dest = sqlite3.connect(str(snapshot))
+             try:
+diff --git a/hermes_cli/observability/shared_metrics_snapshot.py b/hermes_cli/observability/shared_metrics_snapshot.py
+index f15dd831cbf42ad618aaa8e031c1c3cdfa73613d..3297b080b84bc364931c94960aebef968063ccf0 100644
+--- a/hermes_cli/observability/shared_metrics_snapshot.py
++++ b/hermes_cli/observability/shared_metrics_snapshot.py
+@@ -98,8 +98,11 @@ def _first_session_started_at(home: Path | None = None) -> float | None:
+     database = home / "state.db"
+     if not database.exists():
+         return time.time()
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
+     with contextlib.closing(
+-        sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=1)
++        connect_tracked(f"file:{database}?mode=ro", tracking_path=database,
++                        connect_fn=sqlite3.connect, uri=True, timeout=1)
+     ) as connection:
+         row = connection.execute("SELECT MIN(started_at) FROM sessions").fetchone()
+     if not row or row[0] is None:
+diff --git a/hermes_cli/sessions_cmd_journal_mode.py b/hermes_cli/sessions_cmd_journal_mode.py
+index bb3e59457e5317273d334d27f85d762d5f691598..f322c2ff9a03927adc3b7244b0d15fbfd80aa238 100644
+--- a/hermes_cli/sessions_cmd_journal_mode.py
++++ b/hermes_cli/sessions_cmd_journal_mode.py
+@@ -82,7 +82,9 @@ def cmd_set_journal_mode(args) -> int:
+     # timeout=0: any opener that appeared between the scan and the flip makes the pragma fail with
+     # 'database is locked' instead of sneaking the switch between a writer's transactions.
+     try:
+-        conn = sqlite3.connect(str(db_path), timeout=0.0, isolation_level=None)
++        from hermes_cli.sqlite_safe_read import connect_tracked
++
++        conn = connect_tracked(db_path, connect_fn=sqlite3.connect, timeout=0.0, isolation_level=None)
+     except (OSError, sqlite3.Error) as exc:
+         print(f"✗ Cannot open {db_path}: {exc}")
+         return 1
+diff --git a/hermes_cli/sqlite_safe_read.py b/hermes_cli/sqlite_safe_read.py
+index 6ad3dc632b59749085976eeaf3d4889bf9566f24..c3bedc14873198f938df0bdaa94718e289a05326 100644
+--- a/hermes_cli/sqlite_safe_read.py
++++ b/hermes_cli/sqlite_safe_read.py
+@@ -12,17 +12,23 @@ import contextlib
+ import logging
+ import os
+ import sqlite3
+-import threading
+ from pathlib import Path
+ from typing import Optional
+ 
++from hermes_state_dbfile import (
++    _HEADER_PROBE_LOCK, _HeaderProbeOwnerMixin, _acquire_header_probe, _release_header_probe,
++)
++
+ logger = logging.getLogger(__name__)
+ 
+ # Guards BOTH the registry and the lifecycle syscalls it describes. Reentrant
+ # because connect_tracked -> _canonical_db_path -> ... stays on one thread.
+-_live_lock = threading.RLock()
++_live_lock = _HEADER_PROBE_LOCK
+ # canonical path -> number of live connections opened by this process
+ _live_connections: dict[str, int] = {}
++_ProbeOwnerToken = tuple[str, Optional[tuple[int, int]]]
++_manual_probe_owners: dict[str, list[_ProbeOwnerToken]] = {}
++_manual_probe_counts: dict[str, int] = {}
+ 
+ 
+ class UntrackableConnectionError(RuntimeError):
+@@ -42,6 +48,29 @@ def _key(path: Path | str) -> str:
+         return str(path)
+ 
+ 
++def _opened_db_path(conn: sqlite3.Connection, path: Path | str, uri: bool) -> Optional[str]:
++    """Like :func:`_canonical_db_path`, but a failed ``PRAGMA database_list`` (e.g. a busy schema
++    read) falls back to the path the caller opened instead of looking like an in-memory database:
++    an unowned file-backed connection would let a peer's last release close a probe under its locks."""
++    try:
++        row = conn.execute("PRAGMA database_list").fetchone()
++    except sqlite3.Error:
++        row = None
++    else:
++        if not row or len(row) < 3 or not row[2]:
++            return None  # SQLite itself reports no file: in-memory / temporary database
++        return _key(row[2])
++    text = str(path)
++    if uri and text.startswith("file:"):
++        target, _, query = text[len("file:"):].partition("?")
++        if "mode=memory" in query or target in ("", ":memory:"):
++            return None
++        return _key(target)
++    if text in ("", ":memory:"):
++        return None
++    return _key(text)
++
++
+ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
+     """The on-disk path of ``main`` as SQLite reports it (immune to ``file:`` URIs, relative paths,
+     symlinks). ``None`` for in-memory/unnamed databases, which cannot be byte-probed."""
+@@ -54,11 +83,17 @@ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
+     return _key(row[2])
+ 
+ 
+-def track_connection(path: Path | str) -> None:
+-    """Record that this process holds a connection to *path* (prefer :func:`connect_tracked`; this
+-    is for callers managing their own connection objects, and for tests)."""
++def track_connection(path: Path | str) -> _ProbeOwnerToken:
++    """Record a manually managed open connection (prefer :func:`connect_tracked`). Return a token
++    for :func:`untrack_connection` after SQLite closes; it preserves the original path and inode."""
+     with _live_lock:
+-        _track_key(_key(path))
++        key = _key(path)
++        identity = _acquire_header_probe(Path(key))
++        token = (key, identity)
++        _manual_probe_owners.setdefault(key, []).append(token)
++        _manual_probe_counts[key] = _manual_probe_counts.get(key, 0) + 1
++        _track_key(key)
++        return token
+ 
+ 
+ def _track_key(key: str, delta: int = 1) -> None:
+@@ -70,10 +105,32 @@ def _track_key(key: str, delta: int = 1) -> None:
+         _live_connections.pop(key, None)
+ 
+ 
+-def untrack_connection(path: Path | str) -> None:
+-    """Record that one connection to *path* has been closed."""
++def untrack_connection(path: Path | str, token: _ProbeOwnerToken | None = None) -> None:
++    """Release after SQLite closes, preferably with the token returned by :func:`track_connection`.
++
++    Legacy tokenless callers cannot identify which generation closed after a path replacement.
++    Defer their inode releases until the whole manual path group has closed, preserving peer locks.
++    """
+     with _live_lock:
+-        _track_key(_key(path), -1)
++        key = token[0] if token is not None else _key(path)
++        owners = _manual_probe_owners.get(key)
++        if token is not None and not owners:
++            return
++        if owners:
++            if token is not None:
++                index = next((i for i, owner in enumerate(owners) if owner is token), None)
++                if index is None:
++                    return  # This exact ownership token was already released.
++                _release_header_probe(owners.pop(index)[1])
++            remaining = _manual_probe_counts[key] - 1
++            if remaining:
++                _manual_probe_counts[key] = remaining
++            else:
++                del _manual_probe_counts[key]
++                del _manual_probe_owners[key]
++                for owner in owners:
++                    _release_header_probe(owner[1])
++        _track_key(key, -1)
+ 
+ 
+ def _live_main_key(key: str) -> Optional[str]:
+@@ -98,7 +155,7 @@ def has_live_connection(path: Path | str) -> bool:
+         return _live_main_key(_key(path)) is not None
+ 
+ 
+-class _TrackingMixin:
++class _TrackingMixin(_HeaderProbeOwnerMixin):
+     """Untrack-on-close behaviour, mixable into any Connection subclass.
+ 
+     The real ``close()`` and the unregister happen together under ``_live_lock`` so a concurrent
+@@ -118,7 +175,7 @@ class _TrackingMixin:
+             super().close()  # type: ignore[misc]
+             if path is not None:
+                 self._hermes_tracked_path = None
+-                untrack_connection(path)
++                _track_key(path, -1)
+ 
+ 
+ class TrackedConnection(_TrackingMixin, sqlite3.Connection):
+@@ -157,7 +214,8 @@ def connect_tracked(
+     with _live_lock:
+         conn = opener(str(path), **kwargs)
+         try:
+-            resolved = _key(tracking_path) if tracking_path is not None else _canonical_db_path(conn)
++            resolved = (_key(tracking_path) if tracking_path is not None
++                        else _opened_db_path(conn, path, bool(kwargs.get("uri"))))
+             if resolved is None:
+                 return conn  # in-memory / unnamed: nothing on disk to byte-probe
+             if not isinstance(conn, _TrackingMixin):
+@@ -165,14 +223,15 @@ def connect_tracked(
+                 # simulating FTS5-less runtimes do this). Retag the instance's class so close()
+                 # still releases the registry entry rather than silently losing probe safety.
+                 conn = _retrofit_tracking(conn, resolved)
++            conn._hermes_probe_identity = _acquire_header_probe(Path(resolved))
++            if conn._hermes_probe_identity is None:
++                raise UntrackableConnectionError(f"cannot identify the opened database inode: {resolved}")
+             conn._hermes_tracked_path = resolved
+             _track_key(resolved)
+             return conn
+-        except Exception:
++        except BaseException:
+             try:
+-                # Close via sqlite3 directly: the tracking entry was either never made or is
+-                # being unwound here.
+-                sqlite3.Connection.close(conn)
++                conn.close()
+             except Exception:
+                 pass
+             raise
+diff --git a/hermes_cli/sqlite_util.py b/hermes_cli/sqlite_util.py
+index 952a49b9a72420157e0e97223da510c0068d0ca3..f92f6a69a47407438d4fa6fd755188c441ccd372 100644
+--- a/hermes_cli/sqlite_util.py
++++ b/hermes_cli/sqlite_util.py
+@@ -38,11 +38,13 @@ def open_db(
+     a first opener initializing a shared DB can make it ignore the busy timeout, notably on Windows.
+     """
+     from hermes_state_wal import apply_wal_with_fallback
++    from hermes_cli.sqlite_safe_read import connect_tracked
+ 
+     path = Path(path)
+     path.parent.mkdir(parents=True, exist_ok=True)
+     # Resolved at call time: fd-leak tests patch ``sqlite3.connect`` through the caller's module.
+-    conn = sqlite3.connect(path, timeout=busy_timeout_ms / 1000, check_same_thread=check_same_thread)
++    conn = connect_tracked(path, connect_fn=sqlite3.connect, timeout=busy_timeout_ms / 1000,
++                           check_same_thread=check_same_thread)
+     try:
+         conn.row_factory = row_factory
+         conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+diff --git a/hermes_state_dbfile.py b/hermes_state_dbfile.py
+index bf5a66d7ac9fec222a11166be275c0312d1e7f7c..68df6c0d3bc9818ad8708c667e8ee321d58b41bc 100644
+--- a/hermes_state_dbfile.py
++++ b/hermes_state_dbfile.py
+@@ -60,54 +60,128 @@ def _prepare_connection_retirement():
+     return retain
+ 
+ 
+-# _read_sqlite_application_id runs on EVERY write (_raise_if_db_replaced) against the LIVE
+-# state.db.  A bare open()/read()/close() there is the howtocorrupt §2.2 bug: close() cancels
+-# every POSIX advisory lock this process holds on the file, dropping the writer's WAL-mode DMS
+-# shared lock (see hermes_cli/sqlite_safe_read.py) so another process can treat this writer as
+-# dead and rerun WAL-index recovery underneath it.  So the probe preads through a per-path fd
+-# cached for the life of the process (opening never cancels locks).  When the path is re-pointed
+-# at a new inode (the very replacement this probe detects) the stale fd is RETIRED, never closed
+-# — closing it would cancel the live connection's locks.  Replacements are rare and halt writes.
+-_HEADER_PROBE_LOCK = threading.Lock()
+-_HEADER_PROBE_FDS: "dict[str, tuple[int, int, int]]" = {}  # key -> (fd, dev, ino)
+-_RETIRED_HEADER_PROBE_FDS: "list[int]" = []  # intentionally never closed
++# Closing ANY fd for a SQLite file cancels this process's POSIX advisory locks
++# (sqlite.org/howtocorrupt.html#posix_advisory_locks_canceled_by_a_separate_thread_doing_close).
++# Count connection owners by inode, including aliases and retired path generations. The
++# connection lifecycle and probes share this lock, so the last release cannot race an open.
++_HEADER_PROBE_LOCK = threading.RLock()
++_HEADER_PROBE_OWNERS: "dict[tuple[int, int], int]" = {}
++_HEADER_PROBE_FDS: "dict[tuple[int, int], list[int]]" = {}
++# Only an fstat failure can leave a probe's inode unknown. Such probes must wait
++# for every current SQLite owner to close, rather than risk cancelling a peer's locks.
++_UNIDENTIFIED_HEADER_PROBE_FDS: "list[int]" = []
+ _FTS_TABLE_NAMES = ("messages_fts", "messages_fts_trigram", "messages_fts_cjk")
+ 
+ 
++def _acquire_header_probe(db_path: Path) -> "Optional[tuple[int, int]]":
++    """Acquire for an open SQLite connection; caller holds the lock across open + acquire."""
++    with _HEADER_PROBE_LOCK:
++        identity = _stat_db_file_identity(Path(db_path))
++        if identity is not None:
++            _HEADER_PROBE_OWNERS[identity] = _HEADER_PROBE_OWNERS.get(identity, 0) + 1
++        return identity
++
++
++def _release_header_probe(identity: "Optional[tuple[int, int]]") -> None:
++    """Release ONLY after the owner's SQLite connection has successfully closed."""
++    if identity is None:
++        return
++    with _HEADER_PROBE_LOCK:
++        remaining = _HEADER_PROBE_OWNERS[identity] - 1
++        if remaining:
++            _HEADER_PROBE_OWNERS[identity] = remaining
++            return
++        del _HEADER_PROBE_OWNERS[identity]
++        # The last owner's SQLite connection is already closed: this process holds no
++        # SQLite locks on this inode. Keep the lock through close so a new owner cannot
++        # acquire locks between the zero count and closing the raw probe descriptors.
++        fds = _HEADER_PROBE_FDS.pop(identity, [])
++        if not _HEADER_PROBE_OWNERS:
++            fds.extend(_UNIDENTIFIED_HEADER_PROBE_FDS)
++            _UNIDENTIFIED_HEADER_PROBE_FDS.clear()
++        for fd in fds:
++            os.close(fd)
++
++
++class _HeaderProbeOwnerMixin:
++    """Connection ownership also survives SessionDB retirement and pooled-reader checkout."""
++
++    _hermes_probe_identity = None
++
++    def close(self) -> None:
++        with _HEADER_PROBE_LOCK:
++            super().close()
++            identity = self._hermes_probe_identity
++            self._hermes_probe_identity = None
++            _release_header_probe(identity)
++
++    def __del__(self) -> None:
++        with contextlib.suppress(Exception):
++            self.close()
++
++
+ def _pread_db_range(db_path: Path, offset: int, length: int) -> "Optional[bytes]":
+-    """Lock-safe raw read of a possibly-live SQLite database: POSIX preads from a cached,
+-    never-closed fd (rebound when the path names a new inode); Windows reads plainly, since
+-    advisory-lock cancellation is a POSIX-only hazard."""
++    """Read the current path generation; retain its probe only while an owner holds it.
++
++    No path cache survives replacement: stat/fstat select the inode on each probe. An
++    old inode's descriptor stays with its owners until their last connection closes.
++    Legacy probes with no owner are transient, under the same connection-lifecycle lock.
++    """
+     from hermes_state import _IS_WINDOWS
+     if _IS_WINDOWS:
+         with contextlib.suppress(OSError), db_path.open("rb") as handle:
+             handle.seek(offset)
+             return handle.read(length)
+         return None
+-    key = str(db_path)
+-    try:
+-        st = os.stat(db_path)
+-    except OSError:
+-        return None
+     with _HEADER_PROBE_LOCK:
+-        cached = _HEADER_PROBE_FDS.get(key)
+-        if cached is not None and (cached[1], cached[2]) != (st.st_dev, st.st_ino):
+-            # Path re-pointed at a new file. Retire (never close) the old fd.
+-            _RETIRED_HEADER_PROBE_FDS.append(_HEADER_PROBE_FDS.pop(key)[0])
+-            cached = None
+-        if cached is None:
++        if _UNIDENTIFIED_HEADER_PROBE_FDS:
++            # Retry the one unknown descriptor before allocating another. Repeated
++            # metadata failures must not accumulate probes behind a long-lived owner.
++            fd = _UNIDENTIFIED_HEADER_PROBE_FDS[0]
+             try:
+-                fd = os.open(db_path, os.O_RDONLY)
++                st = os.fstat(fd)
+             except OSError:
+                 return None
+-            try:
+-                fst = os.fstat(fd)
+-            except OSError:
+-                _RETIRED_HEADER_PROBE_FDS.append(fd)
+-                return None
+-            cached = _HEADER_PROBE_FDS[key] = (fd, fst.st_dev, fst.st_ino)
+-        with contextlib.suppress(OSError):
+-            return os.pread(cached[0], length, offset)
++            identity = (st.st_dev, st.st_ino)
++            _UNIDENTIFIED_HEADER_PROBE_FDS.clear()
++            if identity in _HEADER_PROBE_OWNERS:
++                _HEADER_PROBE_FDS.setdefault(identity, []).append(fd)
++            else:
++                os.close(fd)  # Its inode has no SQLite owners; opens remain excluded.
++        identity = _stat_db_file_identity(db_path)
++        if identity is None:
++            return None
++        cached = _HEADER_PROBE_FDS.get(identity)
++        if cached:
++            with contextlib.suppress(OSError):
++                return os.pread(cached[0], length, offset)
++            return None
++        try:
++            fd = os.open(db_path, os.O_RDONLY)
++        except OSError:
++            return None
++        # fstat is authoritative if another process replaced the path after stat.
++        try:
++            st = os.fstat(fd)
++        except OSError:
++            if _HEADER_PROBE_OWNERS:
++                _UNIDENTIFIED_HEADER_PROBE_FDS.append(fd)
++            else:
++                os.close(fd)
++            return None
++        identity = (st.st_dev, st.st_ino)
++        owned = identity in _HEADER_PROBE_OWNERS
++        if owned:
++            # A replacement can land on an already-owned inode (e.g. a hard link).
++            # Even a duplicate fd must stay open until that inode has no owners.
++            _HEADER_PROBE_FDS.setdefault(identity, []).append(fd)
++        try:
++            with contextlib.suppress(OSError):
++                return os.pread(fd, length, offset)
++        finally:
++            if not owned:
++                # No SQLite owner of this inode, and opens are excluded by the lock.
++                os.close(fd)
+     return None
+ 
+ 
+@@ -580,9 +654,27 @@ def _connect_tracked_db(path, tracking_path=None, **kwargs):
+     try:
+         from hermes_cli.sqlite_safe_read import connect_tracked
+     except ImportError:
+-        logger.debug("hermes_cli.sqlite_safe_read unavailable; opening %s untracked "
+-                     "(byte-probe guard inactive in this install)", path)
+-        return sqlite3.connect(str(path), **kwargs)
++        # Scaffold/embed installs still need inode ownership even without the CLI's
++        # preopen guard. Use the same lifecycle lock and close-after-SQLite mixin.
++        factory = kwargs.get("factory", sqlite3.Connection)
++        if not issubclass(factory, _HeaderProbeOwnerMixin):
++            factory = type(f"ProbeOwned{factory.__name__}", (_HeaderProbeOwnerMixin, factory), {})
++        kwargs["factory"] = factory
++        with _HEADER_PROBE_LOCK:
++            conn = sqlite3.connect(str(path), **kwargs)
++            try:
++                resolved = tracking_path
++                if resolved is None:
++                    row = conn.execute("PRAGMA database_list").fetchone()
++                    resolved = row[2] if row else None
++                if resolved:
++                    conn._hermes_probe_identity = _acquire_header_probe(Path(resolved))
++                    if conn._hermes_probe_identity is None:
++                        raise sqlite3.OperationalError("cannot identify the opened database inode")
++                return conn
++            except BaseException:
++                conn.close()
++                raise
+     # Open through THIS module's sqlite3.connect so tests patching hermes_state.sqlite3.connect keep control.
+     return connect_tracked(path, tracking_path=tracking_path, connect_fn=sqlite3.connect, **kwargs)
+ 
+diff --git a/hermes_state_repair.py b/hermes_state_repair.py
+index 81e1609543809629f420b5f09f810836c467c9f9..c146e162e2193ac024e9402135a9ca08fe0e7877 100644
+--- a/hermes_state_repair.py
++++ b/hermes_state_repair.py
+@@ -590,7 +590,11 @@ def _connect_repair_durable(db_path: Path, *, timeout: float = 5.0) -> sqlite3.C
+     from hermes_cli.sqlite_safe_read import connect_tracked
+ 
+     conn = connect_tracked(db_path, tracking_path=db_path, timeout=timeout, isolation_level=None)
+-    _reapply_durability_barriers(conn)
++    try:
++        _reapply_durability_barriers(conn)
++    except BaseException:
++        conn.close()
++        raise
+     return conn
+ 
+ 
+@@ -735,8 +739,11 @@ def state_db_has_structural_damage(db_path: Path) -> bool:
+     reporting (a torn page under the walk) is structural too: no FTS-only fixture does that
+     while ``messages``/``sessions`` read cleanly, and the FTS rebuild ladder cannot help.
+     Cannot-open / locked stays False so the caller keeps the FTS path."""
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
+     try:
+-        conn = sqlite3.connect(read_only_db_uri(db_path), uri=True, timeout=1.0)
++        conn = connect_tracked(read_only_db_uri(db_path), tracking_path=db_path,
++                               connect_fn=sqlite3.connect, uri=True, timeout=1.0)
+     except sqlite3.Error:
+         return False
+     try:
+diff --git a/plugins/memory/honcho/cli.py b/plugins/memory/honcho/cli.py
+index 006c7c5bb604cd880fc5b50dd5dd97b462e6f4cb..16efe7202306fabeca63e224b8c91fb488dee066 100644
+--- a/plugins/memory/honcho/cli.py
++++ b/plugins/memory/honcho/cli.py
+@@ -1071,6 +1071,7 @@ def _seen_gateway_accounts(db_path: Path) -> list[dict]:
+         return []
+     import sqlite3
+     from contextlib import closing
++    from hermes_cli.sqlite_safe_read import connect_tracked
+     # profile_name marks which profile a multiplexing gateway routed the
+     # session to; older state.db files predate the column.
+     query = """SELECT source, user_id,
+@@ -1082,7 +1083,8 @@ def _seen_gateway_accounts(db_path: Path) -> list[dict]:
+                 GROUP BY source, user_id
+                 ORDER BY MAX(COALESCE(started_at, 0)) DESC"""
+     try:
+-        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
++        with closing(connect_tracked(f"file:{db_path}?mode=ro", tracking_path=db_path,
++                                     connect_fn=sqlite3.connect, uri=True)) as conn:
+             try:
+                 rows = conn.execute(query.format(
+                     profiles_col=", GROUP_CONCAT(DISTINCT COALESCE(profile_name, 'default'))",
