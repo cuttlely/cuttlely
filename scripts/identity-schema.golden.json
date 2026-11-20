@@ -2615,6 +2615,13 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "importVerify",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -7059,6 +7066,12 @@
                     "type": "text",
                     "nullable": true,
                     "default": null
+                },
+                {
+                    "name": "importVerify",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [],
@@ -8553,12 +8566,6 @@
                     "name": "version",
                     "type": "integer",
                     "nullable": false,
-                    "default": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
                     "default": null
                 }
             ],
@@ -12100,6 +12107,14 @@
                     "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "importVerify",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
                 }
             ],
             "foreignKeys": [],
@@ -14051,14 +14066,6 @@
                     "default": null,
                     "extra": "",
                     "collation": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -17865,6 +17872,14 @@
                     "default": null,
                     "extra": "",
                     "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "importVerify",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],
@@ -19816,14 +19831,6 @@
                     "default": null,
                     "extra": "",
                     "collation": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],

@@ -21,6 +21,8 @@ import {
     deleteOrganizationUser,
     deleteWorkspace,
     listOrganizationUsers,
+    listWorkspaceMemberships,
+    setUserDisabled,
     switchWorkspace,
     updateOrganizationUser
 } from './directory'
@@ -124,6 +126,84 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
 
 const actor = { id: OWNER, organizationId: ORG, workspaceId: TEAM }
 
+describe('effective membership display status', () => {
+    it('labels current-team membership without hiding other teams from an organization owner', async () => {
+        const { sql, db } = memorySql()
+        const created = await createEmailUser(sql, actor, {
+            user: { email: 'other-team@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+        db.exec(`INSERT INTO workspace (id, name, organizationId) VALUES ('team-b', 'Other team', '${ORG}')`)
+        db.prepare('UPDATE workspace_user SET workspaceId = ? WHERE userId = ?').run('team-b', created.id)
+        const first = await listOrganizationUsers(sql, actor, ORG)
+        expect(first.find((row) => row.userId === OWNER)?.inCurrentTeam).toBe(true)
+        expect(first.find((row) => row.userId === created.id)).toMatchObject({ inCurrentTeam: false, roleCount: 1 })
+        expect(
+            (await listOrganizationUsers(sql, { ...actor, workspaceId: 'team-b' }, ORG)).find((row) => row.userId === created.id)
+                ?.inCurrentTeam
+        ).toBe(true)
+    })
+
+    it('disables and reactivates through the UI service without restoring revoked sessions, links or keys', async () => {
+        const { sql, db } = memorySql()
+        const created = await createEmailUser(sql, actor, {
+            user: { email: 'member@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+        db.prepare('UPDATE "user" SET status = ? WHERE id = ?').run('active', created.id)
+        db.exec(
+            `CREATE TABLE apikey (id text, ownerUserId text, disabledAt text); CREATE TABLE identity_personal_token (id text, ownerUserId text, disabledAt text);`
+        )
+        for (const table of ['apikey', 'identity_personal_token'])
+            db.prepare(`INSERT INTO ${table} (id, ownerUserId) VALUES (?, ?)`).run(table, created.id)
+        db.prepare('INSERT INTO identity_local_session (id, userId) VALUES (?, ?)').run('session-1', created.id)
+        db.prepare('INSERT INTO identity_action_link (id, userId, purpose) VALUES (?, ?, ?)').run('link-1', created.id, 'reset')
+        await expect(setUserDisabled(sql, actor, created.id, true)).resolves.toEqual({ id: created.id, disabled: true })
+        expect((await listWorkspaceMemberships(sql, actor, { workspaceId: TEAM })).find((row) => row.userId === created.id)?.status).toBe(
+            'disable'
+        )
+        await expect(setUserDisabled(sql, actor, created.id, false)).resolves.toEqual({ id: created.id, disabled: false })
+        expect((await listWorkspaceMemberships(sql, actor, { workspaceId: TEAM })).find((row) => row.userId === created.id)).toMatchObject({
+            status: 'active',
+            role: { id: ROLE }
+        })
+        expect(db.prepare('SELECT id FROM identity_local_session WHERE userId = ?').all(created.id)).toEqual([])
+        expect(db.prepare('SELECT consumeId FROM identity_action_link WHERE userId = ?').all(created.id)).toEqual([
+            { consumeId: 'revoked' }
+        ])
+        for (const table of ['apikey', 'identity_personal_token'])
+            expect(db.prepare(`SELECT disabledAt FROM ${table}`).all()[0].disabledAt).toBeTruthy()
+    })
+
+    it.each([
+        ['invited', 'active', 'active', 'invited'],
+        ['active', 'active', 'active', 'active'],
+        ['active', 'disable', 'active', 'disable'],
+        ['disable', 'active', 'active', 'disable'],
+        ['invited', 'disable', 'active', 'disable'],
+        ['active', 'active', 'disable', 'disable'],
+        ['active', 'active', 'invited', 'invited'],
+        ['active', 'invited', 'active', 'invited'],
+        ['deleted', 'active', 'active', 'deleted']
+    ])('reports user=%s org=%s team=%s as %s without changing stored assignments', async (user, organization, team, expected) => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, email, status) VALUES ('pending-member', 'pending@example.com', '${user}');
+            INSERT INTO organization_user (organizationId, userId, roleId, status) VALUES ('${ORG}', 'pending-member', '${ROLE}', '${organization}');
+            INSERT INTO workspace_user (workspaceId, userId, roleId, status) VALUES ('${TEAM}', 'pending-member', '${ROLE}', '${team}');
+        `)
+        for (const filter of [{ workspaceId: TEAM }, { userId: 'pending-member', organizationId: ORG }, { roleId: ROLE }]) {
+            const rows = await listWorkspaceMemberships(sql, actor, filter)
+            expect(rows.find((row) => row.userId === 'pending-member')).toMatchObject({ status: expected, role: { id: ROLE } })
+        }
+        expect(db.prepare('SELECT status, roleId FROM workspace_user WHERE userId = ?').all('pending-member')).toEqual([
+            { status: team, roleId: ROLE }
+        ])
+    })
+})
+
 describe('pending organization owner invitation removal', () => {
     async function pendingOwner() {
         const fixture = memorySql()
@@ -226,6 +306,65 @@ describe('pending organization owner invitation removal', () => {
         db.prepare('UPDATE "user" SET status = ? WHERE id = ?').run('active', id)
         await expect(deleteOrganizationUser(sql, actor, ORG, OWNER)).rejects.toMatchObject({ status: 403 })
         expect(db.prepare('SELECT userId FROM organization_user').all()).toHaveLength(2)
+    })
+
+    it('lets an admin cancel the pending owner invitation and refuses a caller without users:manage', async () => {
+        const { sql, db, id } = await pendingOwner()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
+                ('admin-1', 'Admin', 'admin@example.com', 'active', 0),
+                ('clerk-1', 'Clerk', 'clerk@example.com', 'active', 0);
+            INSERT INTO role (id, "organizationId", name, permissions) VALUES ('role-admin', NULL, 'admin', '[]');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES
+                ('${ORG}', 'admin-1', '${ROLE}', 'active'),
+                ('${ORG}', 'clerk-1', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES
+                ('${TEAM}', 'admin-1', 'role-admin', 'active'),
+                ('${TEAM}', 'clerk-1', '${ROLE}', 'active');
+        `)
+        const clerk = { id: 'clerk-1', organizationId: ORG, workspaceId: TEAM }
+        const unlinkOnly = { id: 'clerk-1', organizationId: ORG, workspaceId: TEAM, permissions: ['workspace:unlink-user'] }
+        const admin = { id: 'admin-1', organizationId: ORG, workspaceId: TEAM }
+        await expect(deleteOrganizationUser(sql, clerk, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, unlinkOnly, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE userId = ?').all(id)).toEqual([{ usedAt: null }])
+        await expect(deleteOrganizationUser(sql, admin, ORG, OWNER)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, id, { invitationOnly: true })).resolves.toEqual({ id })
+        expect(db.prepare('SELECT usedAt, consumeId FROM identity_action_link WHERE userId = ?').all(id)).toEqual([
+            { usedAt: expect.any(String), consumeId: 'revoked' }
+        ])
+        expect(db.prepare('SELECT userId FROM organization_user WHERE userId = ?').all(OWNER)).toHaveLength(1)
+        expect(db.prepare('SELECT status FROM "user" WHERE id = ?').all(OWNER)).toEqual([{ status: 'active' }])
+    })
+
+    it('refuses an admin cancellation once the pending owner has become active', async () => {
+        const { sql, db, id } = await pendingOwner()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('admin-1', 'Admin', 'admin@example.com', 'active', 0);
+            INSERT INTO role (id, "organizationId", name, permissions) VALUES ('role-admin', NULL, 'admin', '[]');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'admin-1', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'admin-1', 'role-admin', 'active');
+        `)
+        db.prepare('UPDATE "user" SET status = ? WHERE id = ?').run('active', id)
+        const admin = { id: 'admin-1', organizationId: ORG, workspaceId: TEAM }
+        await expect(deleteOrganizationUser(sql, admin, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 409,
+            message: 'This invitation is no longer pending. Refresh the user list.'
+        })
+        expect(db.prepare('SELECT userId FROM organization_user WHERE userId = ?').all(id)).toHaveLength(1)
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE userId = ?').all(id)).toEqual([{ usedAt: null }])
     })
 
     it('refuses cancellation when the pending owner has become active', async () => {

@@ -105,7 +105,7 @@ The app database is Postgres. Cuttlely does not read `DATABASE_URL`. It reads th
 | `TRUST_PROXY`                          | `1`                         | One Render proxy hop.                                                                                                                                            |
 | `WORKOS_*`, `CUTTLELY_BOOTSTRAP_EMAIL` | `sync: false`               | Entered when you create the Blueprint.                                                                                                                           |
 | `FLOWISE_SECRETKEY_OVERWRITE`          | generated                   | The credential encryption key. Render generates it once and keeps it.                                                                                            |
-| `CUTTLELY_ANALYST`                     | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
+| `CUTTLELY_ANALYST`                     | not set                     | Unset is Auto. Set `off` on the Environment page to turn the private store off. See [Analyst database](#analyst-database).                                       |
 | `CUTTLELY_POSTGRES_URL`                | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
 | `CUTTLELY_LOCAL_ADMIN`                 | not set                     | WorkOS stays the ordinary method; owner recovery remains available.                                                                                              |
 | `CUTTLELY_VERSIONS`                    | not set                     | Version history is on. Set `off` on the **Environment** page to turn it off.                                                                                     |
@@ -115,7 +115,7 @@ A Blueprint sync sets every variable that has a value in the file back to that v
 
 ## Analyst database
 
-Analyst mode is off until you set `CUTTLELY_ANALYST` to `auto` on the service's **Environment** page. The Blueprint leaves that variable and `CUTTLELY_POSTGRES_URL` out on purpose, so a later sync doesn't clear what you set.
+Analyst storage is Auto when `CUTTLELY_ANALYST` is unset. Set it to `off` on the service's **Environment** page to turn the private store off. The Blueprint leaves that variable and `CUTTLELY_POSTGRES_URL` out on purpose, so a later sync doesn't clear a Dashboard value of `off`.
 
 With `auto`, Cuttlely creates an `analyst` schema in `cuttlely-db` and a login that can't read the app's tables. The `cuttlely-db` user has to be allowed to create roles, and Render's managed Postgres often doesn't allow it. When it can't, analyst mode stops. It doesn't fall back to the app's login. Then create a separate database and set `CUTTLELY_POSTGRES_URL` to it. Don't use the connection string of `cuttlely-db`: the tool refuses it. If that host requires TLS, add `sslmode` to the URL yourself. Cuttlely doesn't add it.
 

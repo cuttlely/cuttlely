@@ -269,6 +269,6 @@ The routes that need a session, such as `POST /api/v1/account/invite` and `POST 
 
 The status is 401, with or without `x-request-from: internal`. A signed-in browser that sends a write without `x-request-from: internal` gets 401 `{ "message": "Unauthorized" }` from that same gate.
 
-New scoped access keys cannot invite people or issue reset links; these are interactive user-management operations, separate from inbound app authorization. To cancel another pending owner invitation, an active owner uses the invitation-only organization-removal request documented in [Local users, roles, and sessions](./local-directory-api.md#cancel-a-pending-owner-invitation).
+New scoped access keys cannot invite people or issue reset links; these are interactive user-management operations, separate from inbound app authorization. To cancel a pending invitation, including another pending owner invitation, an active owner or an Admin (the built-in Admin role, or a role with `users:manage`) uses the organization-removal request documented in [Local users, roles, and sessions](./local-directory-api.md#cancel-a-pending-owner-invitation). Removing an active or disabled person from every team stays limited to an active owner.
 
 The request logger redacts passwords, cookies, setup codes, raw emails and one-time tokens, including tokens in query strings or fragments. Account-setup and operator-proof codes are intentionally delivered to the host log. Browser Logs redact operator-proof delivery records.

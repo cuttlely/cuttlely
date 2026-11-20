@@ -248,6 +248,16 @@ const pinFirstTests = spawnSync(process.execPath, ['--test', path.join(root, 'pa
 })
 check('pin first runtime and configuration tests', pinFirstTests.status === 0, pinFirstTests.stdout + pinFirstTests.stderr)
 
+const analystStatusTests = spawnSync(
+    process.execPath,
+    ['--test', path.join(root, 'packages/harness/runtime/analyst-mcp-status.test.mjs')],
+    {
+        encoding: 'utf8',
+        timeout: 60000
+    }
+)
+check('analyst status keeps a recorded offer', analystStatusTests.status === 0, analystStatusTests.stdout + analystStatusTests.stderr)
+
 const trustedOutputTests = spawnSync(
     process.execPath,
     [
@@ -304,6 +314,7 @@ const capacityWaitTests = spawnSync(
     [
         '--test',
         path.join(root, 'packages/harness/capacity-wait.test.mjs'),
+        path.join(root, 'packages/harness/draft-session.test.mjs'),
         path.join(root, 'packages/harness/client.test.mjs'),
         path.join(root, 'packages/harness/run-budget.test.mjs'),
         path.join(root, 'packages/harness/warmup.test.mjs')
@@ -6486,6 +6497,102 @@ await expectCase('custom MCP runs through the node', async () => {
                     JSON.stringify({ attempts, refused })
                 )
             }
+            // beforeRetry, when given, is awaited before each retry and before assertCall, never before the first attempt.
+            // Its error stops the attempts. A non-shape error is not retried, and without it the attempts are unchanged.
+            {
+                const bridgeModule = await import('./bridge.mjs')
+                const shapeError = () => new Error('Received tool input did not match expected schema')
+                const shapeTool = (log, fail = () => shapeError()) => ({
+                    name: 'shape_tool',
+                    schema: { type: 'object' },
+                    async invoke(arg) {
+                        log.push(['invoke', arg])
+                        if (log.filter(([step]) => step === 'invoke').length === 1) throw fail()
+                        return 'second-shape-result'
+                    }
+                })
+                const run = async (ready, ...hooks) => {
+                    try {
+                        return { result: await bridgeModule.callPrepared({ runs: false, ready, toolName: '' }, { input: 'x' }, ...hooks) }
+                    } catch (error) {
+                        return { error: error.message }
+                    }
+                }
+                const ordered = []
+                const orderedOutcome = await run(
+                    [shapeTool(ordered)],
+                    () => ordered.push(['assertCall']),
+                    async () => {
+                        ordered.push(['beforeRetry:start'])
+                        await new Promise((resolve) => setImmediate(resolve))
+                        ordered.push(['beforeRetry:end'])
+                    }
+                )
+                check(
+                    'a tool retry awaits beforeRetry, then runs assertCall, then starts',
+                    orderedOutcome.result === 'second-shape-result' &&
+                        JSON.stringify(ordered.map(([step]) => step)) ===
+                            JSON.stringify(['invoke', 'beforeRetry:start', 'beforeRetry:end', 'assertCall', 'invoke']),
+                    JSON.stringify({ ordered, orderedOutcome })
+                )
+                const stopped = []
+                const stoppedOutcome = await run(
+                    shapeTool(stopped),
+                    () => stopped.push(['assertCall']),
+                    async () => {
+                        stopped.push(['beforeRetry'])
+                        throw new Error('refresh cancelled')
+                    }
+                )
+                check(
+                    'a throwing beforeRetry stops the retry and surfaces its own error',
+                    stoppedOutcome.error === 'refresh cancelled' &&
+                        JSON.stringify(stopped.map(([step]) => step)) === JSON.stringify(['invoke', 'beforeRetry']),
+                    JSON.stringify({ stopped, stoppedOutcome })
+                )
+                const refused = []
+                const refusedOutcome = await run(
+                    shapeTool(refused, () => new Error('permission denied for table totals')),
+                    () => refused.push(['assertCall']),
+                    async () => refused.push(['beforeRetry'])
+                )
+                check(
+                    'a non-shape tool error is not retried and does not call beforeRetry',
+                    refusedOutcome.error === 'permission denied for table totals' &&
+                        JSON.stringify(refused.map(([step]) => step)) === JSON.stringify(['invoke']),
+                    JSON.stringify({ refused, refusedOutcome })
+                )
+                const alwaysShape = (log) => ({
+                    name: 'shape_tool',
+                    schema: { type: 'object' },
+                    async invoke(arg) {
+                        log.push(arg)
+                        throw shapeError()
+                    }
+                })
+                const plain = []
+                const plainOutcome = await run(alwaysShape(plain))
+                const checked = []
+                const checkedOutcome = await run(alwaysShape(checked), () => undefined)
+                const hooked = []
+                let retries = 0
+                const hookedOutcome = await run(
+                    alwaysShape(hooked),
+                    () => undefined,
+                    async () => retries++
+                )
+                check(
+                    'without beforeRetry a tool runs the same attempts and error as with a passing one',
+                    plain.length === 2 &&
+                        JSON.stringify(plain) === JSON.stringify(checked) &&
+                        JSON.stringify(plain) === JSON.stringify(hooked) &&
+                        plainOutcome.error === shapeError().message &&
+                        checkedOutcome.error === plainOutcome.error &&
+                        hookedOutcome.error === plainOutcome.error &&
+                        retries === 1,
+                    JSON.stringify({ plain, checked, hooked, plainOutcome, retries })
+                )
+            }
         }
     } finally {
         await gateway?.close()
@@ -9378,7 +9485,7 @@ check(
     directBudgetError?.code === 'over_budget' && Date.now() - directBudgetStarted < 1000,
     `${directBudgetError?.code} ${directBudgetError?.message} ${Date.now() - directBudgetStarted}ms`
 )
-const { trackGatewayCall, abortGatewayProfile, openAiUsage } = await import('./gateway.mjs')
+const { openAiUsage } = await import('./gateway.mjs')
 check(
     'model tokens in any reported shape become OpenAI usage, and missing tokens stay unknown',
     JSON.stringify(openAiUsage({ input_tokens: 9, output_tokens: 3 })) ===
@@ -9421,8 +9528,6 @@ check(
         JSON.stringify({ fromLangChain, noCacheField })
     )
 }
-const gatewayCall = new AbortController()
-const releaseGateway = trackGatewayCall('team--browser', gatewayCall)
 const abortEvents = []
 const abortController = new AbortController()
 let abortError
@@ -9451,11 +9556,9 @@ check(
     abortError?.code === 'aborted' &&
         Date.now() - abortStarted < 1000 &&
         !abortEvents.includes('final') &&
-        contract.seen.some((entry) => entry.kind === 'stop') &&
-        gatewayCall.signal.aborted,
+        contract.seen.some((entry) => entry.kind === 'stop'),
     `${abortError?.code} events=${abortEvents.join(',')} stop=${contract.seen.filter((entry) => entry.kind === 'stop').length}`
 )
-releaseGateway()
 const { AsyncLocalStorage } = await import('node:async_hooks')
 const { AsyncLocalStorageProviderSingleton } = await import('@langchain/core/singletons')
 AsyncLocalStorageProviderSingleton.initializeGlobalInstance(new AsyncLocalStorage())
@@ -10307,7 +10410,9 @@ check(
     )
     const limited = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, count: 1 } })
     const tooBig = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, bytes: 4 } })
-    const merged = mergeTurnImages([found, found, [{ ...found[0], specialist: 'writer' }]], 2)
+    // Keep this third image older: the limit selects by write time, independent of filesystem timestamp precision.
+    const olderWriterImage = { ...found[0], specialist: 'writer', mtime: Math.min(...found.map((image) => image.mtime)) - 1 }
+    const merged = mergeTurnImages([found, found, [olderWriterImage]], 2)
     check(
         'the image count and size limits hold, and the same file is returned once',
         limited.length === 1 && tooBig.length === 0 && merged.length === 2 && merged[1].name !== merged[0].name,
@@ -14856,6 +14961,17 @@ const bridgeGateway = http.createServer((req, res) => {
 })
 await new Promise((resolve) => bridgeGateway.listen(0, '127.0.0.1', resolve))
 const bridgePort = bridgeGateway.address().port
+let scriptedTools = []
+const scriptedGateway = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(chunk))
+    req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ tools: scriptedTools }))
+    })
+})
+await new Promise((resolve) => scriptedGateway.listen(0, '127.0.0.1', resolve))
+const scriptedPort = scriptedGateway.address().port
 const bridgeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-bridge-'))
 const hermesBridgeEnv = {
     PATH: process.env.PATH || '',
@@ -14918,6 +15034,75 @@ try {
         analystPingHeader(silentDir)
     )
     fs.rmSync(silentDir, { recursive: true, force: true })
+    const racedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-race-'))
+    const otherEnv = {
+        ...hermesBridgeEnv,
+        CUTTLELY_DATA_DIR: racedDir,
+        CUTTLELY_HARNESS_GATEWAY_URL: `http://127.0.0.1:${scriptedPort}/`,
+        CUTTLELY_HARNESS_GATEWAY_TOKEN: 'other-specialist-token'
+    }
+    await askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: racedDir }, { jsonrpc: '2.0', id: 7, method: 'tools/list' })
+    scriptedTools = []
+    await askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 8, method: 'tools/list' })
+    await askAnalystBridge(
+        { ...otherEnv, CUTTLELY_HARNESS_GATEWAY_URL: 'http://127.0.0.1:9/' },
+        { jsonrpc: '2.0', id: 9, method: 'tools/list' }
+    )
+    scriptedTools = [{ name: 'search_docs' }, { name: 'draft' }]
+    await askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 10, method: 'tools/list' })
+    const racedStatus = JSON.parse(fs.readFileSync(path.join(racedDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a later empty, failed, or non-analyst tools/list does not clear a recorded offer',
+        racedStatus.tools === 1 && analystPingHeader(racedDir) === 'ready',
+        JSON.stringify(racedStatus)
+    )
+    const otherOnlyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-other-'))
+    scriptedTools = [{ name: 'search_docs' }]
+    await askAnalystBridge({ ...otherEnv, CUTTLELY_DATA_DIR: otherOnlyDir }, { jsonrpc: '2.0', id: 11, method: 'tools/list' })
+    const otherOnly = JSON.parse(fs.readFileSync(path.join(otherOnlyDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a specialist that lists no query or pinned tool records missing',
+        otherOnly.tools === 0 && analystPingHeader(otherOnlyDir) === 'missing',
+        JSON.stringify(otherOnly)
+    )
+    await askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: otherOnlyDir }, { jsonrpc: '2.0', id: 12, method: 'tools/list' })
+    check(
+        'a query list after a missing status becomes ready',
+        analystPingHeader(otherOnlyDir) === 'ready' &&
+            JSON.parse(fs.readFileSync(path.join(otherOnlyDir, 'analyst-mcp.json'), 'utf8')).tools === 1,
+        analystPingHeader(otherOnlyDir)
+    )
+    const pinnedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-pinned-'))
+    scriptedTools = [{ name: 'pq_sales' }, { name: 'describe' }]
+    await askAnalystBridge({ ...otherEnv, CUTTLELY_DATA_DIR: pinnedDir }, { jsonrpc: '2.0', id: 13, method: 'tools/list' })
+    const pinnedStatus = JSON.parse(fs.readFileSync(path.join(pinnedDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a pinned query with no free query tool records ready',
+        pinnedStatus.tools === 1 && analystPingHeader(pinnedDir) === 'ready',
+        JSON.stringify(pinnedStatus)
+    )
+    let raceDetail = ''
+    for (let round = 0; round < 8; round += 1) {
+        fs.rmSync(path.join(racedDir, 'analyst-mcp.json'), { force: true })
+        scriptedTools = []
+        await Promise.all([
+            askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: racedDir }, { jsonrpc: '2.0', id: 20 + round, method: 'tools/list' }),
+            askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 40 + round, method: 'tools/list' })
+        ])
+        const body = JSON.parse(fs.readFileSync(path.join(racedDir, 'analyst-mcp.json'), 'utf8'))
+        if (body.tools !== 1 || analystPingHeader(racedDir) !== 'ready') {
+            raceDetail = `round ${round} ${JSON.stringify(body)}`
+            break
+        }
+    }
+    check(
+        'an analyst offer stays ready when another specialist lists no tools at the same time',
+        raceDetail === '',
+        raceDetail || analystPingHeader(racedDir)
+    )
+    fs.rmSync(racedDir, { recursive: true, force: true })
+    fs.rmSync(otherOnlyDir, { recursive: true, force: true })
+    fs.rmSync(pinnedDir, { recursive: true, force: true })
     const fallbackFile = path.join(root, '.cuttlely', 'analyst-mcp.json')
     const fallbackExisted = fs.existsSync(fallbackFile)
     const fallbackBefore = fallbackExisted ? fs.readFileSync(fallbackFile) : null
@@ -14940,6 +15125,7 @@ try {
     else fs.rmSync(fallbackFile, { force: true })
 } finally {
     await new Promise((resolve) => bridgeGateway.close(resolve))
+    await new Promise((resolve) => scriptedGateway.close(resolve))
     fs.rmSync(bridgeDir, { recursive: true, force: true })
 }
 writeAnalystMcpStatus(0, dataDir)

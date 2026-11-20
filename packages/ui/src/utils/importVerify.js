@@ -1,0 +1,174 @@
+// Imported test stamps belong to the server that wrote them. The query stays; the stamp does not.
+
+const STAMP_FIELDS = ['testedStamp', 'testedAt', 'testedBy', 'testedColumns', 'columnsChanged']
+
+export function readQueries(value) {
+    let parsed = value
+    if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text) return []
+        try {
+            parsed = JSON.parse(text)
+        } catch {
+            return []
+        }
+    }
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object') : []
+}
+
+function pinnedQueriesUnreadable(value) {
+    if (value == null) return false
+    let parsed = value
+    if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text) return false
+        try {
+            parsed = JSON.parse(text)
+        } catch {
+            return true
+        }
+    }
+    if (!Array.isArray(parsed)) return true
+    return readQueries(parsed).length !== parsed.length
+}
+
+export function queryReady(pin) {
+    if (!pin || typeof pin.testedStamp !== 'string' || !pin.testedStamp.trim()) return false
+    if (pin.needsRetest || pin.columnsChanged) return false
+    if (pin.importedVerification === 'untrusted') return false
+    return true
+}
+
+export const IMPORT_HOLD = 'unverified'
+
+export function untrustFlow(flow) {
+    if (!flow || typeof flow !== 'object' || !Array.isArray(flow.nodes)) return flow
+    const copy = JSON.parse(JSON.stringify(flow))
+    copy.importVerification = IMPORT_HOLD
+    for (const node of copy.nodes) {
+        const inputs = node?.data?.inputs
+        if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
+        if (pinnedQueriesUnreadable(inputs.pinnedQueries)) continue
+        const next = readQueries(inputs.pinnedQueries).map((pin) => {
+            const cleared = { ...pin, needsRetest: true, importedVerification: 'untrusted' }
+            for (const field of STAMP_FIELDS) delete cleared[field]
+            return cleared
+        })
+        inputs.pinnedQueries = JSON.stringify(next)
+    }
+    return copy
+}
+
+export function statusTitle(status, record) {
+    if (record?.summary === 'Matches Live; nothing to publish.') return 'Matches Live'
+    if (status === 'ready') return 'Ready to publish'
+    if (status === 'attention') return 'Needs attention'
+    if (status === 'incomplete' || status === 'cancelled') return 'Could not fully verify'
+    if (status === 'running') return 'Checking this flow'
+    return 'Import & verify'
+}
+
+export function progressLine(record) {
+    if (!record) return ''
+    if (record.phase) return record.phase
+    if (record.total) return `Checking saved queries: ${record.checked || 0} of ${record.total}.`
+    return ''
+}
+
+export const PLACEHOLDER_FLOW = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } })
+
+export function verificationFlowId(propId, stateId) {
+    return propId || stateId || ''
+}
+
+export function shouldReplaceDraft({ flowText, retryFailures = false, choices = false, resume = false } = {}) {
+    return Boolean(flowText) && !retryFailures && !choices && !resume
+}
+
+export function connectionNeedsChoice(item) {
+    if (!item) return false
+    if (item.status === 'missing' || item.status === 'ambiguous') return true
+    return item.status === 'empty' && item.required === true
+}
+
+export function showResume(record) {
+    if (!record || record.publishOffered || record.status === 'idle') return false
+    // A running record whose job is still in this process is not ready to resume. After a restart the
+    // saved record can still say running while no job is active; that one can be resumed.
+    if (record.status === 'running' && record.running !== false) return false
+    if ((record.connections || []).some(connectionNeedsChoice)) return false
+    if ((record.queries || []).some((item) => item.state === 'failed')) return false
+    return !(record.smoke || []).some((item) => (item.id === 'report' || item.id === 'csv') && item.state === 'failed')
+}
+
+// Draft status has to land before the canvas text. Save reads the status that was current when the text was recorded.
+// Without a loaded draft status the cards stay as they were, so a later Save cannot use an unknown or Live mode.
+export function deliverImportedDraft({ status, flowText, onDraftStatus, onImported } = {}) {
+    if (!status || typeof status !== 'object') return false
+    if (onDraftStatus) onDraftStatus(status)
+    const stored = status.draft?.flowData
+    const text = typeof stored === 'string' && stored ? stored : flowText
+    // A stored draft is shown even when the status mode is live, so those cards are not left off the canvas.
+    const paints = Boolean(text) && (status.mode === 'draft' || (typeof stored === 'string' && Boolean(stored)))
+    if (paints && onImported) onImported(text)
+    return paints
+}
+
+// The canvas must not keep a draft hash from before this import. A later Save of the old cards
+// would otherwise replace the imported draft, including when the same person saved both.
+export function draftStatusWhenImportUnknown(flowId) {
+    return {
+        status: { mode: 'unknown' },
+        load: { flowId: flowId || '', known: false, loading: false, error: true, request: 'status' }
+    }
+}
+
+// A canvas save keeps nodes and edges only. Put the import hold back so a no-op Save cannot
+// drop it and let Publish skip an attention result.
+export function preserveImportHold(previousText, canvas) {
+    if (!canvas || typeof canvas !== 'object') return canvas
+    let previous = null
+    try {
+        previous = JSON.parse(previousText || '')
+    } catch {
+        previous = null
+    }
+    if (!previous || previous.importVerification !== IMPORT_HOLD) return canvas
+    return { ...canvas, importVerification: IMPORT_HOLD }
+}
+
+// The first save of an existing flow must name the draft this canvas loaded. strictDraftHash
+// also conflicts when the same person saved a newer copy this canvas has not loaded.
+export function importDraftSaveOptions(expected = {}) {
+    const hash = expected?.expectedDraftHash
+    const options = { strictDraftHash: true }
+    if (typeof hash === 'string' || hash === null) options.expectedDraftHash = hash
+    return options
+}
+
+export function importFlowType({ isEtlCanvas = false, isHarnessCanvas = false, isAgentflowV2 = false, isAgentCanvas = false } = {}) {
+    if (isEtlCanvas) return 'ETL'
+    if (isHarnessCanvas) return 'HARNESS'
+    if (isAgentflowV2) return 'AGENTFLOW'
+    if (isAgentCanvas) return 'MULTIAGENT'
+    return 'CHATFLOW'
+}
+
+export function canvasPathForImport(flowType, id, agentV2 = false) {
+    if (!id) return ''
+    if (flowType === 'HARNESS') return `/harnesscanvas/${id}`
+    if (flowType === 'ETL') return `/etlcanvas/${id}`
+    if (flowType === 'MULTIAGENT') return `/agentcanvas/${id}`
+    if (flowType === 'AGENTFLOW') return agentV2 ? `/v2/agentcanvas/${id}` : `/agentcanvas/${id}`
+    return `/canvas/${id}`
+}
+
+// A flow created by Import & verify has to become the canvas on screen. The address changes to that id,
+// and the canvas remembers it so the route update does not load a second copy over the cards.
+export function adoptImportedIdentity({ created, flowType, agentV2 = false, remember, replaceState, historyState = null } = {}) {
+    const id = created?.id
+    if (!id) return null
+    if (typeof remember === 'function') remember(id)
+    if (typeof replaceState === 'function') replaceState(historyState, '', canvasPathForImport(flowType, id, agentV2))
+    return created
+}

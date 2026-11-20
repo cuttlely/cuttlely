@@ -86,6 +86,9 @@ describe('boot acceptance', () => {
                     }
                 }
             }
+            if (file === 'credential-store.mjs') {
+                return { credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null }
+            }
             throw new Error(`unexpected ${file}`)
         })
     })

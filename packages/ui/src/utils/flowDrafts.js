@@ -36,9 +36,10 @@ export const PUBLISH_INSTANTLY_LOCKED = 'Publish or discard the draft before cha
 
 const SKIP_DATA_KEYS = new Set(['selected', 'status', 'nodePack'])
 
-// Draft chrome (the label and Publish) shows only while this flow actually saves to a draft.
-// mode "live" covers drafts off, a flow type with no drafts, and Publish instantly.
-export const showDraftChrome = (status) => status?.mode === 'draft'
+// Draft chrome (the label and Publish) shows while this flow saves to a draft.
+// A stored draft only keeps that chrome when Publish instantly is the reason the mode is live.
+// Drafts turned off for the server stay without a Publish button.
+export const showDraftChrome = (status) => status?.mode === 'draft' || (status?.reason === 'publish-instantly' && Boolean(status?.draft))
 
 export const showPublishInstantly = (status) => Boolean(status?.enabled) && status.reason !== 'off' && status.reason !== 'type'
 

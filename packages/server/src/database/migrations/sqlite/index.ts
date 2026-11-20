@@ -1,4 +1,5 @@
 import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
+import { AddImportVerify1801400000000 } from './1801400000000-AddImportVerify'
 import { Init1693835579790 } from './1693835579790-Init'
 import { ModifyChatFlow1693920824108 } from './1693920824108-ModifyChatFlow'
 import { ModifyChatMessage1693921865247 } from './1693921865247-ModifyChatMessage'
@@ -170,5 +171,7 @@ export const sqliteMigrations = [
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
     AddScimGroups1801200000001,
+    // AccessKeys stays last. A test drops the final entry and applies that migration itself.
+    AddImportVerify1801400000000,
     AccessKeys1801300000000
 ]

@@ -24,7 +24,8 @@ const mockDashStore = {
     get: jest.fn(() => ({ revision: 1, definition: { harness: 'draft' } })),
     published: jest.fn(() => ({ definition: { harness: 'published' }, snapshot: { accounts: ['account'] } }))
 }
-jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockDashStore, DashFlowError: MockDashFlowError }) }))
+const mockOpenDashStore = jest.fn(() => mockDashStore)
+jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockOpenDashStore(), DashFlowError: MockDashFlowError }) }))
 jest.mock('../../routes/dashflows/public', () => ({
     __esModule: true,
     default: require('express').Router(),
@@ -481,6 +482,22 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
         (
             await request(app)
                 .put('/api/v1/chatflows/' + FLOW)
+                .set('Authorization', 'Bearer fixture-token')
+        ).status
+    ).toBe(403)
+    for (const path of [`import-verify/${FLOW}`, `import-verify/${FLOW}/cancel`])
+        expect(
+            (
+                await request(app)
+                    .post('/api/v1/' + path)
+                    .set('Authorization', 'Bearer fixture-token')
+                    .send({})
+            ).status
+        ).toBe(403)
+    expect(
+        (
+            await request(app)
+                .get('/api/v1/import-verify/' + FLOW)
                 .set('Authorization', 'Bearer fixture-token')
         ).status
     ).toBe(403)
@@ -1196,5 +1213,24 @@ it('predict without its view permission names the exact missing permission and l
         statusCode: 403,
         message: expect.stringMatching(/chatflows:view.*https:\/\/cuttlely.com\/docs\/how-to\/access-keys\//)
     })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+it('answers 503 when Dash Flows storage is mid-move, without charging', async () => {
+    // The caller sees 503 with the mid-move text, not 500 and not the generic unavailable text. Off and shadow never admit
+    // a scoped key (see above).
+    mockKeys.set('fixture-token', key({ scopes: ['dashflow:read'] }))
+    grant('dashboard', 'DASHFLOW')
+    mockOpenDashStore.mockImplementationOnce(() => {
+        throw new MockDashFlowError(503, 'Dash Flows storage is mid-move; check the start log.')
+    })
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    const response = await request(app).get('/api/v1/dashflows/dashboard/published').set('Authorization', 'Bearer fixture-token')
+    expect(response.status).toBe(503)
+    expect(response.body.message).toBe('Dash Flows storage is mid-move; check the start log.')
+    expect(mockOpenDashStore).toHaveBeenCalled()
     expect(mockConsume).not.toHaveBeenCalled()
 })

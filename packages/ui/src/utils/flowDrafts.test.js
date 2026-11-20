@@ -66,6 +66,8 @@ describe('draft chrome', () => {
         expect(showDraftChrome({ enabled: false, mode: 'live', reason: 'off' })).toBe(false)
         expect(showDraftChrome({ enabled: true, mode: 'live', reason: 'type' })).toBe(false)
         expect(showDraftChrome({ enabled: true, mode: 'live', reason: 'publish-instantly' })).toBe(false)
+        expect(showDraftChrome({ enabled: true, mode: 'live', reason: 'publish-instantly', draft: { flowData: '{}' } })).toBe(true)
+        expect(showDraftChrome({ enabled: false, mode: 'live', reason: 'off', draft: { flowData: '{}' } })).toBe(false)
         expect(showDraftChrome(null)).toBe(false)
         expect(draftBadge({ mode: 'live', reason: 'off' })).toBeNull()
     })

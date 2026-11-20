@@ -418,6 +418,8 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     const body = req.body || {}
     assertExactKeys(body, BODY_KEYS, CALLER_URL_MESSAGE)
     const entry = normalizeEntry(body.entry)
+    const originalParams = structuredClone(((body.entry as Record<string, unknown>)?.params as unknown[]) || [])
+    const testedEntry = { ...entry, params: originalParams as NormalizedEntry['params'] }
     const args = sampleArgs(body.sampleValues)
     const { flow, node, workspaceId } = await savedNode(req, used)
     const inputs = (node?.data?.inputs || {}) as Record<string, unknown>
@@ -427,13 +429,13 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     const guard = guardOptions(node, entry, used)
     let compiled: CompiledPin
     try {
-        compiled = used.compilePinned(entry, args)
+        compiled = used.compilePinned(testedEntry, args)
     } catch (error) {
         refuseRunner(error)
     }
     const saved = savedPins(inputs).find((pin) => pin && pin.id === entry.id)
-    const version = saved ? (sameSpec(saved, entry) ? Number(saved.version) || 1 : (Number(saved.version) || 1) + 1) : entry.version
-    const pinnedEntry = { ...entry, version }
+    const version = saved ? (sameSpec(saved, testedEntry) ? Number(saved.version) || 1 : (Number(saved.version) || 1) + 1) : entry.version
+    const pinnedEntry = { ...testedEntry, version }
     const runOptions = {
         readOnlySql: true,
         relations: guard.relations,
@@ -467,7 +469,7 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
                 id: entry.id,
                 version,
                 sql: columnProbeSql(entry.sql, names),
-                params: entry.params
+                params: testedEntry.params
             }
             const probed = rowsOf(
                 await used.queryAnalystUrl(
@@ -490,7 +492,7 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         workspaceId,
         cred: credentialId,
         statementHash: compiled!.statementHash,
-        params: entry.params,
+        params: testedEntry.params,
         relations: guard.relations,
         allowedFunctions: guard.stampFunctions,
         testedColumns
@@ -506,7 +508,7 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         purpose: entry.purpose,
         description: entry.description,
         sql: entry.sql,
-        params: entry.params,
+        params: testedEntry.params,
         version,
         testedStamp: stamp,
         testedAt,
@@ -564,6 +566,34 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         statementHash: compiled!.statementHash,
         entry: stored
     }
+}
+
+// A bounded read-only lookup for Import & verify. The statement is built by that feature from
+// selected tables only. It uses the same connection and guard as a saved-query test.
+export async function readOnlyRows(input: { workspaceId: string; node: any; sql: string }): Promise<{ rows: Record<string, unknown>[] }> {
+    const used = deps()
+    await ensureRuntime(used)
+    if (!input.workspaceId) throw new PinnedRequestError(404, 'Workspace not found.')
+    if (!input.node) throw new PinnedRequestError(400, 'Choose the PostgreSQL MCP node to test.')
+    const { postgresUrl } = await connectionFor(input.node, input.workspaceId, used)
+    const guard = guardOptions(input.node, null, used)
+    let raw: unknown
+    try {
+        raw = await used.queryAnalystUrl(
+            postgresUrl,
+            input.sql,
+            analystOptions({
+                readOnlySql: true,
+                relations: guard.relations,
+                allowedFunctions: guard.allowedFunctions,
+                rowCap: Math.min(20, guard.limits.rowCap),
+                statementTimeoutMs: guard.limits.timeoutMs
+            })
+        )
+    } catch (error) {
+        refuseRunner(error)
+    }
+    return { rows: rowsOf(raw).rows }
 }
 
 export { PinnedRequestError }

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { dataRoot } from './paths.mjs'
-import { writeAnalystMcpStatus } from './runtime/analyst-mcp-status.mjs'
+import { noteAnalystToolCount } from './runtime/analyst-mcp-status.mjs'
 
 // Same shape profile.mjs accepts for a specialist gateway token (32 bytes, base64url).
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/
@@ -82,12 +82,12 @@ async function handle(body) {
         try {
             const result = await postGateway('/harness/tools/list', {})
             const tools = result.tools || []
-            recordAnalystStatus(tools.length)
+            recordAnalystStatus(tools)
             return send(message.id, { tools })
         } catch (error) {
             // An empty list used to stick in Hermes for the process lifetime. A JSON-RPC error
             // is a failed connect, which Hermes retries.
-            recordAnalystStatus(0)
+            recordAnalystStatus([])
             return sendError(message.id, -32000, error.message)
         }
     }
@@ -118,11 +118,13 @@ async function handle(body) {
 }
 
 function recordAnalystStatus(tools) {
-    // No gateway token means this profile is not an analyst specialist. Do not
-    // let that failed tools/list replace a specialist's ready status with 0.
+    // Every specialist bridge shares one status file and is started with this
+    // flag and a gateway token. A list that fails, is empty, or has no query
+    // or pinned query tool must not clear an offer already recorded. A bridge
+    // with no token is not one of those specialist profiles and does not write.
     if (!analystBridge) return
     if (!String(process.env.CUTTLELY_HARNESS_GATEWAY_TOKEN || '').trim()) return
-    writeAnalystMcpStatus(tools, analystStatusDir())
+    noteAnalystToolCount(tools, analystStatusDir())
 }
 
 // Hermes copies this into the bridge env once, when it starts the process. A later profile

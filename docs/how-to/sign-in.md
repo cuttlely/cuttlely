@@ -2,7 +2,7 @@
 
 A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. Owner recovery keeps that account available when another sign-in method is selected. When several people need to sign in, the instance operator, signed in as an active owner, can select Local login, WorkOS, or generic OIDC under **Admin** > **Auth / SSO**. See [Choose the sign-in method](./auth-sso.md). To let people who already have a password use Local login, see [Users without AuthKit](./users-without-authkit.md). That option is off by default. Invited people still have no password until a sign-in link exists. Step-by-step setup for each method is in [Set up local login](./auth-sso.md#set-up-local-login) and [Set up generic OIDC](./auth-sso.md#set-up-generic-oidc).
 
-Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render uses WorkOS and does not show an ordinary password form.
+Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). The Render blueprint defaults to WorkOS. The instance operator can choose another supported sign-in method; ordinary password sign-in requires Local login and local users to be enabled.
 
 ## Turn on the local account
 
@@ -26,7 +26,7 @@ If accounts already exist, use `/owner-recovery`, with the host user CLI as emer
 
 ## Create the first account
 
-The first account is the owner, shown as **Super User**. You can create it in the browser or in a terminal. Either way it works only while the install has no users.
+The first account is the owner, shown as **Super User**. You can create it in the browser, in a terminal, or from host configuration when the server starts. Each way works only while the install has no users.
 
 ### In the browser
 
@@ -83,6 +83,58 @@ The password needs 8 to 128 characters, with a lowercase letter, an uppercase le
 ```
 
 Without a terminal, for example in a script, the command reads the password from standard input until the input closes. Never put the password on the command line.
+
+### From host configuration
+
+For an install where nobody can open the setup link, such as a CI/CD deploy, a headless server or an air-gapped host, give the server the owner's email and a password hash as deploy-time secrets. On an empty database it creates the owner before it starts listening, so no setup code is printed and `/setup` stays closed. It needs local password sign-in on the host (`CUTTLELY_LOCAL_ADMIN=true`, the Docker default) and no AuthKit. For AuthKit, use `CUTTLELY_BOOTSTRAP_EMAIL` instead ([AuthKit setup](../identity/workos-authkit-setup.md)).
+
+1. Make the hash on a machine you trust, from a source checkout. It asks for the password, applies the rules above, and writes only the hash to a new file that only you can read. An existing file is never replaced.
+
+    ```bash
+    pnpm -s hash-password owner.hash
+    ```
+
+    Without a terminal it reads the password from standard input, like `pnpm user`. Without a file name it prints the hash. The hash is the exact form Cuttlely stores (`scrypt$<salt>$<key>`). Make it with this command, not another tool: the salt and the scrypt settings are specific to Cuttlely. A Docker install can run the same command from the image, `docker compose run --rm --no-deps -T cuttlely packages/server/bin/run hash-password < password.txt > owner.hash`, with an image from this release on.
+
+2. Give the server the email and the hash file. With Compose, set the email and the file path in `.env` and mount the file as a secret in `docker-compose.override.yml`:
+
+    ```bash
+    CUTTLELY_INITIAL_OWNER_EMAIL=you@example.com
+    CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE=/run/secrets/cuttlely_owner_hash
+    ```
+
+    ```yaml
+    services:
+        cuttlely:
+            secrets:
+                - cuttlely_owner_hash
+    secrets:
+        cuttlely_owner_hash:
+            file: ./owner.hash
+    ```
+
+    The server runs as the image's `node` user (uid 1000), so that user must be able to read the file. Kubernetes secret volumes and other mounted secret files work the same way: name the file in a `*_FILE` variable.
+
+3. Start the server. The log says `First owner from host configuration: the first owner was created`. Sign in at `/signin` with that email and password.
+
+4. Remove the `CUTTLELY_INITIAL_OWNER_*` variables and the secret from the deployment.
+
+| Variable                                    | What it holds                                                                                      |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_INITIAL_OWNER_EMAIL`              | The owner's email. Turns this on.                                                                  |
+| `CUTTLELY_INITIAL_OWNER_NAME`               | Optional display name, up to 100 characters. Unset uses the part of the email before `@`.          |
+| `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE` | Path to a file with the hash from `pnpm hash-password`. Preferred.                                 |
+| `CUTTLELY_INITIAL_OWNER_PASSWORD_FILE`      | Path to a file with the password. The password rules apply.                                        |
+| `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH`      | The hash itself.                                                                                   |
+| `CUTTLELY_INITIAL_OWNER_PASSWORD`           | The password itself. The least safe choice: anyone who can read the deployment's settings sees it. |
+
+Set exactly one of the four password variables. Two set is an error, not a choice between them. A file path must be absolute. One trailing line break is removed from the file; everything else, including spaces, is part of the password. A hash skips the password rules, so choose a strong password when you make it. The server reads the password and hash variables once and removes them from its own environment, and the start script does not pass them to the agent runtime. The server never logs the email, the password or the hash.
+
+It runs once. When any account exists, the variables are ignored with a warning in the log, and the server never changes a password, an email or a role. Leaving them set has a risk: a restore or a wipe to an empty database, or a new database, creates the owner again with that password. Remove them after the first start.
+
+It fails closed. On an empty database, a problem stops the start with exit code 1 and an error line that names the variable but not its value: a missing or invalid email, a file that cannot be read, a hash not made by `pnpm hash-password`, a password that misses a rule, two password sources, local password sign-in off, AuthKit configured, or another sign-in method already selected. The setup link is not offered in its place. Fix the variable, or remove all of them to use the setup link, and start again.
+
+With several copies of the server on one database, one copy creates the owner and the others log that another copy did. The audit log records the owner as **First owner created** with source `host_config`. Browser setup records `setup_code` and `pnpm user` records `cli`. An owner created this way is not the instance operator; claim it in **Admin > Server settings** as after browser setup ([Instance operator](./instance-operator.md)).
 
 ## Sign in
 
@@ -148,7 +200,7 @@ For an OIDC invitation, the provider asks the person to sign in again even when 
 
 Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in through WorkOS or generic OIDC without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
 
-In **User Management** (`/users`), an active organization owner can use the trash action to cancel another pending owner invitation. Confirmation names the email and revokes invite links across the organization’s teams. Cancellation is refused if acceptance has already completed; refresh the list. Self-removal and the last active owner are protected, and active owners stay **Super User, read-only** in this UI.
+In **User Management** (`/users`), an active organization owner, or an Admin (the built-in Admin role or a role with `users:manage`), can use the trash action to cancel a pending invitation, including another pending owner invitation. Confirmation names the email and revokes invite links across the organization’s teams. Removing an active or disabled person from every team stays limited to an active organization owner. Cancellation is refused if acceptance has already completed; refresh the list. Self-removal and the last active owner are protected, and active owners stay **Super User, read-only** in this UI.
 
 An invite link:
 

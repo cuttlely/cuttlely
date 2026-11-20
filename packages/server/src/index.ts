@@ -10,8 +10,11 @@ import { AbortControllerPool } from './AbortControllerPool'
 import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
+import { registerAppCredentialSource } from './utils/credentialSource'
+import { registerAppStoreSource } from './utils/appStoreSource'
 import { initAuthSecrets } from './identity/authSecrets'
 import { applyAuthKitSwitchOnBoot } from './identity/production'
+import { applyInitialOwnerOnBoot } from './identity/initialOwner'
 import { localAdminEnabled } from './identity/constants'
 import { ossIdentity, OssIdentity } from './identity/ossPlatform'
 import type { LoggedInUser } from './identity/types'
@@ -118,11 +121,29 @@ export class App {
             setBootStep('Updating the database')
             await runSupportedMigrations(this.AppDataSource)
             logger.info('🔄 [server]: Database migrations completed successfully')
+            await registerAppCredentialSource(this.AppDataSource)
+            await registerAppStoreSource(this.AppDataSource, {
+                info: (message) => logger.info(`[dashflows] ${message}`),
+                warn: (message) => logger.warn(`[dashflows] ${message}`),
+                error: (message) => logger.error(`[dashflows] ${message}`)
+            })
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {
                 logger.info(
                     `🔐 [server]: AuthKit is configured. Ended ${authKitSwitch.ended} local session(s). Password sign-in stays available only for the owner break-glass account.`
                 )
+            }
+            // Before the server listens, so an install configured this way never prints a setup code.
+            const initialOwner = await applyInitialOwnerOnBoot(this.AppDataSource, {
+                info: (message) => logger.info(message),
+                warn: (message) => logger.warn(message),
+                error: (message) => logger.error(message)
+            })
+            if (initialOwner === 'refused') {
+                // A host configuration problem, not a server settings problem: exit 1 ends the start script instead of
+                // the safe-boot retry, and the setup link is never offered in its place.
+                await new Promise((resolve) => setTimeout(resolve, 300))
+                process.exit(1)
             }
 
             // Open source identity. SSO providers are not loaded or started.

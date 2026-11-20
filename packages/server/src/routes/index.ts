@@ -74,6 +74,7 @@ import webhookListenerRouter from './webhook-listener'
 import harnessesRouter from './harnesses'
 import flowVersionsRouter from './flow-versions'
 import flowDraftsRouter from './flow-drafts'
+import importVerifyRouter from './import-verify'
 import etlRouter from './etl'
 import {
     identityAccountRouter,
@@ -123,6 +124,7 @@ router.use('/public-dashflows', publicDashflowsRouter)
 router.use('/harnesses', harnessesRouter)
 router.use('/flow-versions', flowVersionsRouter)
 router.use('/flow-drafts', flowDraftsRouter)
+router.use('/import-verify', importVerifyRouter)
 router.use('/pinned-queries', pinnedQueriesRouter)
 router.use('/etl', etlRouter)
 router.use('/chatflows-streaming', chatflowsStreamingRouter)

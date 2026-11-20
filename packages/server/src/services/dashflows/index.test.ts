@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 const claim = { token: 'lease', revision: 1, definition: { harness: 'synthetic-contract' } }
 const store = {
     assertActive: jest.fn(),
@@ -67,6 +69,8 @@ it('routes a refresh through the exact harness specialist binding and preserves 
             harness: { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' },
             bindingIndex: 2,
             flowOptions: { workspaceId: 'team-a' },
+            beforeCall: expect.any(Function),
+            beforeRetry: expect.any(Function),
             assertCall: expect.any(Function)
         }
     )
@@ -217,4 +221,50 @@ it('materializes the pinned Harness canvas even if the name remaps before refres
     expect(execute).toHaveBeenCalled()
     // Pin check consulted getHarness once; refresh must not re-resolve the remapped name.
     expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
+})
+
+// Runs the refresh against the real tool bridge in a child Node process (see index.cancel-bridge.child.mjs), once per
+// store: switch off (SQLite store, synchronous check behind an async method) and switch on (application-database store,
+// awaited query).
+const refreshThroughBridge = (mode: string, scenario: string) => {
+    const child = path.join(__dirname, 'index.cancel-bridge.child.mjs')
+    const result = spawnSync(process.execPath, [child, mode, scenario], { encoding: 'utf8', env: process.env })
+    if (result.status !== 0) throw new Error(`child exited ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    const outcome = JSON.parse(result.stdout.trim().split('\n').pop() as string)
+    expect(outcome.mode).toBe(mode)
+    expect(outcome.scenario).toBe(scenario)
+    return outcome
+}
+// The cancel lands while the bridge is preparing the source node.
+it.each(['sqlite', 'postgres'])('starts no source when the refresh is cancelled while a tool call is being prepared, %s store', (mode) => {
+    const outcome = refreshThroughBridge(mode, 'prepare')
+    expect(outcome.statusCode).toBe(409)
+    // The store check saw the cancel; the question is only whether it came before the source started.
+    expect(outcome.refusals).toBeGreaterThan(0)
+    expect(outcome.sourceStarts).toBe(0)
+    expect(outcome.settledSnapshot).toBeNull()
+})
+
+// The tool's first attempt fails schema validation and the bridge retries it with the next argument shape. A cancel
+// that lands during the first attempt is seen by the awaited store check before the retry, so the source starts once.
+it.each(['sqlite', 'postgres'])(
+    'starts no retry of a tool call when the refresh is cancelled during its first attempt, %s store',
+    (mode) => {
+        const outcome = refreshThroughBridge(mode, 'retry-cancel')
+        expect(outcome.statusCode).toBe(409)
+        expect(outcome.refusals).toBeGreaterThan(0)
+        expect(outcome.sourceStarts).toBe(1)
+        expect(outcome.cachePuts).toBe(0)
+        expect(outcome.settledSnapshot).toBeNull()
+    }
+)
+
+it.each(['sqlite', 'postgres'])('retries a tool call with the next argument shape when the refresh is not cancelled, %s store', (mode) => {
+    const outcome = refreshThroughBridge(mode, 'retry')
+    expect(outcome.resolved).toBe(true)
+    expect(outcome.refusals).toBe(0)
+    expect(outcome.sourceStarts).toBe(2)
+    expect(outcome.beforeRetryCalls).toBe(1)
+    expect(outcome.cachePuts).toBe(1)
+    expect(outcome.settledSnapshot).toEqual({ id: 'new' })
 })

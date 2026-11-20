@@ -71,21 +71,23 @@ import {
     takeAnalystResults
 } from './analyst-capture.mjs'
 import {
-    abortGatewayProfile,
     clearCallerWorkspace,
     noteCallerFlowOptions,
     setGatewayContext,
     offeredPinnedTools,
     invokeOfferedPinnedTool,
-    pinnedCallContext
+    pinnedCallContext,
+    profileDiagnosticEvents
 } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
     compileTryProfile,
+    credentialIdsFor,
     discardTryProfile,
     noteLiveTry,
     tryProfileName,
@@ -117,7 +119,7 @@ import {
 } from './images.mjs'
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
-import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
+import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
@@ -449,6 +451,13 @@ async function runTurn(
     }
 }
 
+function canvasSessionScope(harness) {
+    if (!harness.tryId || !harness.chatflowId || !harness.workspaceId) return undefined
+    const saved = getHarness(harness.name)
+    if (saved?.workspaceId === harness.workspaceId && saved?.chatflowId === harness.chatflowId) return undefined
+    return draftSessionScope(harness)
+}
+
 async function runTurnBody(
     harness,
     {
@@ -482,7 +491,9 @@ async function runTurnBody(
     let profileMs = 0
     if (needsHermes) {
         // A try id compiles into its own profile directory. The published profile is not opened for write.
-        const compiled = harness.tryId ? compileTryProfile(harness, harness.tryId) : compileProfileCached(harness)
+        const compiled = harness.tryId
+            ? compileTryProfile(harness, harness.tryId)
+            : compileProfileCached(harness, { credentialStamp: await credentialStampAsync(credentialIdsFor(harness)) })
         profileMs = Date.now() - profileStarted
         roster = compiled.roster || harness
     }
@@ -495,6 +506,7 @@ async function runTurnBody(
     const context = {
         name,
         chatId,
+        sessionScope: canvasSessionScope(harness),
         roster,
         baseUrl,
         fetchImpl,
@@ -629,7 +641,7 @@ function loadPrompt(context) {
         context.answerInputs = []
         return []
     }
-    const prompt = readPromptContext(context.name, context.chatId)
+    const prompt = readPromptContext(context.name, context.chatId, { scope: context.sessionScope })
     // Preserve the exact displayed text before analyst-page compaction or model
     // context fitting. Only file-capable runs receive full copies, on disk.
     context.answerInputs = context.roster?.specialists?.some(writesFiles) ? priorAnswerInputs(prompt.messages) : []
@@ -772,7 +784,8 @@ async function runRoster(context, input) {
             question,
             text,
             sourceNames(maskWorkspacePaths([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])),
-            answerSelections(text, selectionSources(context, results), question)
+            answerSelections(text, selectionSources(context, results), question),
+            { scope: context.sessionScope }
         )
     }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
@@ -1258,6 +1271,16 @@ function emitTool(context, data) {
     delete emitted.callId
     logToolEvent(context.toolLog, data, detail)
     emit(context, 'tool', emitted)
+}
+
+function emitProfileDiagnostics(context, specialist) {
+    if (!context.profileDiagnosticsEmitted) context.profileDiagnosticsEmitted = new Set()
+    for (const event of profileDiagnosticEvents(specialist.profileName, specialist.name)) {
+        const key = `${specialist.profileName}\0${event.detail}`
+        if (context.profileDiagnosticsEmitted.has(key)) continue
+        context.profileDiagnosticsEmitted.add(key)
+        emitTool(context, event)
+    }
 }
 
 // Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
@@ -2306,6 +2329,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
         return { text: renderPinError(rule, maskDetail(String(error.message || error))), pinFirstError: true }
     } finally {
         startCapture.flush()
+        emitProfileDiagnostics(context, specialist)
         endAnalystCalls(context.name, specialist.name, context.chatId)
     }
 }
@@ -3201,10 +3225,9 @@ async function runHermesSpecialist(context, specialist, task) {
                 .catch(() => {})
         )
     }
-    const cancel = () => {
-        abortGatewayProfile(specialist.profileName)
-        stopCurrentRun()
-    }
+    // Stop this exact runtime run. Its request socket closing cancels its gateway
+    // model call; aborting by profile would also cancel other chats on this specialist.
+    const cancel = () => stopCurrentRun()
     if (context.workSignal?.aborted) cancel()
     const onAbort = () => cancel()
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
@@ -3276,6 +3299,7 @@ async function runHermesSpecialist(context, specialist, task) {
     } finally {
         finishActivity()
         startCapture.flush()
+        emitProfileDiagnostics(context, specialist)
         // Capture source failures too; they must not fall back to conflicting model output.
         if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         context.analystStarts.delete(specialist.name)
@@ -3893,7 +3917,10 @@ async function runDirectTool(context, specialist, input) {
             context
         )}, ${reportNote(context)}`
     )
-    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)))
+    if (!context.replay)
+        appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)), undefined, {
+            scope: context.sessionScope
+        })
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,
@@ -3951,7 +3978,9 @@ export async function warmHarnessProfiles({
         let roster
         try {
             // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
-            const compiled = await lock(() => compileProfileCached(record))
+            // The stamp is computed before the lock so the lock stays compile-only.
+            const stamp = await credentialStampAsync(credentialIdsFor(record))
+            const compiled = await lock(() => compileProfileCached(record, { credentialStamp: stamp }))
             roster = compiled.roster || record
         } catch (error) {
             console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)

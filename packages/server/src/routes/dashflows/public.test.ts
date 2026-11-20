@@ -105,3 +105,11 @@ it('allows account reports from prepared published region views, never from unpu
     expect(hasPublishedAccount(snapshot, accountId)).toBe(true)
     expect(hasPublishedAccount({ cards: [] }, accountId)).toBe(false)
 })
+it('answers a busy store with a retryable 409 and the generic public message', async () => {
+    store.publicView.mockImplementationOnce(() => {
+        throw Object.assign(new Error('database is locked'), { code: 'ERR_SQLITE_ERROR', errcode: 5 })
+    })
+    const res = await request(server).get('/public/token')
+    expect(res.status).toBe(409)
+    expect(res.body.message).toBe('This public dashboard action is unavailable.')
+})

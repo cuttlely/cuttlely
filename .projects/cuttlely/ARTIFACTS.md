@@ -1,3 +1,98 @@
+## ETL responsiveness and recovery
+
+-   `packages/etl/cooperate.mjs`, `sources.mjs`, `execute.mjs`: cooperative source/run bookkeeping, checkpoint-bounded duplicate seeding and first-error retention.
+-   `packages/etl/check/{responsiveness,resume-markdown,health-bookkeeping}.mjs`: source-scan liveness, error-limit diagnostics, interrupted Markdown content parity and a real HTTP probe during slow bookkeeping. Included in `pnpm etl:check`.
+-   `docs/how-to/etl.md` and the 1.7.9 changelog: failure diagnosis and restart recovery.
+
+## 1.7.9 release
+
+-   `CHANGELOG.md`, `docs/releases.md`, `docs/upgrading.md`: patch scope, upgrade notes and the protected release procedure.
+-   Root/translated READMEs, FAQ and docs indexes: standalone Harness tracing, ETL recovery, first-owner configuration and import/operator fixes.
+-   `docs/reference/release-1-7-9-audit.md`: every merge from v1.7.8 through `d1c72763`, source verification receipts and documentation/asset coverage.
+-   `packages/cli/README.md`, `packages/chat-widget/README.md`, Docker/Compose and embed examples: matching 1.7.9 pins.
+-   `website/src/components/Hero.astro`: one-sentence tracing headline and the existing linked backup reminder.
+-   [Published v1.7.9](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.9), canonical `0beeb62a` ([#524](https://github.com/cuttlely/cuttlely/pull/524)); candidate `a9c8cc76` has the same tree. [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/44178462004) passed all 28 full steps and the versioned local-image startup check on `e398452f`. Artifact digest and exact five-file diff were verified. The older #519 candidate is superseded.
+-   [Exact-tag image publication](https://github.com/cuttlely/cuttlely/actions/runs/44187949325) passed startup and public push. Both npm packages are public at 1.7.9 and tagged latest; anonymous tarball integrity and packaged README bytes match the annotated tag. STATUS records the image digest, hosted health, the initial specialist refusal and successful independent standalone-query check, plus 20 deployed routes, 178 assets and nine narrated-video playback checks.
+
+## First owner from host configuration
+
+-   `packages/server/src/identity/initialOwner.ts` and `initialOwner.test.ts`: reads and validates the `CUTTLELY_INITIAL_OWNER_*` variables, captures and scrubs them at startup (`commands/base.ts`), and creates the first owner on an empty database before the server listens (`index.ts`). Create-only.
+-   `packages/server/src/commands/hash-password.ts` and `hash-password.test.ts`: `pnpm hash-password [file]` prints the `scrypt$<salt>$<key>` hash or writes it to a new 0600 file. `packages/server/src/utils/readPassword.ts` is the masked prompt and stdin reader it shares with `pnpm user`.
+-   `owner_created` audit type: written for every first owner, with `detail.source` set to `setup_code`, `cli` or `host_config` and no email (`identity/sqlStore.ts`, `identity/auditLog.ts`). The Audit log filter option is in `packages/ui/src/views/audit/query.js`; the type is documented in `docs/reference/audit-api.md`.
+-   User guidance: "From host configuration" in `docs/how-to/sign-in.md`, with pointers from `docs/how-to/docker.md` and `docs/how-to/instance-operator.md`, plus `SECURITY.md` and the 1.7.9 entry in `CHANGELOG.md`. The "First owner from host configuration (host only)" section of `docs/reference/startup-options.md` is rendered from `packages/server/src/settings/startupOptions.ts` and checked by `startup-options.test.ts`. `.env.example`, `docker-compose.yml` and `docker/docker-compose.yml` name the variables, blank by default.
+
+## 1.7.8 release
+
+-   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/44009237317): all 27 full-gate steps and versioned local-image startup passed. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/44016869465): startup check and public publication passed. STATUS records anonymous image/revision checks, website content/assets, hosted health and the isolated database-tool run. Both npm packages are public at 1.7.8 and tagged latest; public tarball integrity and packaged README bytes were verified against the annotated tag.
+
+-   `CHANGELOG.md`, `docs/releases.md` and `docs/upgrading.md`: release scope, protected preparation procedure and upgrade behavior.
+-   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.
+-   `docs/images/versioning/github-branch.png`: current Branch menu from the real GitHub card, rendered with isolated fixture responses; no external account or live model call. The guide records its example repository, protected branch and slash branch choices.
+-   `website/src/components/Hero.astro`: one-sentence 1.7.8 release notice with the existing linked backup reminder.
+
+## Standalone Harness LangSmith tracing
+
+-   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
+-   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
+-   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
+-   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
+-   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the 1.7.9 changelog: setup and in-process worker limits.
+-   `packages/versioning/src/github.test.ts`: restart and teardown wait for active sync work before swapping instances or removing fixture repositories, and restart invokes server-equivalent sync startup; all 434 versioning tests and 15 repeated restart runs pass.
+
+## 1.7.7 release
+
+-   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The generated candidate `4d9210b7` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43785736865): 27 passing full-gate steps and a local image startup check. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/43791722638): startup check and public image publication. STATUS records package, site and live QA results. Existing media and provider-review dates are unchanged for this runtime fix.
+
+## 1.7.6 release documentation
+
+-   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.
+-   `.github/workflows/release-prepare.yml`: exact-head full verification and a read-only, validated local release bundle. `docs/releases.md#prepare-on-a-fresh-ci-runner` covers resuming publication from its artifact.
+-   `packages/components/models.json` and `docs/reference/model-list.md`: reviewed Together AI Kimi K3 standard price estimates and the primary source.
+-   `CHANGELOG.md`: dated release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
+-   `README.md`, `README.ja.md`, `README.ko.md`, `FAQ.md`, `docs/README.md` and `docs/how-to/README.md`: current release and task entry points.
+-   `docs/how-to/import-verify.md`: automatic samples, unpublished preview steps, verification limits and actionable failure cases.
+-   `docs/how-to/users-without-authkit.md`: team access, Disable/Reactivate, invitation roles and one-time reset links.
+-   `docs/releases.md`, `docs/upgrading.md`, package READMEs and Docker/embed examples: matching release pins and upgrade guidance.
+-   `website/src/components/Hero.astro` and `website/src/guides/flowise-import/guide.md`: release summary and pinned guide links. Generated site documentation comes from its sync script.
+
+## Local user and team lifecycle
+
+-   `packages/server/src/identity/directory.ts` and `.test.ts`: effective membership display state, current-team capability metadata, disable/reactivate preservation and revoked access remaining revoked.
+-   `packages/ui/src/views/users/UserTeamAccessDrawer.jsx` and `.test.js`: scoped team/role/status/last-login view with late-response guards and retry.
+-   `packages/ui/src/views/users/TeamMemberships.test.js`: pending and disabled badges, pending owner display and role editing without duplicate membership creation.
+-   `packages/ui/src/views/users/index.test.js` and `userActions.test.js`: confirmation, duplicate prevention, scope changes, refusals, local-mode availability and conditional invitation cancellation.
+-   `docs/how-to/users-without-authkit.md`: team access and disable/reactivate effects.
+
+## User Management password reset
+
+-   `packages/ui/src/views/users/ResetPasswordDialog.jsx` and `.test.js`: explicit generation, copy/email status, pending guard, refusals and link lifetime in the UI.
+-   `packages/ui/src/views/users/index.test.js`: wide/narrow Users row actions, owner/inactive exclusions and selected-user wiring.
+-   `packages/server/src/identity/actionLink.test.ts`: existing reset authorization, one-time/expired token checks and session revocation after password acceptance.
+-   `docs/how-to/users-without-authkit.md`: Users reset-link steps, current-team restrictions, SSO and owner recovery.
+-   `scripts/verify.mjs` and `.github/workflows/main.yml`: all Users UI tests run in the local gate and the Node CI build job.
+
+## Fileless preview and publication regressions
+
+-   `packages/harness/session.mjs`: workspace/canvas-scoped draft sessions outside runtime profiles; published paths remain stable.
+-   `packages/harness/draft-session.test.mjs`: preview then save/compile, persistent draft context, isolation, published previews, linked paths and scoped deletion. Included by `packages/harness/check.mjs`.
+-   `packages/server/src/services/harnesses/delete.test.ts`: fileless session cleanup runs only after canvas deletion commits and is skipped on rollback.
+
+## Import sample and fileless draft regressions
+
+-   `packages/server/src/services/import-verify/discover.ts`: ISO database dates, exclusive date bounds, required calendar/numeric samples, authored literal choices and bounded expression lookups on referenced selected tables.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: Date coercion, bounds, optional-filter preservation, expression source limits and an imported expression query tested without manual values.
+-   `packages/server/src/services/harnesses/delete.test.ts`: owned fileless admission, foreign/missing canvas and name-conflict refusal, and preservation of the API-key saved-harness requirement.
+-   `scripts/harness-draft-usage.test.mjs`: existing published and draft execution still record usage once.
+-   `scripts/canvas-actions-e2e.mjs`: question history pagination still requires the additional row when automatic loading wins the race with the Load more click. Workflow edge deletion clicks the SVG line away from its hover toolbar and waits for the selected state.
+
+## Try the demo save
+
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of marked folders, retry of unmarked 1.7.3 folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, an unmarked folder with only `support.sqlite` (kept), and a saved team whose specialist files are missing.
+-   README step 4 and `website/src/guides/flowise-import/guide.md`: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
+
 ## PostgreSQL statement-guard regressions
 
 -   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.
@@ -15,7 +110,7 @@
 -   `packages/ui/src/utils/errorSummary.js`: status and message for the error card, and `requestFailureMessage` for page notifications. `ErrorBoundary.test.js` also checks that the canvas, agentflow canvas, custom assistant and forgot-password pages do not read `Api.error.response` unguarded. `packages/ui/src/ErrorBoundary.test.js` renders a no-response network error, a plain `TypeError` and a 500.
 -   `packages/ui/src/store/context/ErrorContext.jsx`: the page error belongs to the path whose request failed. `packages/ui/src/store/context/ErrorContext.test.js` covers navigating away, a clear from another page, a late canvas failure after the list failed, and a late failure followed by a direct return to the canvas.
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
--   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
 
 ## Silent canvas read retries
 
@@ -24,13 +119,20 @@
 -   `packages/ui/src/api/connectionState.js`, `store/context/ConnectionContext.jsx`, and `ui-component/connection/`: the count store and delayed app-shell **Reconnecting…** chip.
 -   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
--   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
+-   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - 2026-11-12`.
+
+## Import and verify
+
+-   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, `BETWEEN` parameters, numeric range order, a same-named query on another card, an empty report that can be retried, a missing required model edge, a check that stops before it reads connections, coherent account and opportunity values, and publish staying blocked.
+-   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx`, `ImportVerifyDialog.test.js`, and `docs/how-to/import-verify.md`. The dialog gives the saved draft to the canvas, and Close stays available while the check runs. `packages/ui/src/utils/importVerify.js` keeps the import hold across a canvas save, sends the loaded draft hash on the first existing-flow save, and stores a new legacy-agent import as MULTIAGENT. `packages/server/src/settings/database.test.ts` ignores a restart handler scheduled by an earlier test.
 
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
 -   `packages/ui/src/utils/edgeRefs.test.js` imports `examples/imports/bakery-helper.json` as-is and keeps the ChatOpenAI to Conversation Chain edge; a genuinely different input still drops it.
--   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   `packages/ui/src/utils/normalizeCanvasFlow.js`: `chooseHandle` repairs a missing handle or one saved without its type segment, and leaves any other handle the node no longer has as written. `packages/ui/src/utils/normalizeCanvasFlow.test.js` and `packages/ui/src/utils/edgeRefs.test.js` cover a removed source output and an unknown input whose edge id ends in a real input name ([#457](https://github.com/cuttlely/cuttlely/issues/457)).
+-   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes in `CHANGELOG.md`: the dated `## [1.7.3] - 2026-11-12` section for #454 and `## [Unreleased]` for #457.
 
 ## Same-server flow and Harness nested calls
 
@@ -67,11 +169,15 @@
 
 # Artifacts
 
-1.7.3 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.3. `CHANGELOG.md` uses `## [1.7.3] - Unreleased`. The former PR-1, PR-2 and PR-3 placeholders are finalized with their squash SHAs: #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`. This branch is folded with `origin/main` at `3c981e82`, which also brings #463 `05701570`, #465 `c47bf628`, #464 `23aea50a`, #473 `05b71a12` and #469 `3c981e82`. The #469 changelog bullet is finalized with squash `3c981e82`. Generated website pages are not hand-edited. Publication is a later authorized step; the full gate must be rerun on this exact head.
+1.7.5 release preparation: branch `release/1.7.5-prep` is folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). The four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased` and names #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). The import guide pins `v1.7.5`. Generated website pages are not hand-edited. Publication is a later step.
+
+1.7.4 release preparation is historical. It shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). It included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
+
+1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 
 Resilient canvas saves (landed on main as `52e29426`, [#462](https://github.com/cuttlely/cuttlely/pull/462)): `packages/ui/src/utils/saveQueue.js` is the pure queue and reconciliation core. Its adjacent test covers single flight, latest pending replacement, separate internal continuations, the four-attempt draft burst through no-response non-file reads, HTTP write non-retry, waiting after reconciliation HTTP errors, the bounded first-send/last-settle landed window, the other-tab guard, rejection when draft metadata is absent, file detection across all node inputs, file-canvas reconciliation, guarded resume, stored-file-aware Live reconciliation, one guarded Live PUT per action, confirmed-write ordering, one-POST creation with mode resolution and a latest-snapshot handoff, ambiguous-create settlement, non-replayed error settlement, busy state, and disposal. `packages/ui/src/hooks/useSaveQueue.js` binds injected canvas adapters to draft state, the connection indicator, busy state, one persistent notice, manual Retry, the browser online event, and cleanup; its adjacent test covers notice deduplication, online resume, one-POST creation handoff, unknown-mode queuing without a creation notice, non-replayed errors, busy state, effect cleanup/setup, and listener removal. `packages/ui/src/utils/buildWithAI.test.js` covers acknowledgement-gated starter-question cleanup, retention across the first-save continuation, retention after an unanswered update, and a newer question snapshot surviving an older acknowledgement. `packages/ui/src/hooks/useDraftSave.js` remains the source of the recorded draft hash, base canvas, conflict review, and adoption state. Both canvas views use the hook. `CanvasHeader.test.js` covers the busy name and Publish controls plus retention of an unanswered inline name for the next canvas Save. `packages/ui/src/api/flowDrafts.js` disables both client-level resilience replay and post-refresh replay for the draft write.
 
-User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - Unreleased` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
+User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
 
 Focused UI checks pass 114 tests across the save queue, queue hook, session client, draft adapter, builder-state helper, and canvas header. The broader UI batch passes 141 suites and 1,177 tests; its only failure is the known 24-case sample-canvas golden mismatch in `savedFlowsUnchanged.test.js`. Changed-file lint passes. The browser runner was not executed.
 
@@ -142,6 +248,10 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 
 Pinned query runtime helpers live in `packages/harness/runtime/pinned-query.mjs`. The compiler emits typed run and NULL check texts together and validates their parameter spans. Bound URL queries require `readOnlySql: true`; paging retains the original binds, check text and pin identity. Unit coverage is in `packages/harness/runtime/pinned-query.test.mjs`; `scripts/analyst-pinned.test.mjs` exercises the PostgreSQL path and the test-only BEGIN ATOMIC equivalence oracle in the analyst-postgres matrix (14–18).
 
+Analyst tool status: `packages/harness/runtime/analyst-mcp-status.mjs` records query and pinned query offers in `analyst-mcp.json`. `packages/harness/runtime/analyst-mcp-status.test.mjs` and the bridge cases in `packages/harness/check.mjs` cover a later empty or failed list and overlapping lists. `docs/how-to/analyst.md` and `docs/how-to/harnesses.md` describe `X-Cuttlely-Analyst`.
+
+Analyst storage default and credential rebind: `packages/server/src/settings/apply.ts` (`ensureAnalystDefault`), `scripts/start-cuttlely.sh`, and `scripts/start-local-admin.test.mjs`. Export and import: `packages/ui/src/utils/credentialMarks.js`, `packages/ui/src/utils/credentialRebind.js`, and `packages/ui/src/utils/credentialRebind.test.js`. The guides are `docs/how-to/analyst.md`, `docs/how-to/server-settings.md`, and `docs/how-to/harnesses.md`.
+
 Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTraceFields` (full SHA-256 over the statement fingerprint normalisation) and retains original statement metadata for cursor pages. `packages/harness/trace.mjs` shapes the browser-safe public fields. SQL previews follow `CUTTLELY_ANALYST_TRACE_PREVIEW`, existing redaction and a 4096-byte UTF-8 cap; hashes remain with previews off. The agent runtime's tool-start events join with gateway metadata before streaming. Targeted regression coverage is in `packages/harness/test/pinned/trace-sql.test.mjs` and `trace-gateway.test.mjs`; `trace-golden.json` records the base trace shape with previews off and on. Run the directory with `node --test packages/harness/test/pinned/` on Node 24. No database is needed for these tests.
 
 -   PR1 SQL trace review: saved traces budget SQL previews against the shared history limit, cutting or omitting the last previews first while keeping every SQL hash and timing. The pinned SQL regression covers many long previews, JSON escaping and multibyte text.
@@ -166,6 +276,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 -   `docs/how-to/dashflows.md`: builder, source contracts, refresh, team publication and operating limits.
 -   `packages/harness/dashflows.mjs` and its co-located tests: typed materialization and SQLite snapshot storage.
+-   `packages/harness/dashflows-postgres.mjs`, `dashflows-postgres.test.mjs` and `test/dashflows-pg.mjs`: the application-database backend, boot copy/verify, rollback and privilege refusal behind `CUTTLELY_APP_DATABASE_STORES`; `dashflows.test.mjs` runs its store suite on both backends.
 -   `packages/server/src/services/dashflows/` and `routes/dashflows/`: authenticated workspace API and schedule polling.
 -   `packages/ui/src/views/dashflows/`: canvas, source binding, evidence, team view and source-field preset.
 
@@ -195,16 +306,16 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 ## Pending owner invitations
 
--   `docs/how-to/users-without-authkit.md`, `sign-in.md`, `roles-and-permissions.md` and `docs/reference/local-directory-api.md`: pending-owner invitation cancellation, transactional link revocation, stale acceptance conflicts and active-owner UI protection.
--   `packages/server/src/identity/directory.ts` and `directoryRoutes.ts`: locked active-owner reauthorization and invitation-only conflict checks.
--   `packages/ui/src/views/users/userActions.js`: invitation-only removal request used by the Users view.
+-   `docs/how-to/users-without-authkit.md`, `sign-in.md`, `roles-and-permissions.md` and `docs/reference/local-directory-api.md`: pending invitation cancellation, including a pending owner, by an active owner or an Admin (`users:manage`). Transactional link revocation, stale acceptance conflicts and active-owner UI protection stay. Removing an active or disabled person from every team stays owner-only.
+-   `packages/server/src/identity/directory.ts` and `directoryRoutes.ts`: an active non-owner with `users:manage` (built-in Admin by role name, or stored keys) can remove an invited user, including one with no team membership. The grant is read again under the removal lock from the actor's current user, organization membership, team membership, and role. A passed permission list only narrows that role. On MySQL, MariaDB, and PostgreSQL the recheck locks the actor's team membership and role after the organization membership rows. Active and disabled removal stays an active owner. Invitation-only conflict checks and the last-owner, self-removal and SCIM guards stay.
+-   `packages/ui/src/views/users/userActions.js`: invitation-only removal request used by the Users view. The trash action was already shown for `users:manage`.
 -   `packages/server/src/identity/directory.test.ts`, `localDirectory.test.ts`, `inviteSignIn.test.ts` and `packages/ui/src/views/users/userActions.test.js`: focused server and UI acceptance coverage.
 
 Operator administration: `docs/how-to/instance-operator.md` covers panel claim with host-log proof, lifecycle, fail-closed states, verified host-binding grandfathering and emergency recovery. `packages/server/src/identity/instanceOperator.ts` implements the separate service gate, and `operatorBinding.ts` reads/writes the private CLI-bound default outside saved settings. `scripts/breakglass-operator.test.cjs` covers actual CLI create/reset/bind, file safety, env overrides/revocation, copied identity databases and provisioning failures through real application routes. `scripts/access-rollout-admin.test.cjs` exercises actual application routes with two organizations, a substituted identity database, real sessions, quota enforcement and rollback; Server settings UI tests render operator and ordinary-owner states.
 
 Historical 1.7.0 release preparation: `docs/how-to/access-keys.md` is the user workflow; `docs/upgrading.md` and the 1.7.0 changelog describe the security exception and required legacy-install panel claim with host-log proof. The four product manifests are prepared at 1.7.0 without invoking the release tool. Seven approved public binary copies are in `docs/images/access-keys/`: `instance-operator-enrolled.png`, `enforcement-off.png`, `enforcement-off-detail.png`, `workspace-list.png`, `create-key-dialog-top.png`, `create-key-policy.png` and `caller-restrictions.png`. Their guides record product 1.6.1 / feature head `5c08b125` capture provenance, redactions, enforcement Off and an unsubmitted dialog with Add disabled. AK02/06/08/09 remain explicit pending comments. The generated final-head gate report is `.verify/verify-report.json`; launch/session, output, report copies and facts before/after are retained under untracked `.agent-run/release-170/`. The earlier docs correction retains evidence under untracked `.agent-run/release-170-fix/`. The image-pin and upgrade-note follow-up keeps launch/session, output, report copies, checker results and the complete ten-file read ledger with numbered pages under untracked `.agent-run/release-170-n12/`, copied to external gate evidence. `docker-compose.yml` and `.env.example` pin the 1.7.0 release image; the changelog upgrade note omits release-tool process text while retaining its exact Unreleased heading. `FAQ.md` links to `CHANGELOG.md` without a heading fragment, so release-tool dating preserves the destination. No raw or unredacted source captures are repository artifacts.
 
-Panel enrollment: `settings/operator-claim.ts`, `OperatorPanel.jsx` and `scripts/panel-claim.test.cjs` cover the narrow explicit designation flow and actual App.config/SQLite lifecycle. Authority file version 2 embeds a generation and correlated non-secret audit; historical host version 1 remains readable. `identity/auth.test.ts` covers verified WorkOS fresh authentication and `services/log/index.test.ts` covers host-code redaction.
+Panel enrollment: `settings/operator-claim.ts`, `OperatorPanel.jsx` and `scripts/panel-claim.test.cjs` cover the narrow explicit designation flow and actual App.config/SQLite lifecycle. Authority file version 2 embeds a generation and correlated non-secret audit; historical host version 1 remains readable. The same suite covers the code-request refusals (own live code, the shared hourly and per-user limits, the wrong-code limit), and `OperatorPanel.test.js` checks that a failed request shows in an error alert. `identity/auth.test.ts` covers verified WorkOS fresh authentication and `services/log/index.test.ts` covers host-code redaction.
 
 Ordinary sign-in save safety: `settings/service.ts` compares effective transitions before calling `identity/authenticationState.ts` for database readiness. `scripts/settings-no-way-in.test.cjs` uses actual App.config, disposable SQLite, real cookies and SQL RBAC for unrelated local/OIDC saves, last-login refusal, no-op/host precedence, unknown readiness, mixed-write atomicity, first setup, tenant exceptions and OIDC-to-Local stage/apply. External provider proof/session issuance is substituted; this is not live provider or deployment evidence. The fixture runs in the existing verify-test step. Co-located settings/AuthKit/setup unit fixtures retain their validation, proof and rollback assertions with explicit readiness-port evidence. [Save-safety contract](../../docs/reference/server-settings-api.md#sign-in-safety-on-saves).
 

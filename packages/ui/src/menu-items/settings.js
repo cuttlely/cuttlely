@@ -80,6 +80,14 @@ const settings = {
             permission: 'chatflows:duplicate'
         },
         {
+            id: 'importAndVerify',
+            title: 'Import & verify',
+            type: 'item',
+            url: '',
+            icon: icons.IconFileUpload,
+            permission: 'chatflows:import'
+        },
+        {
             id: 'loadChatflow',
             title: 'Import Flowise JSON',
             type: 'item',

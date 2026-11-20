@@ -2,12 +2,49 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.9
+
+-   **Trace a single Harness node.** Use LangSmith Analytics without a Tool Agent wrapper. [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows).
+-   **Resume ETL work.** Scans yield to requests, interrupted repository files resume correctly and error-limit failures retain their first cause. [ETL](./etl.md).
+-   **Create the first owner from host configuration.** Bootstrap an empty local-password installation without the setup link. Existing accounts are preserved. [Sign in](./sign-in.md#from-host-configuration).
+-   **Review dropped import edges.** Missing source outputs and target inputs are reported instead of reassigned. [Bring your flows](../bring-your-flows.md).
+-   **Read operator request errors.** Active-code guidance and neutral limit messages appear as errors when a request is refused. [Instance operator](./instance-operator.md).
+
+## New in 1.7.8
+
+-   **Choose a GitHub branch for version history.** Select a repository, then a branch. Existing connections keep working, and named environment chains retain their mappings. [Version History](./versioning.md).
+
+## New in 1.7.7
+
+-   **Cancellation stays within one chat.** Stopping an agent-team chat leaves other chats using the same specialist running. [Harnesses](./harnesses.md).
+
+## New in 1.7.6
+
+-   **Import and verify with automatic inputs.** Required dates, calendar periods and numeric inputs are selected from defaults, the query and bounded samples of selected tables. Optional filters without defaults stay unset. A query that cannot be tested safely stays unverified. [Import and verify](./import-verify.md).
+-   **Try an imported team before Publish.** Signed-in canvas chat can run an unpublished harness. Its draft conversation state stays separate from runnable profiles, so a preview does not block the first Publish. External runs still need a published team. [Harnesses](./harnesses.md).
+-   **Reset local passwords.** Generate a one-time reset link in User Management, copy it privately, or have configured mail deliver it. The server still checks team, permission, identity-provider and owner restrictions. [Users without AuthKit](./users-without-authkit.md#reset-a-local-users-password).
+-   **Manage people across teams.** View each person's teams, roles, status and last login; disable or reactivate a local account; and change or cancel a pending invitation. Role assignments are preserved, and disabled sessions, links and keys are not restored on reactivation. [Manage users and teams](./users-without-authkit.md).
+
+## New in 1.7.5
+
+-   Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history, and a GitHub change to a path this server copied stops the copy instead of overwriting it. [Version History](./versioning.md).
+-   Import & verify reports skipped or untested output contracts as not tested, tests every saved query in a large flow, and checks each output contract against its own fresh result. PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest returns that error instead of an empty success.
+-   Follow-up prompts omit blank or invalid temperature values and omit temperature for OpenAI reasoning models that do not accept one.
+
+## New in 1.7.4
+
+-   An analyst specialist stays ready after another specialist lists tools. Unset Analyst storage is Auto. [Analyst mode](./analyst.md).
+-   Importing a harness attaches a credential that already exists here with the same name and type, including a nested credential id next to an empty credential slot. [Bring your existing flows](../bring-your-flows.md).
+-   **Import & verify** retests saved queries on this server before Publish. A stamp in the file is not trusted. Live stays as it is until the checks pass.
+-   Try the demo on a fresh install saves the staged team. [Try the demo](./try-the-demo.md).
+
 ## New in 1.7.3
 
 -   A request that gets no answer no longer replaces the page with **Something went wrong**. The page says the server could not be reached. Reload after a failed page load or read; for a failed save or settings update, use Save or Retry so unsaved edits are not discarded. See [What does "The server could not be reached" mean?](../faq.md#what-does-the-server-could-not-be-reached-mean). Importing a chatflow keeps a connection when only the handle type name changed.
 -   Brief connection drops while you edit are retried quietly for reads and option loads. A save no longer marks later edits as saved. A canvas whose draft status cannot be loaded stays closed with Retry. [Canvas cards](./canvas.md).
 -   Self-hosted installs behind a reverse proxy keep idle connections open for 65 seconds by default. See the [reverse proxy guide](./reverse-proxy.md). [Install with Docker](./docker.md).
 -   Draft and Live saves of an existing flow, without new file data, are kept and retried quietly when a request gets no answer. If that still fails, the canvas keeps the edits and offers Retry. A save with new file data is attempted once per Save and is not resent automatically. After an unanswered create, check your flows in another tab before trying again.
+-   [Pending invitations](./users-without-authkit.md). An active owner or an Admin (`users:manage`) can cancel a pending invitation from User Management, including another pending owner invite, and revoke its links. Removing an active or disabled person from every team stays limited to an active owner.
 
 ## New in 1.7.2
 
@@ -63,6 +100,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
 -   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
 -   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.
+-   [Import and verify](./import-verify.md). Import a flow or harness file, retest its saved queries on this server, and publish only after the checks pass.
 -   [Set the evidence budget](./evidence-budget.md). How much protected source detail a specialist gets for analysis, for the server or one specialist.
 -   [Context and tokens](./context-and-tokens.md). How a team keeps each prompt short, and where a run shows the tokens it used.
 -   [How the customer care demo works](./customer-care-demo.md). The specialists, data and rules behind the demo team.

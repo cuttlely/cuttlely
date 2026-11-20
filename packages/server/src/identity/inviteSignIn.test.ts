@@ -777,6 +777,64 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
             .expect(404)
     })
 
+    maybe('an admin can cancel a pending owner through the users API and cannot remove an active owner', async () => {
+        const adminId = '8dea1b90-2f0c-4bf3-9c98-0e1f2a3b4c5d'
+        const adminRoleId = '9efb2c01-3a1d-4c04-8da9-1f2a3b4c5d6e'
+        await db.rows(`INSERT INTO role (id, name, permissions) VALUES (?, 'admin', ?)`, [adminRoleId, '["users:manage"]'])
+        await db.rows(`INSERT INTO "user" (id, name, email, status) VALUES (?, 'Avery Chen', 'avery@example.com', 'active')`, [adminId])
+        await db.rows(`INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES (?, ?, ?, 'active')`, [
+            ORG,
+            adminId,
+            MEMBER_ROLE
+        ])
+        await db.rows(`INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES (?, ?, ?, 'active')`, [
+            TEAM,
+            adminId,
+            adminRoleId
+        ])
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            {
+                user: { email: 'pending-owner@example.com' },
+                workspace: { id: TEAM },
+                role: { id: OWNER_ROLE_ID }
+            },
+            deps()
+        )
+        const token = tokenOf(created.link)
+        const app = express()
+        app.use((req, _res, next) => {
+            req.user = { id: adminId, activeOrganizationId: ORG, activeWorkspaceId: TEAM, permissions: [] }
+            next()
+        })
+        app.use('/organizationuser', identityOrgUserRouter)
+        const refused = await request(app).delete('/organizationuser').query({ organizationId: ORG, userId: OWNER })
+        expect(refused.status).toBe(403)
+        expect(refused.body).toEqual({ message: 'Only an owner can remove someone from every team' })
+        expect(await user(OWNER)).toEqual({ status: 'active', externalId: null })
+        await request(app)
+            .delete('/organizationuser')
+            .query({ organizationId: ORG, userId: created.id, invitationOnly: 'true' })
+            .expect(200)
+        expect(await db.rows(`SELECT * FROM organization_user WHERE "userId" = ?`, [created.id])).toEqual([])
+        expect(await db.rows(`SELECT * FROM workspace_user WHERE "userId" = ?`, [created.id])).toEqual([])
+        expect(await db.rows(`SELECT "consumeId" AS "consumeId" FROM identity_action_link WHERE "userId" = ?`, [created.id])).toEqual([
+            { consumeId: 'revoked' }
+        ])
+        await expect(
+            db.store.acceptInvite({
+                token,
+                userId: created.id,
+                email: 'pending-owner@example.com',
+                externalId: 'pending-owner',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
+        ).resolves.toBe('invalid')
+        expect(await user(created.id)).toEqual({ status: 'deleted', externalId: null })
+    })
+
     maybe('refuses a stale cancellation through the users API after the owner invitation is accepted', async () => {
         const created = await inviteAccount(
             db.sql,

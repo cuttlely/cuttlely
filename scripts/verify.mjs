@@ -60,6 +60,9 @@ const STEPS = [
         command: process.execPath,
         args: [
             '--test',
+            // Integration files start their own database and UI test processes.
+            // Keep those files serial so they do not compete for a small runner's CPU.
+            '--test-concurrency=1',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'dashflows.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
@@ -101,6 +104,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'hermes-supervisor.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-start-wait.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-run-timeout.test.mjs'),
+            path.join(ROOT, 'scripts', 'demo-save.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-git-config.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-asset-fetch.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-tool-error-preview.test.mjs'),
@@ -190,6 +194,24 @@ const STEPS = [
         args: ['--dir', 'packages/versioning', 'test']
     },
     {
+        // Standalone Harness tracing, tool-parent compatibility, and credential/endpoint isolation.
+        name: 'harness-langsmith',
+        fast: true,
+        command: 'pnpm',
+        args: [
+            '--dir',
+            'packages/components',
+            'exec',
+            'jest',
+            '--runInBand',
+            '--forceExit',
+            '--coverage=false',
+            'nodes/harness/Harness/Harness.langsmith.test.ts',
+            'nodes/harness/Harness/Harness.test.ts',
+            'src/langsmithCredentialDiagnostics.test.ts'
+        ]
+    },
+    {
         name: 'hermes-vendor',
         fast: true,
         command: process.execPath,
@@ -216,9 +238,11 @@ const STEPS = [
             'exec',
             'jest',
             '--watchAll=false',
+            'src/views/versionsettings',
             'src/views/serversettings',
             'src/views/serversetup',
             'src/views/apikey',
+            'src/views/users',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/canvas/cardActions.test.js',
@@ -388,7 +412,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(

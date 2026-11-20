@@ -40,7 +40,6 @@ export const LEGACY_ENVIRONMENTS: readonly NamedEnvironment[] = [
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/
 const SERVER = /^[a-z][a-z0-9-]{0,31}$/
-const PUBLISH = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/
 
 export function legacyEnvironments(): NamedEnvironment[] {
     return LEGACY_ENVIRONMENTS.map((item) => ({ ...item }))
@@ -62,10 +61,19 @@ export function isLegacyChain(environments: NamedEnvironment[]): boolean {
     )
 }
 
-function publishNameOk(value: string): boolean {
-    if (!PUBLISH.test(value)) return false
-    if (value.includes('..') || value.includes('@{') || value.endsWith('.lock') || value.endsWith('.')) return false
-    return true
+// Git branch names are passed as complete refs, never as options or refspec fragments.
+export function validGithubBranch(value: unknown): value is string {
+    return (
+        typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= 1024 &&
+        value !== '@' &&
+        !value.startsWith('-') &&
+        !/[\x00-\x20\x7f~^:?*[\\]/.test(value) &&
+        !value.includes('..') &&
+        !value.includes('@{') &&
+        value.split('/').every((part) => part.length > 0 && !part.startsWith('.') && !part.endsWith('.') && !part.endsWith('.lock'))
+    )
 }
 
 export function parseEnvironments(input: unknown): { ok: true; environments: NamedEnvironment[] } | { ok: false; error: string } {
@@ -88,10 +96,10 @@ export function parseEnvironments(input: unknown): { ok: true; environments: Nam
         if (!SERVER.test(server)) {
             return { ok: false, error: 'A server identity uses lower-case letters, numbers and dashes, and starts with a letter.' }
         }
-        if (!publishNameOk(branch)) {
+        if (!validGithubBranch(branch)) {
             return {
                 ok: false,
-                error: 'Each environment needs a publish name of letters, numbers, dots, dashes or underscores.'
+                error: 'Each environment needs a valid Git branch name, such as versions/dev.'
             }
         }
         const nameKey = name.toLowerCase()

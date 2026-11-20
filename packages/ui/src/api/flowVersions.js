@@ -11,6 +11,7 @@ const restoreVersion = (chatflowId, sha) =>
 // Copy to GitHub and the Dev or Prod label. Server-wide, for the owner only.
 const getGithub = () => client.get('/flow-versions/github')
 const listGithubRepos = (body) => client.post('/flow-versions/github/repos', body)
+const listGithubBranches = (body) => client.post('/flow-versions/github/branches', body)
 const createGithubRepo = (body) => client.post('/flow-versions/github/repos/new', body)
 const connectGithub = (body) => client.put('/flow-versions/github', body)
 const disconnectGithub = () => client.delete('/flow-versions/github')
@@ -40,6 +41,7 @@ const promoteCheckApi = {
 export default {
     getGithub,
     listGithubRepos,
+    listGithubBranches,
     createGithubRepo,
     connectGithub,
     disconnectGithub,

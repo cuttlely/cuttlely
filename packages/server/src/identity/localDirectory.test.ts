@@ -757,6 +757,309 @@ describe('local directory rules', () => {
         expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').all('member-1')).toEqual([])
     })
 
+    it('lets an admin cancel an invited user and a pending owner, including an invite with no team', async () => {
+        const { sql, db } = memorySql()
+        db.prepare(`UPDATE role SET permissions = '[]' WHERE id = 'role-admin'`).run()
+        const invited = await createEmailUser(sql, owner, {
+            user: { name: 'Invited Person', email: 'invited@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-member' }
+        })
+        const pendingOwner = await createEmailUser(sql, owner, {
+            user: { name: 'Pending Owner', email: 'pending-owner@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-owner' }
+        })
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('invite-noteam', 'No Team', 'noteam@example.com', 'invited', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'invite-noteam', 'role-member', 'active');
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('invite-other', 'Other Team', 'other-team@example.com', 'invited', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'invite-other', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM_B}', 'invite-other', 'role-member', 'active');
+            INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId) VALUES
+                ('link-invited', 'hash-invited', 'invite', '${ORG}', '${TEAM}', '${invited.id}'),
+                ('link-owner', 'hash-owner', 'invite', '${ORG}', '${TEAM}', '${pendingOwner.id}'),
+                ('link-noteam', 'hash-noteam', 'invite', '${ORG}', NULL, 'invite-noteam'),
+                ('link-other', 'hash-other', 'invite', '${ORG}', '${TEAM_B}', 'invite-other');
+        `)
+
+        await expect(deleteOrganizationUser(sql, admin, ORG, invited.id)).resolves.toEqual({ id: invited.id })
+        await expect(deleteOrganizationUser(sql, admin, ORG, pendingOwner.id, { invitationOnly: true })).resolves.toEqual({
+            id: pendingOwner.id
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'invite-noteam')).resolves.toEqual({ id: 'invite-noteam' })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'invite-other')).resolves.toEqual({ id: 'invite-other' })
+
+        expect(
+            db
+                .prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" IN (?, ?, ?, ?)')
+                .all(invited.id, pendingOwner.id, 'invite-noteam', 'invite-other')
+        ).toEqual([])
+        expect(
+            db
+                .prepare('SELECT "userId" AS userId FROM workspace_user WHERE "userId" IN (?, ?, ?)')
+                .all(invited.id, pendingOwner.id, 'invite-other')
+        ).toEqual([])
+        expect(db.prepare('SELECT id, usedAt, consumeId FROM identity_action_link ORDER BY id').all()).toEqual([
+            { id: 'link-invited', usedAt: expect.any(String), consumeId: 'revoked' },
+            { id: 'link-noteam', usedAt: expect.any(String), consumeId: 'revoked' },
+            { id: 'link-other', usedAt: expect.any(String), consumeId: 'revoked' },
+            { id: 'link-owner', usedAt: expect.any(String), consumeId: 'revoked' }
+        ])
+        expect(db.prepare('SELECT status FROM "user" WHERE id = ?').get(OWNER)).toMatchObject({ status: 'active' })
+    })
+
+    it('refuses an invited removal when users:manage is gone before the locked check', async () => {
+        const made = memorySql()
+        const invited = await createEmailUser(made.sql, owner, {
+            user: { name: 'Late Change', email: 'late-change@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-member' }
+        })
+        made.db
+            .prepare(
+                `INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId)
+                 VALUES ('link-late', 'hash-late', 'invite', ?, ?, ?)`
+            )
+            .run(ORG, TEAM, invited.id)
+        let eligibilityReads = 0
+        const query = async (statement: string, params: unknown[] = []) => {
+            const rows = await made.sql.query(statement, params)
+            if (statement.includes('userStatus') && statement.includes('orgStatus') && statement.includes('teamStatus')) {
+                eligibilityReads += 1
+                if (eligibilityReads === 1) {
+                    made.db.prepare(`UPDATE workspace_user SET "roleId" = 'role-viewer' WHERE "userId" = ?`).run(ADMIN)
+                }
+            }
+            return rows
+        }
+        const wrapped: Sql = {
+            type: 'sqlite',
+            query,
+            transaction: (fn) => made.sql.transaction(async () => fn(query))
+        }
+        await expect(deleteOrganizationUser(wrapped, admin, ORG, invited.id)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(eligibilityReads).toBe(2)
+        expect(made.db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(invited.id)).toEqual({
+            userId: invited.id
+        })
+        expect(made.db.prepare('SELECT usedAt FROM identity_action_link WHERE id = ?').get('link-late')).toEqual({ usedAt: null })
+    })
+
+    it('cancels an invite when the passed list and the current role both include users:manage', async () => {
+        const { sql, db } = memorySql()
+        const invited = await createEmailUser(sql, owner, {
+            user: { name: 'Listed Admin', email: 'listed-admin@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-member' }
+        })
+        const caller = { ...admin, permissions: ['users:manage'] }
+        await expect(deleteOrganizationUser(sql, caller, ORG, invited.id)).resolves.toEqual({ id: invited.id })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(invited.id)).toBeUndefined()
+    })
+
+    it('refuses a passed users:manage list when the locked role read no longer has it', async () => {
+        const made = memorySql()
+        const invited = await createEmailUser(made.sql, owner, {
+            user: { name: 'Stale List', email: 'stale-list@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-member' }
+        })
+        made.db
+            .prepare(
+                `INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId)
+                 VALUES ('link-stale', 'hash-stale', 'invite', ?, ?, ?)`
+            )
+            .run(ORG, TEAM, invited.id)
+        const steps: { statement: string; params: unknown[] }[] = []
+        let grantSnapshot: Record<string, unknown>[] | null = null
+        let roleSnapshot: { name: unknown; permissions: unknown } | null = null
+        const query = async (statement: string, params: unknown[] = []) => {
+            steps.push({ statement, params })
+            const locking = /\bFOR\s+UPDATE\b/i.test(statement)
+            const grant = statement.includes('userStatus') && statement.includes('orgStatus') && statement.includes('teamStatus')
+            const roleRead = /(?:`role`|"role")/i.test(statement) && statement.includes('permissions')
+            if (!locking && grant && grantSnapshot) return grantSnapshot.map((row) => ({ ...row }))
+            if (!locking && !grant && roleRead && roleSnapshot) return [{ ...roleSnapshot }]
+            const rows = await made.sql.query(statement.replace(/\s+FOR\s+UPDATE\b/gi, ''), params)
+            if (grant && !grantSnapshot) {
+                grantSnapshot = rows.map((row) => ({ ...row }))
+                roleSnapshot = { name: rows[0]?.name, permissions: rows[0]?.permissions }
+                made.db.prepare(`UPDATE role SET name = 'clerk', permissions = '[]' WHERE id = 'role-admin'`).run()
+            }
+            return rows
+        }
+        const wrapped: Sql = {
+            type: 'mysql',
+            query,
+            transaction: (fn) => made.sql.transaction(async () => fn(query))
+        }
+        const caller = { ...admin, permissions: ['users:manage'] }
+        await expect(deleteOrganizationUser(wrapped, caller, ORG, invited.id)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        const orgLock = steps.findIndex((step) => /FOR UPDATE/i.test(step.statement) && /organization_user/i.test(step.statement))
+        const actorTeam = steps.findIndex(
+            (step) => /FOR UPDATE/i.test(step.statement) && /workspace_user/i.test(step.statement) && step.params.includes(ADMIN)
+        )
+        const roleLock = steps.findIndex(
+            (step) =>
+                /FOR UPDATE/i.test(step.statement) &&
+                /(?:`role`|"role")/i.test(step.statement) &&
+                !/organization_user/i.test(step.statement) &&
+                !/workspace_user/i.test(step.statement)
+        )
+        expect(orgLock).toBeGreaterThanOrEqual(0)
+        expect(actorTeam).toBeGreaterThan(orgLock)
+        expect(roleLock).toBeGreaterThan(actorTeam)
+        expect(steps[roleLock]?.params).toContain('role-admin')
+        expect(made.db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(invited.id)).toEqual({
+            userId: invited.id
+        })
+        expect(made.db.prepare('SELECT usedAt FROM identity_action_link WHERE id = ?').get('link-stale')).toEqual({ usedAt: null })
+        expect(made.db.prepare('SELECT name FROM role WHERE id = ?').get('role-admin')).toEqual({ name: 'clerk' })
+    })
+
+    it('still refuses an admin removing an active or disabled person, themselves, or the last owner', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('disabled-1', 'Disabled', 'disabled@example.com', 'disable', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'disabled-1', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'disabled-1', 'role-member', 'active');
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('owner-2', 'Second', 'second@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'owner-2', 'role-owner', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'owner-2', 'role-owner', 'active');
+        `)
+
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'member-1')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'disabled-1')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, ADMIN)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, OWNER)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'owner-2')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, owner, ORG, 'owner-2')).resolves.toEqual({ id: 'owner-2' })
+        await expect(deleteOrganizationUser(sql, owner, ORG, OWNER)).rejects.toMatchObject({
+            status: 409,
+            message: 'The last owner cannot be removed'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('member-1')).toEqual({
+            userId: 'member-1'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('disabled-1')).toEqual({
+            userId: 'disabled-1'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(ADMIN)).toEqual({
+            userId: ADMIN
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(OWNER)).toEqual({
+            userId: OWNER
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('owner-2')).toBeUndefined()
+    })
+
+    it('lets a role with users:manage cancel an invite and refuses a passed list, an unlink grant, a disabled admin, and a SCIM link', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO role (id, "organizationId", name, description, permissions) VALUES
+                ('role-lead', '${ORG}', 'Lead', 'lead', '["users:manage"]'),
+                ('role-unlink', '${ORG}', 'Unlink', 'unlink', '["workspace:unlink-user"]');
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
+                ('lead-1', 'Lead', 'lead@example.com', 'active', 0),
+                ('unlink-1', 'Unlink', 'unlink@example.com', 'active', 0),
+                ('invite-lead', 'Invited Lead', 'invite-lead@example.com', 'invited', 0),
+                ('invite-unlink', 'Invited Unlink', 'invite-unlink@example.com', 'invited', 0),
+                ('invite-grant', 'Invited Grant', 'invite-grant@example.com', 'invited', 0),
+                ('invite-scim', 'Invited SCIM', 'invite-scim@example.com', 'invited', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES
+                ('${ORG}', 'lead-1', 'role-member', 'active'),
+                ('${ORG}', 'unlink-1', 'role-member', 'active'),
+                ('${ORG}', 'invite-lead', 'role-member', 'active'),
+                ('${ORG}', 'invite-unlink', 'role-member', 'active'),
+                ('${ORG}', 'invite-grant', 'role-member', 'active'),
+                ('${ORG}', 'invite-scim', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES
+                ('${TEAM}', 'lead-1', 'role-lead', 'active'),
+                ('${TEAM}', 'unlink-1', 'role-unlink', 'active'),
+                ('${TEAM}', 'invite-lead', 'role-member', 'active'),
+                ('${TEAM}', 'invite-unlink', 'role-member', 'active'),
+                ('${TEAM}', 'invite-grant', 'role-viewer', 'active'),
+                ('${TEAM}', 'invite-scim', 'role-member', 'active');
+            INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId) VALUES
+                ('link-lead', 'hash-lead', 'invite', '${ORG}', '${TEAM}', 'invite-lead'),
+                ('link-scim', 'hash-scim', 'invite', '${ORG}', '${TEAM}', 'invite-scim');
+            INSERT INTO identity_scim_user (id, organizationId, userId, deletedAt)
+                VALUES ('scim-invite', '${ORG}', 'invite-scim', NULL);
+        `)
+        const lead = { id: 'lead-1', organizationId: ORG, workspaceId: TEAM }
+        const unlink = { id: 'unlink-1', organizationId: ORG, workspaceId: TEAM }
+        const viewerGrant = { id: 'viewer-1', organizationId: ORG, workspaceId: TEAM, permissions: ['users:manage'] }
+
+        await expect(deleteOrganizationUser(sql, unlink, ORG, 'invite-unlink')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'invite-scim')).rejects.toMatchObject({
+            status: 409,
+            message: 'Delete this person in the identity provider, or remove the SCIM link, before removing them from the organization'
+        })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE id = ?').get('link-scim')).toEqual({ usedAt: null })
+        db.prepare(`UPDATE "user" SET status = 'disable' WHERE id = ?`).run(ADMIN)
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'invite-lead')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE id = ?').get('link-lead')).toEqual({ usedAt: null })
+        db.prepare(`UPDATE "user" SET status = 'active' WHERE id = ?`).run(ADMIN)
+
+        await expect(deleteOrganizationUser(sql, lead, ORG, 'invite-lead')).resolves.toEqual({ id: 'invite-lead' })
+        await expect(deleteOrganizationUser(sql, viewerGrant, ORG, 'invite-grant', { invitationOnly: true })).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(db.prepare('SELECT usedAt, consumeId FROM identity_action_link WHERE id = ?').get('link-lead')).toEqual({
+            usedAt: expect.any(String),
+            consumeId: 'revoked'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('invite-grant')).toEqual({
+            userId: 'invite-grant'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('invite-unlink')).toEqual({
+            userId: 'invite-unlink'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('invite-scim')).toEqual({
+            userId: 'invite-scim'
+        })
+    })
+
     it('limits team list, open, and edit to the active team for a non-owner', async () => {
         const { sql } = memorySql()
         const listed = await listWorkspaces(sql, admin, ORG)

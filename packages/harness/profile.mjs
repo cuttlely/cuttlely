@@ -1169,6 +1169,8 @@ function mcpServerBlocks(record) {
             // The data dir has to be in the profile env or the status file is never written.
             // Every bridge needs the runtime's turn identity, including specialists without analyst tools.
             // This flag injects that identity; it does not grant a query tool.
+            // Those bridges share one analyst-mcp.json. Only a query or pinned query
+            // tool raises its count, and a later empty or failed list does not clear it.
             env: { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() }
         })
         for (const mcp of specialist.mcpServers || []) {
@@ -2840,7 +2842,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
     return results
 }
 
-function credentialIdsIn(record) {
+export function credentialIdsFor(record) {
     const ids = []
     JSON.stringify(record, (key, value) => {
         if ((key === 'credentialId' || key === 'credential') && typeof value === 'string') ids.push(value)
@@ -2849,8 +2851,11 @@ function credentialIdsIn(record) {
     return ids
 }
 
-// Recompiling writes several files and decrypts credentials; on a Windows-mounted drive
-// that is most of a single-tool turn. The key covers the record, the home it compiles
+function credentialIdsIn(record) {
+    return credentialIdsFor(record)
+}
+
+// Recompiling writes several files. The key covers the record, the home it compiles
 // into, the specialist timeout passed to stdio children, and each model credential's updatedDate.
 export function forgetCompiledProfile(name) {
     compiledProfiles.delete(name)
@@ -3088,14 +3093,9 @@ function recheckCached(compiled) {
     }
 }
 
-export function compileProfileCached(record) {
-    const key = [
-        hermesHome(),
-        agentRunTimeoutMs(),
-        defaultEvidenceBytes(),
-        JSON.stringify(record),
-        credentialStamp(credentialIdsIn(record))
-    ].join('\0')
+export function compileProfileCached(record, options = {}) {
+    const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
+    const key = [hermesHome(), agentRunTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

@@ -59,6 +59,7 @@ let reopened: string[] = []
 let duringCleanup: ((name: string) => Promise<void>) | null = null
 let keptProfiles: string[] = []
 let expectedProfiles: string[][] = []
+let removedDraftSessions: Array<{ workspaceId: string; chatflowId: string }> = []
 
 let takenProfiles: string[] = []
 let claimedNames: string[] = []
@@ -111,6 +112,7 @@ const fakeModules = (file: string) => {
         return Promise.resolve({
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
             compileProfileCached: () => undefined,
+            credentialIdsFor: () => [],
             profileDestinationConflicts: (row: Row) => {
                 if (takenProfiles.includes('unresolvable')) throw new Error('Specialist "scout" collides with another model profile.')
                 return takenProfiles.filter((entry) => entry.startsWith(`${row.name.toLowerCase()}`))
@@ -118,6 +120,10 @@ const fakeModules = (file: string) => {
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
+    if (file === 'session.mjs')
+        return Promise.resolve({
+            removeDraftSessions: (canvas: { workspaceId: string; chatflowId: string }) => removedDraftSessions.push(canvas)
+        })
     if (file === 'paths.mjs') return Promise.resolve({ harnessStoreDir: () => storeDir })
     if (file === 'lock.mjs') {
         return Promise.resolve({
@@ -135,6 +141,9 @@ const fakeModules = (file: string) => {
             }
         })
     }
+    if (file === 'credential-store.mjs') {
+        return Promise.resolve({ credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null })
+    }
     return Promise.reject(new Error(`unexpected module ${file}`))
 }
 
@@ -150,6 +159,7 @@ beforeEach(() => {
     duringCleanup = null
     keptProfiles = []
     expectedProfiles = []
+    removedDraftSessions = []
     takenProfiles = []
     claimedNames = []
     harnessCanvases.length = 0
@@ -186,6 +196,17 @@ afterEach(() => {
 })
 
 describe('card delete', () => {
+    it('removes fileless draft sessions only after its canvas deletion commits', async () => {
+        const cascade = await removeHarnessesForCanvas('33333333-3333-4333-8333-333333333333', TEAM)
+        expect(cascade.names).toEqual([])
+        expect(removedDraftSessions).toEqual([])
+        await cascade.commit()
+        expect(removedDraftSessions).toEqual([{ workspaceId: TEAM, chatflowId: '33333333-3333-4333-8333-333333333333' }])
+        removedDraftSessions = []
+        const rollback = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+        await rollback.restore()
+        expect(removedDraftSessions).toEqual([])
+    })
     it('removes the canvas, the record, its schedule, key grants and runs', async () => {
         await expect(harnessesService.deleteHarness('navi', TEAM)).resolves.toEqual({ name: 'navi', deleted: true })
         expect(harnessDeleteHooks.deleteCanvas).toHaveBeenCalledWith(CANVAS_NAVI, TEAM)
@@ -754,5 +775,47 @@ describe('orphan on the list and when opened', () => {
     it('flags the orphan when opened instead of failing', async () => {
         await expect(harnessesService.getHarness('navi-harness', TEAM)).resolves.toMatchObject({ name: 'navi-harness', orphaned: true })
         await expect(harnessesService.getHarness('navi', TEAM)).resolves.not.toHaveProperty('orphaned')
+    })
+})
+
+describe('unpublished canvas admission', () => {
+    const record = { name: 'imported', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'reader' }] }
+    it('admits an owned canvas roster without writing a live harness', async () => {
+        const result = await harnessesService.assertRunRequest(
+            'imported',
+            { question: 'hello' },
+            TEAM,
+            { via: 'session' },
+            { canvasRecord: record }
+        )
+        expect(result.harness).toEqual(record)
+        expect(has('imported')).toBe(false)
+        expect(claimedNames).toEqual([])
+    })
+    it('refuses a canvas from another team, a missing canvas, and a name owned by another canvas', async () => {
+        for (const changed of [
+            { ...record, chatflowId: CANVAS_GONE },
+            { ...record, workspaceId: 'other' },
+            { ...record, name: 'other' }
+        ]) {
+            await expect(
+                harnessesService.assertRunRequest('imported', { question: 'hello' }, TEAM, { via: 'session' }, { canvasRecord: changed })
+            ).rejects.toMatchObject({ statusCode: 404 })
+        }
+        write({ name: 'imported', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [] })
+        await expect(
+            harnessesService.assertRunRequest('imported', { question: 'hello' }, TEAM, { via: 'session' }, { canvasRecord: record })
+        ).rejects.toThrow()
+    })
+    it('does not allow an API key to substitute a canvas roster for a missing live harness', async () => {
+        await expect(
+            harnessesService.assertRunRequest(
+                'imported',
+                { question: 'hello' },
+                TEAM,
+                { via: 'api_key', apiKeyId: 'key', harnesses: ['imported'] },
+                { canvasRecord: record }
+            )
+        ).rejects.toMatchObject({ statusCode: 404 })
     })
 })

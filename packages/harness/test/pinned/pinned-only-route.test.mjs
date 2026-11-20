@@ -123,6 +123,42 @@ test("a call by the node's own name in mixed mode runs the free query tool, even
     assert.deepEqual(calls.at(-1), ['pq_sales_by_region', { region: 'north' }])
 })
 
+test('an empty PostgreSQL card reports that no actions or saved queries are available', async () => {
+    const raw = await callPrepared(
+        {
+            runs: false,
+            binding: { nodeName: 'postgreSQLMCP', inputs: { mcpActions: [], pinnedQueries: [] } },
+            ready: []
+        },
+        {}
+    )
+    const result = JSON.parse(raw)
+    assert.deepEqual(result, {
+        error: 'This PostgreSQL card has no actions or saved queries available to run.',
+        cuttlelyOutcome: 'expected'
+    })
+    assert.doesNotMatch(result.error, /retest/)
+})
+
+test('a pinned-only PostgreSQL card does not ask for a retest when saved queries are disabled', async () => {
+    delete process.env.CUTTLELY_PINNED_QUERIES
+    const raw = await callPrepared(
+        {
+            runs: false,
+            binding: {
+                nodeName: 'postgreSQLMCP',
+                inputs: { mcpActions: [], pinnedQueries: JSON.stringify([{ name: 'pq_disabled', testedStamp: stamp }]) }
+            },
+            ready: []
+        },
+        {}
+    )
+    const result = JSON.parse(raw)
+    assert.equal(result.cuttlelyOutcome, 'expected')
+    assert.match(result.error, /no actions or saved queries available/i)
+    assert.doesNotMatch(result.error, /retest/)
+})
+
 test('an inline specialist runs the pin it was shown when no tool name is passed', async () => {
     const calls = []
     const pin = pinTool(calls)
@@ -188,6 +224,89 @@ test("the gateway answers a pinned-only node's own name with the expected refusa
         assert.deepEqual(calls, [['pq_sales_by_region', { region: 'north', min_total: 10 }]])
     } finally {
         forgetProfileToken(`${name}--data`)
+        if (gateway) await gateway.close()
+        setGatewayContext(prior)
+        deleteHarness(name)
+    }
+})
+
+test('the gateway reports a PostgreSQL card with no usable tools as an error', async () => {
+    const { saveHarness, deleteHarness } = await import('../../store.mjs')
+    const { registerProfileToken, forgetProfileToken, setGatewayContext, startGateway } = await import('../../gateway.mjs')
+    const name = 'zz-test-empty-postgres-gateway'
+    const profileName = `${name}--data`
+    const token = crypto.randomBytes(32).toString('base64url')
+    const prior = setGatewayContext(async () => ({
+        flowOptions: { appDataSource: {} },
+        loadNode: async () =>
+            class {
+                async init(nodeData, _input, options) {
+                    options.onNodeDiagnostic?.({
+                        code: 'postgres_saved_queries_need_retest',
+                        nodeId: nodeData.id,
+                        nodeLabel: 'ZZ-TEST reporting database',
+                        count: 1,
+                        names: ['pq_needs_retest'],
+                        message: "This PostgreSQL card's saved queries need a retest before they can run."
+                    })
+                    return []
+                }
+            }
+    }))
+    let gateway
+    try {
+        saveHarness(
+            {
+                name,
+                chief: { instructions: 'ZZ-TEST-route', model: { nodeName: 'ZZ-TEST-model' } },
+                specialists: [
+                    {
+                        name: 'data',
+                        instructions: 'ZZ-TEST-query',
+                        mcpServers: [
+                            {
+                                nodeName: 'postgreSQLMCP',
+                                category: 'Tools (MCP)',
+                                inputs: {
+                                    mcpActions: [],
+                                    pinnedQueries: JSON.stringify([
+                                        { id: 'ZZ-TEST-pin', name: 'pq_needs_retest', version: 1, sql: 'SELECT 1 LIMIT 1' }
+                                    ])
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            { overwrite: true }
+        )
+        registerProfileToken({ token, harnessName: name, specialistName: 'data', profileName, modelKey: 'ZZ-TEST-key' })
+        gateway = await startGateway({ port: 0 })
+        const post = async (route, body) => {
+            const response = await fetch(`http://127.0.0.1:${gateway.port}${route}`, {
+                method: 'POST',
+                headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            return { status: response.status, body: await response.json() }
+        }
+        const listed = await post('/harness/tools/list', {})
+        assert.deepEqual(
+            listed.body.tools.map((item) => item.name),
+            ['postgreSQLMCP']
+        )
+        const called = await post('/harness/tools/call', {
+            name: 'postgreSQLMCP',
+            arguments: {},
+            scope: `${name}:ZZ-TEST-chat`
+        })
+        assert.equal(called.status, 200)
+        assert.deepEqual(JSON.parse(called.body.result), {
+            error: "This PostgreSQL card's saved queries need a retest before they can run.",
+            cuttlelyOutcome: 'expected'
+        })
+    } finally {
+        forgetProfileToken(token)
         if (gateway) await gateway.close()
         setGatewayContext(prior)
         deleteHarness(name)

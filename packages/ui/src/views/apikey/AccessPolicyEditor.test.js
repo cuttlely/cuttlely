@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import AccessPolicyEditor, { newAccessPolicy } from './AccessPolicyEditor'
 
-function Editor({ privileged = false, initialResources = [] } = {}) {
+function Editor({ privileged = false, initialResources = [], dashFlowsMidMove = false } = {}) {
     const [policy, setPolicy] = useState(newAccessPolicy)
     const [resources, setResources] = useState(initialResources)
     const [expiresAt, setExpiresAt] = useState('2027-02-01T00:00:00.000Z')
@@ -16,12 +16,13 @@ function Editor({ privileged = false, initialResources = [] } = {}) {
                 rollout: 'on',
                 canGrantAll: privileged,
                 scopes: ['predict', 'stream'],
-                resources: [{ resourceType: 'CHATFLOW', resourceId: 'fixture', name: 'Bakery' }]
+                resources: [{ resourceType: 'CHATFLOW', resourceId: 'fixture', name: 'Bakery' }],
+                dashFlowsMidMove
             }}
         />
     )
 }
-Editor.propTypes = { privileged: PropTypes.bool, initialResources: PropTypes.array }
+Editor.propTypes = { privileged: PropTypes.bool, initialResources: PropTypes.array, dashFlowsMidMove: PropTypes.bool }
 it('starts without resource grants or operations, then previews the explicit choices', () => {
     render(<Editor />)
     expect(screen.getByRole('checkbox', { name: 'predict' }).checked).toBe(false)
@@ -64,6 +65,25 @@ it('shows an unavailable grant as remove-only and matches resource type as well 
     expect(screen.queryByRole('button', { name: /Remove unavailable/ })).toBeNull()
     expect(screen.getByRole('checkbox', { name: 'Bakery' }).checked).toBe(true)
     expect(screen.getByText(/1 selected resources/)).toBeTruthy()
+})
+
+it('keeps Dash Flows grants without a remove warning while Dash Flows storage is mid-move, and says so once', () => {
+    render(
+        <Editor
+            dashFlowsMidMove
+            initialResources={[
+                { resourceType: 'DASHFLOW', resourceId: 'board' },
+                { resourceType: 'AGENTFLOW', resourceId: 'gone' }
+            ]}
+        />
+    )
+    expect(
+        screen.getAllByText(/Dash Flows storage is mid-move; its grants are kept and can be edited after the next start\./)
+    ).toHaveLength(1)
+    expect(screen.queryByText(/Unavailable resource: DASHFLOW board/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove unavailable DASHFLOW board' })).toBeNull()
+    expect(screen.getByText(/Unavailable resource: AGENTFLOW gone/)).toBeTruthy()
+    expect(screen.getByText(/2 selected resources/)).toBeTruthy()
 })
 
 it('retains duration choices and shows Custom after a manual expiry edit', () => {

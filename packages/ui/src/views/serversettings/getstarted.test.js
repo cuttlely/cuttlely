@@ -1,7 +1,12 @@
 import { getStartedTiles, showGetStarted } from './model'
 
 const settings = (overrides = {}) => [
-    { key: 'CUTTLELY_ANALYST', value: overrides.analyst ?? '' },
+    {
+        key: 'CUTTLELY_ANALYST',
+        value: overrides.analyst ?? '',
+        defaultValue: overrides.analystDefault ?? 'auto',
+        effective: overrides.analystEffective
+    },
     { key: 'CUTTLELY_POSTGRES_URL', secret: { set: Boolean(overrides.postgres) } }
 ]
 
@@ -10,9 +15,10 @@ describe('Set up your server', () => {
         const fresh = getStartedTiles({ settings: settings(), authKit: { complete: false, tested: false } })
         expect(fresh.map((tile) => [tile.id, tile.done])).toEqual([
             ['signin', false],
-            ['analyst', false],
+            ['analyst', true],
             ['models', false]
         ])
+        expect(getStartedTiles({ settings: settings({ analyst: 'off' }), authKit: {} })[1].done).toBe(false)
         const later = getStartedTiles({ settings: settings({ analyst: 'auto' }), authKit: { complete: true, tested: true } })
         expect(later.filter((tile) => tile.done).map((tile) => tile.id)).toEqual(['signin', 'analyst'])
         expect(getStartedTiles({ settings: settings({ postgres: true }), authKit: {} })[1].done).toBe(true)

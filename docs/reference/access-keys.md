@@ -86,7 +86,7 @@ Harness interpretation diagnostics (`GET /api/v1/harnesses/:name/runs/:runId/dia
 
 Harness canvas item, draft and version reads use `api:read`, the exact Harness canvas grant and view RBAC. They retain the granted Harness identity map for downstream canvas checks without requiring `harness:run`. Draft reads still require grants for Harnesses referenced by the saved draft. Read authority does not permit execution, draft writes or publication.
 
-The registry is closed: adding a handler beneath a route prefix does not automatically expose it to scoped keys. New management operations must be explicitly registered. Management scopes do not imply prediction or Harness execution. A scoped key cannot change execution configuration, publish/restore a canvas, change a schedule, change public/private access or legacy bindings, or invoke draft test/check routes through a management scope. Metadata edits bypass the canvas-save path so an existing schedule cannot be re-enabled as a side effect.
+The registry is closed: adding a handler beneath a route prefix does not automatically expose it to scoped keys. New management operations must be explicitly registered. Management scopes do not imply prediction or Harness execution. A scoped key cannot change execution configuration, publish/restore a canvas, change a schedule, change public/private access or legacy bindings, or invoke draft test/check routes or Import & verify through a management scope. Import & verify stays a signed-in action. Metadata edits bypass the canvas-save path so an existing schedule cannot be re-enabled as a side effect.
 
 ### Management requests
 

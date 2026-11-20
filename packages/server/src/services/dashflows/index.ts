@@ -22,7 +22,7 @@ export async function saveDashboard(req: Request, workspace: string) {
         const { item } = mod.sourceFor(record, card.source)
         if (item.hash !== card.hash) throw new AppError(409, 'The tested source changed. Select it again.')
     }
-    return mod.dashStore().save(req.params.id || null, workspace, req.user!.id, definition, req.body.revision)
+    return await mod.dashStore().save(req.params.id || null, workspace, req.user!.id, definition, req.body.revision)
 }
 
 type StartedRefresh = { mod: any; store: any; claim: any; harnessRecord?: any }
@@ -30,45 +30,65 @@ type StartedRefresh = { mod: any; store: any; claim: any; harnessRecord?: any }
 export async function refreshDashboard(id: string, workspace: string, started?: StartedRefresh, preferCache = false) {
     const mod = started?.mod ?? (await runtime())
     const store = started?.store ?? mod.dashStore()
-    const claim = started?.claim ?? store.claim(id, workspace)
-    const interruptForRestart = () => {
+    const claim = started?.claim ?? (await store.claim(id, workspace))
+    // Store calls return promises on both backends; a sync mock is accepted too.
+    const attempt = (work: () => unknown): Promise<unknown> => {
         try {
-            store.cancel(id, workspace, claim.token, 'interrupted')
-        } catch {
-            /* Already finished or superseded. */
+            return Promise.resolve(work())
+        } catch (error) {
+            return Promise.reject(error)
         }
     }
-    const assertActive = () => {
+    const interruptForRestart = () =>
+        attempt(() => store.cancel(id, workspace, claim.token, 'interrupted')).catch(() => {
+            /* Already finished or superseded. */
+        })
+    // The bridge awaits beforeCall once the tool is prepared and before the source starts, so a cancel that lands while
+    // the node is being prepared stops the call there. It awaits beforeRetry before each retry of the tool with another
+    // argument shape, so a cancel that lands during an attempt stops the retry. assertCall then runs synchronously
+    // before each attempt; it can only see a failed awaited store check, which sets this flag.
+    let fenced: unknown
+    const assertNotRestarting = () => {
         if (isDraining() || isShuttingDown()) {
-            interruptForRestart()
+            void interruptForRestart()
             throw new AppError(503, 'Refresh interrupted by server restart.')
         }
-        store.assertActive(id, workspace, claim)
+        if (fenced) throw fenced
+    }
+    const assertActive = async () => {
+        assertNotRestarting()
+        try {
+            await store.assertActive(id, workspace, claim)
+        } catch (error) {
+            fenced = error
+            throw error
+        }
     }
     const heartbeat = setInterval(() => {
         if (isDraining() || isShuttingDown()) {
-            interruptForRestart()
+            void interruptForRestart()
             clearInterval(heartbeat)
             return
         }
-        try {
-            if (!store.heartbeat(id, workspace, claim)) clearInterval(heartbeat)
-        } catch {
-            // A transient SQLite lock must not disable every subsequent renewal.
-            logger.warn('[dashflows] Refresh heartbeat write failed; retrying on the next tick.')
-        }
+        attempt(() => store.heartbeat(id, workspace, claim)).then(
+            (renewed) => {
+                if (!renewed) clearInterval(heartbeat)
+            },
+            () => {
+                // A transient lock or connection error must not disable every subsequent renewal.
+                logger.warn('[dashflows] Refresh heartbeat write failed; retrying on the next tick.')
+            }
+        )
     }, 15000)
     heartbeat.unref()
     const removeDrainListener = onDrainStart(() => {
-        try {
-            store.cancel(id, workspace, claim.token, 'interrupted')
-        } catch {
-            /* Already finished or superseded. */
-        }
+        void interruptForRestart()
         clearInterval(heartbeat)
     })
+    // Progress writes for this claim stay in order.
+    let progressChain: Promise<unknown> = Promise.resolve()
     try {
-        assertActive()
+        await assertActive()
         // Access-key admission may pin the authorized canvas. Prefer that record so a same-name
         // recreation between the pin check and materialization cannot substitute an ungranted id.
         const record = started?.harnessRecord ?? (await harnessesService.getHarness(claim.definition.harness, workspace))
@@ -78,28 +98,37 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
             claim.definition,
             record,
             async (item: any, args: unknown) => {
-                assertActive()
+                await assertActive()
                 const result = await bridge.executeSpecialistTool(record.name, item.specialist, item.name, args, {
                     harness: record,
                     bindingIndex: item.bindingIndex,
                     ...context,
-                    assertCall: assertActive
+                    beforeCall: assertActive,
+                    beforeRetry: assertActive,
+                    assertCall: assertNotRestarting
                 })
-                assertActive()
+                await assertActive()
                 return result
             },
-            store.queryCache(id, workspace, claim),
+            await store.queryCache(id, workspace, claim),
             preferCache,
-            (progress: unknown) => {
-                assertActive()
-                store.progress(id, workspace, claim, progress)
-            },
+            (progress: unknown) =>
+                (progressChain = progressChain.then(async () => {
+                    await assertActive()
+                    await store.progress(id, workspace, claim, progress)
+                })),
             claim.resumeSince
         )
-        return store.settle(id, workspace, claim, snapshot, null)
+        return await store.settle(id, workspace, claim, snapshot, null)
     } catch (error) {
         // Raw database errors can contain source data or infrastructure details. Keep them off shared reads.
-        store.settle(id, workspace, claim, null, 'Refresh failed. Last good snapshot retained. Check the tested source and parameters.')
+        await store.settle(
+            id,
+            workspace,
+            claim,
+            null,
+            'Refresh failed. Last good snapshot retained. Check the tested source and parameters.'
+        )
         if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
         throw new AppError(422, 'Refresh failed. Check source availability, query validation and parameter types.')
     } finally {
@@ -118,23 +147,23 @@ export async function startDashboardRefresh(
     if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting. Try again in a minute.')
     const mod = await runtime()
     const store = mod.dashStore()
-    const claim = store.claim(id, workspace)
+    const claim = await store.claim(id, workspace)
     if (expectedRevision !== undefined && claim.revision !== expectedRevision) {
-        store.cancel(id, workspace, claim.token)
+        await store.cancel(id, workspace, claim.token)
         throw new AppError(409, 'Dashboard changed after authorization. Retry the refresh.')
     }
     let harnessRecord: any
     if (expectedHarnessId !== undefined) {
         harnessRecord = await harnessesService.getHarness(claim.definition.harness, workspace)
         if (!harnessRecord || harnessRecord.orphaned || harnessRecord.chatflowId !== expectedHarnessId) {
-            store.cancel(id, workspace, claim.token)
+            await store.cancel(id, workspace, claim.token)
             throw new AppError(409, 'Harness changed after authorization. Retry the refresh.')
         }
     }
     void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim, harnessRecord }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */
     })
-    return { id, refreshing: true, refreshProgress: store.status(id, workspace).refreshProgress }
+    return { id, refreshing: true, refreshProgress: (await store.status(id, workspace)).refreshProgress }
 }
 
 let timer: NodeJS.Timeout | undefined
@@ -144,12 +173,14 @@ export async function tickDashflows() {
     ticking = true
     try {
         const mod = await runtime()
-        for (const row of mod.dashStore().due()) {
+        for (const row of await mod.dashStore().due()) {
             if (isDraining() || isShuttingDown()) break
             const access = await resolveTeamAccess(row.owner, row.workspace)
             if (!access.owner && !access.permissions?.includes('chatflows:update')) {
-                const claim = mod.dashStore().claim(row.id, row.workspace)
-                mod.dashStore().settle(row.id, row.workspace, claim, null, 'Scheduled refresh requires the owner’s current team access.')
+                const claim = await mod.dashStore().claim(row.id, row.workspace)
+                await mod
+                    .dashStore()
+                    .settle(row.id, row.workspace, claim, null, 'Scheduled refresh requires the owner’s current team access.')
                 continue
             }
             try {

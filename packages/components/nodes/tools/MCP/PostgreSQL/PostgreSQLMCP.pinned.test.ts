@@ -243,6 +243,37 @@ describe('PostgreSQL MCP pinned queries', () => {
         }
     })
 
+    it('logs and diagnoses saved queries that need a tested stamp', async () => {
+        process.env.CUTTLELY_PINNED_QUERIES = 'true'
+        const logger = { warn: jest.fn() }
+        const onNodeDiagnostic = jest.fn()
+        const tools = await node().pinnedTools(
+            {
+                id: 'ZZ-TEST-node',
+                label: 'ZZ-TEST reporting database',
+                inputs: {
+                    pinnedQueries: JSON.stringify([
+                        { id: 'ZZ-TEST-a', name: 'pq_orders', version: 1, sql: 'SELECT 1 LIMIT 1' },
+                        { id: 'ZZ-TEST-b', name: 'pq_returns', version: 1, sql: 'SELECT 2 LIMIT 1' }
+                    ])
+                }
+            },
+            { ...options(), logger, onNodeDiagnostic }
+        )
+        expect(tools).toEqual([])
+        const message =
+            'PostgreSQL MCP node ZZ-TEST-node (ZZ-TEST reporting database) dropped 2 saved queries without a tested stamp: pq_orders, pq_returns. Retest them before running this card.'
+        expect(logger.warn).toHaveBeenCalledWith(message)
+        expect(onNodeDiagnostic).toHaveBeenCalledWith({
+            code: 'postgres_saved_queries_need_retest',
+            nodeId: 'ZZ-TEST-node',
+            nodeLabel: 'ZZ-TEST reporting database',
+            count: 2,
+            names: ['pq_orders', 'pq_returns'],
+            message
+        })
+    })
+
     it('forged or stale stamp is not offered', async () => {
         const sink = await listenSink()
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})

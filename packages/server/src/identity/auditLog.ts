@@ -36,6 +36,8 @@ export const AUDIT_TYPES = [
     'auth_config_warning_ack',
     'auth_config_change',
     'owner_recovery',
+    // 13 characters. A first owner and the path that created it: setup_code, cli or host_config.
+    'owner_created',
     'scim_token',
     'scim_user',
     'scim_group',
@@ -263,6 +265,7 @@ export function auditSummary(type: AuditType): string {
     if (type === 'auth_config_warning_ack') return 'Authentication warning acknowledged'
     if (type === 'auth_config_change') return 'OIDC configuration changed'
     if (type === 'owner_recovery') return 'Owner recovery sign-in'
+    if (type === 'owner_created') return 'First owner created'
     if (type === 'scim_token') return 'SCIM credential changed'
     if (type === 'scim_user') return 'SCIM user changed'
     if (type === 'scim_group') return 'SCIM group changed'

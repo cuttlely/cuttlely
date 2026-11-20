@@ -10,7 +10,7 @@ import { StartState } from './apply'
 import { PgClient, TestDrivers, defaultDrivers } from './connection'
 import { PREVIOUS_DATABASE_FILE } from './database-summary'
 import { readHistory } from './history'
-import { setRestartHandler } from './restart'
+import { resetRestartRequest, setRestartHandler } from './restart'
 import { SETTINGS_FILE, readSettingsFile, writeSettingsFile } from './store'
 
 jest.mock('./bootstrap', () => ({
@@ -38,6 +38,7 @@ let state: StartState
 let tables: string[]
 let connectError: unknown
 let restarts: number
+let restartGeneration = 0
 let pgPasswords: unknown[]
 
 function drivers(): TestDrivers {
@@ -78,6 +79,7 @@ function app() {
 const post = (route: string, body: object) => app().post(`/api/v1/server-settings/database/${route}`).send(body)
 
 beforeEach(() => {
+    const generation = ++restartGeneration
     data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-db-switch-'))
     dir = path.join(data, 'settings')
     env = { CUTTLELY_DATA_DIR: data, CUTTLELY_LOCAL_ADMIN: 'true', CUTTLELY_SUPERVISED: '1', CUTTLELY_INSTALL: 'docker' }
@@ -95,6 +97,7 @@ beforeEach(() => {
     tables = []
     connectError = null
     restarts = 0
+    resetRestartRequest()
     pgPasswords = []
     env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
         userId: 'owner-1',
@@ -103,6 +106,7 @@ beforeEach(() => {
     setServerSettingsDeps(() => ({ env, state, key: async () => KEY }))
     setConnectionDrivers(drivers)
     setRestartHandler(async () => {
+        if (generation !== restartGeneration) return
         restarts += 1
     })
     setTeamPermissionLookup({ accessFor: async (userId) => ({ owner: userId === 'owner-1', permissions: [] }) })

@@ -715,14 +715,14 @@ export const SETTINGS: SettingDef[] = [
         key: 'CUTTLELY_ANALYST',
         section: 'analyst',
         label: 'Analyst storage',
-        help: 'Auto gives each workspace its own private store the analyst can create tables in.',
+        help: 'Auto gives each workspace its own private store the analyst can create tables in. Unset is Auto. Off stays off. A Postgres URL or a Postgres URL credential still uses the read-only path.',
         type: 'select',
         options: [
-            { value: '', label: 'Off' },
-            { value: 'auto', label: 'Auto' }
+            { value: 'auto', label: 'Auto' },
+            { value: 'off', label: 'Off' }
         ],
-        defaultLabel: 'Off',
-        defaultValue: '',
+        defaultLabel: 'Auto',
+        defaultValue: 'auto',
         risk: 'medium'
     },
     {
@@ -2008,6 +2008,23 @@ export const KEPT_OUT: KeptOutGroup[] = [
         why: 'Host-only designation for service administration. Never loaded from saved settings.'
     },
     {
+        group: 'First owner from host configuration',
+        keys: [
+            'CUTTLELY_INITIAL_OWNER_EMAIL',
+            'CUTTLELY_INITIAL_OWNER_NAME',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD'
+        ],
+        why: 'Creates the first owner on an empty database at start. A browser must never set an account password or the email that receives one.'
+    },
+    {
+        group: 'Application database stores',
+        keys: ['CUTTLELY_APP_DATABASE_STORES'],
+        why: 'Moving stores into the application database happens at start, with every other instance stopped; it is set on the host, never in saved settings.'
+    },
+    {
         group: 'Inbound access rollout',
         keys: ['CUTTLELY_API_KEY_INSTANCES'],
         why: 'Replica admission must be configured by the deployment operator, outside browser settings.'
@@ -2164,6 +2181,7 @@ export interface ReadOnlyDef {
  */
 export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
     { key: 'CUTTLELY_API_KEY_INSTANCES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'CUTTLELY_APP_DATABASE_STORES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
     { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'CUTTLELY_DATA_DIR', readOnly: true, check: 'nonblank', whenUnset: 'default' },

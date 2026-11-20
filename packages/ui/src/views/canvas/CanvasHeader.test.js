@@ -28,6 +28,23 @@ jest.mock('@/api/flowDrafts', () => ({
 }))
 jest.mock('@/views/settings', () => () => null)
 jest.mock('@/ui-component/flow/FlowiseMigrationWizard', () => jest.fn(() => null))
+jest.mock('@/views/canvas/ImportVerifyDialog', () => {
+    const React = require('react')
+    return function mockDialog(props) {
+        return React.createElement(
+            'button',
+            {
+                type: 'button',
+                'data-testid': 'import-verify-canvas',
+                onClick: () => {
+                    const deliver = props.onImported
+                    if (deliver) deliver('{"nodes":[{"id":"imported"}],"edges":[]}')
+                }
+            },
+            'import'
+        )
+    }
+})
 jest.mock('@/ui-component/dialog/SaveChatflowDialog', () => () => null)
 jest.mock('@/views/chatflows/APICodeDialog', () => () => null)
 jest.mock('@/ui-component/dialog/ViewMessagesDialog', () => () => null)
@@ -115,6 +132,22 @@ describe('Canvas header discard', () => {
             button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         })
     }
+
+    test('Publish instantly still shows Publish and Discard while a draft exists', async () => {
+        const view = await open(graph('Chat', 'live.csv'), 'CHATFLOW', {
+            draftStatus: {
+                enabled: true,
+                mode: 'live',
+                reason: 'publish-instantly',
+                publishInstantly: true,
+                draft: { flowData: graph('Chat', 'imported.csv'), stale: false, hash: 'imported' }
+            }
+        })
+        const labels = [...document.body.querySelectorAll('button')].map((item) => item.textContent)
+        expect(labels).toContain('Publish')
+        expect(labels).toContain('Discard draft')
+        act(() => view.root.unmount())
+    })
 
     test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('a %s discard applies the Live canvas', async (type) => {
         const live = graph(type, 'outdoor-catalog.csv')
@@ -212,5 +245,37 @@ describe('Canvas header discard', () => {
         )
         expect(handleSaveFlow).toHaveBeenCalledWith('Name still here')
         act(() => view.root.unmount())
+    })
+})
+
+describe('Canvas header import', () => {
+    afterEach(() => {
+        document.body.innerHTML = ''
+    })
+
+    test('an imported draft replaces the visible canvas', async () => {
+        const onApplyCanvas = jest.fn()
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme },
+                    createElement(CanvasHeader, {
+                        chatflow: { id: 'flow-1', name: 'Upgrade catalog', type: 'CHATFLOW', flowData: graph('Old', '') },
+                        handleSaveFlow: () => {},
+                        handleDeleteFlow: () => {},
+                        handleLoadFlow: () => {},
+                        onApplyCanvas
+                    })
+                )
+            )
+        })
+        const apply = document.body.querySelector('[data-testid="import-verify-canvas"]')
+        await act(async () => apply.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        expect(onApplyCanvas).toHaveBeenCalledWith('{"nodes":[{"id":"imported"}],"edges":[]}')
+        act(() => root.unmount())
     })
 })

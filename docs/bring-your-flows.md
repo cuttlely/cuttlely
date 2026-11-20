@@ -9,6 +9,10 @@ Two things are true for every import:
 
 Install and sign in first: [Docker](./how-to/docker.md) and [Sign in](./how-to/sign-in.md).
 
+## Import and verify
+
+For a Cuttlely flow or harness file, use **Import & verify** on the canvas gear menu. The queries are kept and tested again on this server. A stamp in the file does not make a query ready. Publish stays a separate step. [Import and verify](./how-to/import-verify.md).
+
 ## From Flowise
 
 ### Import a chatflow or agentflow file

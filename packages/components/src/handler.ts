@@ -525,13 +525,14 @@ class ExtendedLunaryHandler extends LunaryHandler {
     }
 }
 
-export const additionalCallbacks = async (nodeData: INodeData, options: ICommonObject) => {
+// A provider selection builds only those external tracers, without the usage counter or OTEL handler.
+export const additionalCallbacks = async (nodeData: INodeData, options: ICommonObject, providers?: readonly string[]) => {
     const callbacks: any[] = []
     // Local counter only. It does not call a provider.
-    if (options?.tokenUsageCallback) callbacks.push(options.tokenUsageCallback)
+    if (!providers && options?.tokenUsageCallback) callbacks.push(options.tokenUsageCallback)
     try {
         // One check when run traces are off: no handler is constructed.
-        const otel = options?.cuttlelyReplay ? undefined : otelRunCallback()
+        const otel = options?.cuttlelyReplay || providers ? undefined : otelRunCallback()
         if (!options.analytic && !tracingEnvEnabled() && !otel) return callbacks
 
         const initial = options.analytic ? JSON.parse(options.analytic) : {}
@@ -543,6 +544,7 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
         if (otel) callbacks.push(otel)
 
         for (const provider in analytic) {
+            if (providers && !providers.includes(provider)) continue
             const providerStatus = analytic[provider].status as boolean
             if (providerStatus) {
                 const credentialData =

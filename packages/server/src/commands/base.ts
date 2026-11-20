@@ -6,6 +6,7 @@ import path from 'path'
 import logger from '../utils/logger'
 import { drainTimeoutMs } from '../settings/runs'
 import { encryptionKeyConflict } from '../settings/settingAlias'
+import { captureInitialOwnerEnvironment } from '../identity/initialOwner'
 
 export { startState }
 
@@ -248,6 +249,8 @@ export abstract class BaseCommand extends Command {
                 process.env[key] = flags[key]
             }
         })
+        // Before anything can start a child process: keep the first-owner password values and drop them from env.
+        captureInitialOwnerEnvironment(process.env)
         const conflict = encryptionKeyConflict(process.env)
         if (conflict) {
             logger.error(conflict)

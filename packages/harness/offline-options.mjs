@@ -1,11 +1,11 @@
-import { readCredentialRow } from './credential-store.mjs'
+import { readCredentialRowAsync } from './credential-store.mjs'
 
 export function flowiseNodeOptions() {
     return {
         appDataSource: {
             getRepository() {
                 return {
-                    findOneBy: async ({ id }) => readCredentialRow(id)
+                    findOneBy: async ({ id }) => readCredentialRowAsync(id)
                 }
             }
         },

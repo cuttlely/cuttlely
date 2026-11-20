@@ -26,7 +26,7 @@ export interface SetupUsers {
     countUsers(): Promise<number>
     createOwner(
         input: CreateOwnerInput,
-        options?: { consumeSetupHmac?: string; now?: number; activateLocalAuthentication?: boolean }
+        options?: { consumeSetupHmac?: string; now?: number; activateLocalAuthentication?: boolean; auditSource?: 'setup_code' }
     ): Promise<UserRow>
 }
 
@@ -141,7 +141,7 @@ export async function createOwnerFromSetup(
             .users()
             .createOwner(
                 { email, name, credential: await hashPassword(password), externalId: null },
-                { consumeSetupHmac: hmac, now: Date.now(), activateLocalAuthentication: true }
+                { consumeSetupHmac: hmac, now: Date.now(), activateLocalAuthentication: true, auditSource: 'setup_code' }
             )
     } catch (error) {
         if (error instanceof NotEmptyError) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE['has-account'])

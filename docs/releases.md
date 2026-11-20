@@ -2,7 +2,15 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
-Version **1.7.3** is a patch covering the no-answer canvas message, import of flows whose edge target handles carry type segments, quiet retries while editing, a save queue for existing draft and Live saves without new file data, and 65-second keep-alive defaults behind a reverse proxy. It adds no schema migration. The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.0** uses the security exception below. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. The support row describes the 1.7.x release line. Tag, image and npm availability are checked separately by the release procedure below. The release tool dates the changelog when cutting the release.
+Version **1.7.9** adds LangSmith tracing to standalone Harness chatflows, drops imported edges whose endpoints are gone, clarifies instance-operator request errors, and updates the XML parser dependency for a CPU-exhaustion security fix. ETL scans and bookkeeping yield to the server loop, interrupted repository files resume without false duplicate errors, and error-limit failures retain their first cause. An optional host configuration can create the first owner on an empty local-password installation, with a password-hash helper and private audit event. Existing accounts are preserved; owner creation does not grant instance-operator access. No schema migration or required configuration change is added. [LangSmith tracing](./reference/langsmith-tracing.md) · [First owner](./how-to/sign-in.md#from-host-configuration) · [Upgrade guide](./upgrading.md) · [Merge and documentation audit](./reference/release-1-7-9-audit.md).
+
+Version **1.7.8** lets Version History select a GitHub repository branch, including names with slashes. The picker shows protected branches, and an existing connection keeps its current behavior until reconnected. Named environment chains retain their configured branch mappings. The homepage release notice is shorter. No schema migration is added. [Version History](./how-to/versioning.md).
+
+Version **1.7.7** fixes agent-team cancellation: stopping one chat cancels only its runtime run and model connection, while another chat using the same specialist continues. It adds no schema migration or configuration change. [Harnesses](./how-to/harnesses.md).
+
+Version **1.7.6** improves automatic test inputs in **Import & verify**, lets signed-in people try an unpublished harness before its first Publish, and keeps draft conversation state separate from runnable profiles. **User Management** offers one-time password reset links, Disable/Reactivate and **View team access**. Team lists show pending and disabled accounts correctly, and pending invitation role edits update the existing membership. It adds no schema migration and does not change sign-in configuration, stored role assignments or the enforcement mode. [Import and verify](./how-to/import-verify.md) · [Users and teams](./how-to/users-without-authkit.md).
+
+Version **1.7.5** is a patch that fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491), Import & verify reporting false output contract mismatches (#494), and Import & verify reporting untested contracts as mismatches (#495). It also lets Version History connect a GitHub repository that already has files or commits (#482). It adds no schema migration and changes no configuration. Version **1.7.4** covered analyst tool readiness, Auto for Analyst storage that was never set, credential rebind on harness import (including a nested credential id and an empty credential slot), **Import & verify** for imported flows and harnesses, and a fresh-install Try the demo save. It added one startup migration (a nullable `importVerify` column on `flow_version_state`). The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.3** covered the no-answer canvas message, import of flows whose edge target handles carry type segments, quiet retries while editing, a save queue for existing draft and Live saves without new file data, and 65-second keep-alive defaults behind a reverse proxy. Version **1.7.0** uses the security exception below. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default, including for 1.7.9. The support row describes the 1.7.x release line. Tag, image and npm availability are checked separately by the release procedure below. The release tool dates the changelog when cutting the release.
 
 ## Versions
 
@@ -107,7 +115,47 @@ For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or star
 
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
-The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+The release command pushes the commit and tag atomically. When `main` requires pull requests, prepare with `--local`, land the generated version commit through the normal PR checks, and publish the tag afterward. The protected-branch path below preserves that process.
+
+## Prepare on a fresh CI runner
+
+When a maintainer machine cannot run the full gate, **Release preparation** (`.github/workflows/release-prepare.yml`) provides a fresh-runner fallback. It has read-only repository permissions. It does not push commits or tags, publish a GitHub release or image, or publish npm packages.
+
+To verify a pushed branch without preparing a release:
+
+```bash
+gh workflow run release-prepare.yml --ref your-branch -F prepare=false -f version=1.7.9
+```
+
+The workflow also runs the full gate when its own file or the release tool changes in a pull request. Its verification artifact records the exact checked-out commit, mode and result.
+
+After the documentation is merged and `main` is ready, prepare the release:
+
+```bash
+gh workflow run release-prepare.yml --ref main -F prepare=true -f version=1.7.9
+```
+
+This runs the normal `pnpm release 1.7.9 --local` command: full verification, the four version bumps, changelog date, release commit, annotated tag, local image build and start-and-ping check. It validates the passing full report against the source commit, checks the release commit's parent, tag and version files, and exports a small Git bundle plus metadata. The release commit may change only the four manifests and changelog. Artifacts are kept for seven days.
+
+Download `release-preparation-1.7.9` from that successful run. Read `metadata.json` and `verify-report.json`: `source` must equal the current `origin/main`, and the report must have that head, `mode: full` and `ok: true`. If main changed, prepare again. From a clean main synchronized with origin:
+
+```bash
+release_artifacts=$(mktemp -d)
+gh run download RUN_ID --name release-preparation-1.7.9 --dir "$release_artifacts"
+git bundle verify "$release_artifacts/release.bundle"
+git fetch "$release_artifacts/release.bundle" refs/tags/v1.7.9:refs/tags/v1.7.9
+git switch -c release/1.7.9 'v1.7.9^{commit}'
+node scripts/scan-secrets.mjs
+CUTTLELY_SKIP_VERIFY=1 CUTTLELY_SKIP_HANDOFF_CHECK=1 git -c push.followTags=false push -u origin release/1.7.9
+gh pr create --base main --head release/1.7.9 --title 'Release v1.7.9' --fill
+gh pr checks --watch
+```
+
+These local hook exemptions match the release command and apply only to its five generated files after the full gate and image check passed. The separate secret scan and normal remote PR checks still run. `push.followTags=false` keeps the candidate tag local while the PR is checked.
+
+Merge the PR through the repository's required checks and reviews. Fetch `origin/main`, switch back to `main`, and fast-forward it. Compare its Git tree with the prepared tag's tree; they must be identical. Confirm that `git ls-remote --tags origin refs/tags/v1.7.9` succeeds with no result. Then recreate only the unpublished local annotated tag at the merged release commit, preserving its message. Stop if the trees differ or the remote tag already exists. A published tag stays fixed.
+
+On that clean main, run `pnpm release 1.7.9 --publish`. The existing resume path performs the normal atomic push, image-workflow wait and GitHub publication. npm publication remains the separate [tag-based step](#publish-the-npm-packages).
 
 ## Docs and site sync
 
@@ -157,4 +205,4 @@ It then builds the widget, runs `npm pack --dry-run` for both packages, and publ
 -   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` at version `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`, because the default image tag is that package's own version.
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
 
-The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.
+The server itself is not an npm package. The image carries the Python agent runtime. For unattended publication, use a granular `NPM_TOKEN` scoped to `cuttlely` and `@cuttlely/chat`, with **Read and write (publish and stage)** and **Bypass 2FA**. Organization-management access is unnecessary. Choose a short expiry and keep the token outside this repository. An email-verified login session has separate publishing requirements. Tokens can be created through the [npm website](https://docs.npmjs.com/creating-and-viewing-access-tokens/) or its [documented token API](https://github.com/npm/api-documentation/blob/main/api/registry.npmjs.com/token.yaml); token creation requires a fresh verification code. Both packages set `publishConfig.access` to `public`. There is no npm publish workflow.

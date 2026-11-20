@@ -6,6 +6,7 @@ import { harnessRunRateLimit } from '../../services/harnesses/apiAccess'
 import { resolveTeamAccess } from '../../identity/rbac'
 import { isDraining, isShuttingDown, trackBackgroundRun } from '../../settings/runs'
 import { AppError } from '../../errors/appError'
+import { dashFlowsBusy } from '../../services/dashflows/busy'
 
 const router = express.Router()
 router.use((_req, res, next) => {
@@ -20,11 +21,11 @@ const action =
     async (req: Request, res: Response, next: NextFunction) => {
         try {
             const store = (await runtime()).dashStore()
-            const view = store.publicView(req.params.token)
+            const view = await store.publicView(req.params.token)
             await harnessesService.getHarness(view.publication.definition.harness, view.workspace)
             await fn(req, res, store, view)
         } catch (error) {
-            const status = (error as any).status || (error as any).statusCode || 500
+            const status = dashFlowsBusy(error) ? 409 : (error as any).status || (error as any).statusCode || 500
             next(
                 new AppError(
                     status,
@@ -76,7 +77,7 @@ router.post(
         if (isDraining() || isShuttingDown()) throw new AppError(503, 'Restarting.')
         await reportAccess(view)
         if (!hasPublishedAccount(view.publication.snapshot, req.params.accountId)) throw new AppError(404, 'Account not published.')
-        const slot = store.reservePublicReport(req.params.token)
+        const slot = await store.reservePublicReport(req.params.token)
         const started = await harnessesService.startBackgroundRun(
             view.publication.definition.harness,
             {
@@ -84,7 +85,7 @@ router.post(
             },
             { workspaceId: view.workspace, source: 'api', caller: { via: 'session' }, track: trackBackgroundRun }
         )
-        store.attachPublicReport(slot, started.runId)
+        await store.attachPublicReport(slot, started.runId)
         return res.status(202).json({ runId: started.runId })
     })
 )
@@ -93,7 +94,7 @@ router.get(
     harnessRunRateLimit('read'),
     action(async (req, res, store, view) => {
         await reportAccess(view)
-        if (!store.hasPublicReport(req.params.token, req.params.runId)) throw new AppError(404, 'Report not published.')
+        if (!(await store.hasPublicReport(req.params.token, req.params.runId))) throw new AppError(404, 'Report not published.')
         const result = await harnessesService.getRunResult(view.publication.definition.harness, req.params.runId, view.workspace)
         return res.json({
             finished: result.finished,

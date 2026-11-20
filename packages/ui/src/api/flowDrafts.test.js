@@ -59,6 +59,12 @@ describe('flowDrafts api', () => {
             { flowData, expectedDraftHash: null },
             { retry: false, authReplay: false }
         )
+        flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123', strictDraftHash: true })
+        expect(client.put).toHaveBeenCalledWith(
+            '/flow-drafts/id',
+            { flowData, expectedDraftHash: 'abc123', strictDraftHash: true },
+            { retry: false, authReplay: false }
+        )
         flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123', overwriteDraftChanges: true })
         expect(client.put).toHaveBeenCalledWith(
             '/flow-drafts/id',

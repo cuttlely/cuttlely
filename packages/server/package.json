@@ -1,6 +1,6 @@
 {
     "name": "@cuttlely/server",
-    "version": "1.7.3",
+    "version": "1.7.9",
     "private": true,
     "description": "Cuttlely server",
     "main": "dist/index",
@@ -37,6 +37,9 @@
         "user": "run-script-os",
         "user:windows": "cd bin && run user",
         "user:default": "cd bin && ./run user",
+        "hash-password": "run-script-os",
+        "hash-password:windows": "cd bin && run hash-password",
+        "hash-password:default": "cd bin && ./run hash-password",
         "settings": "run-script-os",
         "settings:windows": "cd bin && run settings",
         "settings:default": "cd bin && ./run settings",

@@ -21,7 +21,7 @@ export const reportAdmissionHooks: { afterCaller: null | (() => Promise<void>) }
 export const bearerDashboardReport: RequestHandler = action(async (req, res, next) => {
     try {
         const ws = req.user!.activeWorkspaceId!
-        const view = (await runtime()).dashStore().published(req.params.id, ws)
+        const view = await (await runtime()).dashStore().published(req.params.id, ws)
         if (!hasPublishedAccount(view.snapshot, req.params.accountId)) throw new AppError(404, 'Account not published.')
         const expectedHarnessId = res.locals.accessKeyDashboardHarnessId as string | undefined
         let expectedChatflowId: string | undefined
@@ -69,7 +69,7 @@ export const bearerDashboardResult: RequestHandler = action(async (req, res, nex
             dashboardId: req.params.id
         })
         if (!receipt || receipt.createdAt.getTime() <= Date.now() - 7 * 86400000) throw new AppError(404, 'Report not found.')
-        const view = (await runtime()).dashStore().published(req.params.id, req.user!.activeWorkspaceId!)
+        const view = await (await runtime()).dashStore().published(req.params.id, req.user!.activeWorkspaceId!)
         const result = await harnessesService.getRunResult(view.definition.harness, req.params.runId, req.user!.activeWorkspaceId!, {
             apiKeyId: req.user!.apiKeyId!
         })

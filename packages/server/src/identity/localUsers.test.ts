@@ -815,21 +815,24 @@ describe('local users mode', () => {
         }
     })
 
-    it('rejects a cost-31 bcrypt hash quickly and leaves it in place', async () => {
+    it('rejects a cost-31 bcrypt hash without running bcrypt and leaves it in place', async () => {
         const { store } = await seed()
         const costly = `$2a$31${'$'}${'A'.repeat(53)}`
         const member = store.users.find((u) => u.id === 'user-a')
         if (!member) throw new Error('missing user-a')
         member.credential = costly
         const rateLimit = new LoginRateLimit()
-        const started = Date.now()
-        const out = json(await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: OTHER } })))
-        const elapsed = Date.now() - started
-        expect(out.status).toBe(401)
-        expect(out.body).toEqual(INVALID)
-        expect(member.credential).toBe(costly)
-        expect(rateLimit.retained()).toBe(2)
-        expect(elapsed).toBeLessThan(200)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        try {
+            const out = json(await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: OTHER } })))
+            expect(out.status).toBe(401)
+            expect(out.body).toEqual(INVALID)
+            expect(member.credential).toBe(costly)
+            expect(rateLimit.retained()).toBe(2)
+            expect(compare).not.toHaveBeenCalled()
+        } finally {
+            compare.mockRestore()
+        }
     })
 
     it('still signs in when rehash replaceCredential fails and leaves the bcrypt hash in place', async () => {

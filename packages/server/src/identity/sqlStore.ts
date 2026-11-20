@@ -406,6 +406,29 @@ export class SqlIdentityStore implements IdentityStore {
                 const { activateFreshOwnerLocalAuthentication } = require('./authenticationState') as typeof import('./authenticationState')
                 await activateFreshOwnerLocalAuthentication(runner, { organizationId, actorId: userId }, options.now)
             }
+            if (options?.auditSource) {
+                // Committed with the owner, so every first owner has one row saying which path made it. No email.
+                await query(
+                    runner,
+                    `INSERT INTO ${quote(d, 'audit_event')} (${quote(d, 'id')}, ${quote(d, 'type')}, ${quote(d, 'organizationId')}, ${quote(
+                        d,
+                        'workspaceId'
+                    )}, ${quote(d, 'userId')}, ${quote(d, 'actorId')}, ${quote(d, 'summary')}, ${quote(d, 'detail')}, ${quote(
+                        d,
+                        'createdAt'
+                    )}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+                    [
+                        randomUUID(),
+                        'owner_created',
+                        organizationId,
+                        userId,
+                        userId,
+                        'First owner created',
+                        JSON.stringify({ source: options.auditSource }),
+                        options.now ?? Date.now()
+                    ]
+                )
+            }
             return {
                 id: userId,
                 email: input.email,

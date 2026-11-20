@@ -33,6 +33,7 @@ import TagDialog from '@/ui-component/dialog/TagDialog'
 import StarterPromptsDialog from '@/ui-component/dialog/StarterPromptsDialog'
 
 import { generateExportFlowData } from '@/utils/genericHelper'
+import { credentialsForExport, exportErrorMessage, flowNeedsCredentialList } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 import ChatFeedbackDialog from '../dialog/ChatFeedbackDialog'
@@ -325,22 +326,35 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
 
     const handleExport = () => {
         setAnchorEl(null)
-        try {
-            const flowData = JSON.parse(chatflow.flowData)
-            let dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(componentNodes)), null, 2)
-            //let dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
-            const blob = new Blob([dataStr], { type: 'application/json' })
-            const dataUri = URL.createObjectURL(blob)
-
-            let exportFileDefaultName = `${chatflow.name} ${title}.json`
-
-            let linkElement = document.createElement('a')
-            linkElement.setAttribute('href', dataUri)
-            linkElement.setAttribute('download', exportFileDefaultName)
-            linkElement.click()
-        } catch (e) {
-            console.error(e)
-        }
+        ;(async () => {
+            try {
+                const flowData = JSON.parse(chatflow.flowData)
+                const credentials = flowNeedsCredentialList(flowData) ? await credentialsForExport() : undefined
+                const dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(componentNodes), credentials), null, 2)
+                const blob = new Blob([dataStr], { type: 'application/json' })
+                const dataUri = URL.createObjectURL(blob)
+                const exportFileDefaultName = `${chatflow.name} ${title}.json`
+                const linkElement = document.createElement('a')
+                linkElement.setAttribute('href', dataUri)
+                linkElement.setAttribute('download', exportFileDefaultName)
+                linkElement.click()
+            } catch (e) {
+                console.error(e)
+                enqueueSnackbar({
+                    message: exportErrorMessage(e),
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'error',
+                        persist: true,
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
+            }
+        })()
     }
 
     return (

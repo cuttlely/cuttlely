@@ -26,6 +26,7 @@ import AgentFlowEdge from './AgentFlowEdge'
 import ConnectionLine from './ConnectionLine'
 import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
+import { untrustFlow } from '@/utils/importVerify'
 import CanvasLoadGuard, {
     canvasLoadBlocked,
     canvasLoadRetryRequest,
@@ -46,6 +47,7 @@ import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 // API
 import nodesApi from '@/api/nodes'
 import chatflowsApi from '@/api/chatflows'
+import { rebindImportedFlow } from '@/utils/credentialRebind'
 import flowDraftsApi from '@/api/flowDrafts'
 
 // Hooks
@@ -82,6 +84,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { adoptImportedIdentity, draftStatusWhenImportUnknown, preserveImportHold } from '@/utils/importVerify'
 import { canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
@@ -276,17 +279,36 @@ const AgentflowCanvas = () => {
     }
 
     const handleLoadFlow = (file) => {
-        try {
-            const flowData = JSON.parse(file)
-            const graph = flowData && flowData.cuttlelyMigration && flowData.flow ? flowData.flow : flowData
-            const nodes = graph.nodes || []
-
-            setNodes(nodes)
-            setEdges(graph.edges || [])
-            setTimeout(() => setDirty(), 0)
-        } catch (e) {
-            console.error(e)
-        }
+        ;(async () => {
+            try {
+                const flowData = JSON.parse(file)
+                const graph = flowData && flowData.cuttlelyMigration && flowData.flow ? flowData.flow : flowData
+                const rebound = await rebindImportedFlow(graph)
+                if (!rebound.ok) {
+                    enqueueSnackbar({
+                        message: rebound.message,
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                    return
+                }
+                const cleared = untrustFlow(rebound.flow)
+                const nodes = cleared.nodes || []
+                setNodes(nodes)
+                setEdges(cleared.edges || [])
+                setTimeout(() => setDirty(), 0)
+            } catch (e) {
+                console.error(e)
+            }
+        })()
     }
 
     const handleDeleteFlow = async () => {
@@ -523,7 +545,10 @@ const AgentflowCanvas = () => {
         const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
-            const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
+            const rfInstanceObject = preserveImportHold(
+                draftStatusRef.current?.draft?.flowData,
+                canvasSaveDocument(reactFlowInstance, { workflow: true })
+            )
             const flowData = JSON.stringify(rfInstanceObject)
             const starterQuestions = builderStartersRef.current
 
@@ -1346,6 +1371,25 @@ const AgentflowCanvas = () => {
                                 onDraftStatus={setDraftStatus}
                                 onChatflowUpdated={(next) => dispatch({ type: SET_CHATFLOW, chatflow: next })}
                                 onApplyCanvas={applyCanvasText}
+                                onFlowCreated={(created) => {
+                                    adoptImportedIdentity({
+                                        created,
+                                        flowType: 'AGENTFLOW',
+                                        agentV2: true,
+                                        remember: (id) => {
+                                            createdFlowIdRef.current = id
+                                        },
+                                        replaceState: (...args) => window.history.replaceState(...args),
+                                        historyState: state
+                                    })
+                                    dispatch({ type: SET_CHATFLOW, chatflow: created })
+                                    setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null, request: 'status' })
+                                }}
+                                onDraftUnavailable={() => {
+                                    const next = draftStatusWhenImportUnknown(routeFlowId || createdFlowIdRef.current)
+                                    setDraftStatus(next.status)
+                                    setDraftStatusLoad(next.load)
+                                }}
                                 onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}

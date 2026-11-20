@@ -492,6 +492,7 @@ describe('switched route groups', () => {
         ['delete', '/github'],
         ['post', '/github/push'],
         ['post', '/github/repos'],
+        ['post', '/github/branches'],
         ['post', '/github/repos/new'],
         ['put', '/environment'],
         ['get', '/incoming'],

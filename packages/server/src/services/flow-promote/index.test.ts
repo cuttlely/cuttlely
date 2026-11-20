@@ -13,7 +13,7 @@ import logger from '../../utils/logger'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { flushVersions, getVersion, isVersioningEnabled, recordFlowVersion, resetForTests, setGithubForTests } from '../flow-versions'
 import { GithubSync, GithubStatus, INCOMING_REF } from '../flow-versions/github'
-import { CredentialRef } from '../flow-versions/serialize'
+import { CredentialRef, flowFolderName } from '../flow-versions/serialize'
 import { gitEnv, VersionStore } from '../flow-versions/store'
 import { getIncoming, incomingCanvas, listIncoming, promotable, PromoteDeps } from './index'
 import { gitWordsIn, messagesInSource } from '../../utils/plainWords'
@@ -233,8 +233,8 @@ describe('Prod reads the shared repository and never writes to it', () => {
         const empty = path.join(tmp, 'empty.git')
         execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
         const status = await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
-        expect(status).toMatchObject({ connected: true, role: 'read', state: 'up-to-date', incomingVersion: null, waiting: null })
-        expect(status.message).toBe('Nothing from Dev yet. Cuttlely looks again every few minutes.')
+        expect(status).toMatchObject({ connected: true, role: 'read', state: 'waiting', incomingVersion: null, waiting: null })
+        expect(status.message).toBe('Looking for new versions from Dev soon.')
         expect((await listIncoming(WS, deps)).flows).toEqual([])
     })
 
@@ -257,16 +257,17 @@ describe('Prod reads the shared repository and never writes to it', () => {
         expect(gitCalls.some((args) => args.includes('push') && args.join(' ').includes(prodDir))).toBe(false)
     })
 
-    test("when Dev's versions are gone from the repository, Prod offers nothing any more", async () => {
+    test("when Dev's branch disappears, Prod stops and keeps its last accepted versions", async () => {
         await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         asProd()
         await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        const accepted = rev(prodDir, INCOMING_REF)
         execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/heads/main'], { env: cleanEnv() })
         await prodReads()
-        expect(rev(prodDir, INCOMING_REF)).toBeNull()
-        expect((await listIncoming(WS, deps)).flows).toEqual([])
-        expect((await prodSync.status()).state).toBe('up-to-date')
+        expect(rev(prodDir, INCOMING_REF)).toBe(accepted)
+        expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        expect((await prodSync.status()).state).toBe('stopped')
     })
 
     test('a read still running when the owner disconnects leaves nothing behind to promote', async () => {
@@ -351,8 +352,115 @@ describe('Prod reads the shared repository and never writes to it', () => {
         expect(prodSync.isConnected()).toBe(false)
     })
 
+    test('Prod reads a repository Dev copied onto existing history and does not write', async () => {
+        const repo = path.join(tmp, 'existing.git')
+        const work = path.join(tmp, 'existing-work')
+        execFileSync('git', ['init', '-q', '--bare', repo], { env: cleanEnv() })
+        fs.mkdirSync(work)
+        const env = {
+            ...cleanEnv(),
+            GIT_AUTHOR_NAME: 'a',
+            GIT_AUTHOR_EMAIL: 'a@example.invalid',
+            GIT_COMMITTER_NAME: 'a',
+            GIT_COMMITTER_EMAIL: 'a@example.invalid'
+        }
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# already here\n')
+        fs.writeFileSync(path.join(work, 'LICENSE'), 'keep\n')
+        execFileSync('git', ['add', '.'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'start'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+        const foreign = bareMain(repo)
+        asDev()
+        await devSync.connect({ repo: `file://${repo}`, token: TOKEN }, 'ws-dev')
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        const tip = bareMain(repo)
+        expect(tip).not.toBe(foreign)
+        expect(execFileSync('git', ['--git-dir', repo, 'rev-parse', `${tip}^`], { encoding: 'utf8', env: cleanEnv() }).trim()).toBe(foreign)
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:README.md`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            '# already here\n'
+        )
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:LICENSE`], { encoding: 'utf8', env: cleanEnv() })).toBe('keep\n')
+        asProd()
+        const before = gitCalls.length
+        const status = await prodSync.connect({ repo: `file://${repo}`, token: TOKEN }, WS)
+        expect(status).toMatchObject({ role: 'read', state: 'up-to-date' })
+        expect(rev(prodDir, INCOMING_REF)).toBe(tip)
+        expect(bareMain(repo)).toBe(tip)
+        expect(gitCalls.slice(before).every((args) => args[0] !== 'push')).toBe(true)
+        expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:README.md`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            '# already here\n'
+        )
+    })
+
+    test('moving an original conflicting version path then trying again writes a version Prod can open', async () => {
+        await devSync.disconnect()
+        const repo = path.join(tmp, 'moved-conflict.git')
+        const work = path.join(tmp, 'moved-conflict-work')
+        const blocked = `flows/${flowFolderName({ id: FLOW, name: 'Support bot' })}/flow.json`
+        const env = {
+            ...cleanEnv(),
+            GIT_AUTHOR_NAME: 'a',
+            GIT_AUTHOR_EMAIL: 'a@example.invalid',
+            GIT_COMMITTER_NAME: 'a',
+            GIT_COMMITTER_EMAIL: 'a@example.invalid'
+        }
+        execFileSync('git', ['init', '-q', '--bare', repo], { env: cleanEnv() })
+        fs.mkdirSync(path.join(work, path.dirname(blocked)), { recursive: true })
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# existing repository\n')
+        fs.writeFileSync(path.join(work, blocked), 'move this file first\n')
+        execFileSync('git', ['add', '.'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'start'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+
+        asDev()
+        await recordFlowVersion(
+            { id: OTHER, name: 'Existing copied flow', type: 'CHATFLOW', flowData: canvas('FIRST', DEV_KEY), workspaceId: 'ws-dev' },
+            { kind: 'publish', lookupCredentials: async () => new Map([[DEV_KEY, OPENAI]]) }
+        )
+        await flushVersions()
+        await devSync.connect({ repo: `file://${repo}`, token: TOKEN }, 'ws-dev')
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        expect((await devSync.status()).state).toBe('stopped')
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `main:${blocked}`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            'move this file first\n'
+        )
+
+        const movedWork = path.join(tmp, 'moved-conflict-fix')
+        fs.mkdirSync(movedWork)
+        execFileSync('git', ['clone', '-q', '-b', 'main', `file://${repo}`, '.'], { cwd: movedWork, env })
+        fs.mkdirSync(path.join(movedWork, 'archive'), { recursive: true })
+        execFileSync('git', ['mv', blocked, 'archive/flow.json'], { cwd: movedWork, env })
+        execFileSync('git', ['commit', '-q', '-m', 'move the conflicting file'], { cwd: movedWork, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: movedWork, env })
+        const retried = await devSync.tryNow()
+        expect(retried.state).toBe('up-to-date')
+        const tip = execFileSync('git', ['--git-dir', repo, 'rev-parse', 'refs/heads/main'], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).trim()
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:${blocked}`], { encoding: 'utf8', env: cleanEnv() })).toContain(FLOW)
+
+        asProd()
+        await prodSync.connect({ repo: `file://${repo}`, token: TOKEN }, WS)
+        const list = await listIncoming(WS, deps)
+        expect(list.flows.map((item) => item.flowId)).toContain(FLOW)
+        const detail = await getIncoming(FLOW, WS, deps)
+        expect(detail.version.sha).toBe(tip)
+        const opened = await getVersion(
+            { id: FLOW, name: 'Support bot', type: 'CHATFLOW', flowData: '{}', workspaceId: WS },
+            detail.version.sha,
+            deps.readOptions!(WS)
+        )
+        expect(opened?.flowData).toContain('ALPHA')
+    })
+
     test('switching between Dev and Prod while connected is refused; clearing a Dev label is not', async () => {
-        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const empty = path.join(tmp, 'prod-empty.git')
+        execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
+        await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
         await expect(prodSync.setEnvironment('dev')).rejects.toMatchObject({
             status: 409,
             message: expect.stringContaining('Disconnect GitHub')
@@ -378,7 +486,9 @@ describe('Prod reads the shared repository and never writes to it', () => {
     })
 
     test('a Prod save does not start a copy', async () => {
-        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const empty = path.join(tmp, 'prod-empty.git')
+        execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
+        await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
         const calls = gitCalls.length
         prodSync.notify()
         await new Promise((resolve) => setTimeout(resolve, 30))
@@ -387,13 +497,14 @@ describe('Prod reads the shared repository and never writes to it', () => {
 })
 
 describe('new versions from Dev, per flow', () => {
-    beforeEach(async () => {
+    async function publishBeforeProdConnect(id: string, name: string, flowData: string, category?: string) {
+        await devPublishes(id, name, flowData, category)
         asProd()
         await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
-    })
+    }
 
     test('a flow Prod does not have is offered as new, with the credentials it needs mapped by name', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const list = await listIncoming(WS, deps)
         expect(list).toMatchObject({ enabled: true, connected: true })
@@ -424,7 +535,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a credential Prod does not have is listed, and the check waits for it', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY, { credential: 'dev-cred-2' }))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY, { credential: 'dev-cred-2' }))
         await prodReads()
         const detail = await getIncoming(FLOW, WS, deps)
         expect(detail.missingCredentials).toEqual([SEARCH])
@@ -445,7 +556,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('after Promote the flow is no longer offered, until Dev publishes again; then only the newer versions are listed', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const first = (await listIncoming(WS, deps)).flows[0]
         await prodPromotes(FLOW, first.version.sha)
@@ -467,7 +578,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a version that already matches Live is not offered, and a flow in another workspace is left out', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await devPublishes(OTHER, 'Elsewhere', canvas('ZULU', DEV_KEY))
         await prodReads()
         prodFlows.set(FLOW, {
@@ -489,7 +600,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a release that only moves the flow to another category is offered, and the version carries the category', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY), 'Front desk')
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY), 'Front desk')
         await prodReads()
         prodFlows.set(FLOW, {
             id: FLOW,
@@ -507,7 +618,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a flow deleted on Dev is not offered', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         asDev()
         const { recordFlowDeletion } = await import('../flow-versions')
         await recordFlowDeletion({ id: FLOW, name: 'Support bot' })
@@ -518,7 +629,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a Prod draft is reported, never changed', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
         await prodReads()
         prodFlows.set(FLOW, {
             id: FLOW,
@@ -532,7 +643,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('Promote needs the newest version: an older or unknown id is refused', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const older = rev(prodDir, INCOMING_REF)!
         await devPublishes(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
@@ -548,7 +659,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a Dev server lists nothing to promote', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         expect(await listIncoming(WS, { ...deps, environment: () => 'dev' })).toMatchObject({ enabled: false, flows: [] })
     })
@@ -596,6 +707,68 @@ describe('three environments, in order', () => {
 
     afterEach(() => {
         stagingSync.stop()
+    })
+
+    test('history-start-only Dev keeps Staging disconnected until a real version starts the chain', async () => {
+        const stagingDeps: PromoteDeps = {
+            findFlow: async (id) => stagingFlows.get(id) || null,
+            draftOf: async () => null,
+            environment: () => stagingSync.environment(),
+            environments: () => stagingSync.environments(),
+            connected: () => stagingSync.isConnected(),
+            lastCheckedAt: async () => (await stagingSync.status()).lastCheckedAt,
+            readOptions: () => ({ matchCredentials: async () => [] })
+        }
+        const start = bareMain(bare)
+
+        asStaging()
+        await expect(stagingSync.connect({ repo: `file://${bare}`, token: TOKEN }, 'ws-staging')).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(stagingSync.isConnected()).toBe(false)
+        expect(bareRef('refs/heads/staging')).toBeNull()
+        asProd()
+        expect((await listIncoming(WS, { ...deps, environments: () => prodSync.environments() })).flows).toEqual([])
+
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        expect(bareMain(bare)).not.toBe(start)
+
+        asStaging()
+        await expect(stagingSync.connect({ repo: `file://${bare}`, token: TOKEN }, 'ws-staging')).resolves.toMatchObject({
+            connected: true,
+            state: 'up-to-date'
+        })
+        const offered = await listIncoming('ws-staging', stagingDeps)
+        expect(offered.flows).toHaveLength(1)
+        const devSha = offered.flows[0].version.sha
+        const blank = {
+            id: FLOW,
+            name: 'Support bot',
+            type: 'CHATFLOW',
+            flowData: '{"nodes":[],"edges":[]}',
+            workspaceId: 'ws-staging'
+        } as ChatFlow
+        const staged = await getVersion(blank, devSha, stagingDeps.readOptions!('ws-staging'))
+        const row = { ...blank, name: staged!.name, flowData: staged!.flowData } as ChatFlow
+        stagingFlows.set(FLOW, row)
+        await recordFlowVersion(row, {
+            kind: 'promote',
+            title: 'Promoted from Dev',
+            promotedFrom: devSha,
+            lookupCredentials: async () => new Map()
+        })
+        await flushVersions()
+        await stagingSync.sync()
+        const stagingSha = rev(stagingDir, 'refs/heads/main')!
+        expect(bareRef('refs/heads/staging')).toBe(stagingSha)
+
+        asProd()
+        await expect(prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).resolves.toMatchObject({
+            connected: true,
+            state: 'up-to-date'
+        })
+        expect((await listIncoming(WS, { ...deps, environments: () => prodSync.environments() })).flows[0].version.sha).toBe(stagingSha)
     })
 
     test('dev promotes to staging, then staging to prod, and a skipped hop is refused', async () => {

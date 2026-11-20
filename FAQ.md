@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.3)
+# Cuttlely FAQ (1.7.9)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,47 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.3?
+### What's new in 1.7.9?
+
+A standalone Harness chatflow now uses its LangSmith Analytics settings without a Tool Agent wrapper. Imports drop edges whose inputs or outputs are gone, operator request failures show clear error messages, and the XML parser dependency includes a security fix. ETL scans yield to requests and interrupted repository files resume correctly. Empty local-password installations can create their first owner from host configuration; existing accounts remain unchanged. [ETL](./docs/how-to/etl.md) · [First owner](./docs/how-to/sign-in.md#from-host-configuration). Use matching 1.7.9 server and widget packages. No schema migration is added. [LangSmith tracing](./docs/reference/langsmith-tracing.md) · [Upgrade guide](./docs/upgrading.md).
+
+### What changed in 1.7.8?
+
+Version History lets you select the GitHub branch for copies and reads, including branch names with slashes. Existing connections keep working, and repository protection still applies. The homepage release notice is shorter. Use matching 1.7.8 server and widget packages. No schema migration is added. [Version History](./docs/how-to/versioning.md) · [Upgrade guide](./docs/upgrading.md).
+
+### What changed in 1.7.7?
+
+Stopping an agent-team chat cancels only that chat. Other chats using the same specialist keep running. Use matching 1.7.7 server and widget packages. This patch adds no schema migration or configuration change. [Harnesses](./docs/how-to/harnesses.md) · [Upgrade guide](./docs/upgrading.md).
+
+### What changed in 1.7.6?
+
+-   **Import and verify with automatic inputs.** Required dates, calendar periods and numeric inputs are selected from defaults, the query and bounded samples of selected tables. Optional filters without defaults stay unset. A query that cannot be tested safely stays unverified. [Import and verify](./docs/how-to/import-verify.md).
+-   **Try an imported team before Publish.** Signed-in canvas chat can run an unpublished harness. Its draft conversation state stays separate from runnable profiles, so a preview does not block the first Publish. External runs still need a published team. [Harnesses](./docs/how-to/harnesses.md).
+-   **Reset local passwords.** Generate a one-time reset link in User Management, copy it privately, or have configured mail deliver it. The server still checks team, permission, identity-provider and owner restrictions. [Users without AuthKit](./docs/how-to/users-without-authkit.md#reset-a-local-users-password).
+-   **Manage people across teams.** View each person's teams, roles, status and last login; disable or reactivate a local account; and change or cancel a pending invitation. Role assignments are preserved, and disabled sessions, links and keys are not restored on reactivation. [Manage users and teams](./docs/how-to/users-without-authkit.md).
+
+Use matching 1.7.6 server and widget packages. This patch adds no schema migration and does not change sign-in configuration or the enforcement mode. The [upgrade guide](./docs/upgrading.md) covers earlier preview leftovers and the existing operator requirements.
+
+### What changed in 1.7.5?
+
+-   Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history, and a GitHub change to a path this server copied stops the copy instead of overwriting it.
+-   Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead.
+-   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
+-   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+Use matching 1.7.5 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fixes; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.4?
+
+-   An analyst specialist stays ready after another specialist lists tools. A later empty or failed list does not clear a recorded query or pinned query.
+-   Unset Analyst storage is Auto on a fresh start and on an upgrade that never set it. An explicit Off stays off.
+-   Importing a harness attaches a credential that already exists on this server with the same name and type, including a nested credential id next to an empty credential slot. If none matches, or more than one matches, the import stops and does not create or choose a credential.
+-   **Import & verify** retests every saved query on this server before Publish. A test stamp in the file is not trusted. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. Live stays as it is.
+-   Try the demo on a fresh install saves the staged team. The specialist folders prepared for that demo are part of the demo, not leftovers.
+
+Use matching 1.7.4 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fixes; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.3?
 
 -   A request that gets no answer no longer replaces the page with **Something went wrong**. The page stays put and says the server could not be reached. After quiet retries for a read or a failed page load, check your connection and reload. If a save or settings update was unanswered, keep the edits on the canvas and use Save or Retry when the connection is back; don't reload, or you may lose unsaved work. See [What does "The server could not be reached" mean?](./docs/faq.md#what-does-the-server-could-not-be-reached-mean).
 -   Importing a chatflow keeps a connection that still points at the same input when only the handle type name changed. A connection is still dropped when either end is gone.
@@ -314,7 +354,7 @@ Redis/multi-instance limiting, browser delegation, usage exports/alerts, asynchr
 
 ### Can I cancel a pending owner invitation?
 
-In **Admin > Users** (`/users`), an active organization owner can use the trash action on another pending owner invitation. Confirmation names the email; cancellation revokes invite links across the organization's teams. An accepted invitation, self-removal, or removal of the last active owner is refused. Active owners remain **Super User, read-only** in this UI. [Users guide](docs/how-to/users-without-authkit.md).
+In **Admin > Users** (`/users`), an active organization owner, or an Admin (the built-in Admin role or a role with `users:manage`), can use the trash action on a pending invitation, including another pending owner invitation. Confirmation names the email; cancellation revokes invite links across the organization's teams. Removing an active or disabled person from every team stays limited to an active organization owner. An accepted invitation, self-removal, or removal of the last active owner is refused. Active owners remain **Super User, read-only** in this UI. [Users guide](docs/how-to/users-without-authkit.md).
 
 ## Running harnesses from your app
 

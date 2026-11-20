@@ -70,6 +70,14 @@ const agent_settings = {
             permission: 'agentflows:duplicate'
         },
         {
+            id: 'importAndVerify',
+            title: 'Import & verify',
+            type: 'item',
+            url: '',
+            icon: icons.IconFileUpload,
+            permission: 'agentflows:import'
+        },
+        {
             id: 'loadChatflow',
             title: 'Load Agents',
             type: 'item',

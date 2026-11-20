@@ -252,6 +252,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/Interface.ts"
         },
         {
@@ -262,6 +267,11 @@
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/storageUtils.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/tracingEnv.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
         },
         {
             "from": "packages/components/nodes/harness/HarnessChief/HarnessChief.ts",
@@ -352,6 +362,11 @@
         },
         {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
+            "to": "packages/components/src/tracingEnv.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
+        },
+        {
+            "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
             "to": "packages/components/src/utils.ts",
             "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
         },
@@ -417,6 +432,11 @@
         {
             "from": "packages/server/src/commands/base.test.ts",
             "to": "packages/server/src/commands/base.ts"
+        },
+        {
+            "from": "packages/server/src/commands/hash-password.ts",
+            "to": "packages/server/src/commands/base.ts",
+            "reason": "The hash-password oclif command extends the inherited BaseCommand, like the settings and user commands."
         },
         {
             "from": "packages/server/src/commands/settings.ts",
@@ -1567,6 +1587,16 @@
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
         },
         {
+            "from": "packages/server/src/services/import-verify/import-verify.test.ts",
+            "to": "packages/server/src/services/pinned-queries/index.ts",
+            "reason": "The import verification round-trip test exercises the actual export and saved-query test paths."
+        },
+        {
+            "from": "packages/server/src/services/import-verify/import-verify.test.ts",
+            "to": "packages/ui/src/utils/genericHelper.js",
+            "reason": "The import verification round-trip test exercises the actual export and saved-query test paths."
+        },
+        {
             "from": "packages/server/src/services/orchestrate/fileLinks.ts",
             "to": "packages/server/src/utils/getRunningExpressApp.ts",
             "reason": "Orchestrate and A2A file links read the flow's workspace organization and sign get-upload-file links; the tool note test covers agents.ts"
@@ -1849,6 +1879,11 @@
         {
             "from": "packages/server/src/utils/createAttachment.test.ts",
             "to": "packages/server/src/utils/createAttachment.ts"
+        },
+        {
+            "from": "packages/server/src/utils/credentialSource.ts",
+            "to": "packages/server/src/database/entities/Credential.ts",
+            "reason": "The harness credential source reads credential rows through the app DataSource Credential entity."
         },
         {
             "from": "packages/server/src/utils/domainValidation.test.ts",
@@ -2932,6 +2967,16 @@
             "from": "packages/ui/src/views/users/index.test.js",
             "to": "packages/ui/src/views/users/index.jsx",
             "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/TeamMemberships.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Identity UI regression tests exercise the existing team membership screen and its user API"
+        },
+        {
+            "from": "packages/ui/src/views/users/TeamMemberships.test.js",
+            "to": "packages/ui/src/views/workspace/WorkspaceUsers.jsx",
+            "reason": "Identity UI regression tests exercise the existing team membership screen and its user API"
         },
         {
             "from": "packages/ui/src/views/users/userActions.test.js",
@@ -4303,6 +4348,14 @@
             "reason": "tests for inherited public config endpoints and template saving"
         },
         {
+            "path": "packages/server/src/controllers/import-verify/python.test.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
+        },
+        {
+            "path": "packages/server/src/controllers/import-verify/python.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
+        },
+        {
             "path": "packages/server/src/controllers/pinned-queries/index.test.ts",
             "reason": "Pinned query test route, dialog and their tests"
         },
@@ -4401,6 +4454,10 @@
         {
             "path": "packages/server/src/services/executions/index.test.ts",
             "reason": "The executions paging test lives next to the service it checks."
+        },
+        {
+            "path": "packages/server/src/services/export-import/credentialMark.test.ts",
+            "reason": "The import credential-mark test stays with the export-import service."
         },
         {
             "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
@@ -4553,6 +4610,18 @@
         {
             "path": "packages/ui/src/utils/chatArtifacts.test.js",
             "reason": "tests for chatArtifacts.js, which is inherited"
+        },
+        {
+            "path": "packages/ui/src/utils/credentialMarks.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.test.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
         },
         {
             "path": "packages/ui/src/utils/flowCategoryPermission.js",

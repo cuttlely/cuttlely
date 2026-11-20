@@ -2,7 +2,131 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [1.7.3] - Unreleased
+## [Unreleased]
+
+### Added
+
+-   Dash Flows can keep its data in the application's Postgres database behind the default-off `CUTTLELY_APP_DATABASE_STORES` switch; on first start it copies and verifies `dashflows.sqlite` and keeps it as a read-only `dashflows.sqlite.migrated`. Turning the switch on again reuses the copy already in the application database and drops changes made in `dashflows.sqlite` while it was off. If `dashflows.sqlite` changes after the copy without the switch being turned off, the start refuses the move and serves `dashflows.sqlite`; the guide explains how to keep either copy. Changes made only by refreshes and report slots don't count: the start uses the copy and refreshes run again on schedule. Only while storage is mid-move (`dashflows.sqlite` already moved aside and the start has not yet set up the store) do Dash Flows requests answer 503 and the access-key resource list leave Dash Flows out; after a finished move, `dashflows.sqlite.migrated` on its own is the normal state. [Storage on Postgres (preview)](./docs/how-to/dashflows.md#storage-on-postgres-preview) · [#516](https://github.com/cuttlely/cuttlely/issues/516).
+
+### Fixed
+
+-   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
+-   A cancelled Dash Flows refresh no longer starts its source again when a tool retries the call with another argument format. [#531](https://github.com/cuttlely/cuttlely/issues/531).
+
+## [1.7.9] - 2026-11-17
+
+### Added
+
+-   Create the first owner from host configuration, without the setup link or a shell. On an empty database with local password sign-in on and no AuthKit, `CUTTLELY_INITIAL_OWNER_EMAIL` and one password source (a hash or password in a secret file, or in an environment variable) create the owner before the server listens, so no setup code is printed. It is create-only: once any account exists the variables are ignored with a warning. On an empty database an invalid configuration stops the start with exit code 1 instead of offering the setup link. The password and hash variables are removed from the server's environment once read and are not passed to the agent runtime. [From host configuration](./docs/how-to/sign-in.md#from-host-configuration) ([#521](https://github.com/cuttlely/cuttlely/pull/521), fixes [#479](https://github.com/cuttlely/cuttlely/issues/479)).
+-   `pnpm hash-password` prints the password hash Cuttlely stores, or writes it to a new `0600` file, for `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE`.
+-   The audit log has a **First owner created** event (`owner_created`) whose `detail.source` says whether browser setup (`setup_code`), `pnpm user` (`cli`) or host configuration (`host_config`) created the first owner. It does not store the email.
+
+### Changed
+
+-   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags with non-default `stopNodes` in versions through 5.11.2). The lockfile resolves 5.12.1. [#492](https://github.com/cuttlely/cuttlely/pull/492).
+
+### Fixed
+
+-   ETL source scans and unchanged-source bookkeeping yield to the server loop so health and cancellation requests can proceed. Resuming a partially written repository file no longer rejects that file as a duplicate. Document-error-limit failures retain the first underlying error even when its batch never committed. Validation, error limits and publication guards remain enforced. [ETL](./docs/how-to/etl.md) · [#520](https://github.com/cuttlely/cuttlely/pull/520).
+-   A chatflow containing only a Harness node now uses its LangSmith Analytics settings, with a parent run for the question and answer and child traces for in-process model calls. A Tool Agent wrapper is no longer required for this tracing path. [#517](https://github.com/cuttlely/cuttlely/pull/517).
+-   **[#488](https://github.com/cuttlely/cuttlely/pull/488), fixes #457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
+-   **Instance operator** shows refused code requests and confirmations as errors. Your own active-code message explains how to use it; shared limits use neutral wording. Proof, expiry and rate-limit safeguards remain enforced. [Instance operator](./docs/how-to/instance-operator.md) · [#490](https://github.com/cuttlely/cuttlely/pull/490).
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration or required configuration change. Enable LangSmith in the standalone Harness chatflow’s Analytics settings to trace it. Review dropped-edge import reports before reconnecting ports. Back up the database, encryption key and settings before upgrading; operator onboarding and default-Off access-key enforcement remain in effect. [Upgrade guide](./docs/upgrading.md#upgrading-to-179).
+-   No schema migration. `owner_created` fits the existing audit type column. Existing installs are not affected: the new variables are unset by default and are ignored once any account exists.
+
+## [1.7.8] - 2026-11-17
+
+### Changed
+
+-   Version History GitHub setup lists repository branches and saves the selected branch for copying and reading versions, including branch names with slashes.
+-   Shortened the website homepage release blurb to the latest fix and a linked upgrade reminder.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration. Existing GitHub connections keep their current branch; disconnect and reconnect to choose another branch. Named environment chains retain their configured mappings. Back up the database, encryption key and settings before upgrading. Operator onboarding requirements and default-Off access-key enforcement remain in effect.
+
+## [1.7.7] - 2026-11-16
+
+### Fixed
+
+-   Cancelling an agent-team chat no longer cancels another chat using the same specialist. The stop targets only the cancelled runtime run and its model connection.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration or configuration change. Back up the database, encryption key and settings before upgrading. Existing operator onboarding requirements and default-Off access-key enforcement remain in effect.
+
+## [1.7.6] - 2026-11-15
+
+### Changed
+
+-   Maintainers can run full verification and local release preparation on a fresh CI runner. The read-only workflow returns a checked Git bundle and report; publication still uses the release tool's normal resume path. [Release preparation](./docs/releases.md#prepare-on-a-fresh-ci-runner).
+
+### Fixed
+
+-   Together AI Kimi K3 standard token-price estimates now use $3 input and $15 output per million tokens in both chat and completion lists, matching the provider's published rates. Existing price overrides still take precedence. [Model prices](./docs/reference/model-list.md#176-price-review).
+-   **#501 (`0f7b89a1`):** Local user administration now shows pending and disabled account states consistently inside teams. Users offers guarded Disable/Reactivate actions and a labeled team-access view with per-team role, status, last login and current-team scope. Pending invitation role edits update the existing assignment, and invitation cancellation keeps the acceptance-race guard. The Roles page labels assignment counts as current-team counts. Stored role assignments are preserved.
+-   **#500 (`17d41830`):** User Management now offers **Reset password** for active non-owner accounts to callers with `users:manage`. The dialog uses the existing one-time reset link service, reports email delivery, and supports copying the link without mail configuration. Team, identity-provider, owner, and permission restrictions remain enforced by the server; sessions end when the user saves their new password.
+-   **#499 (`a4588106`):** Previewing a newly imported unpublished Harness keeps its conversation state outside runnable profiles, so preview chat no longer creates an unowned profile that blocks its first Publish. Draft state is isolated by canvas and workspace and is removed after its canvas is deleted. Existing published session paths and profile ownership guards are preserved.
+-   **#498 (`d8c7d095`):** Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
+-   **#498 (`d8c7d095`):** Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and does not change the selected sign-in method, stored role assignments or access-key enforcement. Enforcement remains Off by default. Use matching 1.7.6 server and widget versions.
+-   New unpublished previews no longer leave runnable-profile blockers. Unowned files left by an earlier build are not removed automatically; use a new unused harness name or ask the instance operator to inspect them. [Upgrade guide](./docs/upgrading.md#upgrading-to-176).
+-   Disabling a local account ends its sessions, revokes invite/reset links and disables its owned access keys. Reactivation preserves roles but does not restore those sessions, links or keys. [Users and teams](./docs/how-to/users-without-authkit.md).
+-   The narrow Version History GitHub-copy limitation documented in 1.7.5 remains: a remote edit to a copied path that exactly matches the next local version is not yet detected. This release does not claim that follow-up is fixed.
+
+## [1.7.5] - 2026-11-14
+
+### Changed
+
+-   **#482 (`b22d9983`):** Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history and only fast-forwards, so files already on GitHub stay. The server records which paths it copied, and later versions update only those paths while GitHub still holds the bytes and mode it wrote. A version path that would replace a different existing file, or a GitHub change to a path this server copied, stops the copy with an error instead of overwriting it. Files added later on GitHub stay, and a branch reset behind the latest accepted tip stops the copy or read. One narrow case is a 1.7.6 follow-up: a GitHub edit to a copied path that exactly matches the next local version is not yet caught. [Version History](./docs/how-to/versioning.md).
+
+### Fixed
+
+-   **#495 (`04f95df5`):** Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
+
+-   **#494 (`a22175c8`):** Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
+
+-   **#491 (`f4edfc8c`):** Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains Off by default.
+
+## [1.7.4] - 2026-11-13
+
+### Added
+
+-   **#484 (`c2e63f61`):** Import a flow or harness file and retest its saved queries on this server without typing sample values. A test stamp in the file is not treated as ready. One matching saved connection is reused; a missing, ambiguous, or required empty connection asks you to choose. Schema-qualified, quoted, and `BETWEEN` PostgreSQL parameters are included when test values are chosen. The canvas shows the imported draft, and a new canvas becomes that saved flow. A missing required connection, an empty report or CSV, a contract that does not name one tested query, or a check that stops early keeps Publish off. A check that was still running when the server stopped can be resumed. Choosing a connection requires permission to view credentials. The next Save stays on the imported draft, and the canvas is left unchanged when that draft's status cannot be loaded, including after Retry, Resume, or choosing a connection. A Save keeps an import hold that was already on the draft. The first save of an existing flow uses the draft hash this canvas loaded. A new import on the legacy agent canvas is stored as that canvas's flow type. Resume reuses a passed query only for that same draft and the same statement, parameters, connection, and guard settings. Publish from Import & verify sends that verified draft's hash as a strict check and does not publish a later draft. Closing the dialog leaves the canvas as it is when the check finishes. A single-table `column = :name` query can be sampled. The canvas shows the published flow after that Publish. An assistant flow uses the assistant update permission. Import & verify requires a signed-in session. A file imported through Import & verify cannot be published before the check records a result. Loading a file from the canvas menu keeps its saved queries untrusted, but a flow with no saved queries is not held; run Import & verify before publishing. A newer save during the check, including one by the same person, is kept. A new agent team saves the imported file as a draft. A contract with no query name is not ready. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. The work stays on the draft, and the Live version is left as it is until you publish. [Import and verify](./docs/how-to/import-verify.md).
+
+### Changed
+
+-   **#483 (`9b4d8c90`):** Analyst storage is **Auto** when `CUTTLELY_ANALYST` is unset, including a fresh deploy and an upgrade that never set it. A host or saved value of `off`, `false`, `0`, or `no` stays off. Saving **Off** in Server settings stores `off`. A Postgres URL credential or `CUTTLELY_POSTGRES_URL` still uses the read-only path.
+
+-   **#483 (`9b4d8c90`):** A canvas export names each credential by its name and type. The file omits secrets, password, file, and folder inputs, and every `FLOWISE_CREDENTIAL_ID`, including on a card whose pack is not loaded. That card stays in the file. An empty credential slot stays empty. Import, including **Import All**, attaches a credential that already exists on that server with the same name and type. If none matches, or more than one does, the import stops and names it. The import does not create a credential. A matched id is written back onto `FLOWISE_CREDENTIAL_ID` inside an agent, LLM, condition, or tool config, which is where that card reads it. An empty `credential` field next to that id does not drop it. When more than one credential has the same name and type, the import stops and does not choose one. Keep exactly one of those credentials, then import again. **QUERY** and other non-secret node inputs stay in the file.
+
+### Fixed
+
+-   **#483 (`9b4d8c90`):** Counting analyst tool names no longer uses a regular expression. A tools/list name that starts with `pq_` and repeats `__pq_` cannot stall the bridge. The count is still only `query` and pinned query (`pq_...`) tools.
+
+-   **#483 (`9b4d8c90`):** Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.
+
+-   **#484 (`c2e63f61`):** Import & verify does not mark a flow ready when a saved query has no id, or two saved queries on the same card share an id. A ready result also does not publish a draft that still has a saved query this server did not verify. A second start while the first check is still being admitted does not run a second check. Saved-query text that is not a list of queries, including the text `null` or a list with entries that are not queries, is left as stored and is not marked ready. A saved-query field that is missing, empty, or null means the card has no saved queries. A verified-output value that is not a list of contracts is left as stored and is not marked ready. A verified-output field that is missing, empty, or null means there is no contract. Turn off Publish instantly to verify an import into that flow. The file can still be imported as a new flow. A ready file that matches Live says **Matches Live; nothing to publish.** and does not offer Publish.
+
+-   **#486 (`f9cb1123`):** **Try the demo** on a new install saves the customer care team. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. An edited copy of one of those files still blocks the save. Any other file at those names still blocks the save, and any other blocker means nothing is removed. A team that was saved before its specialist files were copied is finished on the next Try the demo, and a file already there is not replaced. The README says policy runs after operations, and that the demo card stays on **Harness · Agent Team** once a flow is saved. `npx cuttlely logs` is named for diagnosing a quiet start.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds one migration at startup: a nullable `importVerify` column on `flow_version_state`. Existing rows are unchanged and Publish behaves as before.
+
+-   Analyst storage is **Auto** when `CUTTLELY_ANALYST` was never set. A host or saved value of `off`, `false`, `0`, or `no` stays off. Auto creates a private store. On Postgres that store is a schema and a login in the application database, created the first time the analyst runs. If that database user cannot create roles, the analyst tool fails and says so. Cuttlely still starts, and `GET /api/v1/ping` still returns `pong`. Set `off`, or set `CUTTLELY_POSTGRES_URL` to a separate database, before upgrading when you do not want that private store.
+
+## [1.7.3] - 2026-11-12
 
 ### Changed
 
@@ -41,6 +165,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   **#456 (`932bd8df`), updated by #462 (`52e29426`):** A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. An unanswered first save or follow-up settings update says that the edits remain on the canvas and asks you to press Save again when the connection is back. Existing draft and Live saves without new file data use the Retry notice described above. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   **#454 (`95c64dab`):** Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
+
+-   An organization Admin, or a caller whose active team role includes `users:manage`, can cancel a pending invitation from User Management (`/users`), including a pending owner invitation. The same removal revokes that organization's invite links. Removing an active or disabled person from every team stays limited to an active organization owner. Self-removal, the last active owner, and a current SCIM link are still refused.
 
 ## [1.7.2] - 2026-11-10
 
@@ -989,8 +1115,14 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...HEAD
-[1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...HEAD
+[1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
+[1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
+[1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
+[1.7.6]: https://github.com/cuttlely/cuttlely/compare/v1.7.5...v1.7.6
+[1.7.5]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...v1.7.5
+[1.7.4]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...v1.7.4
+[1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0

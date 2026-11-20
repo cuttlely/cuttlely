@@ -1,0 +1,57 @@
+# Import and verify
+
+Import a flow or harness file, then select **Import & verify**. Cuttlely checks the flow on this server and tells you, in plain language, whether it is ready to publish.
+
+You do not type sample parameter values. You do not paste secrets into a chat. Connections are credentials you already saved under **Credentials**.
+
+## What happens
+
+1. Open a canvas and choose **Import & verify** from the gear menu. On a new canvas the same item is in that menu before the first save.
+2. Choose the JSON file and select **Import & verify**.
+3. Cuttlely keeps the queries and the rest of the configuration. A test stamp from the file is not treated as proof. Each saved query is tested again on this server when it has its own id. A saved query with no id, or two on the same card that share an id, is not marked ready.
+4. A connection that already exists here, with the same name and type, is reused. A card that allows more than one credential type uses the type named in the file when that type is one of them. The list includes saved credentials of the types that card allows. A type the card does not allow is not used. If none matches, more than one matches, or a required credential is still empty, you get a short list and choose one. Choosing and testing a connection needs permission to view credentials. An optional empty credential slot stays empty. The canvas shows the imported draft only after that draft's status has loaded, so the next Save stays on the draft. If the status cannot be loaded, the canvas is left unchanged. On a canvas that has not been saved yet, including a new agent team, this check creates the flow, saves the imported draft, and the address changes to that flow.
+5. Required test inputs are chosen automatically from saved defaults, allowed values, literal alternatives in the query, and bounded lookups on selected tables. Date samples use ISO format. Required calendar inputs use the current UTC period when no source sample supplies them; numeric thresholds use their declared minimum or zero. Optional filters without defaults stay unset. A parameter used through a SQL expression can be sampled from a matching referenced column on a selected table. If no safe candidate can be chosen, the check stops with an actionable error; it does not mark that query ready.
+6. Progress reads like **Checking saved queries: 42 of 89.**
+7. When it finishes, the result is one of:
+    - **Ready to publish.** The checks that apply to this flow passed. Nothing has been published yet.
+    - **Needs attention.** Something failed or a choice is still open. Each item names an action, such as **Choose connection** or **Retry**.
+    - **Could not fully verify.** A check could not be run, for example because saved queries are turned off. The flow is not marked ready.
+
+**Retry** runs the queries that failed. A query that already passed is not run again only when this draft is still the one that was checked and the statement, its parameters, the connection, and the guard settings are unchanged. A stamp in the file is not that proof. Close stays available while the check runs. You can close the dialog and come back; the progress is saved with the draft, and the canvas shows the imported draft. If the check was still running when the server stopped, **Resume** continues that same draft. An assistant flow uses the assistant update permission. Import & verify is a signed-in action.
+
+## What is checked
+
+-   Saved queries on a Postgres (MCP) node, using the same test this server already uses for **Test & save**. A query that runs and returns no rows is a real run. It is not proof that a report or CSV works. **Retry** runs that query again after the table has rows. A report or CSV is checked against the query on the card connected to it, not another card that happens to use the same name.
+-   Required connections on the cards, such as a chat model, embeddings, a tool, or a specialist. A missing required connection keeps the flow at **Needs attention**.
+-   Cards, connections between cards, models, embeddings, and tools that are not installed on this server.
+-   Verified-output contracts. A contract has to name exactly one connected saved query and the statement hash from the test that just ran. A contract with no query name, two connected queries with the same name, or a contract with no hash has to be reviewed. The contract is not rewritten. Row count alone is not proof.
+-   PDF output, when the flow builds a PDF. The check builds a sample in memory. It does not save a file and it does not call another service.
+
+Saved queries have to be turned on (`CUTTLELY_PINNED_QUERIES` set to `1` or `true`) or those queries cannot be tested. See [Pinned queries](./pinned-queries.md).
+
+## Try the imported harness before Publish
+
+1. Save the imported draft and finish **Import & verify**.
+2. Open the canvas chat and ask a question your team should answer. A signed-in person can try a new unpublished harness; external API and access-key runs still need a published harness.
+3. Inspect the run card, source results and any generated files. When they are right, return to **Import & verify** and Publish the verified draft.
+
+A preview keeps conversation state separately from runnable profiles and does not reserve the Live profile name. An unowned profile left by a preview on an earlier build is still refused. Use a new unused harness name or ask the instance operator to inspect that leftover; the check does not delete unattributed files.
+
+## When a check needs attention
+
+| Result                               | What to do                                                                                                                                                                       |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A connection is missing or ambiguous | Select **Choose connection** and pick the saved credential for this server. Do not paste a password into the flow or chat.                                                       |
+| No safe test input could be chosen   | Review the named query's required parameters and defaults, or its selected tables. Then Retry. Optional filters without defaults deliberately stay unset.                        |
+| A query failed                       | Open that query's error. A working database connection alone does not verify its SQL or output contract. Correct the query or configuration, save the draft and verify it again. |
+| A report or CSV has no rows          | The query ran, but that empty result cannot verify the report. Check its source data and filters, then Retry.                                                                    |
+| A contract was not tested            | Finish the query check it depends on. Skipped queries are reported as not tested rather than as a contract mismatch.                                                             |
+| The draft changed after the check    | Verify the newer draft. Publish uses the hash of the draft that passed and will not publish later edits.                                                                         |
+
+**Ready to publish** means the applicable saved-query and contract checks passed with the selected samples. It does not prove every future question will be answered correctly. Try representative questions in the draft before publishing.
+
+## Publish
+
+Verification stays on the draft. The Live version that is already published is left as it is. **Publish** is offered after the required checks pass. Importing the file through Import & verify does not publish it. A file imported through Import & verify cannot be published before the check records a result. Loading a file from the canvas menu keeps its saved queries untrusted, but a flow with no saved queries is not held; run Import & verify before publishing. A running or stopped check blocks Publish when its saved result does not match the current draft. An attention result blocks the draft it checked, and a Save keeps that import hold so a no-op Save cannot clear it. A different draft that no longer carries the hold is not blocked by an older attention result. If Import & verify cannot load the draft status, including after Retry, Resume, or choosing a connection, the canvas is left unchanged, Save stays off, and Publish is not offered. Resume continues a passed query only for the draft that was checked, and only when that query's statement, parameters, connection, and guard settings are unchanged. Publish from this dialog sends the verified draft's hash and refuses a different draft, including one saved by the same person. A ready result does not publish a later draft, and it does not publish a draft that still has a saved query this server did not verify. Closing the dialog, or leaving unsaved edits on the canvas, keeps the check from replacing those cards when it finishes. Publish is not offered while those edits are unsaved. Save them, then verify again. A query written as `column = :name` on a single table can be sampled. After Publish, the canvas shows the published flow. The first save of an existing flow uses the draft hash this canvas loaded, so it does not replace a newer draft. A new import on the legacy agent canvas is stored as the legacy agent type. A newer save of that draft, including one by the same person, is left in place while the check is running. If a draft appears after the check sees that there is no draft yet, that newer draft is kept and this check does not replace it. A flow with no saved queries can still be ready when the other checks pass; the summary does not claim that queries were tested. When that ready file matches Live, Publish is not offered and the result says **Matches Live; nothing to publish.** Turn off **Publish instantly** to verify an import into this flow. The file can still be imported as a new flow. A verified-output value that is not a list of contracts is left as stored and is not Ready. A verified-output field that is missing, empty, or null means there is no contract. Saved-query text that is not a list of queries, including the text `null` or a list with entries that are not queries, is left as stored and is not marked ready. A saved-query field that is missing, empty, or null means the card has no saved queries.
+
+If you publish before that, the server refuses and tells you to finish Import & verify. A draft you edit after verification is a different draft. Publish is refused until Import & verify has a ready result for that newer draft, including when you saved it yourself.

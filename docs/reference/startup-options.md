@@ -62,7 +62,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_HARNESS_WORKER_CONCURRENCY`        | 4                                           | 1 to 64           | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_WARM_HERMES`                       | probe                                       | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_KEEP_WARM_MINUTES`          | 5                                           | 1 to 1440         | minutes       | Host, then Server settings     | Yes     |
-| `CUTTLELY_ANALYST`                           | Off                                         | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_ANALYST`                           | auto                                        | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_POSTGRES_URL`                      | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_ROW_CAP`                   | 100                                         | 1 to 1000         | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`      | 15000                                       | 1 to 120          | ms-as-seconds | Host, then Server settings     | Yes     |
@@ -162,6 +162,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUSTOM_MCP_TOOL_DESCRIPTION_MAX_LENGTH`     | 1024                                        | 64 to 65536       | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_EAGER_NODES`                       | false                                       | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_API_KEY_INSTANCES`                 | not shown                                   | —                 | —             | Host only                      | Yes     |
+| `CUTTLELY_APP_DATABASE_STORES`               | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `PORT`                                       | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `HOST`                                       | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `CUTTLELY_DATA_DIR`                          | not shown                                   | —                 | —             | Host only                      | Yes     |
@@ -217,3 +218,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 `INBOUND_ACCESS_V2` defaults to `off`. Only `off`, `shadow` and `on` are accepted; another nonempty value returns `503` when checked. Set it on the host and restart. `off` retains legacy authorization; new issuance, policy editing and rotation require `on`, while revocation remains available. `shadow` serves legacy decisions and compares scoped flow authorization without charging quotas. It does not simulate every route or limit. Validate a restored-backup migration with `node scripts/access-keys-migration-report.cjs` and review shadow mismatches before enabling `on`. Existing keys keep working without rotation. [Access keys](./access-keys.md#rollout-and-migration).
 
 `CUTTLELY_API_KEY_INSTANCES` defaults to `1`. Any value whose numeric conversion is not `1` refuses access-key admission with `503`; it does not configure a shared limiter. Minute counters are per process and reset on restart. Daily/monthly UTC counters persist in SQL; Redis/multi-instance limiting is not implemented. These flags are host-only and their values are not exposed through Server settings.
+
+## First owner from host configuration (host only)
+
+`CUTTLELY_INITIAL_OWNER_EMAIL` with exactly one of `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE`, `CUTTLELY_INITIAL_OWNER_PASSWORD_FILE`, `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH` or `CUTTLELY_INITIAL_OWNER_PASSWORD` creates the first owner when the server starts on an empty database, before it listens, so no setup code is printed. `CUTTLELY_INITIAL_OWNER_NAME` is optional. It needs `CUTTLELY_LOCAL_ADMIN=true` and no AuthKit. Once any account exists the variables are ignored with a warning, and nothing is changed. On an empty database an invalid value stops the start with exit code 1 instead of offering the setup link. These variables are not settings: Server settings neither shows nor changes them. [Create the first owner from host configuration](../how-to/sign-in.md#from-host-configuration).

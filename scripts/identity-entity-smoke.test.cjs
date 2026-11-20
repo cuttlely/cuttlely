@@ -316,6 +316,54 @@ describe('identity sqlite repair', () => {
     })
 })
 
+describe('schema comparison fixtures', () => {
+    it('has one expected entry per column for every dialect', () => {
+        for (const dialect of ['sqlite', 'postgres', 'mariadb', 'mysql']) {
+            for (const [name, table] of Object.entries(GOLDEN[dialect])) {
+                assert.equal(new Set(table.columns.map((column) => column.name)).size, table.columns.length, `${dialect} ${name}`)
+            }
+        }
+    })
+
+    it('compares Postgres index metadata independently of database collation while retaining index semantics', async () => {
+        const indexes = [
+            { table_name: 'sample', name: 'Z_index', indexdef: 'CREATE INDEX "Z_index" ON sample USING btree (id)' },
+            { table_name: 'sample', name: 'a_index', indexdef: 'CREATE UNIQUE INDEX a_index ON sample USING btree (code, id)' }
+        ]
+        async function capture(rows) {
+            return capturePostgres(async (sql) => {
+                if (sql.includes('information_schema.columns'))
+                    return ['id', 'code'].map((column_name) => ({
+                        table_name: 'sample',
+                        column_name,
+                        data_type: 'integer',
+                        is_nullable: 'NO',
+                        column_default: null
+                    }))
+                if (sql.includes('pg_indexes')) return rows
+                return []
+            })
+        }
+        const first = await capture(indexes)
+        const reversed = await capture([...indexes].reverse())
+        assert.deepEqual(diffShape(first, reversed, 'postgres'), [])
+        const golden = structuredClone(first)
+        golden.sample.indexes.reverse()
+        assert.deepEqual(diffShape(first, golden, 'postgres'), [])
+        assert.deepEqual(
+            first.sample.indexes.map((index) => index.name),
+            ['a_index', 'Z_index']
+        )
+        assert.deepEqual(first.sample.indexes[0].columns, ['code', 'id'])
+        const changed = structuredClone(first)
+        changed.sample.indexes[0].unique = false
+        assert.equal(diffShape(changed, first, 'postgres').length, 1)
+        changed.sample.indexes[0].unique = true
+        changed.sample.indexes[0].columns.reverse()
+        assert.equal(diffShape(changed, first, 'postgres').length, 1)
+    })
+})
+
 describe('identity postgres schema', () => {
     it('matches a fresh postgres database to the migrated schema', async (t) => {
         if (!PG_PASSWORD) {
@@ -417,7 +465,8 @@ describe('identity postgres schema', () => {
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
                     'AddScimGroups1801200000001',
-                    'AccessKeys1801300000000'
+                    'AccessKeys1801300000000',
+                    'AddImportVerify1801400000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -537,7 +586,8 @@ describe('identity mariadb schema', () => {
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
                     'AddScimGroups1801200000001',
-                    'AccessKeys1801300000000'
+                    'AccessKeys1801300000000',
+                    'AddImportVerify1801400000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -736,7 +786,8 @@ describe('identity mysql 8 schema', () => {
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
                     'AddScimGroups1801200000001',
-                    'AccessKeys1801300000000'
+                    'AccessKeys1801300000000',
+                    'AddImportVerify1801400000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -802,7 +853,8 @@ describe('identity sqlite upgrade', () => {
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
                     'AddScimGroups1801200000001',
-                    'AccessKeys1801300000000'
+                    'AccessKeys1801300000000',
+                    'AddImportVerify1801400000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

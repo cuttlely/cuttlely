@@ -70,7 +70,13 @@ const Settings = ({
         if (!allowLangflowImport) children = children.filter((menu) => menu.id !== 'loadLangflow')
         if (!chatflow.id) {
             setSettingsMenu(
-                children.filter((menu) => menu.id === 'loadChatflow' || menu.id === 'loadLangflow' || menu.id === 'exportChatflow')
+                children.filter(
+                    (menu) =>
+                        menu.id === 'loadChatflow' ||
+                        menu.id === 'loadLangflow' ||
+                        menu.id === 'exportChatflow' ||
+                        menu.id === 'importAndVerify'
+                )
             )
             return
         }

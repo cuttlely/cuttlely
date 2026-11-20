@@ -29,6 +29,8 @@ Node 20+ 和 Docker
 
 英文 README 是原文。內容不一致時，以英文版為準。
 
+**1.7.8 可讓你選擇保存版本歷史的 GitHub 分支。** 選取儲存庫後，再選擇 **Branch**。現有連線仍可繼續使用，儲存庫的保護規則也仍然有效。[版本歷史](../docs/how-to/versioning.md)。
+
 ## 目錄
 
 -   [A/B 測試每一項變更，再讓它上線](#ab-test-every-change-before-it-goes-live)
