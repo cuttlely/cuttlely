@@ -37,7 +37,7 @@ const unavailableCounts =
 
 function diagnosticState({ pid, reason, burst, budget, lifetime, action }) {
     const number = (value) => (/^\d+$/.test(String(value)) ? String(value) : '0')
-    const safeReason = /^(exit \d+|health failures \d+|shutdown)$/.test(String(reason)) ? reason : 'unknown'
+    const safeReason = /^(exit \d+|health failures \d+|shutdown|no health answer after start)$/.test(String(reason)) ? reason : 'unknown'
     const safeAction = ['restart', 'exit', 'cooldown'].includes(action) ? action : 'unknown'
     return `pid=${number(pid)} reason=${safeReason} burst=${number(burst)} budget=${number(budget)} lifetime=${number(
         lifetime

@@ -649,6 +649,16 @@ describe('runtime containment recovery', () => {
             assert.match(line, /socket=1 pipe=1 anon_inode=1 file=1 other=1 soft=4096 hard=8192/)
             assert.doesNotMatch(line, /private-profile-marker|state.db|eventpoll|\//)
             assert.match(await diagnosticLine({ pid: 999 }, dir), /diagnostics unavailable/)
+            const replacement = await diagnosticLine(
+                { pid: 42, reason: 'no health answer after start', burst: 1, budget: 5, lifetime: 1, action: 'restart' },
+                dir
+            )
+            assert.match(replacement, /reason=no health answer after start /)
+            const odd = await diagnosticLine(
+                { pid: 42, reason: '/data/state.db', burst: 1, budget: 5, lifetime: 1, action: 'restart' },
+                dir
+            )
+            assert.match(odd, /reason=unknown /)
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }
