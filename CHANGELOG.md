@@ -10,6 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Repeated agent-team runs using temporary profiles no longer retain database-header probe descriptors after their database connections close. Shared connections keep their SQLite locks during cleanup. [#536](https://github.com/cuttlely/cuttlely/issues/536).
 -   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
 -   A cancelled Dash Flows refresh no longer starts its source again when a tool retries the call with another argument format. [#531](https://github.com/cuttlely/cuttlely/issues/531).
 
