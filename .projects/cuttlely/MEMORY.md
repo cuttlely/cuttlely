@@ -304,3 +304,7 @@ An awaited async generator can still starve HTTP when each item uses synchronous
 Chunk rows can be written ahead of the saved record checkpoint. Seeding duplicate keys from all rows marked seen in the current run wrongly rejects the first record being replayed. Bound seed identities by source order and the completed-record boundary; compare interrupted Markdown content with a clean run. Keep the existing true-duplicate regressions.
 
 A rejection diagnostic staged only with a batch can disappear when the error limit aborts that batch. Retain a bounded first cause separately and include it in the failure without committing rejected work or changing the threshold.
+
+## Pause and cancel skip the pipeline lock
+
+Pause and cancel do not take the pipeline lock. A resume that reads the run and later writes `queued` can overwrite a cancel that committed in between. Do the eligibility read, the checks, the `queued` write and the resume event inside one store transaction, and start `pump()` only after it commits.

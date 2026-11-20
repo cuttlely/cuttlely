@@ -1,7 +1,8 @@
 ## ETL async store
 
--   `packages/etl/store.mjs`: async `all`, `get`, `run`, `exec`, `tx` and `withPipelineLock` on the one SQLite connection.
--   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, and start, resume and delete of one pipeline never interleaving. Included in `pnpm etl:check`.
+-   `packages/etl/store.mjs`: async `all`, `get`, `run`, `exec`, `tx` and `withPipelineLock` on the one SQLite connection. `resumeUnlocked` does its eligibility read, checks, `queued` write and resume event in one `tx`; `activeRunFor` accepts an optional handle.
+-   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, start, resume and delete of one pipeline never interleaving, and run-control checks 8 and 9 for a cancel during or before resume. Included in `pnpm etl:check`.
+-   `CHANGELOG.md` under `## [Unreleased]`: the ETL 409 conflict responses.
 
 ## ETL responsiveness and recovery
 
