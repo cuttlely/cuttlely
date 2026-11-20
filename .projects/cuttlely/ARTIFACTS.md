@@ -1,3 +1,8 @@
+## ETL async store
+
+-   `packages/etl/store.mjs`: async `all`, `get`, `run`, `exec`, `tx` and `withPipelineLock` on the one SQLite connection.
+-   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, and start, resume and delete of one pipeline never interleaving. Included in `pnpm etl:check`.
+
 ## ETL responsiveness and recovery
 
 -   `packages/etl/cooperate.mjs`, `sources.mjs`, `execute.mjs`: cooperative source/run bookkeeping, checkpoint-bounded duplicate seeding and first-error retention.

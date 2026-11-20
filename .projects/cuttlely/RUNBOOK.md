@@ -73,7 +73,7 @@ nice -n 19 npx eslint <changed-ui-files>
 ```
 
 ```bash
-pnpm verify                   # the full gate; `pnpm verify --help` lists the 27 steps
+pnpm verify                   # the full gate; `pnpm verify --help` lists the 28 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
 node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
