@@ -4,14 +4,26 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.10] - 2026-11-20
+
 ### Added
 
 -   Dash Flows can keep its data in the application's Postgres database behind the default-off `CUTTLELY_APP_DATABASE_STORES` switch; on first start it copies and verifies `dashflows.sqlite` and keeps it as a read-only `dashflows.sqlite.migrated`. Turning the switch on again reuses the copy already in the application database and drops changes made in `dashflows.sqlite` while it was off. If `dashflows.sqlite` changes after the copy without the switch being turned off, the start refuses the move and serves `dashflows.sqlite`; the guide explains how to keep either copy. Changes made only by refreshes and report slots don't count: the start uses the copy and refreshes run again on schedule. Only while storage is mid-move (`dashflows.sqlite` already moved aside and the start has not yet set up the store) do Dash Flows requests answer 503 and the access-key resource list leave Dash Flows out; after a finished move, `dashflows.sqlite.migrated` on its own is the normal state. [Storage on Postgres (preview)](./docs/how-to/dashflows.md#storage-on-postgres-preview) · [#516](https://github.com/cuttlely/cuttlely/issues/516).
 
+### Changed
+
+-   The Docker image's default `HEALTHCHECK` now probes `/api/v1/ping/live` instead of `/api/v1/ping`. Container, Compose and Render health checks now use this application liveness route, keeping the UI and operator recovery routes reachable during agent runtime recovery. It waits for the boot profile compile only on the container's first boot; after a restart in place it answers once the server listens. Strict readiness at `/api/v1/ping` still refuses a down runtime. Operators with custom gateways or load balancers must verify and update their probe path after upgrading. Plain `docker run` should use `--restart unless-stopped`. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [#536](https://github.com/cuttlely/cuttlely/issues/536) · [#537](https://github.com/cuttlely/cuttlely/pull/537) (squash SHA TBD).
+
 ### Fixed
 
+-   The agent runtime supervisor resets its failure burst after sustained successful health checks, retains lifetime restart totals, backs off between retries and records sanitized descriptor counts before termination. Exhausted recovery waits 300 seconds with the UI available, then resets its burst and restarts the server and runtime together in place, including with plain Docker and no restart policy. Only `CUTTLELY_EXIT_ON_EXHAUSTED=1` requests a non-zero container exit. Agent execution returns `503 RUNTIME_UNAVAILABLE` with `Retry-After` while the runtime is down or restarting. The descriptor-leak fix is separate and is not included in this containment change. [Runtime recovery](./docs/how-to/server-settings.md#agent-runtime-recovery) · [#536](https://github.com/cuttlely/cuttlely/issues/536) · [#537](https://github.com/cuttlely/cuttlely/pull/537) (squash SHA TBD).
+-   Repeated agent-team runs using temporary profiles no longer retain database-header probe descriptors after their database connections close. Shared connections keep their SQLite locks during cleanup. [#536](https://github.com/cuttlely/cuttlely/issues/536). [#538](https://github.com/cuttlely/cuttlely/pull/538) (squash SHA TBD).
 -   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
 -   A cancelled Dash Flows refresh no longer starts its source again when a tool retries the call with another argument format. [#531](https://github.com/cuttlely/cuttlely/issues/531).
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration or required configuration change. The default Docker `HEALTHCHECK`, Compose files and `render.yaml` `healthCheckPath` now probe `/api/v1/ping/live` instead of `/api/v1/ping`. Readiness stays `/api/v1/ping`. Plain `docker run` should use `--restart unless-stopped`. Operators with custom gateways or load balancers must verify and update their probe path after upgrading. The Dash Flows Postgres storage switch remains default-off. Back up the database, encryption key and settings before upgrading; operator onboarding and default-Off access-key enforcement remain in effect.
 
 ## [1.7.9] - 2026-11-17
 
@@ -1115,7 +1127,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...HEAD
+[1.7.10]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
