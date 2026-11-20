@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
 
-最新穩定版是 **1.7.2**。請鎖定映像檔 `1.7.2`，或安裝 `cuttlely@1.7.2`。[1.7.2 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [變更記錄](../CHANGELOG.md)。
+最新穩定版是 **1.7.9**。請鎖定映像檔 `1.7.9`，或安裝 `cuttlely@1.7.9`。[1.7.9 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.9) · [變更記錄](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是從更早的版本升級，必須採取行動。** 請先備份資料庫、加密金鑰和設定，並在部署前閱讀[操作員的指定與復原](../docs/how-to/instance-operator.md)，以免被鎖在瀏覽器管理之外。完整檢查清單（包括以主機日誌一次性代碼提出的申請、`CUTTLELY_INSTANCE_OPERATOR`，以及存取金鑰強制執行預設維持關閉）見[升級注意事項](../docs/upgrading.md)（「1.7.0 security-exception upgrade」節）和[變更記錄](../CHANGELOG.md)。初始設定代碼只會建立第一個帳號，而且只有在主機已開啟本機登入時才有效（Docker 和 `npx cuttlely start` 預設會開啟）。它不能用來設定服務，也不會指定執行個體操作員。[登入](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 
