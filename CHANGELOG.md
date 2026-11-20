@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Container, Compose and Render health checks now use application liveness at `/api/v1/ping/live`, keeping the UI and operator recovery routes reachable during agent runtime recovery. Strict readiness at `/api/v1/ping` still refuses a down runtime. Operators with custom gateways or load balancers must verify and update their probe path after upgrading. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [#536](https://github.com/cuttlely/cuttlely/issues/536).
+-   The Docker image's default `HEALTHCHECK` now probes `/api/v1/ping/live` instead of `/api/v1/ping`. Container, Compose and Render health checks now use this application liveness route, keeping the UI and operator recovery routes reachable during agent runtime recovery. It waits for the boot profile compile only on the container's first boot; after a restart in place it answers once the server listens. Strict readiness at `/api/v1/ping` still refuses a down runtime. Operators with custom gateways or load balancers must verify and update their probe path after upgrading. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [#536](https://github.com/cuttlely/cuttlely/issues/536).
 
 ### Fixed
 

@@ -22,6 +22,9 @@ if [[ -z "${CUTTLELY_START_INNER:-}" ]]; then
         fi
     }
     trap forward_stop TERM INT
+    # Only the first inner copy is the container's first boot. Every later copy is a restart in place, where
+    # /api/v1/ping/live answers as soon as the server listens and the profile recompile gates readiness only.
+    unset CUTTLELY_STACK_RESTARTED
     while true; do
         if [[ "$recovery_restart" -eq 1 ]]; then
             # Reuse the boot gate's existing background-compile cap on recovery only.
@@ -41,6 +44,7 @@ if [[ -z "${CUTTLELY_START_INNER:-}" ]]; then
             wait "$inner_pid" || status=$?
         done
         inner_pid=""
+        export CUTTLELY_STACK_RESTARTED=1
         # 76: the server could not get ready with changed server settings. Start it again so safe boot can count the
         # failed start; after two, it puts back the last settings that worked. It never loops: with the settings that
         # last worked, the server does not exit with 76.

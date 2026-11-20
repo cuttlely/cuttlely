@@ -727,6 +727,40 @@ setInterval(() => {}, 1000)`
                         await delay(100)
                     }
                     assert.equal(readHermesStatus(dir).state, 'cooldown', child.output)
+                    // Poll liveness through the whole-stack restart. Docker's --start-period does not apply again, so the
+                    // gap while no server listens must stay well under the image's interval x retries (15s x 20).
+                    const probeBudgetMs = 15_000 * 20
+                    let gapStart = null
+                    let longestGap = 0
+                    let sawSecondServer = false
+                    while (performance.now() - cooldownStarted < 8000) {
+                        const second = fs.readFileSync(path.join(dir, 'servers'), 'utf8') === '2'
+                        let ok = false
+                        try {
+                            const livePort = Number(fs.readFileSync(path.join(dir, 'port'), 'utf8'))
+                            ok = (await fetch(`http://127.0.0.1:${livePort}/api/v1/ping/live`)).status === 200
+                        } catch {
+                            ok = false
+                        }
+                        if (!ok && gapStart === null) gapStart = performance.now()
+                        if (ok && gapStart !== null) {
+                            longestGap = Math.max(longestGap, performance.now() - gapStart)
+                            gapStart = null
+                        }
+                        if (ok && second) {
+                            sawSecondServer = true
+                            break
+                        }
+                        await delay(25)
+                    }
+                    assert.ok(sawSecondServer, child.output)
+                    assert.equal(gapStart, null)
+                    assert.ok(longestGap < probeBudgetMs, `gateway-down gap ${longestGap}ms`)
+                    // Right after the restart in place: live answers while readiness is still refusing traffic.
+                    const restartedPort = Number(fs.readFileSync(path.join(dir, 'port'), 'utf8'))
+                    assert.equal((await fetch(`http://127.0.0.1:${restartedPort}/api/v1/ping/live`)).status, 200)
+                    assert.equal((await fetch(`http://127.0.0.1:${restartedPort}/api/v1/ping`)).status, 503)
+                    assert.equal(fs.readFileSync(path.join(dir, 'restarted'), 'utf8'), 'first\n1\n')
                     const status = await waitForStatus(
                         dir,
                         (row) => row?.state === 'up' && fs.readFileSync(path.join(dir, 'servers'), 'utf8') === '2',
@@ -792,6 +826,7 @@ const dir = process.env.CUTTLELY_DATA_DIR
 const file = dir + '/servers'
 fs.writeFileSync(file, String(Number(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : 0) + 1))
 fs.appendFileSync(dir + '/caps', String(process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS || 'default') + '\\n')
+fs.appendFileSync(dir + '/restarted', String(process.env.CUTTLELY_STACK_RESTARTED || 'first') + '\\n')
 ${
     withHttp
         ? `const server = http.createServer((req, res) => { res.statusCode = req.url.endsWith('/live') ? 200 : 503; res.end('pong') })

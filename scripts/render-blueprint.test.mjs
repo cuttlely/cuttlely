@@ -146,15 +146,15 @@ describe('render blueprint', () => {
                 assert.match(service.healthcheck.test.join(' '), /\/api\/v1\/ping\/live/, file)
                 assert.equal(service.healthcheck.interval, '15s', file)
                 assert.equal(service.healthcheck.timeout, '5s', file)
-                assert.equal(service.healthcheck.retries, 26, file)
-                assert.equal(service.healthcheck.start_period, '360s', file)
+                assert.equal(service.healthcheck.retries, 20, file)
+                assert.equal(service.healthcheck.start_period, '300s', file)
                 assert.ok(['always', 'unless-stopped'].includes(service.restart), file)
                 assert.doesNotMatch(text, /CUTTLELY_EXIT_ON_EXHAUSTED/, file)
             }
         }
         assert.equal(servers, 4)
         const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
-        assert.match(dockerfile, /HEALTHCHECK --interval=15s --timeout=5s --start-period=360s --retries=26/)
+        assert.match(dockerfile, /HEALTHCHECK --interval=15s --timeout=5s --start-period=300s --retries=20/)
         assert.match(dockerfile, /curl[^\n]*\/api\/v1\/ping\/live/)
         assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'render.yaml'), 'utf8'), /CUTTLELY_EXIT_ON_EXHAUSTED/)
     })

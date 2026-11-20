@@ -72,6 +72,21 @@ describe('public application liveness', () => {
         expect((await get('/api/v1/ping/live')).status).toBe(200)
     })
 
+    test('after a restart in place, liveness answers during the recompile while readiness stays 503', async () => {
+        const previousRestart = process.env.CUTTLELY_STACK_RESTARTED
+        process.env.CUTTLELY_STACK_RESTARTED = '1'
+        try {
+            beginBootPass()
+            expect((await get('/api/v1/ping/live')).status).toBe(200)
+            const ready = await get('/api/v1/ping')
+            expect(ready.status).toBe(503)
+            expect(ready.text).toBe('boot recompile')
+        } finally {
+            if (previousRestart === undefined) delete process.env.CUTTLELY_STACK_RESTARTED
+            else process.env.CUTTLELY_STACK_RESTARTED = previousRestart
+        }
+    })
+
     test('both probes refuse an unreachable database and recover when it answers', async () => {
         let up = false
         setDatabaseHealth(

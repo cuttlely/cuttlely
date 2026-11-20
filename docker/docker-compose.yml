@@ -97,13 +97,14 @@ services:
             CUTTLELY_BOOTSTRAP_EMAIL: ${CUTTLELY_BOOTSTRAP_EMAIL:-}
         volumes:
             - cuttlely-data:/var/cuttlely
-        # Liveness: (26 - 1) x 15s = 375s > 300s boot compile + 25s default drain + 35s restart margin.
+        # Liveness. start_period covers the first boot only; after a restart in place /api/v1/ping/live answers once the
+        # server listens, so the down gap stays far below interval x retries (15s x 20 = 300s).
         healthcheck:
             test: ['CMD-SHELL', 'curl -fsS "http://127.0.0.1:${PORT:-43117}/api/v1/ping/live"']
             interval: 15s
             timeout: 5s
-            retries: 26
-            start_period: 360s
+            retries: 20
+            start_period: 300s
 
 volumes:
     cuttlely-data:

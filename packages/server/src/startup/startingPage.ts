@@ -56,6 +56,13 @@ export function handleStartingRequest(req: http.IncomingMessage, res: http.Serve
     const step = currentBootStep()
     res.setHeader('Retry-After', '2')
     res.setHeader('Cache-Control', 'no-store')
+    // After a restart in place (not the container's first boot), liveness answers while the server loads, so a
+    // probe watching /api/v1/ping/live does not count the reload against the container. Readiness stays 503.
+    if (process.env.CUTTLELY_STACK_RESTARTED === '1' && (req.url || '').split('?')[0] === '/api/v1/ping/live') {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Cuttlely-Starting': step })
+        res.end('pong')
+        return
+    }
     if ((req.url || '').startsWith('/api')) {
         res.writeHead(503, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ status: 'starting', step }))

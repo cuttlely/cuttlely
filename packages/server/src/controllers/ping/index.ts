@@ -40,19 +40,29 @@ export function composePing(dataDir: string | undefined): {
     return pingForDataDir(dataDir)
 }
 
+/**
+ * True when start-cuttlely.sh restarted the server in place (settings restart or exhausted-runtime recovery).
+ * Docker applies --start-period only once per container, so after a restart in place liveness must not wait for
+ * the profile recompile; that compile gates readiness (/api/v1/ping) only.
+ */
+export function restartedInPlace(env: Record<string, string | undefined> = process.env): boolean {
+    return env.CUTTLELY_STACK_RESTARTED === '1'
+}
+
 const healthHandler = (live: boolean) => async (req: Request, res: Response, next: NextFunction) => {
     try {
         const health = composePing(process.env.CUTTLELY_DATA_DIR)
         res.setHeader('X-Cuttlely-Hermes', health.header)
         res.setHeader('X-Cuttlely-Analyst', health.analyst)
         if (health.retryAfter) res.setHeader('Retry-After', String(health.retryAfter))
-        if (bootPassBlocksPing()) return res.status(health.code).send(health.body)
+        if (bootPassBlocksPing() && !(live && restartedInPlace())) return res.status(health.code).send(health.body)
         // The database comes first: without it nothing works, so Docker and Render must see the server as unhealthy.
         const database = getDatabaseHealth()
         const db = database ? await database.check() : null
         res.setHeader('X-Cuttlely-Database', db ? (db.ok ? 'up' : 'down') : 'unknown')
         if (db && !db.ok) return res.status(503).send(`database unreachable: ${db.reason}`)
-        // The startup page also returns 503 during initial boot. A gateway must wait until Node can serve the app.
+        // On the container's first boot the startup page and the compile above keep liveness at 503 until Node can
+        // serve the app. After a restart in place liveness answers as soon as the server listens.
         return live ? res.status(200).send('pong') : res.status(health.code).send(health.body)
     } catch (error) {
         next(error)

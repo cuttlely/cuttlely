@@ -32,6 +32,25 @@ describe('starting page', () => {
         await new Promise<void>((resolve) => again.close(() => resolve()))
     })
 
+    it('answers liveness only after a restart in place, while readiness stays not ready', async () => {
+        const previous = process.env.CUTTLELY_STACK_RESTARTED
+        const page = await startStartingPage(0, '127.0.0.1')
+        try {
+            const port = page!.port()
+            delete process.env.CUTTLELY_STACK_RESTARTED
+            expect((await get(port, '/api/v1/ping/live')).status).toBe(503)
+            process.env.CUTTLELY_STACK_RESTARTED = '1'
+            const live = await get(port, '/api/v1/ping/live')
+            expect(live.status).toBe(200)
+            expect(live.body).toBe('pong')
+            expect((await get(port, '/api/v1/ping')).status).toBe(503)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_STACK_RESTARTED
+            else process.env.CUTTLELY_STACK_RESTARTED = previous
+            await page!.close()
+        }
+    })
+
     it('steps aside when the port is taken', async () => {
         const taken = http.createServer()
         await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', () => resolve()))
