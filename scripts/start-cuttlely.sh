@@ -584,7 +584,9 @@ unset CUTTLELY_INITIAL_OWNER_PASSWORD CUTTLELY_INITIAL_OWNER_PASSWORD_HASH
 cd "$ROOT"
 if ! wait_for_gateway; then
     if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
-        if [[ "${GATEWAY_STILL_COMPILING:-0}" -eq 1 ]]; then
+        # After a restart in place the wait is capped short, so a server that is still loading has simply not answered
+        # yet. Keep waiting in the background rather than leave the runtime down until the next restart.
+        if [[ "${GATEWAY_STILL_COMPILING:-0}" -eq 1 || "${CUTTLELY_STACK_RESTARTED:-0}" == "1" ]]; then
             # Do not record the runtime as down: that would hold /api/v1/ping at 503 for the rest of the deploy.
             echo "Cuttlely is up. The profile compile continues in the background. Chat and prediction answer 503 until it finishes." >&2
             start_hermes_when_gateway_ready &

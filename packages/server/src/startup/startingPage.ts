@@ -14,6 +14,13 @@ export function currentBootStep(): string {
     return bootStep
 }
 
+// Liveness on the starting page also needs the database. Boot marks it opened once the connection works.
+let databaseOpened = false
+
+export function markDatabaseOpened(opened = true): void {
+    databaseOpened = opened
+}
+
 const escapeHtml = (text: string) =>
     text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
 
@@ -58,7 +65,8 @@ export function handleStartingRequest(req: http.IncomingMessage, res: http.Serve
     res.setHeader('Cache-Control', 'no-store')
     // After a restart in place (not the container's first boot), liveness answers while the server loads, so a
     // probe watching /api/v1/ping/live does not count the reload against the container. Readiness stays 503.
-    if (process.env.CUTTLELY_STACK_RESTARTED === '1' && (req.url || '').split('?')[0] === '/api/v1/ping/live') {
+    // It answers only once the database has opened, so an unreachable database still fails liveness.
+    if (process.env.CUTTLELY_STACK_RESTARTED === '1' && databaseOpened && (req.url || '').split('?')[0] === '/api/v1/ping/live') {
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Cuttlely-Starting': step })
         res.end('pong')
         return

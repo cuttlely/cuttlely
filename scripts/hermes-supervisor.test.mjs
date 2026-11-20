@@ -1033,3 +1033,73 @@ async function waitForStatus(dir, ready, state, timeoutMs) {
     }
     throw new Error(`status did not match\n${state.output}`)
 }
+
+// The boot branch after the gateway wait, run with a gateway that answers only after the short recovery cap.
+function gatewayBootBranch(dir, restarted) {
+    const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+    const pick = (name) => source.match(new RegExp(`${name}\\(\\) \\{[\\s\\S]*?\\n\\}`))[0]
+    const start = source.indexOf('if ! wait_for_gateway; then')
+    const end = source.indexOf('\nif [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then', start)
+    assert.ok(start > 0 && end > start, 'boot branch found in start-cuttlely.sh')
+    const script = `set -uo pipefail
+DATA=${shellQuote(dir)}
+NODE_BIN=${shellQuote(process.execPath)}
+HERMES_STOP="$DATA/stop"
+${restarted ? 'export CUTTLELY_STACK_RESTARTED=1' : 'unset CUTTLELY_STACK_RESTARTED'}
+export CUTTLELY_GATEWAY_WAIT_SECONDS=1 CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=1
+gateway_answers() { [[ -f "$DATA/listening" ]]; }
+write_hermes_status() { echo "$1" > "$DATA/status"; }
+supervise_hermes() { echo supervised > "$DATA/supervised"; }
+${pick('wait_for_gateway')}
+${pick('start_hermes_when_gateway_ready')}
+sleep 30 &
+CUTTLELY_PID=$!
+${source.slice(start, end)}
+wait "$HERMES_SUPERVISOR_PID" 2>/dev/null
+kill "$CUTTLELY_PID" 2>/dev/null
+`
+    return spawnScript(script)
+}
+
+describe('recovery restart with a slow server start', () => {
+    it('keeps waiting for the gateway after a restart in place instead of leaving the runtime down', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-slow-start-'))
+        const run = gatewayBootBranch(dir, true)
+        try {
+            // The server listens only after the short recovery cap has passed.
+            await delay(2500)
+            assert.equal(fs.existsSync(path.join(dir, 'status')), false, 'runtime not recorded as down')
+            fs.writeFileSync(path.join(dir, 'listening'), '1')
+            const deadline = Date.now() + 8000
+            while (!fs.existsSync(path.join(dir, 'supervised')) && Date.now() < deadline) await delay(100)
+            assert.equal(fs.existsSync(path.join(dir, 'supervised')), true, run.output)
+            await run.exited
+        } finally {
+            try {
+                process.kill(-run.child.pid, 'SIGKILL')
+            } catch {
+                /* already exited */
+            }
+            fs.rmSync(dir, { recursive: true, force: true })
+            fs.rmSync(run.outputDir, { recursive: true, force: true })
+        }
+    })
+
+    it('on first boot a gateway that never answered is still recorded as down', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-slow-start-'))
+        const run = gatewayBootBranch(dir, false)
+        try {
+            await run.exited
+            assert.equal(fs.readFileSync(path.join(dir, 'status'), 'utf8').trim(), 'down', run.output)
+            assert.equal(fs.existsSync(path.join(dir, 'supervised')), false)
+        } finally {
+            try {
+                process.kill(-run.child.pid, 'SIGKILL')
+            } catch {
+                /* already exited */
+            }
+            fs.rmSync(dir, { recursive: true, force: true })
+            fs.rmSync(run.outputDir, { recursive: true, force: true })
+        }
+    })
+})
