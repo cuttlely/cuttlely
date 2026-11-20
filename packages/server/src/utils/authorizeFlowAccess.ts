@@ -11,6 +11,7 @@ import { cookieMutationAllowed } from '../identity/sessionGuard'
 import { verifyFileLink } from './fileLinkSignature'
 import { getRunningExpressApp } from './getRunningExpressApp'
 import { bindSuppliedChatId, callerIsSignedIn } from './sessionOwnership'
+import { assertFlowRuntimeAvailable } from './runtimeAvailability'
 import { isStreamingRequest } from './streaming'
 import { validateFlowAPIKey } from './validateKey'
 
@@ -196,6 +197,8 @@ export const bindUploadFileChatId: RequestHandler = (req, res, next) => {
  * origins are applied here too (403), so a valid key from a disallowed origin is refused before any upload.
  */
 export const authorizePrediction: RequestHandler = authorizeFlowAccess({
+    // A flow that needs the agent runtime is refused while it is down before the key is charged.
+    beforeAdmission: (_req, chatflow) => assertFlowRuntimeAvailable(chatflow),
     getChatflowId: (req) => req.params.id,
     keyOnly: true,
     checkOrigin: true,

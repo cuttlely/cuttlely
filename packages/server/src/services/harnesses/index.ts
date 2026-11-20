@@ -1569,6 +1569,8 @@ const startBackgroundRun = async (
         prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
             expectedChatflowId: opts.expectedChatflowId
         })
+        // Refuse before admission so a key is not charged for a run that cannot start (clients retry on Retry-After).
+        assertRuntimeAvailable()
         if (opts.admit) opts.caller = await opts.admit()
         assertRuntimeAvailable()
         const apiKeyId = callerKeyId(opts.caller)
