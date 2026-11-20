@@ -19,7 +19,7 @@ describe('ETL list on this Node', () => {
         try {
             const importEsm = new Function('specifier', 'return import(specifier)')
             const api = await importEsm(pathToFileURL(path.join(ROOT, 'packages', 'etl', 'api.mjs')).href)
-            const rows = api.listPipelineSummaries({ workspaceId: 'etl-sqlite-probe' })
+            const rows = await api.listPipelineSummaries({ workspaceId: 'etl-sqlite-probe' })
             assert.ok(Array.isArray(rows))
             const text = JSON.stringify(rows)
             assert.equal(text.includes('node:sqlite'), false)
