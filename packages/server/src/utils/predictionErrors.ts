@@ -114,6 +114,16 @@ const MISSING_CREDENTIAL = /\bCredential \S+ not found\b/
 const MISSING_CREDENTIAL_MESSAGE = 'A credential this flow uses was not found. Select a credential on the card.'
 
 export const toPredictionError = (error: unknown): AppError => {
+    const unavailable = errorChain(error).find((item) => item.code === 'RUNTIME_UNAVAILABLE')
+    if (unavailable) {
+        const failure = new AppError(
+            StatusCodes.SERVICE_UNAVAILABLE,
+            'The agent runtime is unavailable. Try again shortly or contact the instance operator.'
+        )
+        failure.code = 'RUNTIME_UNAVAILABLE'
+        failure.retryAfterSeconds = 5
+        return failure
+    }
     if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) return error
     const limited = providerRateLimit(error)
     if (limited) {
@@ -144,6 +154,9 @@ export const toPredictionError = (error: unknown): AppError => {
 export const errorEventDetails = (error: unknown): { status: number; code: string; retryAfter?: number } => {
     const failure = toPredictionError(error)
     const status = failure.statusCode
-    const code = PREDICTION_ERROR_CODES[status] || (status < 500 ? 'BAD_REQUEST' : 'INTERNAL_ERROR')
+    const code =
+        failure.code === 'RUNTIME_UNAVAILABLE'
+            ? failure.code
+            : PREDICTION_ERROR_CODES[status] || (status < 500 ? 'BAD_REQUEST' : 'INTERNAL_ERROR')
     return failure.retryAfterSeconds ? { status, code, retryAfter: failure.retryAfterSeconds } : { status, code }
 }

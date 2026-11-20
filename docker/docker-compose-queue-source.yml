@@ -21,6 +21,7 @@ services:
             context: ..
             dockerfile: Dockerfile
         image: cuttlely:local
+        restart: unless-stopped
         ports:
             - '${PORT:-3000}:${PORT:-3000}'
         # Linux: host.docker.internal is the host, so a collector on the host is reachable
@@ -57,6 +58,13 @@ services:
             - CUTTLELY_OTEL_TRACES_CONTENT_MAX=${CUTTLELY_OTEL_TRACES_CONTENT_MAX:-}
             # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
             - METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}
+        # Liveness: (26 - 1) x 15s = 375s > 300s boot compile + 25s default drain + 35s restart margin.
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:${PORT:-3000}/api/v1/ping/live']
+            interval: 15s
+            timeout: 5s
+            retries: 26
+            start_period: 360s
         depends_on:
             - redis
         networks:

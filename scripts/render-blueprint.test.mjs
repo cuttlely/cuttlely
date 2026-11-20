@@ -26,7 +26,7 @@ services:
       plan: pro
       branch: main
       autoDeployTrigger: commit
-      healthCheckPath: /api/v1/ping
+      healthCheckPath: /api/v1/ping/live
       dockerfilePath: ./Dockerfile
       dockerContext: .
       numInstances: 1
@@ -111,13 +111,52 @@ describe('render blueprint', () => {
 
     it('rejects a missing disk, a wrong health check, and a free plan', () => {
         const text = minimal()
-            .replace('healthCheckPath: /api/v1/ping', 'healthCheckPath: /healthz')
+            .replace('healthCheckPath: /api/v1/ping/live', 'healthCheckPath: /healthz')
             .replace(/disk:[\s\S]*sizeGB: 10/, 'disk: null')
             .replace('plan: pro', 'plan: free')
         const errors = messages(text)
         assert.ok(errors.some((error) => error.includes('healthCheckPath')))
         assert.ok(errors.some((error) => error.includes('disk')))
         assert.ok(errors.some((error) => error.includes('free')))
+    })
+
+    it('rejects strict runtime readiness as the traffic health check', () => {
+        const errors = messages(minimal().replace('healthCheckPath: /api/v1/ping/live', 'healthCheckPath: /api/v1/ping'))
+        assert.ok(errors.some((error) => error.includes('healthCheckPath must be /api/v1/ping/live')))
+    })
+
+    it('uses liveness and a full restart budget in every main-server Compose service', () => {
+        const files = [
+            'docker-compose.yml',
+            'docker/docker-compose.yml',
+            'docker/docker-compose-queue-prebuilt.yml',
+            'docker/docker-compose-queue-source.yml',
+            'docker/worker/docker-compose.yml',
+            'hermes/docker-compose.yml',
+            'metrics/otel/compose.yaml'
+        ]
+        let servers = 0
+        for (const file of files) {
+            const text = fs.readFileSync(path.join(ROOT, file), 'utf8')
+            const doc = loadBlueprint(text)
+            for (const service of Object.values(doc.services)) {
+                // The worker-only, vendored runtime and collector images have independent health contracts.
+                if (service.build?.dockerfile !== 'Dockerfile' && !service.image?.startsWith('ghcr.io/cuttlely/cuttlely:')) continue
+                servers++
+                assert.match(service.healthcheck.test.join(' '), /\/api\/v1\/ping\/live/, file)
+                assert.equal(service.healthcheck.interval, '15s', file)
+                assert.equal(service.healthcheck.timeout, '5s', file)
+                assert.equal(service.healthcheck.retries, 26, file)
+                assert.equal(service.healthcheck.start_period, '360s', file)
+                assert.ok(['always', 'unless-stopped'].includes(service.restart), file)
+                assert.doesNotMatch(text, /CUTTLELY_EXIT_ON_EXHAUSTED/, file)
+            }
+        }
+        assert.equal(servers, 4)
+        const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+        assert.match(dockerfile, /HEALTHCHECK --interval=15s --timeout=5s --start-period=360s --retries=26/)
+        assert.match(dockerfile, /curl[^\n]*\/api\/v1\/ping\/live/)
+        assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'render.yaml'), 'utf8'), /CUTTLELY_EXIT_ON_EXHAUSTED/)
     })
 
     it('rejects a missing database and a DATABASE_URL stand-in', () => {

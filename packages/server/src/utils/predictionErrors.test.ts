@@ -4,6 +4,16 @@ import { DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS, errorEventDetails, providerRate
 import { SSEStreamer } from './SSEStreamer'
 
 describe('a failed prediction without streaming', () => {
+    test('preserves runtime unavailable status and retry through an execution wrapper', () => {
+        const cause = Object.assign(new Error('private supervisor details'), { code: 'RUNTIME_UNAVAILABLE' })
+        const error = Object.assign(new Error('execution failed'), { cause })
+        const mapped = toPredictionError(error)
+        expect(mapped.statusCode).toBe(503)
+        expect(mapped.message).toMatch(/agent runtime is unavailable/i)
+        expect(mapped.message).not.toContain('private supervisor details')
+        expect(errorEventDetails(error)).toEqual({ status: 503, code: 'RUNTIME_UNAVAILABLE', retryAfter: 5 })
+    })
+
     test.each([402, 403, 404, 422, 429])('keeps status %p', (status) => {
         const error = new AppError(status, 'refused')
         expect(toPredictionError(error)).toBe(error)

@@ -126,7 +126,7 @@ import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
 const require = createRequire(import.meta.url)
-const { guardHarnessRun, setHarnessAvailabilityCheck: setAvailabilityCheck } = require('./availability.cjs')
+const { guardHarnessRun, assertRuntimeAvailable, setHarnessAvailabilityCheck: setAvailabilityCheck } = require('./availability.cjs')
 
 let runtimeContextFor = null
 
@@ -242,6 +242,7 @@ async function runHarnessBody(args = {}) {
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
+    assertRuntimeAvailable()
     // A publish-check replay keeps no run history. The try profile is still removed below.
     const replay = args.replay === true
     let pending = null

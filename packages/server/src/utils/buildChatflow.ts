@@ -1,5 +1,6 @@
 import { accessContext } from '../services/accessKeys/authorization'
 import { Request } from 'express'
+import { assertFlowRuntimeAvailable } from './runtimeAvailability'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { omit, cloneDeep } from 'lodash'
@@ -404,6 +405,8 @@ export const executeFlow = async ({
     nestedFlowCaller,
     nestedFlowDepth
 }: IExecuteFlowParams) => {
+    // The HTTP, nested-flow and queue entry points authorize the flow before dispatching it here.
+    assertFlowRuntimeAvailable(chatflow)
     const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
     sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     // Ensure incomingInput has all required properties with default values
@@ -1314,6 +1317,8 @@ export const utilBuildChatflow = async (
                 throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
             }
         }
+
+        assertFlowRuntimeAvailable(chatflow)
 
         // This can be public API, so we can only get orgId from the chatflow
         const chatflowWorkspaceId = chatflow.workspaceId

@@ -14,6 +14,7 @@ if [[ -z "${CUTTLELY_START_INNER:-}" ]]; then
     export CUTTLELY_SUPERVISED=1
     inner_pid=""
     stopping=0
+    recovery_restart=0
     forward_stop() {
         stopping=1
         if [[ -n "$inner_pid" ]]; then
@@ -22,7 +23,15 @@ if [[ -z "${CUTTLELY_START_INNER:-}" ]]; then
     }
     trap forward_stop TERM INT
     while true; do
-        CUTTLELY_START_INNER=1 bash "$ROOT/scripts/start-cuttlely.sh" "$@" &
+        if [[ "$recovery_restart" -eq 1 ]]; then
+            # Reuse the boot gate's existing background-compile cap on recovery only.
+            # Keep this outage below Render's sustained-failure window as well as Docker's probe budget.
+            recovery_cap="${CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS:-180}"
+            if [[ ! "$recovery_cap" =~ ^[0-9]+$ ]] || [[ "$recovery_cap" -gt 10 ]]; then recovery_cap=10; fi
+            CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS="$recovery_cap" CUTTLELY_START_INNER=1 bash "$ROOT/scripts/start-cuttlely.sh" "$@" &
+        else
+            CUTTLELY_START_INNER=1 bash "$ROOT/scripts/start-cuttlely.sh" "$@" &
+        fi
         inner_pid=$!
         status=0
         wait "$inner_pid" || status=$?
@@ -38,8 +47,15 @@ if [[ -z "${CUTTLELY_START_INNER:-}" ]]; then
         if [[ "$stopping" -eq 1 || ( "$status" -ne 75 && "$status" -ne 76 ) ]]; then
             exit "$status"
         fi
+        recovery_restart=0
+        if [[ "$status" -eq 75 ]] && [[ -f "${CUTTLELY_DATA_DIR:-$ROOT/.cuttlely}/hermes-supervisor.json" ]] &&
+            grep -q '"detail":"cooldown complete"' "${CUTTLELY_DATA_DIR:-$ROOT/.cuttlely}/hermes-supervisor.json"; then
+            recovery_restart=1
+        fi
         if [[ "$status" -eq 76 ]]; then
             echo "Cuttlely could not start with the saved server settings. Starting again (safe boot puts back the last settings that worked after two tries)."
+        elif [[ "$recovery_restart" -eq 1 ]]; then
+            echo "Restarting Cuttlely and the agent runtime after cooldown."
         else
             echo "Restarting Cuttlely to apply server settings."
         fi
@@ -166,24 +182,72 @@ if ! IMPORT_ERROR="$(cd "$ROOT/hermes" && "$PYTHON" -c 'import aiohttp, cli' 2>&
 fi
 echo "Hermes Python: $PYTHON"
 
-# Hermes exits under load (watchdog exit 75) and nothing used to bring it back.
-# Restart with backoff until CUTTLELY_HERMES_MAX_RESTARTS, then leave a status file ping can read.
-HERMES_MAX_RESTARTS="${CUTTLELY_HERMES_MAX_RESTARTS:-5}"
+# Restart budgets cover consecutive failures; successful health checks replenish the budget.
 HERMES_STOP="$DATA/hermes-supervisor.stop"
+HERMES_PARENT_PID=$$
 rm -f "$HERMES_STOP"
+hermes_number() {
+    local name="$1" fallback="$2" kind="${3:-seconds}" value="${!1:-}"
+    if [[ -z "$value" ]]; then
+        value="$fallback"
+    elif [[ ! "$value" =~ ^[0-9]{1,8}([.][0-9]{1,6})?$ ]] ||
+        { [[ "$kind" == integer ]] && [[ ! "$value" =~ ^[0-9]{1,8}$ ]]; }; then
+        echo "$name is not a valid non-negative $kind value. Using $fallback." >&2
+        value="$fallback"
+    fi
+    if [[ "$kind" == integer ]]; then
+        value=$((10#$value))
+    fi
+    printf -v "$name" '%s' "$value"
+}
+configure_hermes_supervisor() {
+    hermes_number CUTTLELY_HERMES_MAX_RESTARTS 5 integer
+    hermes_number CUTTLELY_HERMES_HEALTHY_RESET_SECONDS 600
+    hermes_number CUTTLELY_HERMES_RESTART_BACKOFF_MAX_SECONDS 60
+    if [[ -n "${CUTTLELY_HERMES_RESTART_DELAY:-}" ]]; then
+        hermes_number CUTTLELY_HERMES_RESTART_DELAY 2
+    fi
+    hermes_number CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS 300
+    if awk -v n="$CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS" 'BEGIN { exit !(n > 3600) }'; then
+        echo "CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS exceeds the 3600s cap. Using 3600." >&2
+        CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS=3600
+    fi
+    hermes_number CUTTLELY_HERMES_HEALTH_GRACE 60
+    hermes_number CUTTLELY_HERMES_HEALTH_FAILS 3 integer
+    hermes_number CUTTLELY_HERMES_HEALTH_WINDOW 15
+    HERMES_MAX_RESTARTS="$CUTTLELY_HERMES_MAX_RESTARTS"
+}
 write_hermes_status() {
-    "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4"
+    "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4" "${lifetime_restarts:-0}" "${HERMES_MAX_RESTARTS:-5}" "${HERMES_ESCALATION_ACTION:-cooldown}"
 }
 hermes_backoff_seconds() {
-    local n="$1"
     if [[ -n "${CUTTLELY_HERMES_RESTART_DELAY:-}" ]]; then
-        echo "$CUTTLELY_HERMES_RESTART_DELAY"
+        awk -v delay="$CUTTLELY_HERMES_RESTART_DELAY" -v cap="$CUTTLELY_HERMES_RESTART_BACKOFF_MAX_SECONDS" 'BEGIN { print delay < cap ? delay : cap }'
         return
     fi
-    if [[ "$n" -lt 1 ]]; then
-        n=1
-    fi
-    echo $((n * 2))
+    awk -v n="$1" -v base=2 -v cap="$CUTTLELY_HERMES_RESTART_BACKOFF_MAX_SECONDS" 'BEGIN {
+        delay = base
+        for (i = 1; i < n && delay < cap; i++) delay *= 2
+        if (delay > cap) delay = cap
+        print delay
+    }'
+}
+# Small slices let HERMES_STOP and signal traps interrupt even a long cooldown.
+hermes_pause() {
+    local remaining="$1" slice
+    while awk -v n="$remaining" 'BEGIN { exit !(n > 0) }'; do
+        [[ -f "$HERMES_STOP" ]] && return 1
+        slice=$(awk -v n="$remaining" 'BEGIN { print n < 0.2 ? n : 0.2 }')
+        sleep "$slice"
+        remaining=$(awk -v n="$remaining" -v slice="$slice" 'BEGIN { print n - slice }')
+    done
+    [[ ! -f "$HERMES_STOP" ]]
+}
+hermes_clock() {
+    "$NODE_BIN" -e 'console.log(Number(process.hrtime.bigint() / 1000000n) / 1000)'
+}
+hermes_diagnostics() {
+    "$NODE_BIN" "$ROOT/scripts/hermes-fd-snapshot.mjs" "${3:-${HERMES_PID:-0}}" "$1" "${restarts:-}" "${HERMES_MAX_RESTARTS:-5}" "${lifetime_restarts:-}" "$2" || true
 }
 # A process that was answering /health and then stops is shutting down or stuck.
 # kill -0 stays true until the pid is gone, which left the header at "up" for seconds.
@@ -312,12 +376,14 @@ kill_hermes_pid() {
     if [[ ! "$pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$pid" 2>/dev/null; then
         return 0
     fi
+    hermes_diagnostics "${2:-shutdown}" restart "$pid"
     kill "$pid" 2>/dev/null || true
     while kill -0 "$pid" 2>/dev/null && [[ "$grace" -lt 10 ]]; do
         sleep 0.2
         grace=$((grace + 1))
     done
     if kill -0 "$pid" 2>/dev/null; then
+        hermes_diagnostics "${2:-shutdown}" restart "$pid"
         kill -9 "$pid" 2>/dev/null || true
     fi
 }
@@ -327,32 +393,22 @@ start_hermes_once() {
 }
 # This function starts Hermes itself. wait on a pid from the parent shell returns 127.
 supervise_hermes() {
-    local restarts=0
-    local status=0
-    local delay=0
+    configure_hermes_supervisor
+    local restarts=0 lifetime_restarts status=0 delay=0 reason=""
+    lifetime_restarts="$("$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" lifetime)"
+    # The background supervisor owns its child and must reap it on a stop signal.
+    trap 'kill_hermes_pid "${HERMES_PID:-0}"; exit 0' TERM INT
     while true; do
-        if [[ -f "$HERMES_STOP" ]]; then
-            return 0
-        fi
+        [[ -f "$HERMES_STOP" ]] && return 0
         start_hermes_once
-        if [[ "$restarts" -gt 0 ]]; then
-            echo "Hermes restarted pid ${HERMES_PID} (restart ${restarts} of ${HERMES_MAX_RESTARTS})." >&2
+        if [[ "$lifetime_restarts" -gt 0 ]]; then
+            echo "Hermes restarted pid ${HERMES_PID} (burst ${restarts} of ${HERMES_MAX_RESTARTS}, lifetime ${lifetime_restarts})." >&2
         fi
         write_hermes_status up "$restarts" "" "$HERMES_PID"
-        local healthy_once=0
-        local marked=0
-        local ticks=0
-        local fails=0
-        local fail_started=0
-        local posted=up
-        local started_at
-        started_at="$(date +%s)"
-        # Warm-up answers /health once, then spends the next minute loading tools.
-        # Misses in that window are not a stall. After it, a restart needs both the
-        # fail count and CUTTLELY_HERMES_HEALTH_WINDOW seconds of continuous misses.
-        local health_grace="${CUTTLELY_HERMES_HEALTH_GRACE:-60}"
-        local health_fails="${CUTTLELY_HERMES_HEALTH_FAILS:-3}"
-        local health_window="${CUTTLELY_HERMES_HEALTH_WINDOW:-15}"
+        local healthy_once=0 marked=0 ticks=0 fails=0 fail_started=0 posted=up healthy_since=""
+        local started_at now
+        started_at="$(hermes_clock)"
+        reason=""
         while kill -0 "$HERMES_PID" 2>/dev/null; do
             if [[ -f "$HERMES_STOP" ]]; then
                 kill_hermes_pid "$HERMES_PID"
@@ -362,67 +418,56 @@ supervise_hermes() {
             ticks=$((ticks + 1))
             if [[ "$ticks" -ge 5 ]]; then
                 ticks=0
+                now="$(hermes_clock)"
                 if hermes_answers_health; then
                     healthy_once=1
                     fails=0
                     fail_started=0
-                    if [[ "$posted" != "up" ]]; then
+                    [[ -z "$healthy_since" ]] && healthy_since="$now"
+                    if [[ "$restarts" -gt 0 ]] && awk -v now="$now" -v since="$healthy_since" -v reset="$CUTTLELY_HERMES_HEALTHY_RESET_SECONDS" 'BEGIN { exit !(now - since >= reset) }'; then
+                        echo "Hermes healthy window reached; burst reset from ${restarts} (budget ${HERMES_MAX_RESTARTS}, lifetime ${lifetime_restarts})." >&2
+                        restarts=0
+                        posted=reset
+                    fi
+                    if [[ "$posted" != up ]]; then
                         write_hermes_status up "$restarts" "" "$HERMES_PID"
                         posted=up
                     fi
-                elif [[ "$healthy_once" -eq 1 ]]; then
-                    local now
-                    now="$(date +%s)"
-                    local in_grace=0
-                    if [[ "$health_grace" -gt 0 && $((now - started_at)) -lt "$health_grace" ]]; then
-                        in_grace=1
-                    fi
-                    # A live event stream means Hermes is serving a harness run.
-                    # Health misses during that stream are not a reason to kill it.
-                    # An exited process still leaves this loop and restarts below.
-                    local stream_open=0
-                    if [[ -n "${CUTTLELY_HERMES_STREAM_CHECK:-}" ]]; then
-                        if "${CUTTLELY_HERMES_STREAM_CHECK}"; then
-                            stream_open=1
+                else
+                    # Only continuous /health answers count, even during warm-up or an open stream.
+                    healthy_since=""
+                    if [[ "$healthy_once" -eq 1 ]]; then
+                        local in_grace=0 stream_open=0
+                        if awk -v now="$now" -v started="$started_at" -v grace="$CUTTLELY_HERMES_HEALTH_GRACE" 'BEGIN { exit !(now - started < grace) }'; then
+                            in_grace=1
                         fi
-                    elif [[ -n "${NODE_BIN:-}" && -n "${ROOT:-}" && -d "$DATA/hermes-streams" ]]; then
-                        if "$NODE_BIN" "$ROOT/packages/harness/runtime/hermes-stream.mjs" active; then
-                            stream_open=1
+                        # Preserve warm-up and active-stream protection against false stall kills.
+                        if [[ -n "${CUTTLELY_HERMES_STREAM_CHECK:-}" ]]; then
+                            if "${CUTTLELY_HERMES_STREAM_CHECK}"; then stream_open=1; fi
+                        elif [[ -d "$DATA/hermes-streams" ]]; then
+                            if "$NODE_BIN" "$ROOT/packages/harness/runtime/hermes-stream.mjs" active; then stream_open=1; fi
                         fi
-                    fi
-                    if [[ "$in_grace" -eq 1 || "$stream_open" -eq 1 ]]; then
-                        fails=0
-                        fail_started=0
-                    else
-                        if [[ "$fails" -eq 0 ]]; then
-                            fail_started="$now"
-                        fi
-                        fails=$((fails + 1))
-                        local elapsed=$((now - fail_started))
-                        local window_hit=0
-                        if [[ "$health_window" -eq 0 || "$elapsed" -ge "$health_window" ]]; then
-                            window_hit=1
-                        fi
-                        if [[ "$fails" -ge "$health_fails" && "$window_hit" -eq 1 ]]; then
-                            restarts=$((restarts + 1))
-                            marked=1
-                            if [[ "$restarts" -gt "$HERMES_MAX_RESTARTS" ]]; then
-                                echo "Hermes failed ${fails} health checks. Restart limit ${HERMES_MAX_RESTARTS} reached. Hermes stays down." >&2
-                                write_hermes_status down "$restarts" "health" 0
-                                kill_hermes_pid "$HERMES_PID"
-                                wait "$HERMES_PID" 2>/dev/null || true
-                                return 0
+                        if [[ "$in_grace" -eq 1 || "$stream_open" -eq 1 ]]; then
+                            fails=0
+                            fail_started=0
+                        else
+                            [[ "$fails" -eq 0 ]] && fail_started="$now"
+                            fails=$((fails + 1))
+                            if [[ "$fails" -ge "$CUTTLELY_HERMES_HEALTH_FAILS" ]] && awk -v now="$now" -v since="$fail_started" -v window="$CUTTLELY_HERMES_HEALTH_WINDOW" 'BEGIN { exit !(now - since >= window) }'; then
+                                restarts=$((restarts + 1))
+                                lifetime_restarts=$((lifetime_restarts + 1))
+                                marked=1
+                                reason="health failures ${fails}"
+                                echo "Hermes failed ${fails} health checks. Restart ${restarts} of ${HERMES_MAX_RESTARTS} (lifetime ${lifetime_restarts})." >&2
+                                write_hermes_status restarting "$restarts" "$reason" "$HERMES_PID"
+                                kill_hermes_pid "$HERMES_PID" "$reason"
+                                break
                             fi
-                            echo "Hermes failed ${fails} health checks. Restart ${restarts} of ${HERMES_MAX_RESTARTS}." >&2
-                            write_hermes_status restarting "$restarts" "health" 0
-                            posted=restarting
-                            kill_hermes_pid "$HERMES_PID"
-                            break
-                        fi
-                        if [[ "$posted" != "degraded" ]]; then
-                            echo "Hermes missed a health check (${fails} of ${health_fails})." >&2
-                            write_hermes_status degraded "$restarts" "health" "$HERMES_PID"
-                            posted=degraded
+                            if [[ "$posted" != degraded ]]; then
+                                echo "Hermes missed a health check (${fails} of ${CUTTLELY_HERMES_HEALTH_FAILS})." >&2
+                                write_hermes_status degraded "$restarts" health "$HERMES_PID"
+                                posted=degraded
+                            fi
                         fi
                     fi
                 fi
@@ -431,26 +476,99 @@ supervise_hermes() {
         done
         status=0
         wait "$HERMES_PID" || status=$?
-        if [[ -f "$HERMES_STOP" ]]; then
-            return 0
-        fi
+        [[ -f "$HERMES_STOP" ]] && return 0
         if [[ "$marked" -eq 0 ]]; then
             restarts=$((restarts + 1))
+            lifetime_restarts=$((lifetime_restarts + 1))
+            reason="exit ${status}"
+        fi
+        if [[ "$restarts" -gt "$HERMES_MAX_RESTARTS" ]]; then
+            echo "Hermes exited with status ${status}." >&2
+            hermes_final_escalation "$reason"
+            return $?
         fi
         delay="$(hermes_backoff_seconds "$restarts")"
-        if [[ "$restarts" -gt "$HERMES_MAX_RESTARTS" ]]; then
-            echo "Hermes exited with status ${status}. Restart limit ${HERMES_MAX_RESTARTS} reached. Hermes stays down." >&2
-            write_hermes_status down "$restarts" "exit ${status}" 0
-            return 0
+        echo "Hermes exited with status ${status}. Restart ${restarts} of ${HERMES_MAX_RESTARTS} in ${delay}s (lifetime ${lifetime_restarts})." >&2
+        write_hermes_status restarting "$restarts" "$reason" 0
+        hermes_pause "$delay" || return 0
+    done
+}
+
+# All budget-exhaustion policy lives here. Default recovery keeps Node serving through
+# cooldown, then uses the outer loop's existing whole-stack restart-in-place path.
+hermes_final_escalation() {
+    local reason="$1" escalation_status=75 state=cooldown
+    HERMES_ESCALATION_ACTION=cooldown
+    if [[ "${CUTTLELY_EXIT_ON_EXHAUSTED:-0}" == 1 ]]; then
+        HERMES_ESCALATION_ACTION=exit
+        escalation_status=70
+        state=exhausted
+    fi
+    hermes_diagnostics "$reason" "$HERMES_ESCALATION_ACTION"
+    write_hermes_status "$state" "$restarts" "$reason" 0
+    echo "Hermes restart limit ${HERMES_MAX_RESTARTS} reached (burst ${restarts}, lifetime ${lifetime_restarts}, action ${HERMES_ESCALATION_ACTION})." >&2
+    if [[ "$HERMES_ESCALATION_ACTION" == cooldown ]]; then
+        echo "Hermes exhausted; cooldown ${CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS}s before restarting the whole stack in place." >&2
+        hermes_pause "$CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS" || return 0
+        restarts=0
+        write_hermes_status restarting "$restarts" "cooldown complete" 0
+    fi
+    if [[ -n "${HERMES_PARENT_PID:-}" && "$HERMES_PARENT_PID" != "$BASHPID" ]]; then
+        if [[ "$escalation_status" -eq 75 ]]; then
+            kill -USR1 "$HERMES_PARENT_PID"
+        else
+            kill -USR2 "$HERMES_PARENT_PID"
         fi
-        echo "Hermes exited with status ${status}. Restart ${restarts} of ${HERMES_MAX_RESTARTS} in ${delay}s." >&2
-        write_hermes_status restarting "$restarts" "exit ${status}" 0
-        sleep "$delay"
-        if [[ -f "$HERMES_STOP" ]]; then
-            return 0
+    fi
+    return "$escalation_status"
+}
+
+WORKER_PIDS=()
+
+cleanup() {
+    # Cuttlely first, and wait for it: on SIGTERM it lets running answers and streams finish (CUTTLELY_DRAIN_TIMEOUT_MS,
+    # 25 seconds by default, then it ends the rest and exits). Hermes stays up meanwhile so agent team runs can finish.
+    if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
+        kill "$CUTTLELY_PID" 2>/dev/null || true
+        if [[ "${HERMES_RECOVERY_RESTART:-0}" -eq 1 ]]; then
+            # The runtime is already unavailable. Bound this drain to 5s so a configured
+            # long drain cannot consume Render's ~60s liveness failure window.
+            local drain_ticks=0
+            while kill -0 "$CUTTLELY_PID" 2>/dev/null && [[ "$drain_ticks" -lt 25 ]]; do
+                sleep 0.2
+                drain_ticks=$((drain_ticks + 1))
+            done
+            kill -KILL "$CUTTLELY_PID" 2>/dev/null || true
+        fi
+        wait "$CUTTLELY_PID" 2>/dev/null || true
+    fi
+    touch "$HERMES_STOP"
+    if [[ -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
+        kill "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
+        wait "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
+    fi
+    if [[ -f "$DATA/hermes-supervisor.json" ]]; then
+        local pid
+        pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$DATA/hermes-supervisor.json")"
+        # Wait for it to go, so a restart in place does not find the Hermes port still taken.
+        kill_hermes_pid "$pid"
+    elif [[ -n "${HERMES_PID:-}" ]]; then
+        kill_hermes_pid "$HERMES_PID"
+    fi
+    for pid in "${WORKER_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
         fi
     done
 }
+trap cleanup EXIT
+
+# Exhausted runtime recovery exits the inner script through the same drain path as a normal stop.
+trap 'HERMES_RECOVERY_RESTART=1; exit 75' USR1
+trap 'exit 70' USR2
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 echo "Cuttlely boot, step 1 of 2: starting the server on port ${PORT:-43117}. A browser opened now shows a 'Cuttlely is starting' page."
 cd "$ROOT/packages/server/bin"
 # /health and /api/v1/ping answer 503 until the server has compiled outdated agent profiles, so the runtime waits.
@@ -481,7 +599,6 @@ else
     supervise_hermes &
     HERMES_SUPERVISOR_PID=$!
 fi
-WORKER_PIDS=()
 if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
     count="${CUTTLELY_HARNESS_WORKERS:-1}"
     i=1
@@ -494,34 +611,6 @@ if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
 else
     echo "Harness queue: ${CUTTLELY_HARNESS_QUEUE:-inline}"
 fi
-
-cleanup() {
-    # Cuttlely first, and wait for it: on SIGTERM it lets running answers and streams finish (CUTTLELY_DRAIN_TIMEOUT_MS,
-    # 25 seconds by default, then it ends the rest and exits). Hermes stays up meanwhile so agent team runs can finish.
-    if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
-        kill "$CUTTLELY_PID" 2>/dev/null || true
-        wait "$CUTTLELY_PID" 2>/dev/null || true
-    fi
-    touch "$HERMES_STOP"
-    if [[ -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
-        kill "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
-        wait "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
-    fi
-    if [[ -f "$DATA/hermes-supervisor.json" ]]; then
-        local pid
-        pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$DATA/hermes-supervisor.json")"
-        # Wait for it to go, so a restart in place does not find the Hermes port still taken.
-        kill_hermes_pid "$pid"
-    elif [[ -n "${HERMES_PID:-}" ]]; then
-        kill_hermes_pid "$HERMES_PID"
-    fi
-    for pid in "${WORKER_PIDS[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-        fi
-    done
-}
-trap cleanup EXIT
 
 if [[ -n "${CUTTLELY_PID:-}" ]]; then
     status=0

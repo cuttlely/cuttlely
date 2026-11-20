@@ -5,6 +5,7 @@ import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
 import { getHarness } from './store.mjs'
+import availability from './availability.cjs'
 
 const localRuns = new Map()
 let inlineActive = 0
@@ -354,6 +355,7 @@ export async function executeJob(job) {
         }
         const { runHarness, assertHarnessWorkspace } = await import('./run.mjs')
         assertHarnessWorkspace(job.payload.name, callerFlowOptions(job.payload))
+        availability.assertRuntimeAvailable()
         const runtime = await jobRuntime(job, local)
         // The waiter is another process when the queue is external, so its onRecorded never runs.
         // The saved history id rides on the job result. The waiter reads it and then drops the field.
@@ -465,6 +467,7 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
             if (job.status === 'failed' || job.status === 'cancelled') {
                 const { HarnessError } = await import('./errors.mjs')
                 const error = new HarnessError(job.errorCode || 'harness_failed', job.errorMessage || 'The harness job failed.')
+                if (error.code === 'RUNTIME_UNAVAILABLE') Object.assign(error, { statusCode: 503, retryAfterSeconds: 5 })
                 const saved = savedRunId({ id: job.result?.runId })
                 if (saved) error.runId = saved
                 throw error
@@ -515,6 +518,10 @@ export const queueHooks = { afterEnqueue: null }
 export async function runQueuedHarness(args) {
     // Refused before a job row, the same as a run that does not queue.
     assertHarnessCaller(args?.name, args?.flowOptions?.harnessCaller)
+    // Resource ownership precedes availability, including calls that bypass the server.
+    const { assertHarnessWorkspace } = await import('./run.mjs')
+    assertHarnessWorkspace(args.name, args.flowOptions, args.record)
+    availability.assertRuntimeAvailable()
     let job
     try {
         job = enqueueHarnessJob(args)

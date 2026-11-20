@@ -27,6 +27,7 @@ async function errorHandlerMiddleware(err: AppError, req: Request, res: Response
         statusCode,
         success: false,
         message: error.message,
+        ...(error.code === 'RUNTIME_UNAVAILABLE' ? { code: error.code } : {}),
         // Provide error stack trace only in development
         stack: process.env.NODE_ENV === 'development' ? error.stack : {}
     }

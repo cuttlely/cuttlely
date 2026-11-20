@@ -183,12 +183,13 @@ services:
 
             # SCHEDULE
             - MIN_SCHEDULE_INTERVAL_SECONDS=${MIN_SCHEDULE_INTERVAL_SECONDS}
+        # Liveness: (26 - 1) x 15s = 375s > 300s boot compile + 25s default drain + 35s restart margin.
         healthcheck:
-            test: ['CMD', 'curl', '-f', 'http://localhost:${PORT:-3000}/api/v1/ping']
-            interval: 10s
+            test: ['CMD', 'curl', '-f', 'http://localhost:${PORT:-3000}/api/v1/ping/live']
+            interval: 15s
             timeout: 5s
-            retries: 5
-            start_period: 30s
+            retries: 26
+            start_period: 360s
         # Image command is the root Dockerfile: scripts/start-cuttlely.sh.
         depends_on:
             - redis

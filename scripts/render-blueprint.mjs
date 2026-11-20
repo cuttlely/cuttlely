@@ -103,7 +103,7 @@ export function validateBlueprint(doc, rawText = '') {
     const databaseName = database && database.name
 
     if (web) {
-        if (web.healthCheckPath !== '/api/v1/ping') errors.push('healthCheckPath must be /api/v1/ping')
+        if (web.healthCheckPath !== '/api/v1/ping/live') errors.push('healthCheckPath must be /api/v1/ping/live')
         if (web.branch !== 'main') errors.push('branch must be main')
         if (web.autoDeployTrigger !== 'commit') errors.push('autoDeployTrigger must be commit (auto-deploy on main)')
         if (has(web, 'autoDeploy') && web.autoDeploy !== true) errors.push('autoDeploy must not turn deploys off')

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { StatusCodes } from 'http-status-codes'
 import { removeSpecificFileFromUpload } from '@cuttlely/components'
 import { AppError } from '../../errors/appError'
@@ -47,6 +48,7 @@ export async function runHarnessCanvasChat(
     caller: IHarnessCaller,
     options: { canvas: 'live' | 'draft'; sessionToken?: string }
 ) {
+    assertRuntimeAvailable()
     await refuseUploads(req)
     const streaming = isStreamingRequest(req)
     const source = 'playground'

@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Agent runtime containment upgrade
+
+Back up the application database, encryption key and settings before upgrading. This containment change adds no schema migration and preserves default-Off access-key enforcement. It improves recovery and availability; the runtime descriptor-leak fix is separate.
+
+**Verify your gateway probe path.** Gateways, load balancers and container health checks should use `GET /api/v1/ping/live`. The supplied Dockerfile, Compose files and Render Blueprint now use it. It stays available during a runtime-only failure, so the UI, sign-in and operator recovery routes remain reachable. It still returns 503 during the existing boot compile gate and when the application database is unreachable. Both health endpoints are unauthenticated and expose the existing health headers. Use strict `/api/v1/ping` separately for monitoring and agent-capacity checks; do not use it to remove the UI from traffic. [Health checks](./how-to/reverse-proxy.md#health-checks).
+
+The supervisor now recovers inside the image, including with plain `docker run` and no restart policy. After an exhausted burst it writes a diagnostic snapshot/status, waits 300 seconds with liveness green and readiness 503, resets the burst, then restarts the server and runtime together in place. Only `CUTTLELY_EXIT_ON_EXHAUSTED=1` requests a non-zero container exit. Review the new reset, backoff and cooldown defaults in [Agent runtime recovery](./how-to/server-settings.md#agent-runtime-recovery), and align custom probes with the [375-second restart budget](./how-to/docker.md#health-checks).
+
+Agent calls made while the supervisor reports `down` or `restarting` return HTTP 503 with a JSON `RUNTIME_UNAVAILABLE` code and `Retry-After`. Authentication and authorization still run first. Wait for runtime recovery before starting another run; UI and service administration requests remain available while Node and its database are healthy.
+
 ## Upgrading to 1.7.9
 
 Back up the application database, encryption key and settings first. Use matching 1.7.9 server and widget packages. This patch adds no schema migration and preserves sign-in configuration, roles, memberships and default-Off access-key enforcement.
@@ -186,7 +196,7 @@ On the first start, Cuttlely updates its database by itself. That start can take
 
 ## 3. Check
 
-1. Wait for ping to answer `pong`. On Docker: `docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping`, or `docker compose ps` until it says `healthy`.
+1. Wait for application liveness to answer `pong`. On Docker: `docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping/live`, or `docker compose ps` until it says `healthy`. Check strict `/api/v1/ping` separately before testing agent runs.
 2. Check the version: `curl -fsS http://localhost:43117/api/v1/version`, or open the About dialog from the profile menu.
 3. Sign in. Open a flow, its **Version history**, **Credentials** and your harnesses. Ask a flow one question.
 

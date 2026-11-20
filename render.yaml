@@ -76,7 +76,9 @@ services:
               - README.ko.md
               - SECURITY.md
               - SUPPORT.md
-      healthCheckPath: /api/v1/ping
+      # Application liveness keeps UI traffic available during agent runtime recovery.
+      # Use /api/v1/ping separately for strict agent readiness.
+      healthCheckPath: /api/v1/ping/live
       dockerfilePath: ./Dockerfile
       dockerContext: .
       numInstances: 1
