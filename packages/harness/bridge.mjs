@@ -19,7 +19,7 @@ export async function executeModule(binding, input, options = {}) {
     if (options.beforeCall) await options.beforeCall()
     // Checked again with nothing awaited before the tool starts: the await above yields, and a revocation may run there.
     if (options.assertCall) options.assertCall()
-    const raw = await callPrepared(prepared, input, options.assertCall)
+    const raw = await callPrepared(prepared, input, options.assertCall, options.beforeRetry)
     if (typeof options.onRetrievedSources === 'function') {
         if (binding.nodeName === 'retrieverTool' || (binding.nodeName === 'webBrowser' && binding.inputs?.readSource === true))
             options.onRetrievedSources(splitToolOutput(raw).documents)
@@ -134,9 +134,10 @@ async function initBinding(binding, ctx, cache, input) {
     return loaded.ready
 }
 
-// assertCall, when given, runs before each further attempt of a tool (a retry with another argument shape), with
-// nothing awaited in between, so a revocation during an attempt stops the retries.
-export async function callPrepared(prepared, input, assertCall) {
+// Before each further attempt of a tool (a retry with another argument shape), beforeRetry, when given, is awaited
+// first, then assertCall, when given, runs with nothing awaited between it and the attempt. So a revocation or a cancel
+// seen by either during an attempt stops the retries. Neither runs before the first attempt; the caller checks that one.
+export async function callPrepared(prepared, input, assertCall, beforeRetry) {
     if (prepared.runs) return prepared.instance.run(prepared.nodeData, textInput(input), prepared.flowOptions)
     if (prepared.binding?.nodeName === 'postgreSQLMCP' && Array.isArray(prepared.ready) && toolsOf(prepared.ready).length === 0) {
         return JSON.stringify({
@@ -145,7 +146,7 @@ export async function callPrepared(prepared, input, assertCall) {
         })
     }
     // With no called name (inline and direct specialists), run the tool whose name and schema the model was shown.
-    return readyRaw(prepared.ready, input, prepared.toolName ?? prepared.tool?.name, assertCall)
+    return readyRaw(prepared.ready, input, prepared.toolName ?? prepared.tool?.name, assertCall, beforeRetry)
 }
 
 export function preparedKind(prepared) {
@@ -254,7 +255,7 @@ function argumentFor(tool, text) {
     return { input: text }
 }
 
-async function invokeTool(tool, input, assertCall) {
+async function invokeTool(tool, input, assertCall, beforeRetry) {
     const text = textInput(input)
     const structured = input && typeof input === 'object' && !Array.isArray(input)
     const attempts = structured
@@ -266,7 +267,11 @@ async function invokeTool(tool, input, assertCall) {
         : [text]
     let shapeError
     for (const [index, attempt] of attempts.entries()) {
-        if (index && assertCall) assertCall()
+        if (index) {
+            // An error from either check stops the attempts and is the one surfaced, not the earlier shape error.
+            if (beforeRetry) await beforeRetry()
+            if (assertCall) assertCall()
+        }
         try {
             return await tool.invoke(attempt)
         } catch (error) {
@@ -300,7 +305,7 @@ function toolsOf(ready) {
     return []
 }
 
-async function readyRaw(ready, input, toolName, assertCall) {
+async function readyRaw(ready, input, toolName, assertCall, beforeRetry) {
     if (ready == null) return ''
     if (Array.isArray(ready)) {
         const tools = toolsOf(ready)
@@ -315,9 +320,9 @@ async function readyRaw(ready, input, toolName, assertCall) {
             if (pins.length) return JSON.stringify(pinnedOnlyRefusal(pins.map((pin) => pinnedToolHint(pin.name, pinParams(pin)))))
             return ready
         }
-        return readyRaw(tool, input, '', assertCall)
+        return readyRaw(tool, input, '', assertCall, beforeRetry)
     }
-    if (typeof ready.invoke === 'function') return invokeTool(ready, input, assertCall)
+    if (typeof ready.invoke === 'function') return invokeTool(ready, input, assertCall, beforeRetry)
     if (typeof ready.getRelevantDocuments === 'function') return ready.getRelevantDocuments(queryText(input))
     if (typeof ready.similaritySearch === 'function') return ready.similaritySearch(queryText(input), ready.k || 4)
     return ready

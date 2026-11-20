@@ -6497,6 +6497,102 @@ await expectCase('custom MCP runs through the node', async () => {
                     JSON.stringify({ attempts, refused })
                 )
             }
+            // beforeRetry, when given, is awaited before each retry and before assertCall, never before the first attempt.
+            // Its error stops the attempts. A non-shape error is not retried, and without it the attempts are unchanged.
+            {
+                const bridgeModule = await import('./bridge.mjs')
+                const shapeError = () => new Error('Received tool input did not match expected schema')
+                const shapeTool = (log, fail = () => shapeError()) => ({
+                    name: 'shape_tool',
+                    schema: { type: 'object' },
+                    async invoke(arg) {
+                        log.push(['invoke', arg])
+                        if (log.filter(([step]) => step === 'invoke').length === 1) throw fail()
+                        return 'second-shape-result'
+                    }
+                })
+                const run = async (ready, ...hooks) => {
+                    try {
+                        return { result: await bridgeModule.callPrepared({ runs: false, ready, toolName: '' }, { input: 'x' }, ...hooks) }
+                    } catch (error) {
+                        return { error: error.message }
+                    }
+                }
+                const ordered = []
+                const orderedOutcome = await run(
+                    [shapeTool(ordered)],
+                    () => ordered.push(['assertCall']),
+                    async () => {
+                        ordered.push(['beforeRetry:start'])
+                        await new Promise((resolve) => setImmediate(resolve))
+                        ordered.push(['beforeRetry:end'])
+                    }
+                )
+                check(
+                    'a tool retry awaits beforeRetry, then runs assertCall, then starts',
+                    orderedOutcome.result === 'second-shape-result' &&
+                        JSON.stringify(ordered.map(([step]) => step)) ===
+                            JSON.stringify(['invoke', 'beforeRetry:start', 'beforeRetry:end', 'assertCall', 'invoke']),
+                    JSON.stringify({ ordered, orderedOutcome })
+                )
+                const stopped = []
+                const stoppedOutcome = await run(
+                    shapeTool(stopped),
+                    () => stopped.push(['assertCall']),
+                    async () => {
+                        stopped.push(['beforeRetry'])
+                        throw new Error('refresh cancelled')
+                    }
+                )
+                check(
+                    'a throwing beforeRetry stops the retry and surfaces its own error',
+                    stoppedOutcome.error === 'refresh cancelled' &&
+                        JSON.stringify(stopped.map(([step]) => step)) === JSON.stringify(['invoke', 'beforeRetry']),
+                    JSON.stringify({ stopped, stoppedOutcome })
+                )
+                const refused = []
+                const refusedOutcome = await run(
+                    shapeTool(refused, () => new Error('permission denied for table totals')),
+                    () => refused.push(['assertCall']),
+                    async () => refused.push(['beforeRetry'])
+                )
+                check(
+                    'a non-shape tool error is not retried and does not call beforeRetry',
+                    refusedOutcome.error === 'permission denied for table totals' &&
+                        JSON.stringify(refused.map(([step]) => step)) === JSON.stringify(['invoke']),
+                    JSON.stringify({ refused, refusedOutcome })
+                )
+                const alwaysShape = (log) => ({
+                    name: 'shape_tool',
+                    schema: { type: 'object' },
+                    async invoke(arg) {
+                        log.push(arg)
+                        throw shapeError()
+                    }
+                })
+                const plain = []
+                const plainOutcome = await run(alwaysShape(plain))
+                const checked = []
+                const checkedOutcome = await run(alwaysShape(checked), () => undefined)
+                const hooked = []
+                let retries = 0
+                const hookedOutcome = await run(
+                    alwaysShape(hooked),
+                    () => undefined,
+                    async () => retries++
+                )
+                check(
+                    'without beforeRetry a tool runs the same attempts and error as with a passing one',
+                    plain.length === 2 &&
+                        JSON.stringify(plain) === JSON.stringify(checked) &&
+                        JSON.stringify(plain) === JSON.stringify(hooked) &&
+                        plainOutcome.error === shapeError().message &&
+                        checkedOutcome.error === plainOutcome.error &&
+                        hookedOutcome.error === plainOutcome.error &&
+                        retries === 1,
+                    JSON.stringify({ plain, checked, hooked, plainOutcome, retries })
+                )
+            }
         }
     } finally {
         await gateway?.close()
