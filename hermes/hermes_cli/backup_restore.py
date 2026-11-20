@@ -112,19 +112,23 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
 
     dst_conn: Optional[sqlite3.Connection] = None
     try:
-        dst_conn = sqlite3.connect(str(dst))
+        from hermes_cli.sqlite_safe_read import connect_tracked
+
+        dst_conn = connect_tracked(dst, connect_fn=sqlite3.connect)
         try:
             # Force a WAL checkpoint so the backup starts from a clean
             # state rather than writing on top of a deep WAL.
             dst_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except Exception:
             pass
-        src_conn = sqlite3.connect(read_only_db_uri(src), uri=True)
+        src_conn = connect_tracked(read_only_db_uri(src), tracking_path=src,
+                                   connect_fn=sqlite3.connect, uri=True)
         try:
             src_conn.backup(dst_conn)
         finally:
             src_conn.close()
         dst_conn.close()
+        dst_conn = None
         # Restore original file permissions from the snapshot
         try:
             mode = src.stat().st_mode
@@ -140,6 +144,7 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
         if dst_conn is not None:
             try:
                 dst_conn.close()
+                dst_conn = None
             except Exception:
                 pass
         # Fallback: unlink+move (the old approach).  This still works for
@@ -204,6 +209,12 @@ def _safe_restore_db(src: Path, dst: Path) -> bool:
         except Exception as exc2:
             logger.error("Fallback restore also failed for %s -> %s: %s", src, dst, exc2)
             return False
+    finally:
+        if dst_conn is not None:
+            try:
+                dst_conn.close()
+            except Exception:
+                pass
 
 
 def _validate_backup_zip(zf: zipfile.ZipFile) -> tuple[bool, str]:
@@ -393,7 +404,10 @@ def _count_session_rows(path: Path) -> Optional[Tuple[int, int]]:
     if not path.is_file():
         return None
     try:
-        conn = sqlite3.connect(read_only_db_uri(path), uri=True)
+        from hermes_cli.sqlite_safe_read import connect_tracked
+
+        conn = connect_tracked(read_only_db_uri(path), tracking_path=path,
+                               connect_fn=sqlite3.connect, uri=True)
     except sqlite3.Error:
         return None
     try:

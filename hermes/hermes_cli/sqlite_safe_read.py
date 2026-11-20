@@ -12,17 +12,23 @@ import contextlib
 import logging
 import os
 import sqlite3
-import threading
 from pathlib import Path
 from typing import Optional
+
+from hermes_state_dbfile import (
+    _HEADER_PROBE_LOCK, _HeaderProbeOwnerMixin, _acquire_header_probe, _release_header_probe,
+)
 
 logger = logging.getLogger(__name__)
 
 # Guards BOTH the registry and the lifecycle syscalls it describes. Reentrant
 # because connect_tracked -> _canonical_db_path -> ... stays on one thread.
-_live_lock = threading.RLock()
+_live_lock = _HEADER_PROBE_LOCK
 # canonical path -> number of live connections opened by this process
 _live_connections: dict[str, int] = {}
+_ProbeOwnerToken = tuple[str, Optional[tuple[int, int]]]
+_manual_probe_owners: dict[str, list[_ProbeOwnerToken]] = {}
+_manual_probe_counts: dict[str, int] = {}
 
 
 class UntrackableConnectionError(RuntimeError):
@@ -42,6 +48,29 @@ def _key(path: Path | str) -> str:
         return str(path)
 
 
+def _opened_db_path(conn: sqlite3.Connection, path: Path | str, uri: bool) -> Optional[str]:
+    """Like :func:`_canonical_db_path`, but a failed ``PRAGMA database_list`` (e.g. a busy schema
+    read) falls back to the path the caller opened instead of looking like an in-memory database:
+    an unowned file-backed connection would let a peer's last release close a probe under its locks."""
+    try:
+        row = conn.execute("PRAGMA database_list").fetchone()
+    except sqlite3.Error:
+        row = None
+    else:
+        if not row or len(row) < 3 or not row[2]:
+            return None  # SQLite itself reports no file: in-memory / temporary database
+        return _key(row[2])
+    text = str(path)
+    if uri and text.startswith("file:"):
+        target, _, query = text[len("file:"):].partition("?")
+        if "mode=memory" in query or target in ("", ":memory:"):
+            return None
+        return _key(target)
+    if text in ("", ":memory:"):
+        return None
+    return _key(text)
+
+
 def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
     """The on-disk path of ``main`` as SQLite reports it (immune to ``file:`` URIs, relative paths,
     symlinks). ``None`` for in-memory/unnamed databases, which cannot be byte-probed."""
@@ -54,11 +83,17 @@ def _canonical_db_path(conn: sqlite3.Connection) -> Optional[str]:
     return _key(row[2])
 
 
-def track_connection(path: Path | str) -> None:
-    """Record that this process holds a connection to *path* (prefer :func:`connect_tracked`; this
-    is for callers managing their own connection objects, and for tests)."""
+def track_connection(path: Path | str) -> _ProbeOwnerToken:
+    """Record a manually managed open connection (prefer :func:`connect_tracked`). Return a token
+    for :func:`untrack_connection` after SQLite closes; it preserves the original path and inode."""
     with _live_lock:
-        _track_key(_key(path))
+        key = _key(path)
+        identity = _acquire_header_probe(Path(key))
+        token = (key, identity)
+        _manual_probe_owners.setdefault(key, []).append(token)
+        _manual_probe_counts[key] = _manual_probe_counts.get(key, 0) + 1
+        _track_key(key)
+        return token
 
 
 def _track_key(key: str, delta: int = 1) -> None:
@@ -70,10 +105,32 @@ def _track_key(key: str, delta: int = 1) -> None:
         _live_connections.pop(key, None)
 
 
-def untrack_connection(path: Path | str) -> None:
-    """Record that one connection to *path* has been closed."""
+def untrack_connection(path: Path | str, token: _ProbeOwnerToken | None = None) -> None:
+    """Release after SQLite closes, preferably with the token returned by :func:`track_connection`.
+
+    Legacy tokenless callers cannot identify which generation closed after a path replacement.
+    Defer their inode releases until the whole manual path group has closed, preserving peer locks.
+    """
     with _live_lock:
-        _track_key(_key(path), -1)
+        key = token[0] if token is not None else _key(path)
+        owners = _manual_probe_owners.get(key)
+        if token is not None and not owners:
+            return
+        if owners:
+            if token is not None:
+                index = next((i for i, owner in enumerate(owners) if owner is token), None)
+                if index is None:
+                    return  # This exact ownership token was already released.
+                _release_header_probe(owners.pop(index)[1])
+            remaining = _manual_probe_counts[key] - 1
+            if remaining:
+                _manual_probe_counts[key] = remaining
+            else:
+                del _manual_probe_counts[key]
+                del _manual_probe_owners[key]
+                for owner in owners:
+                    _release_header_probe(owner[1])
+        _track_key(key, -1)
 
 
 def _live_main_key(key: str) -> Optional[str]:
@@ -98,7 +155,7 @@ def has_live_connection(path: Path | str) -> bool:
         return _live_main_key(_key(path)) is not None
 
 
-class _TrackingMixin:
+class _TrackingMixin(_HeaderProbeOwnerMixin):
     """Untrack-on-close behaviour, mixable into any Connection subclass.
 
     The real ``close()`` and the unregister happen together under ``_live_lock`` so a concurrent
@@ -118,7 +175,7 @@ class _TrackingMixin:
             super().close()  # type: ignore[misc]
             if path is not None:
                 self._hermes_tracked_path = None
-                untrack_connection(path)
+                _track_key(path, -1)
 
 
 class TrackedConnection(_TrackingMixin, sqlite3.Connection):
@@ -157,7 +214,8 @@ def connect_tracked(
     with _live_lock:
         conn = opener(str(path), **kwargs)
         try:
-            resolved = _key(tracking_path) if tracking_path is not None else _canonical_db_path(conn)
+            resolved = (_key(tracking_path) if tracking_path is not None
+                        else _opened_db_path(conn, path, bool(kwargs.get("uri"))))
             if resolved is None:
                 return conn  # in-memory / unnamed: nothing on disk to byte-probe
             if not isinstance(conn, _TrackingMixin):
@@ -165,14 +223,15 @@ def connect_tracked(
                 # simulating FTS5-less runtimes do this). Retag the instance's class so close()
                 # still releases the registry entry rather than silently losing probe safety.
                 conn = _retrofit_tracking(conn, resolved)
+            conn._hermes_probe_identity = _acquire_header_probe(Path(resolved))
+            if conn._hermes_probe_identity is None:
+                raise UntrackableConnectionError(f"cannot identify the opened database inode: {resolved}")
             conn._hermes_tracked_path = resolved
             _track_key(resolved)
             return conn
-        except Exception:
+        except BaseException:
             try:
-                # Close via sqlite3 directly: the tracking entry was either never made or is
-                # being unwound here.
-                sqlite3.Connection.close(conn)
+                conn.close()
             except Exception:
                 pass
             raise

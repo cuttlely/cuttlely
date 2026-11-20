@@ -28,6 +28,15 @@ def _close_quietly(conn: Optional[sqlite3.Connection]) -> None:
             conn.close()
 
 
+def _connect_db(path, **kwargs) -> sqlite3.Connection:
+    # Direct execution is an independent, stdlib-only backup process. Imported runtime
+    # callers share SessionDB's probe ownership so closing a peer cannot release its locks.
+    if __name__ == "__main__":
+        return sqlite3.connect(path, **kwargs)
+    from hermes_cli.sqlite_safe_read import connect_tracked
+    return connect_tracked(path, connect_fn=sqlite3.connect, **kwargs)
+
+
 def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float = 10.0) -> bool:
     """Copy a SQLite database with the backup() API (WAL-safe consistent snapshot).
 
@@ -52,8 +61,8 @@ def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float = 10.0) -> boo
                 os.close(secure_fd)
         # timeout=0.0 disables sqlite3's implicit busy wait so the progress callback owns the
         # full locked-source deadline instead of adding the default timeout before each callback.
-        conn = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=0.0)
-        backup_conn = sqlite3.connect(str(dst))
+        conn = _connect_db(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=0.0)
+        backup_conn = _connect_db(str(dst))
         busy_deadline = time.monotonic() + max(0.0, timeout_seconds)
 
         def _check_backup_progress(status: int, _remaining: int, _total: int) -> None:
