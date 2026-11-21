@@ -4,11 +4,19 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   The harness runs API accepts `"mode": "agent"` to run the chief on the agent runtime and delegate through `run_specialist`, with the existing authentication, permissions and rate limits. One harness run records the chief's final answer and its specialist steps. Router mode remains the default. [Run a harness in agent mode](./docs/how-to/harness-agent-mode.md).
+
+### Fixed
+
+-   Chief profiles now bind to the gateway for single-model and mixed-model teams, including canvas try profiles, so direct chief calls reach the configured model without storing its credential in a profile. The gateway logs the resolved upstream provider node and model id for each completion attempt, including fallbacks, without keys or tokens.
+
 ## [1.7.12] - 2026-11-21
 
 ### Fixed
 
--   Roster now connects over the stdio framing the agent runtime (Hermes) uses: the roster tool server that gives a mixed-model harness chief its `run_specialist` tool answers newline-delimited JSON and still accepts Content-Length framing. It had spoken only Content-Length framing since 1.0, so it never connected; this was not a regression. Each start had spent about 60 seconds per mixed-model harness waiting for roster before giving up, so boot is now about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Routing was unaffected: harness runs from the app, the prediction API and flows are planned by the harness router, which runs specialists itself and never uses roster. Before this fix, though, the startup delay could stop runs from starting: with three or more mixed-model harnesses, the roster wait could pass the 135-second start deadline. Known limitation: direct chief calls on mixed-model harnesses still need a model binding. A compiled mixed-model chief profile has `provider: custom` with no base URL or credentials, so a direct request to it does not reach a model yet. This is tracked for 1.7.13.
+-   Roster now connects over the stdio framing the agent runtime (Hermes) uses: the roster tool server that gives a mixed-model harness chief its `run_specialist` tool answers newline-delimited JSON and still accepts Content-Length framing. It had spoken only Content-Length framing since 1.0, so it never connected; this was not a regression. Each start had spent about 60 seconds per mixed-model harness waiting for roster before giving up, so boot is now about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Routing was unaffected: harness runs from the app, the prediction API and flows are planned by the harness router, which runs specialists itself and never uses roster. Before this fix, though, the startup delay could stop runs from starting: with three or more mixed-model harnesses, the roster wait could pass the 135-second start deadline. The direct chief model-binding limitation is fixed in 1.7.13, which adds agent mode on the runs API.
 -   With ETL database calls now asynchronous, starting, resuming, pausing and cancelling ETL runs at the same moment does not leave a cancelled or paused run running or create a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./docs/how-to/etl.md) · [#535](https://github.com/cuttlely/cuttlely/pull/535).
 
 ## [1.7.11] - 2026-11-20

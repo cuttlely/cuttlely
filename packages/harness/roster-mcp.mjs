@@ -7,6 +7,7 @@ import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
+import { agentTurn, recordAgentStep } from './agent-run-context.mjs'
 
 const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
@@ -130,7 +131,12 @@ async function runSpecialist(args, signal) {
     if (!name || !task) throw new Error('run_specialist needs a specialist name and a task.')
     const specialist = (roster?.specialists || []).find((item) => item.name === name)
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
-    const body = rosterSpecialistBody(specialist, task, undefined, roster?.chief)
+    // The runtime replaces this hidden argument with its own session id, even if the model supplied one.
+    const sessionId = args._cuttlelyScope
+    const turn = agentTurn(harnessName, sessionId)
+    if (sessionId && !turn) throw new Error('The agent turn is no longer active.')
+    const body = rosterSpecialistBody(specialist, task, turn?.turnId, roster?.chief, turn?.chatId)
+    const step = { name, task, startedAt: Date.now() }
     const timeoutMs = agentRunTimeoutMs()
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0
@@ -177,6 +183,7 @@ async function runSpecialist(args, signal) {
                       signal
                   })
         remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+        step.usage = status.usage
         if (hermesRunFailed(status.status)) {
             throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
         }
@@ -184,9 +191,11 @@ async function runSpecialist(args, signal) {
         if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
         return text
     } catch (error) {
+        step.error = error.message
         if (runId && !remoteFinished) stop()
         throw error
     } finally {
+        if (turn) recordAgentStep(harnessName, sessionId, step)
         signal.removeEventListener('abort', stop)
         if (signal.aborted) stop()
         await stopping

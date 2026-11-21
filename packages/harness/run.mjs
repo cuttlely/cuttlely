@@ -1,3 +1,4 @@
+import { beginAgentTurn, agentTurn, endAgentTurn } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
@@ -202,6 +203,7 @@ function rememberRun(args, started, pending, result, error, diagnostics) {
             const opened = beginHarnessRun({
                 id: args?.runId,
                 apiKeyId: args?.apiKeyId,
+                mode: args?.mode,
                 name: args?.name,
                 chatId: args?.chatId,
                 source: args?.source,
@@ -239,6 +241,9 @@ export function harnessForTurn(name, record) {
 }
 
 async function runHarnessBody(args = {}) {
+    if (args.mode !== undefined && !['router', 'agent'].includes(args.mode)) {
+        throw new HarnessError('bad_mode', 'mode must be "router" or "agent".')
+    }
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
@@ -251,6 +256,7 @@ async function runHarnessBody(args = {}) {
             pending = beginHarnessRun({
                 id: args.runId,
                 apiKeyId: args.apiKeyId,
+                mode: args.mode,
                 name: args.name,
                 chatId: args.chatId,
                 source: args.source,
@@ -274,7 +280,14 @@ async function runHarnessBody(args = {}) {
     if (tryName) noteLiveTry(tryName)
     try {
         // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
-        const rawResult = await runHarnessTurn({ ...args, turnFolders, recordInterpretationDiagnostic })
+        const rawResult = await runHarnessTurn({
+            ...args,
+            turnFolders,
+            recordInterpretationDiagnostic,
+            recordAgentResult: (value) => {
+                result = maskWorkspacePaths(value)
+            }
+        })
         result = maskWorkspacePaths(rawResult)
         if (rawResult.trace?.handoff?.reason === 'trustedOutput') result.text = rawResult.text
         return result
@@ -311,6 +324,7 @@ async function runHarnessBody(args = {}) {
 }
 
 async function runHarnessTurn({
+    mode,
     name,
     chatId,
     input,
@@ -332,7 +346,8 @@ async function runHarnessTurn({
     replay,
     trustedOutputPreview,
     turnFolders,
-    recordInterpretationDiagnostic
+    recordInterpretationDiagnostic,
+    recordAgentResult
 } = {}) {
     const harness = harnessForTurn(name, record)
     if (!chatId) {
@@ -345,6 +360,7 @@ async function runHarnessTurn({
             analystScope,
             () =>
                 runTurn(harness, {
+                    mode,
                     name,
                     chatId,
                     input,
@@ -365,7 +381,8 @@ async function runHarnessTurn({
                     replay,
                     trustedOutputPreview,
                     turnFolders,
-                    recordInterpretationDiagnostic
+                    recordInterpretationDiagnostic,
+                    recordAgentResult
                 }),
             { workspace: harness.workspaceId }
         )
@@ -395,6 +412,7 @@ export async function runQueuedHarness(args) {
 async function runTurn(
     harness,
     {
+        mode,
         name,
         chatId,
         input,
@@ -415,7 +433,8 @@ async function runTurn(
         replay,
         trustedOutputPreview,
         turnFolders,
-        recordInterpretationDiagnostic
+        recordInterpretationDiagnostic,
+        recordAgentResult
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
@@ -423,6 +442,7 @@ async function runTurn(
     const callerContextToken = callerWorkspace ? noteCallerFlowOptions(harness.name, flowOptions, chatId) : undefined
     try {
         return await runTurnBody(harness, {
+            mode,
             name,
             chatId,
             input,
@@ -443,7 +463,8 @@ async function runTurn(
             replay,
             trustedOutputPreview,
             turnFolders,
-            recordInterpretationDiagnostic
+            recordInterpretationDiagnostic,
+            recordAgentResult
         })
     } finally {
         // Only an admitted run owns this chat's TEMP tables; a refused collision must leave the active run alone.
@@ -462,6 +483,7 @@ function canvasSessionScope(harness) {
 async function runTurnBody(
     harness,
     {
+        mode,
         name,
         chatId,
         input,
@@ -482,12 +504,13 @@ async function runTurnBody(
         replay,
         trustedOutputPreview,
         turnFolders,
-        recordInterpretationDiagnostic
+        recordInterpretationDiagnostic,
+        recordAgentResult
     }
 ) {
     assertCurrentRecord(harness)
     const profileStarted = Date.now()
-    const needsHermes = (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
+    const needsHermes = mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
     let roster = harness
     let profileMs = 0
     if (needsHermes) {
@@ -540,11 +563,13 @@ async function runTurnBody(
         images: promptImages(images),
         turnFolders,
         recordInterpretationDiagnostic,
+        recordAgentResult,
         // Publish-check replay: do not read or write the harness session.
         replay: replay === true,
         trustedOutputPreview: trustedOutputPreview === true
     }
     try {
+        if (mode === 'agent') return await runAgentChief(context, input)
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
         const direct = context.images.length ? null : directToolSpecialist(roster)
         if (direct) return await runDirectTool(context, direct, input)
@@ -575,6 +600,95 @@ function noteUsage(context, reply) {
         context.usage.cached = (Number(context.usage.cached) || 0) + cached
     }
     return delta
+}
+
+function agentChiefResult(context, profileName, sessionId, started, input, text, failed = false) {
+    const agents = (agentTurn(profileName, sessionId)?.steps || []).map((step) => {
+        const specialist = context.roster.specialists.find((item) => item.name === step.name)
+        return { ...step, model: publicModelLabel(specialist?.model), tools: [], sources: [] }
+    })
+    const timings = { routeMs: 0, specialistsMs: agents.reduce((sum, step) => sum + step.ms, 0), handoffMs: 0 }
+    const report = predictionReport(context, timings)
+    for (const step of agents) {
+        if (!step.tokens) continue
+        report.tokens.prompt = (report.tokens.prompt || 0) + step.tokens.prompt
+        report.tokens.completion = (report.tokens.completion || 0) + step.tokens.completion
+    }
+    const trace = buildRunTrace({
+        harness: context.name,
+        agents,
+        report,
+        timings: { ...timings, profileMs: context.profileMs },
+        wallMs: Date.now() - started,
+        handoffStatus: 'skipped',
+        question: input
+    })
+    trace.mode = 'agent'
+    trace.route.status = 'skipped'
+    if (failed) trace.status = 'failed'
+    trace.chief = { status: failed ? 'failed' : 'completed', model: publicModelLabel(context.roster.chief.model), ms: Date.now() - started }
+    return { text, harness: context.name, mode: 'agent', agents, sources: [], artifacts: [], timings, report, trace }
+}
+
+async function runAgentChief(context, input) {
+    const started = Date.now()
+    const profileName = context.roster.tryId ? tryProfileName(context.roster.tryId) : context.name
+    const sessionId = specialistSessionId(profileName, context.chatId, context.turnId)
+    const request = {
+        harnessName: profileName,
+        baseUrl: context.baseUrl,
+        fetchImpl: context.fetchImpl,
+        timeoutMs: context.limit,
+        signal: context.workSignal
+    }
+    let runId
+    let remoteFinished = false
+    let stopping
+    const stop = () => {
+        if (runId && !stopping) stopping = stopRun({ ...request, runId, timeoutMs: 2000 }).catch(() => false)
+    }
+    const stream = chiefStream(context, 'answer')
+    beginAgentTurn(profileName, sessionId, context.chatId, context.turnId)
+    context.workSignal?.addEventListener('abort', stop, { once: true })
+    try {
+        const created = await createRun({
+            ...request,
+            body: { input: String(input ?? ''), session_id: sessionId, provider: 'custom', model: profileName }
+        })
+        runId = created.run_id
+        throwIfClient(context)
+        context.workSignal?.throwIfAborted()
+        const status =
+            created.output || created.error || !runId
+                ? created
+                : await waitForRun({
+                      ...request,
+                      runId,
+                      timeoutMs: context.limit > 0 ? Math.max(1, context.limit - (Date.now() - started)) : context.limit,
+                      onEvent: (event) => {
+                          if (event?.event === 'message.delta' && event.delta) stream.onDelta(event.delta)
+                      }
+                  })
+        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+        noteUsage(context, status)
+        if (hermesRunFailed(status.status))
+            throw new HarnessError('chief_failed', String(status.error || status.message || 'Chief run failed.'))
+        const text = typeof status.output === 'string' ? status.output : ''
+        if (!text.trim()) throw new HarnessError('empty_output', 'The chief returned an empty answer.')
+        const result = agentChiefResult(context, profileName, sessionId, started, input, text)
+        if (!context.replay) appendTurn(context.name, context.chatId, input, text, [], undefined, { scope: context.sessionScope })
+        emit(context, 'final', result)
+        return result
+    } catch (error) {
+        context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', true))
+        if (runId && !remoteFinished) stop()
+        throw error
+    } finally {
+        stream.flush()
+        context.workSignal?.removeEventListener('abort', stop)
+        await stopping
+        endAgentTurn(profileName, sessionId)
+    }
 }
 
 // A Hermes run reports the tokens of all its model calls in the run status. They count toward the turn and show

@@ -97,6 +97,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 ## Build agent teams
 
 -   [Harnesses](./harnesses.md). Build an agent team, connect a chat model, try it, publish it and call it from your app.
+-   [Run a harness in agent mode](./harness-agent-mode.md). Call the chief on the agent runtime and let it delegate through `run_specialist`.
 -   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
 -   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
 -   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.

@@ -32,6 +32,8 @@ function startRoster(t, apiUrl = '') {
     const child = spawn(process.execPath, [script, '--harness', name], {
         env: {
             ...process.env,
+            HOME: data,
+            DATABASE_PATH: data,
             CUTTLELY_DATA_DIR: data,
             CUTTLELY_HERMES_HOME: home,
             HERMES_API_URL: apiUrl,

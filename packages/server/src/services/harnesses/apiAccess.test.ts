@@ -183,6 +183,16 @@ describe('harness API runs with an API key', () => {
         expect(handled).toEqual([])
     })
 
+    it.each(['view-only-key', 'empty-key'])('refuses agent mode before chief dispatch or run recording for %s', async (token) => {
+        const res = await request(app())
+            .post('/api/v1/harnesses/bakery/runs')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ question: 'How many loaves?', mode: 'agent' })
+        expect(res.status).toBe(403)
+        // The real route refuses before the controller can start a chief or write a run.
+        expect(handled).toEqual([])
+    })
+
     it('reads the list on each request, so removing a harness applies to the next call', async () => {
         expect((await start('bakery-key')).status).toBe(202)
         keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: [] })

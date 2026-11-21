@@ -32,11 +32,15 @@ export function workerConcurrency() {
 }
 
 export function jobPayload(args) {
+    if (args.mode !== undefined && !['router', 'agent'].includes(args.mode)) {
+        throw new HarnessError('bad_mode', 'mode must be "router" or "agent".')
+    }
     const flow = args.flowOptions || {}
     if (flow.harnessCaller?.harnessIds !== undefined)
         assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
     return {
         name: args.name,
+        ...(args.mode === 'agent' ? { mode: 'agent' } : {}),
         chatId: args.chatId,
         input: String(args.input ?? ''),
         ...(args.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
@@ -361,6 +365,7 @@ export async function executeJob(job) {
         // The saved history id rides on the job result. The waiter reads it and then drops the field.
         const result = await runHarness({
             name: job.payload.name,
+            mode: job.payload.mode,
             chatId: job.payload.chatId,
             input: job.payload.input,
             images: job.payload.images,

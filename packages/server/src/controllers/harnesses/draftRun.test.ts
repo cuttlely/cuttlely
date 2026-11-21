@@ -16,30 +16,27 @@ jest.mock('../../utils/streaming', () => ({ isStreamingRequest: () => false }))
 
 import controller from './index'
 
-test('POST /api/v1/harnesses/:name/runs does not receive a draft roster', async () => {
+test.each([undefined, 'router', 'agent'])('POST /api/v1/harnesses/:name/runs forwards mode %s and uses the saved roster', async (mode) => {
+    jest.clearAllMocks()
+    const body = { question: 'hi', ...(mode === undefined ? {} : { mode }) }
     const res: any = { json: jest.fn() }
     await controller.createRun(
         {
             params: { name: 'bakery-team' },
-            body: { question: 'hi' },
+            body,
             get: () => undefined,
             user: { id: 'user-1', activeWorkspaceId: 'team-a' }
         } as any,
         res,
         jest.fn()
     )
-    expect(assertRunRequest).toHaveBeenCalledWith(
-        'bakery-team',
-        { question: 'hi' },
-        'team-a',
-        { via: 'session' },
-        { expectedChatflowId: undefined }
-    )
-    expect(startRun).toHaveBeenCalledWith(
-        'bakery-team',
-        { question: 'hi' },
-        { source: 'api', workspaceId: 'team-a', caller: { via: 'session' }, expectedChatflowId: undefined }
-    )
+    expect(assertRunRequest).toHaveBeenCalledWith('bakery-team', body, 'team-a', { via: 'session' }, { expectedChatflowId: undefined })
+    expect(startRun).toHaveBeenCalledWith('bakery-team', body, {
+        source: 'api',
+        workspaceId: 'team-a',
+        caller: { via: 'session' },
+        expectedChatflowId: undefined
+    })
     expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
     expect(startCanvasRun).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'live' }))
