@@ -52,11 +52,11 @@ const flow = {
         { source: 'emb', target: 'vs' }
     ]
 }
-const saved = api.recordVersion({ id: 'error-before-commit', name: 'Error before commit', workspaceId: WS, flowData: flow })
+const saved = await api.recordVersion({ id: 'error-before-commit', name: 'Error before commit', workspaceId: WS, flowData: flow })
 check('uncommitted-error fixture compiles', saved.problems.length === 0, saved.problems.join('; '))
-const run = api.startRun('error-before-commit', { settings: { batchSize: 64, concurrency: 4, maxErrors: 100 } })
+const run = await api.startRun('error-before-commit', { settings: { batchSize: 64, concurrency: 4, maxErrors: 100 } })
 await api.waitForIdle()
-const result = api.runDetail(run.id)
+const result = await api.runDetail(run.id)
 check(
     'error limit still stops at 101 errors with no writes',
     result.status === 'failed' && result.counters.errors === 101 && result.counters.chunks === 0 && result.counters.embedded === 0
@@ -72,7 +72,10 @@ check(
     'first uncommitted validation cause survives in persisted events',
     events.some((event) => event.message.includes('value_too_long:oversized'))
 )
-check('failed uncommitted run does not publish its pipeline version', api.pipelineDetail('error-before-commit').servedVersion == null)
+check(
+    'failed uncommitted run does not publish its pipeline version',
+    (await api.pipelineDetail('error-before-commit')).servedVersion == null
+)
 
 // Diagnostic size is bounded independently of an authored metadata field name.
 {
@@ -84,16 +87,16 @@ check('failed uncommitted run does not publish its pipeline version', api.pipeli
                 : n
         )
     }
-    const saved = api.recordVersion({
+    const saved = await api.recordVersion({
         id: 'bounded-error-diagnostics',
         name: 'Bounded error diagnostics',
         workspaceId: WS,
         flowData: boundedFlow
     })
     check('bounded diagnostic fixture compiles', saved.problems.length === 0)
-    const run = api.startRun('bounded-error-diagnostics', { settings: { maxErrors: 0 } })
+    const run = await api.startRun('bounded-error-diagnostics', { settings: { maxErrors: 0 } })
     await api.waitForIdle()
-    const result = api.runDetail(run.id)
+    const result = await api.runDetail(run.id)
     const first = result.counters.firstDocumentError
     check(
         'first error diagnostics remain bounded without changing rejection',

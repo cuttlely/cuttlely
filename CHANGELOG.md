@@ -7,6 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   The roster tool server that gives a mixed-model harness chief its `run_specialist` tool now answers the newline-delimited JSON that MCP stdio clients send, and still accepts Content-Length framing. It had spoken only Content-Length framing since 1.0, so it never connected to the agent runtime: each start spent about 60 seconds per mixed-model harness waiting for it before giving up, and `run_specialist` was never available to a chief running in its runtime profile. This was not a regression. Harness runs from the app, the prediction API and flows are planned by the harness router, which runs specialists itself, so their answers were not affected; the fix mostly shortens restarts.
+-   With ETL database calls now asynchronous, starting, resuming, pausing and cancelling ETL runs at the same moment does not leave a cancelled or paused run running or create a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./docs/how-to/etl.md) · [#535](https://github.com/cuttlely/cuttlely/pull/535).
 
 ## [1.7.11] - 2026-11-20
 

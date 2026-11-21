@@ -1,6 +1,7 @@
 import { EtlError } from './errors.mjs'
 import { compilePipeline, graphHash } from './graph.mjs'
-import { db, now, parseJson, stmt, tx } from './db.mjs'
+import { now, parseJson } from './db.mjs'
+import * as etlStore from './store.mjs'
 
 export function nameKey(name) {
     return String(name || '')
@@ -41,19 +42,20 @@ function versionRow(row, { withFlow = false } = {}) {
     }
 }
 
-export function getPipeline(id) {
-    return pipelineRow(stmt('SELECT * FROM pipelines WHERE id = ?').get(id))
+// `q` is the store, or inside a transaction the transaction's handle.
+export async function getPipeline(id, q = etlStore) {
+    return pipelineRow(await q.get('SELECT * FROM pipelines WHERE id = ?', [id]))
 }
 
 // With a workspace id, only that workspace's pipeline of this name. Without one, the first row of that name.
 // Retrieval does not use the unscoped form (E4). Name checks pass the workspace they are saving into.
-export function getPipelineByName(name, workspaceId) {
+export async function getPipelineByName(name, workspaceId, q = etlStore) {
     if (workspaceId !== undefined) {
         return pipelineRow(
-            stmt('SELECT * FROM pipelines WHERE name_key = ? AND workspace_id = ?').get(nameKey(name), requireWorkspaceId(workspaceId))
+            await q.get('SELECT * FROM pipelines WHERE name_key = ? AND workspace_id = ?', [nameKey(name), requireWorkspaceId(workspaceId)])
         )
     }
-    return pipelineRow(stmt('SELECT * FROM pipelines WHERE name_key = ?').get(nameKey(name)))
+    return pipelineRow(await q.get('SELECT * FROM pipelines WHERE name_key = ?', [nameKey(name)]))
 }
 
 // A missing workspace id throws instead of listing every pipeline.
@@ -64,32 +66,35 @@ export function requireWorkspaceId(workspaceId) {
 }
 
 // Strict: `workspace_id = ?` never matches NULL, so a pipeline without a workspace is listed to no one.
-export function listPipelines({ workspaceId } = {}) {
+export async function listPipelines({ workspaceId } = {}) {
     const ws = requireWorkspaceId(workspaceId)
-    return stmt('SELECT * FROM pipelines WHERE workspace_id = ? ORDER BY name_key').all(ws).map(pipelineRow)
+    return (await etlStore.all('SELECT * FROM pipelines WHERE workspace_id = ? ORDER BY name_key', [ws])).map(pipelineRow)
 }
 
-export function latestVersion(pipelineId, options) {
-    return versionRow(stmt('SELECT * FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC LIMIT 1').get(pipelineId), options)
-}
-
-export function getVersion(pipelineId, version, options) {
+export async function latestVersion(pipelineId, options) {
     return versionRow(
-        stmt('SELECT * FROM pipeline_versions WHERE pipeline_id = ? AND version = ?').get(pipelineId, Number(version)),
+        await etlStore.get('SELECT * FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC LIMIT 1', [pipelineId]),
         options
     )
 }
 
-export function listVersions(pipelineId) {
-    return stmt('SELECT * FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC')
-        .all(pipelineId)
-        .map((row) => versionRow(row))
+export async function getVersion(pipelineId, version, options) {
+    return versionRow(
+        await etlStore.get('SELECT * FROM pipeline_versions WHERE pipeline_id = ? AND version = ?', [pipelineId, Number(version)]),
+        options
+    )
 }
 
-export function validatePipelineName(id, name, workspaceId) {
+export async function listVersions(pipelineId) {
+    return (await etlStore.all('SELECT * FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC', [pipelineId])).map((row) =>
+        versionRow(row)
+    )
+}
+
+export async function validatePipelineName(id, name, workspaceId, q = etlStore) {
     const text = assertPipelineName(name)
     // With a workspace, the same name may exist in another workspace (UNIQUE is workspace_id + name_key).
-    const other = workspaceId !== undefined ? getPipelineByName(text, workspaceId) : getPipelineByName(text)
+    const other = workspaceId !== undefined ? await getPipelineByName(text, workspaceId, q) : await getPipelineByName(text, undefined, q)
     if (other && other.id !== id) {
         throw new EtlError('name_taken', `An ETL pipeline named "${other.name}" already exists. Choose a different name.`)
     }
@@ -97,79 +102,82 @@ export function validatePipelineName(id, name, workspaceId) {
 }
 
 // A save that only moves nodes keeps the current version; any input, credential or edge change makes a new one.
-export function recordVersion({ id, name, workspaceId, flowData }) {
+export async function recordVersion({ id, name, workspaceId, flowData }) {
     if (!id) throw new EtlError('bad_pipeline', 'An ETL pipeline needs an id.')
     // The server sets the workspace from the chat flow; a pipeline is never saved without one.
     const ws = requireWorkspaceId(workspaceId)
-    const text = validatePipelineName(id, name, ws)
-    const flow = typeof flowData === 'string' ? flowData : JSON.stringify(flowData || { nodes: [], edges: [] })
-    const hash = graphHash(flow)
-    const { spec, problems, warnings } = compilePipeline(flow)
-    const stamp = now()
-    return tx(() => {
-        const existing = stmt('SELECT * FROM pipelines WHERE id = ?').get(id)
+    // The name check reads inside the transaction, so no other save can take the name before this one writes it.
+    return etlStore.tx(async (t) => {
+        const text = await validatePipelineName(id, name, ws, t)
+        const flow = typeof flowData === 'string' ? flowData : JSON.stringify(flowData || { nodes: [], edges: [] })
+        const hash = graphHash(flow)
+        const { spec, problems, warnings } = compilePipeline(flow)
+        const stamp = now()
+        const existing = await t.get('SELECT * FROM pipelines WHERE id = ?', [id])
         if (existing) {
             if (existing.workspace_id && existing.workspace_id !== ws) {
                 throw new EtlError('not_found', 'This ETL pipeline was not found in your workspace.', 404)
             }
-            stmt('UPDATE pipelines SET name = ?, name_key = ?, workspace_id = ?, updated_at = ? WHERE id = ?').run(
+            await t.run('UPDATE pipelines SET name = ?, name_key = ?, workspace_id = ?, updated_at = ? WHERE id = ?', [
                 text,
                 nameKey(text),
                 ws,
                 stamp,
                 id
-            )
+            ])
         } else {
-            stmt('INSERT INTO pipelines (id, name, name_key, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+            await t.run('INSERT INTO pipelines (id, name, name_key, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [
                 id,
                 text,
                 nameKey(text),
                 ws,
                 stamp,
                 stamp
-            )
+            ])
         }
-        const latest = stmt('SELECT version, graph_hash FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC LIMIT 1').get(id)
+        const latest = await t.get(
+            'SELECT version, graph_hash FROM pipeline_versions WHERE pipeline_id = ? ORDER BY version DESC LIMIT 1',
+            [id]
+        )
         if (latest && latest.graph_hash === hash) {
-            stmt('UPDATE pipeline_versions SET flow_data = ? WHERE pipeline_id = ? AND version = ?').run(flow, id, latest.version)
-            return { pipeline: getPipeline(id), version: latest.version, created: false, problems, warnings }
+            await t.run('UPDATE pipeline_versions SET flow_data = ? WHERE pipeline_id = ? AND version = ?', [flow, id, latest.version])
+            return { pipeline: await getPipeline(id, t), version: latest.version, created: false, problems, warnings }
         }
         const version = (latest?.version || 0) + 1
-        stmt(
-            'INSERT INTO pipeline_versions (pipeline_id, version, graph_hash, flow_data, spec, problems, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(id, version, hash, flow, JSON.stringify(spec), JSON.stringify({ problems, warnings }), stamp)
-        return { pipeline: getPipeline(id), version, created: true, problems, warnings }
+        await t.run(
+            'INSERT INTO pipeline_versions (pipeline_id, version, graph_hash, flow_data, spec, problems, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, version, hash, flow, JSON.stringify(spec), JSON.stringify({ problems, warnings }), stamp]
+        )
+        return { pipeline: await getPipeline(id, t), version, created: true, problems, warnings }
     })
 }
 
-export function setServedVersion(pipelineId, version, indexFingerprint) {
-    stmt('UPDATE pipelines SET served_version = ?, index_fingerprint = ?, updated_at = ? WHERE id = ?').run(
+export async function setServedVersion(pipelineId, version, indexFingerprint) {
+    await etlStore.run('UPDATE pipelines SET served_version = ?, index_fingerprint = ?, updated_at = ? WHERE id = ?', [
         version,
         indexFingerprint || null,
         now(),
         pipelineId
-    )
+    ])
 }
 
-export function deletePipeline(id) {
-    tx(() => {
-        stmt('DELETE FROM shadow_vectors WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM vector_ids WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM schedules WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM records WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM sources WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE pipeline_id = ?)').run(id)
-        stmt('DELETE FROM run_names WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM runs WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM pipeline_versions WHERE pipeline_id = ?').run(id)
-        stmt('DELETE FROM pipelines WHERE id = ?').run(id)
+export async function deletePipeline(id) {
+    await etlStore.tx(async (t) => {
+        await t.run('DELETE FROM shadow_vectors WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM vector_ids WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM schedules WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM records WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM sources WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE pipeline_id = ?)', [id])
+        await t.run('DELETE FROM run_names WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM runs WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM pipeline_versions WHERE pipeline_id = ?', [id])
+        await t.run('DELETE FROM pipelines WHERE id = ?', [id])
     })
 }
 
-export function pipelineStats(pipelineId) {
-    const records = stmt('SELECT COUNT(*) AS n FROM records WHERE pipeline_id = ?').get(pipelineId)?.n ?? 0
-    const sources = stmt('SELECT COUNT(*) AS n FROM sources WHERE pipeline_id = ?').get(pipelineId)?.n ?? 0
+export async function pipelineStats(pipelineId) {
+    const records = (await etlStore.get('SELECT COUNT(*) AS n FROM records WHERE pipeline_id = ?', [pipelineId]))?.n ?? 0
+    const sources = (await etlStore.get('SELECT COUNT(*) AS n FROM sources WHERE pipeline_id = ?', [pipelineId]))?.n ?? 0
     return { chunks: Number(records), sources: Number(sources) }
 }
-
-export { db }

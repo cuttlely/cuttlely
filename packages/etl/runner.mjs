@@ -2,6 +2,7 @@ import { EtlError, errorMessage } from './errors.mjs'
 import { executeRun } from './execute.mjs'
 import { isCrash } from './faults.mjs'
 import { ACTIVE_STATUSES, activeRunFor, addEvent, getRun, insertRun, normalizeSettings, runsWithStatus, updateRun } from './runs.mjs'
+import * as etlStore from './store.mjs'
 import { getPipeline, latestVersion } from './versions.mjs'
 
 // In-process job runner. This is the queue seam: a later version replaces enqueue() with a job push
@@ -46,94 +47,133 @@ export function isActive(runId) {
     return active.has(runId)
 }
 
-export function startRun(pipelineId, { mode = 'incremental', settings = {} } = {}) {
-    const pipeline = getPipeline(pipelineId)
+// Starting, resuming and deleting a pipeline each hold that pipeline's lock, so their checks and writes never interleave.
+// Only startRun, resumeRun and purge's deletePipeline take it, each once and outside any store transaction. Nothing that
+// holds it calls another of them, and pump() and executeRun() never take it. The deleting check runs before the wait,
+// so a start during a delete is refused at once, and again inside the lock.
+export async function startRun(pipelineId, options) {
+    refuseWhileDeleting(pipelineId)
+    return etlStore.withPipelineLock(pipelineId, () => startUnlocked(pipelineId, options))
+}
+
+async function startUnlocked(pipelineId, { mode = 'incremental', settings = {} } = {}) {
+    const pipeline = await getPipeline(pipelineId)
     if (!pipeline) throw new EtlError('not_found', 'Save the pipeline before running it.', 404)
     refuseWhileDeleting(pipelineId)
-    const version = latestVersion(pipelineId)
+    const version = await latestVersion(pipelineId)
     if (!version) throw new EtlError('not_found', 'Save the pipeline before running it.', 404)
     const problems = version.problems?.problems || []
     if (problems.length) throw new EtlError('bad_pipeline', problems.join(' '))
-    const running = activeRunFor(pipelineId)
+    const running = await activeRunFor(pipelineId)
     if (running)
         throw new EtlError('run_active', `Run ${running.id.slice(0, 8)} is still ${running.status}. Pause or cancel it first.`, 409)
-    const run = insertRun({
+    const run = await insertRun({
         pipelineId,
         version: version.version,
         mode: mode === 'full' ? 'full' : 'incremental',
         settings: normalizeSettings(settings)
     })
-    addEvent(run.id, 'info', null, `Queued ${run.mode} run of version ${run.version}.`)
-    pump()
+    await addEvent(run.id, 'info', null, `Queued ${run.mode} run of version ${run.version}.`)
+    await pump()
     return getRun(run.id)
 }
 
-export function pauseRun(runId) {
-    const run = requireRun(runId)
-    const job = active.get(runId)
-    if (job) {
-        job.control.stopRequested = 'pause'
-        updateRun(runId, { status: 'pausing' })
-        addEvent(runId, 'info', null, 'Pausing after the batches in flight commit.')
-    } else if (run.status === 'queued') {
-        updateRun(runId, { status: 'paused' })
-    } else {
-        throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
-    }
+// A job writes its run's last status before it leaves `active`. A job whose run is no longer active is finishing, and
+// a pause or cancel written over that status would leave the run active with nothing behind it.
+function refuseFinishing(run) {
+    if (!ACTIVE_STATUSES.includes(run.status)) throw new EtlError('bad_state', `This run already ${run.status}.`, 409)
+}
+
+// The run read, the job lookup and the status write share one transaction, so a job's last status write lands either
+// before it (and is seen here) or after it.
+export async function pauseRun(runId) {
+    await etlStore.tx(async (t) => {
+        const run = await requireRun(runId, t)
+        const job = active.get(runId)
+        if (job) {
+            refuseFinishing(run)
+            job.control.stopRequested = 'pause'
+            await updateRun(runId, { status: 'pausing' }, t)
+            await addEvent(runId, 'info', null, 'Pausing after the batches in flight commit.', t)
+        } else if (run.status === 'queued') {
+            await updateRun(runId, { status: 'paused' }, t)
+        } else {
+            throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
+        }
+    })
     return getRun(runId)
 }
 
-export function cancelRun(runId) {
-    const run = requireRun(runId)
-    const job = active.get(runId)
-    if (job) {
-        job.control.stopRequested = 'cancel'
-        job.control.abort.abort()
-        updateRun(runId, { status: 'cancelling' })
-        addEvent(runId, 'info', null, 'Cancelling after the batches in flight finish.')
-    } else if (['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status)) {
-        updateRun(runId, { status: 'cancelled', finishedAt: new Date().toISOString() })
-        addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.')
-    } else {
-        throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
-    }
+export async function cancelRun(runId) {
+    await etlStore.tx(async (t) => {
+        const run = await requireRun(runId, t)
+        const job = active.get(runId)
+        if (job) {
+            refuseFinishing(run)
+            job.control.stopRequested = 'cancel'
+            job.control.abort.abort()
+            await updateRun(runId, { status: 'cancelling' }, t)
+            await addEvent(runId, 'info', null, 'Cancelling after the batches in flight finish.', t)
+        } else if (['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status)) {
+            await updateRun(runId, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
+            await addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.', t)
+        } else {
+            throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
+        }
+    })
     return getRun(runId)
 }
 
 // Resume continues a paused run, or retries a failed one, from its last checkpoint with the same run id.
-export function resumeRun(runId) {
-    const run = requireRun(runId)
-    if (!['paused', 'failed'].includes(run.status)) throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
-    refuseWhileDeleting(run.pipelineId)
-    const other = activeRunFor(run.pipelineId)
-    if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
-    updateRun(runId, { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt })
-    addEvent(runId, 'info', null, run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.')
-    pump()
+export async function resumeRun(runId) {
+    const { pipelineId } = await requireRun(runId)
+    refuseWhileDeleting(pipelineId)
+    return etlStore.withPipelineLock(pipelineId, () => resumeUnlocked(runId))
+}
+
+// Pause and cancel do not take the pipeline lock, so the read, the checks and the 'queued' write share one transaction:
+// a cancel lands wholly before it (and the resume is refused) or wholly after it (and cancels the queued run).
+async function resumeUnlocked(runId) {
+    await etlStore.tx(async (t) => {
+        const run = await requireRun(runId, t)
+        if (!['paused', 'failed'].includes(run.status)) throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
+        refuseWhileDeleting(run.pipelineId)
+        const other = await activeRunFor(run.pipelineId, t)
+        if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
+        await updateRun(runId, { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt }, t)
+        await addEvent(
+            runId,
+            'info',
+            null,
+            run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.',
+            t
+        )
+    })
+    await pump()
     return getRun(runId)
 }
 
 // After a restart nothing is in memory, so runs the database still marks active were interrupted.
-export function resumeInterruptedRuns() {
+export async function resumeInterruptedRuns() {
     const resumed = []
-    for (const run of runsWithStatus(ACTIVE_STATUSES)) {
+    for (const run of await runsWithStatus(ACTIVE_STATUSES)) {
         if (active.has(run.id)) continue
-        if (run.status === 'pausing') updateRun(run.id, { status: 'paused' })
-        else if (run.status === 'cancelling') updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() })
+        if (run.status === 'pausing') await updateRun(run.id, { status: 'paused' })
+        else if (run.status === 'cancelling') await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() })
         else {
             if (run.status === 'running') {
-                updateRun(run.id, { status: 'queued' })
-                addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.')
+                await updateRun(run.id, { status: 'queued' })
+                await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.')
             }
             resumed.push(run.id)
         }
     }
-    pump()
+    await pump()
     return resumed
 }
 
 export function waitForRun(runId) {
-    return active.get(runId)?.promise || Promise.resolve(getRun(runId))
+    return active.get(runId)?.promise || getRun(runId)
 }
 
 export async function waitForIdle() {
@@ -148,15 +188,15 @@ export async function waitForIdle() {
     }
 }
 
-function requireRun(runId) {
-    const run = getRun(runId)
+async function requireRun(runId, q) {
+    const run = await getRun(runId, q)
     if (!run) throw new EtlError('not_found', `Run ${runId} was not found.`, 404)
     return run
 }
 
-function pump() {
+async function pump() {
     if (active.size >= maxActive) return
-    for (const run of runsWithStatus(['queued'])) {
+    for (const run of await runsWithStatus(['queued'])) {
         if (active.size >= maxActive) break
         if (active.has(run.id) || deleting.has(run.pipelineId)) continue
         launch(run)
@@ -168,21 +208,21 @@ function launch(run) {
     const job = { control, promise: null }
     active.set(run.id, job)
     job.promise = Promise.resolve()
-        .then(async () => executeRun(run.id, { ctx: (await contextFor(getPipeline(run.pipelineId))) || {}, control }))
-        .catch((error) => {
+        .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
+        .catch(async (error) => {
             if (isCrash(error)) return getRun(run.id)
-            updateRun(run.id, { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() })
-            addEvent(run.id, 'error', null, errorMessage(error))
+            await updateRun(run.id, { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() })
+            await addEvent(run.id, 'error', null, errorMessage(error))
             onError(error, run)
             return getRun(run.id)
         })
-        .finally(() => {
+        .finally(async () => {
             active.delete(run.id)
             try {
-                onSettled(run.id)
+                await onSettled(run.id)
             } catch (error) {
                 onError(error, run)
             }
-            setImmediate(pump)
+            setImmediate(() => pump().catch((error) => onError(error, run)))
         })
 }

@@ -140,7 +140,7 @@ const preview = (id: string, body: Record<string, any>, workspaceId?: string) =>
     call(async (api) => {
         let flowData = body?.flowData
         if (!workspaceId) throw new AppError(StatusCodes.BAD_REQUEST, 'No active workspace. Sign in to a workspace and try again.')
-        const known = api.getPipeline(id)
+        const known = await api.getPipeline(id)
         if (known) await requirePipeline(api, id, workspaceId)
         if (!flowData) {
             // Only a chat flow in the caller's workspace (an unsaved pipeline has no ETL row to check yet).
@@ -207,7 +207,7 @@ const importSample = (sampleId: string, workspaceId?: string) =>
         const sample = api.loadSample(sampleId)
         const repo = getRunningExpressApp().AppDataSource.getRepository(ChatFlow)
         let name = sample.name
-        for (let n = 2; api.getPipelineByName(name, workspaceId); n += 1) name = `${sample.name} ${n}`
+        for (let n = 2; await api.getPipelineByName(name, workspaceId); n += 1) name = `${sample.name} ${n}`
         const chatflow = repo.create({
             name,
             flowData: sample.flowData,
@@ -240,16 +240,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // One-time backfill: each pipeline with no workspace takes its chat flow's workspace, else the default one.
 export async function backfillPipelineWorkspaces(api: any) {
-    if (!api.unassignedPipelineCount()) return null
+    if (!(await api.unassignedPipelineCount())) return null
     const appServer = getRunningExpressApp()
     // Chat flow ids are UUIDs; Postgres rejects anything else in a uuid IN (...) list, and such a pipeline has no chat flow.
-    const ids: string[] = api.unassignedPipelineIds().filter((id: string) => UUID.test(id))
+    const ids: string[] = (await api.unassignedPipelineIds()).filter((id: string) => UUID.test(id))
     const flows = ids.length
         ? await appServer.AppDataSource.getRepository(ChatFlow).find({ select: { id: true, workspaceId: true }, where: { id: In(ids) } })
         : []
     const flowWorkspaces: Record<string, string> = {}
     for (const flow of flows) if (flow.workspaceId) flowWorkspaces[flow.id] = flow.workspaceId
-    const counts = api.backfillWorkspaces({ flowWorkspaces, defaultWorkspaceId: await defaultWorkspaceId() })
+    const counts = await api.backfillWorkspaces({ flowWorkspaces, defaultWorkspaceId: await defaultWorkspaceId() })
     logger.info(
         `[etl] workspace backfill: ${counts.pipelines} pipeline(s) had no workspace; ${counts.fromFlow} took their chat flow's, ` +
             `${counts.fromDefault} the default workspace, ${counts.unassigned} left unassigned (visible to no workspace)`
@@ -269,7 +269,7 @@ const resumeEtlRuns = () => {
             await backfillPipelineWorkspaces(api).catch((error) =>
                 logger.warn(`[etl] workspace backfill failed: ${getErrorMessage(error)}`)
             )
-            const resumed = api.bootEtl()
+            const resumed = await api.bootEtl()
             if (resumed.length) logger.info(`[etl] resuming ${resumed.length} interrupted run(s) from their checkpoints`)
             logger.info('[etl] scheduler started')
         })
@@ -290,13 +290,13 @@ const saveSchedule = (id: string, body: Record<string, any>, workspaceId?: strin
 
 const updateSchedule = (scheduleId: string, body: Record<string, any>, workspaceId?: string) =>
     call(async (api) => {
-        api.scheduleInWorkspace(scheduleId, workspaceId)
+        await api.scheduleInWorkspace(scheduleId, workspaceId)
         return api.updateSchedule(scheduleId, body || {})
     })
 
 const controlSchedule = (scheduleId: string, action: 'pause' | 'resume' | 'delete', workspaceId?: string) =>
     call(async (api) => {
-        api.scheduleInWorkspace(scheduleId, workspaceId)
+        await api.scheduleInWorkspace(scheduleId, workspaceId)
         if (action === 'pause') return api.pauseSchedule(scheduleId)
         if (action === 'resume') return api.resumeSchedule(scheduleId)
         return api.deleteSchedule(scheduleId)

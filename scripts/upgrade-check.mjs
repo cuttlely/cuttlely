@@ -545,7 +545,7 @@ export async function seedUpgradePipeline(dataRoot) {
         const { recordVersion } = await import('../packages/etl/versions.mjs')
         const { closeDb } = await import('../packages/etl/db.mjs')
         try {
-            const saved = recordVersion({
+            const saved = await recordVersion({
                 id: SEEDED_PIPELINE_ID,
                 name: SEEDED_PIPELINE_NAME,
                 workspaceId,

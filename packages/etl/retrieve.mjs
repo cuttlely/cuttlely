@@ -1,7 +1,7 @@
-import { stmt } from './db.mjs'
 import { EtlError } from './errors.mjs'
 import { createEmbeddings } from './embed.mjs'
 import { namespaceName, namespaceProblem, storeNamespace } from './namespaces.mjs'
+import * as etlStore from './store.mjs'
 import { clearProcessStores, openStore } from './stores.mjs'
 import { getPipeline, getPipelineByName, getVersion, listPipelines, requireWorkspaceId } from './versions.mjs'
 
@@ -9,21 +9,22 @@ const CACHE_MS = 10 * 60 * 1000
 const cache = new Map()
 
 // Name and id lookup stay inside one workspace. A missing workspace fails closed (E4). It does not search every workspace.
-export function resolvePipeline(nameOrId, { workspaceId } = {}) {
+export async function resolvePipeline(nameOrId, { workspaceId } = {}) {
     const ws = requireWorkspaceId(workspaceId)
-    const byId = getPipeline(nameOrId)
-    const pipeline = getPipelineByName(nameOrId, ws) || (byId?.workspaceId === ws ? byId : null)
+    const byId = await getPipeline(nameOrId)
+    const pipeline = (await getPipelineByName(nameOrId, ws)) || (byId?.workspaceId === ws ? byId : null)
     if (!pipeline) throw new EtlError('not_found', `No ETL pipeline is named "${nameOrId}".`, 404)
     return pipeline
 }
 
 // Newest version first. A namespace counts once a run that wrote it finished succeeded or partial (those runs are served).
-function writtenVersions(pipelineId) {
+async function writtenVersions(pipelineId) {
     const seen = new Set()
     const versions = []
-    for (const row of stmt(
-        `SELECT version FROM runs WHERE pipeline_id = ? AND status IN ('succeeded', 'partial') ORDER BY version DESC`
-    ).all(pipelineId)) {
+    for (const row of await etlStore.all(
+        `SELECT version FROM runs WHERE pipeline_id = ? AND status IN ('succeeded', 'partial') ORDER BY version DESC`,
+        [pipelineId]
+    )) {
         if (seen.has(row.version)) continue
         seen.add(row.version)
         versions.push(row.version)
@@ -32,7 +33,7 @@ function writtenVersions(pipelineId) {
 }
 
 // No namespace: the last successful run. A namespace: the newest successful run that wrote that name.
-function versionForSearch(pipeline, namespace) {
+async function versionForSearch(pipeline, namespace) {
     const wanted = namespaceName(namespace)
     if (!wanted) {
         if (!pipeline.servedVersion) {
@@ -46,8 +47,8 @@ function versionForSearch(pipeline, namespace) {
     }
     const problem = namespaceProblem(wanted)
     if (problem) throw new EtlError('bad_namespace', problem)
-    for (const version of writtenVersions(pipeline.id)) {
-        const row = getVersion(pipeline.id, version)
+    for (const version of await writtenVersions(pipeline.id)) {
+        const row = await getVersion(pipeline.id, version)
         if (storeNamespace(row?.spec?.store) === wanted) return row
     }
     throw new EtlError('not_found', `ETL pipeline "${pipeline.name}" has not written a namespace named "${wanted}".`, 404)
@@ -77,8 +78,8 @@ async function servingParts(pipeline, version, ctx) {
 export async function searchPipeline(nameOrId, query, { k = 4, namespace, ctx = {} } = {}) {
     const text = String(query || '').trim()
     if (!text) throw new EtlError('bad_query', 'Give a search query.')
-    const pipeline = resolvePipeline(nameOrId, { workspaceId: ctx?.flowOptions?.workspaceId || ctx?.workspaceId })
-    const version = versionForSearch(pipeline, namespace)
+    const pipeline = await resolvePipeline(nameOrId, { workspaceId: ctx?.flowOptions?.workspaceId || ctx?.workspaceId })
+    const version = await versionForSearch(pipeline, namespace)
     const parts = await servingParts(pipeline, version, ctx)
     const vector = await parts.embeddings.embedQuery(text)
     const hits = await parts.store.search(Float32Array.from(vector), Math.max(1, Math.min(50, Number(k) || 4)), text)
@@ -86,8 +87,8 @@ export async function searchPipeline(nameOrId, query, { k = 4, namespace, ctx = 
 }
 
 // The ETL Retriever's pipeline dropdown: this workspace's pipelines only; no workspace id throws.
-export function pipelineOptions(workspaceId) {
-    return listPipelines({ workspaceId }).map((pipeline) => ({
+export async function pipelineOptions(workspaceId) {
+    return (await listPipelines({ workspaceId })).map((pipeline) => ({
         label: pipeline.name,
         name: pipeline.name,
         description: pipeline.servedVersion ? `Serving version ${pipeline.servedVersion}` : 'No successful run yet'
@@ -96,14 +97,14 @@ export function pipelineOptions(workspaceId) {
 
 // The ETL Retriever's namespace dropdown, after a pipeline is selected. Empty when that pipeline has written no named
 // namespace (a local collection, or Pinecone's default). No workspace id throws, the same as pipelineOptions.
-export function namespaceOptions(pipelineName, workspaceId) {
+export async function namespaceOptions(pipelineName, workspaceId) {
     const name = String(pipelineName || '').trim()
     if (!name) return []
-    const pipeline = resolvePipeline(name, { workspaceId: requireWorkspaceId(workspaceId) })
+    const pipeline = await resolvePipeline(name, { workspaceId: requireWorkspaceId(workspaceId) })
     const options = []
     const seen = new Set()
-    for (const version of writtenVersions(pipeline.id)) {
-        const row = getVersion(pipeline.id, version)
+    for (const version of await writtenVersions(pipeline.id)) {
+        const row = await getVersion(pipeline.id, version)
         const namespace = storeNamespace(row?.spec?.store)
         if (!namespace || seen.has(namespace)) continue
         seen.add(namespace)
