@@ -605,19 +605,42 @@ test(
 
 for (const name of ['Default', 'default', 'DEFAULT'])
     test(
-        `${name} refuses agent mode before runtime calls, keeps router mode and never adopts its legacy folder`,
+        `${name} preserves router sessions and memory across boot and refuses agent mode before runtime calls`,
         isolatedCase(`reserved-${name}`, async () => {
             const record = recordFor(name)
-            const legacy = path.join(path.dirname(profileDir(name)), name)
-            if (name !== 'default') {
-                fs.mkdirSync(legacy, { recursive: true })
-                fs.writeFileSync(path.join(legacy, 'kept.txt'), 'Legacy default memory.\n')
-            }
-            assert.equal(adoptLegacyChiefProfile(name), false)
+            const target = profileDir(name)
+            const legacy = path.join(path.dirname(target), name)
+            const chatId = `fixture-${name}`
+            const earlier = ['Earlier question', 'Earlier answer', 'Follow-up question', 'Follow-up answer']
+            appendTurn(name, chatId, earlier[0], earlier[1])
+            appendTurn(name, chatId, earlier[2], earlier[3])
+            closeSessions()
+            if (name !== 'default') fs.renameSync(target, legacy)
+            fs.mkdirSync(path.join(legacy, 'memories'), { recursive: true })
+            fs.writeFileSync(path.join(legacy, 'memories', 'MEMORY.md'), 'Legacy default memory.\n')
+            const inode = fs.statSync(legacy).ino
+            const sessionInode = fs.statSync(path.join(legacy, 'sessions.sqlite')).ino
+            const sessionBytes = fs.readFileSync(path.join(legacy, 'sessions.sqlite'))
             if (name !== 'default') assert.ok(!fs.existsSync(profileDir(name)))
+            assert.deepEqual(boot([record]), [{ name, status: 'recompiled' }])
+            assert.equal(fs.statSync(target).ino, inode)
+            assert.equal(fs.statSync(path.join(target, 'sessions.sqlite')).ino, sessionInode)
+            assert.deepEqual(fs.readFileSync(path.join(target, 'sessions.sqlite')), sessionBytes)
+            assert.equal(fs.readFileSync(path.join(target, 'memories', 'MEMORY.md'), 'utf8'), 'Legacy default memory.\n')
+            if (name !== 'default') assert.ok(!fs.existsSync(legacy))
+            assert.deepEqual(
+                readMessages(name, chatId).map((message) => message.content),
+                earlier
+            )
+            closeSessions()
             compileProfileCached(record)
-            if (name !== 'default')
-                assert.deepEqual(snapshot(legacy), { 'kept.txt': Buffer.from('Legacy default memory.\n').toString('base64') })
+            const before = snapshot(target)
+            const stat = fs.statSync(target)
+            assert.deepEqual(boot([record]), [])
+            assert.equal(adoptLegacyChiefProfile(name), false)
+            assert.equal(fs.statSync(target).ino, stat.ino)
+            assert.equal(fs.statSync(target).mtimeMs, stat.mtimeMs)
+            assert.deepEqual(snapshot(target), before)
             const base = `http://127.0.0.1:${runtime.address().port}`
             assert.equal((await fetch(`${base}/p/default/v1/runs`, { method: 'POST' })).status, 404)
             calls.length = 0
@@ -647,6 +670,10 @@ for (const name of ['Default', 'default', 'DEFAULT'])
                     }
             })
             assert.equal(result.text, 'Router answer.')
+            assert.deepEqual(
+                readMessages(name, chatId).map((message) => message.content),
+                [...earlier, 'Answer the fixture.', 'Router answer.']
+            )
             assert.ok(calls.every((call) => !call.url.startsWith('/p/default/')))
         })
     )
