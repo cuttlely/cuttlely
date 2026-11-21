@@ -83,11 +83,12 @@ import {
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
-import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { cachedPromptTokens, invokeChat, resolveModel, userContent } from './model.mjs'
 import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
     compileTryProfile,
+    chiefInstructions,
     credentialIdsFor,
     discardTryProfile,
     noteLiveTry,
@@ -602,7 +603,7 @@ function noteUsage(context, reply) {
     return delta
 }
 
-function agentChiefResult(context, profileName, sessionId, started, input, text, failed = false) {
+function agentChiefResult(context, profileName, sessionId, started, input, text, status = 'completed') {
     const agents = (agentTurn(profileName, sessionId)?.steps || []).map((step) => {
         const specialist = context.roster.specialists.find((item) => item.name === step.name)
         return {
@@ -631,8 +632,8 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
     })
     trace.mode = 'agent'
     trace.route.status = 'skipped'
-    if (failed) trace.status = 'failed'
-    trace.chief = { status: failed ? 'failed' : 'completed', model: publicModelLabel(context.roster.chief.model), ms: Date.now() - started }
+    if (status !== 'completed') trace.status = status
+    trace.chief = { status, model: publicModelLabel(context.roster.chief.model), ms: Date.now() - started }
     return { text, harness: context.name, mode: 'agent', agents, sources: [], artifacts: [], timings, report, trace }
 }
 
@@ -658,18 +659,23 @@ async function runAgentChief(context, input) {
     context.workSignal?.addEventListener('abort', stop, { once: true })
     try {
         const history = loadPrompt(context)
+        const budget = chiefContextTokens()
+        // The runtime loads SOUL.md itself. Reserve its size without sending the compiled prompt twice.
+        const soulTokens = estimateTokens(chiefInstructions({ ...context.roster, name: profileName }))
         const fitted = fitChiefMessages({
             system: '',
             memory: context.memoryBlock,
             history,
             user: [String(input ?? ''), context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
-            budget: chiefContextTokens()
+            budget: budget ? Math.max(1, budget - soulTokens) : budget
         })
         noteTruncated(context, fitted.truncated)
+        const user = fitted.messages.at(-1)
         const created = await createRun({
             ...request,
             body: {
-                input: fitted.messages.at(-1).content,
+                // /v1/runs takes multipart content from the last input message.
+                input: context.images.length ? [{ role: 'user', content: userContent(user.content, context.images) }] : user.content,
                 conversation_history: fitted.messages.slice(1, -1),
                 ...(fitted.messages[0].content ? { instructions: fitted.messages[0].content } : {}),
                 session_id: sessionId,
@@ -704,7 +710,8 @@ async function runAgentChief(context, input) {
     } catch (error) {
         if (runId && !remoteFinished) stop()
         await stopping
-        context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', true))
+        const status = context.clientSignal?.aborted || error?.code === 'aborted' ? 'cancelled' : 'failed'
+        context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', status))
         throw error
     } finally {
         stream.flush()

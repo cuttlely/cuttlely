@@ -4,10 +4,10 @@ Agent mode runs Harness Prime, the chief, on the agent runtime. The chief reads 
 
 ## Call the existing runs API
 
-Publish the harness and give your caller permission to run it. Send `"mode": "agent"` on `POST /api/v1/harnesses/:name/runs`, together with the existing question and optional chat id:
+Publish the harness and give your caller permission to run and read it. Send `"mode": "agent"` with the existing question and optional chat id. This API-key example uses `POST /api/v1/harnesses/:name/runs/async` to start a background run:
 
 ```http
-POST /api/v1/harnesses/bakery-help/runs
+POST /api/v1/harnesses/bakery-help/runs/async
 Authorization: Bearer <your-access-key>
 Content-Type: application/json
 
@@ -24,9 +24,34 @@ Omit `mode`, or send `"mode": "router"`, to use router mode. Any other value ret
 
 ## Read the result
 
-The request waits for the chief's runtime run to finish, using the same completion wait as specialist runs. Cuttlely records one harness run with `mode: "agent"`; the chief's final text is its output, and specialist calls made through `run_specialist` are its steps. The chat and turn context follows those calls, so specialist workspace scope and nested flows use the admitted caller's context.
+The endpoint determines whether the request waits, for both authorized API-key and signed-in session callers:
 
-A specialist call still running when the turn ends is recorded as cancelled. Reuse `chatId` for follow-ups: the chief receives the same recent turns and rolling memory as router mode, within the chief context budget. Failed turns do not enter that conversation history.
+-   `POST /api/v1/harnesses/:name/runs` waits for the chief and returns HTTP 200 with `text`, `agents`, `chatId` and the recorded `run` (unless streaming was requested).
+-   `POST /api/v1/harnesses/:name/runs/async`, used above, returns HTTP 202 without waiting for the answer:
+
+```json
+{
+    "runId": "run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f",
+    "harness": "bakery-help",
+    "chatId": "bakery-example-001",
+    "status": "queued",
+    "statusUrl": "/api/v1/harnesses/bakery-help/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f",
+    "resultUrl": "/api/v1/harnesses/bakery-help/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f/result"
+}
+```
+
+Keep the returned `runId`. From your application's server, read `resultUrl` with the same key every few seconds until `finished` is `true`:
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/harnesses/bakery-help/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f/result" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY"
+```
+
+While queued or running, the response has `finished: false` and `result: null`. Once finished, read `status` and `error`; a successful answer is in `result.text`, with specialist steps in `result.agents`. `GET /api/v1/harnesses/:name/runs/:runId` (the returned `statusUrl`) reads the recorded history row and its `trace`, without the full answer. The key can read only runs it started and needs `harness:read`. See [Run a harness in the background](../api.md#run-a-harness-in-the-background) for the response fields and terminal statuses.
+
+Cuttlely records one harness run with `mode: "agent"`; the chief's final text is its output, and specialist calls made through `run_specialist` are its steps. The chat and turn context follows those calls, so specialist workspace scope and nested flows use the admitted caller's context.
+
+A specialist call still running when the turn ends is recorded as cancelled. On client abort, the harness history row and trace both say `cancelled`. Reuse `chatId` for follow-ups: the chief receives the same recent turns and rolling memory as router mode. Cuttlely reserves the estimated size of the compiled chief instructions and roster before fitting history, memory and the request into the remaining chief text budget. This estimate excludes runtime-added prompts, tool schemas and image tokens. Failed turns do not enter that conversation history.
 
 ## Model binding
 

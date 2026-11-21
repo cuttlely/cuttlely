@@ -2,11 +2,13 @@
 const startRun = jest.fn(async () => ({ chatId: 'c1', run: null, payload: { text: 'live' } }))
 const startCanvasRun = jest.fn()
 const assertRunRequest = jest.fn(async () => ({}))
+const startBackgroundRun = jest.fn(async () => ({ runId: 'run-example', harness: 'bakery-team', chatId: 'c1', status: 'queued' }))
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {
         assertRunRequest: (...args: any[]) => (assertRunRequest as (...a: any[]) => any)(...args),
         startRun: (...args: any[]) => (startRun as (...a: any[]) => any)(...args),
+        startBackgroundRun: (...args: any[]) => (startBackgroundRun as (...a: any[]) => any)(...args),
         startCanvasRun: (...args: any[]) => (startCanvasRun as (...a: any[]) => any)(...args)
     }
 }))
@@ -15,29 +17,53 @@ jest.mock('../../utils/clientAbort', () => ({ watchClientDisconnect: () => undef
 jest.mock('../../utils/streaming', () => ({ isStreamingRequest: () => false }))
 
 import controller from './index'
+import { setHarnessKeyLookup } from '../../services/harnesses/apiAccess'
 
-test.each([undefined, 'router', 'agent'])('POST /api/v1/harnesses/:name/runs forwards mode %s and uses the saved roster', async (mode) => {
+beforeEach(() => {
     jest.clearAllMocks()
-    const body = { question: 'hi', ...(mode === undefined ? {} : { mode }) }
-    const res: any = { json: jest.fn() }
-    await controller.createRun(
-        {
-            params: { name: 'bakery-team' },
-            body,
-            get: () => undefined,
-            user: { id: 'user-1', activeWorkspaceId: 'team-a' }
-        } as any,
-        res,
-        jest.fn()
-    )
-    expect(assertRunRequest).toHaveBeenCalledWith('bakery-team', body, 'team-a', { via: 'session' }, { expectedChatflowId: undefined })
-    expect(startRun).toHaveBeenCalledWith('bakery-team', body, {
-        source: 'api',
-        workspaceId: 'team-a',
-        caller: { via: 'session' },
-        expectedChatflowId: undefined
+    setHarnessKeyLookup(async () => ({ workspaceId: 'team-a', harnesses: ['bakery-team'] }))
+})
+afterEach(() => setHarnessKeyLookup(null))
+
+describe.each(['session', 'api_key'])('%s caller', (via) => {
+    const user = { ...(via === 'session' ? { id: 'user-1' } : { apiKeyId: 'key-example' }), activeWorkspaceId: 'team-a' }
+    const caller = via === 'session' ? { via } : { via, apiKeyId: 'key-example', harnesses: ['bakery-team'] }
+
+    test.each([undefined, 'router', 'agent'])('POST /runs waits for mode %s and uses the saved roster', async (mode) => {
+        const body = { question: 'hi', ...(mode === undefined ? {} : { mode }) }
+        const res: any = { json: jest.fn() }
+        const next = jest.fn()
+        await controller.createRun({ params: { name: 'bakery-team' }, body, get: () => undefined, user } as any, res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(assertRunRequest).toHaveBeenCalledWith('bakery-team', body, 'team-a', caller, { expectedChatflowId: undefined })
+        expect(startRun).toHaveBeenCalledWith('bakery-team', body, {
+            source: 'api',
+            workspaceId: 'team-a',
+            caller,
+            expectedChatflowId: undefined
+        })
+        expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
+        expect(startCanvasRun).not.toHaveBeenCalled()
+        expect(startBackgroundRun).not.toHaveBeenCalled()
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'live' }))
     })
-    expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
-    expect(startCanvasRun).not.toHaveBeenCalled()
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'live' }))
+
+    test('POST /runs/async returns 202 with run and polling URLs for agent mode', async () => {
+        const body = { question: 'hi', mode: 'agent' }
+        const res: any = { status: jest.fn().mockReturnThis(), json: jest.fn() }
+        const next = jest.fn()
+        await controller.startBackgroundRun({ params: { name: 'bakery-team' }, body, user } as any, res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(startRun).not.toHaveBeenCalled()
+        expect(startBackgroundRun).toHaveBeenCalledWith('bakery-team', body, expect.objectContaining({ caller, workspaceId: 'team-a' }))
+        expect(res.status).toHaveBeenCalledWith(202)
+        expect(res.json).toHaveBeenCalledWith({
+            runId: 'run-example',
+            harness: 'bakery-team',
+            chatId: 'c1',
+            status: 'queued',
+            statusUrl: '/api/v1/harnesses/bakery-team/runs/run-example',
+            resultUrl: '/api/v1/harnesses/bakery-team/runs/run-example/result'
+        })
+    })
 })

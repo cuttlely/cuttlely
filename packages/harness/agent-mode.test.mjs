@@ -16,7 +16,8 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 const { runHarness } = await import('./run.mjs')
 const { saveHarness } = await import('./store.mjs')
 const { listRuns } = await import('./history.mjs')
-const { readProfileEnv } = await import('./profile.mjs')
+const { chiefInstructions, readProfileEnv, tryProfileName } = await import('./profile.mjs')
+const { estimateTokens } = await import('./context.mjs')
 const { closeQueueDb } = await import('./lock.mjs')
 const { agentTurn, beginAgentTurn, recordAgentStep, endAgentTurn } = await import('./agent-run-context.mjs')
 const { appendTurn, readMessages, closeSessions, draftSessionScope } = await import('./session.mjs')
@@ -154,6 +155,8 @@ for (const chiefFails of [false, true])
             assert.equal(runs.length, 1)
             assert.equal(runs[0].mode, 'agent')
             assert.equal(runs[0].status, 'failed')
+            assert.equal(runs[0].trace.status, 'failed')
+            assert.equal(runs[0].trace.chief.status, 'failed')
             assert.equal(runs[0].trace.specialists.length, 1)
             assert.equal(runs[0].trace.specialists[0].status, 'completed')
             assert.equal(agentTurn(name, sessionId), null)
@@ -232,12 +235,19 @@ test('queued agent runs retain mode for inline and external worker payloads', as
 })
 
 test('agent cancellation stops its chief run and clears the delegation scope', async () => {
+    const name = 'agent-cancellation'
+    saveHarness({
+        name,
+        workspaceId: 'fixture-workspace',
+        chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
+        specialists: [{ name: 'worker' }]
+    })
     const controller = new AbortController()
     const calls = []
     let sessionId
     await assert.rejects(
         runHarness({
-            name: 'agent-fixture',
+            name,
             mode: 'agent',
             chatId: 'cancelled-chat',
             input: 'Cancelled fixture.',
@@ -263,10 +273,12 @@ test('agent cancellation stops its chief run and clears the delegation scope', a
         (error) => error.code === 'aborted'
     )
     assert.equal(calls.filter((url) => url.endsWith('/cancelled-chief/stop')).length, 1)
-    assert.equal(agentTurn('agent-fixture', sessionId), null)
-    const recorded = listRuns('agent-fixture').find((run) => run.chatId === 'cancelled-chat')
+    assert.equal(agentTurn(name, sessionId), null)
+    const recorded = listRuns(name).find((run) => run.chatId === 'cancelled-chat')
     assert.equal(recorded.mode, 'agent')
     assert.equal(recorded.status, 'cancelled')
+    assert.equal(recorded.trace.status, 'cancelled')
+    assert.equal(recorded.trace.chief.status, 'cancelled')
 })
 
 for (const interruption of ['abort', 'budget'])
@@ -376,6 +388,8 @@ for (const interruption of ['abort', 'budget'])
         assert.equal(stopSeen, true)
         const [saved] = listRuns(name)
         assert.equal(saved.status, interruption === 'abort' ? 'cancelled' : 'failed')
+        assert.equal(saved.trace.status, saved.status)
+        assert.equal(saved.trace.chief.status, saved.status)
         assert.equal(saved.trace.specialists.length, 1)
         const [step] = saved.trace.specialists
         assert.equal(step.name, 'worker')
@@ -506,10 +520,105 @@ test('agent history uses rolling memory, analyst page compaction and the chief c
         if (previous === undefined) delete process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS
         else process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS = previous
     })
-    process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS = '48'
+    process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS = String(estimateTokens(chiefInstructions({ name })) + 48)
     const result = await run()
     assert.ok(result.report.truncated.includes('chief.memory'))
     const body = bodies[1]
     const prompt = [body.instructions, ...body.conversation_history.map((message) => message.content), body.input].join('\n')
     assert.ok(prompt.length <= 48 * 4, 'history and memory fit the same chief context cap')
 })
+
+test('agent images reach the chief as multipart input without entering follow-up history', async () => {
+    const name = 'agent-images'
+    saveHarness({
+        name,
+        workspaceId: 'fixture-workspace',
+        chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
+        specialists: [{ name: 'worker' }]
+    })
+    const images = ['data:image/png;base64,iVBORw0KGgo=', 'https://example.com/fixture.png']
+    const bodies = []
+    const run = (attachments) =>
+        runHarness({
+            name,
+            mode: 'agent',
+            chatId: 'image-chat',
+            input: 'What is in this picture?',
+            images: attachments,
+            flowOptions: { workspaceId: 'fixture-workspace', harnessCaller: { via: 'session' } },
+            fetchImpl: async (_url, options) => {
+                bodies.push(JSON.parse(options.body))
+                return new Response(JSON.stringify({ status: 'completed', output: 'A loaf of bread.' }))
+            }
+        })
+    await run(images)
+    assert.deepEqual(bodies[0].input, [
+        {
+            role: 'user',
+            content: [
+                { type: 'text', text: 'What is in this picture?' },
+                ...images.map((url) => ({ type: 'image_url', image_url: { url } }))
+            ]
+        }
+    ])
+    assert.deepEqual(bodies[0].conversation_history, [])
+    await run()
+    assert.equal(bodies[1].input, 'What is in this picture?')
+    assert.deepEqual(bodies[1].conversation_history, [
+        { role: 'user', content: 'What is in this picture?' },
+        { role: 'assistant', content: 'A loaf of bread.' }
+    ])
+})
+
+for (const draft of [false, true])
+    test(`agent ${draft ? 'draft ' : ''}history reserves the compiled chief prompt from its text budget`, async (t) => {
+        const name = draft ? 'agent-draft-prompt-budget' : 'agent-prompt-budget'
+        const base = {
+            name,
+            workspaceId: 'fixture-workspace',
+            ...(draft ? { chatflowId: 'budget-canvas', tryId: 'b1713ade' } : {}),
+            chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
+            specialists: [{ name: 'worker' }]
+        }
+        const previous = process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS
+        t.after(() => {
+            if (previous === undefined) delete process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS
+            else process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS = previous
+        })
+        const bodies = []
+        const run = async (instructions, chatId, budget = 900) => {
+            process.env.CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS = String(budget)
+            const record = { ...base, chief: { ...base.chief, instructions } }
+            if (!draft) saveHarness(record, { overwrite: true })
+            const scope = draft ? draftSessionScope(record) : undefined
+            for (let turn = 0; turn < 2; turn++)
+                appendTurn(name, chatId, `Question ${turn}: ${'q'.repeat(580)}`, `Answer ${turn}: ${'a'.repeat(580)}`, [], undefined, {
+                    scope
+                })
+            return runHarness({
+                name,
+                ...(draft ? { record } : {}),
+                mode: 'agent',
+                chatId,
+                input: 'Continue.',
+                flowOptions: { workspaceId: 'fixture-workspace', harnessCaller: { via: 'session' } },
+                fetchImpl: async (_url, options) => {
+                    const body = JSON.parse(options.body)
+                    const soul = chiefInstructions({ ...record, name: draft ? tryProfileName(record.tryId) : name })
+                    bodies.push({ ...body, soul })
+                    return new Response(JSON.stringify({ status: 'completed', output: 'Continued.' }))
+                }
+            })
+        }
+        await run('', 'small-prompt')
+        const result = await run('Check the order. '.repeat(100), 'large-prompt')
+        const [small, large] = bodies
+        assert.equal(small.conversation_history.length, 4)
+        assert.ok(large.conversation_history.length < small.conversation_history.length)
+        assert.ok(result.report.truncated.includes('chief.memory'))
+        const prompt = [large.instructions, ...large.conversation_history.map((message) => message.content), large.input].join('\n')
+        assert.ok(estimateTokens(large.soul) + estimateTokens(prompt) <= 900)
+        assert.equal(large.instructions, undefined, 'compiled instructions are loaded by the runtime, not sent twice')
+        await run('Check the order. '.repeat(100), 'unlimited-prompt', 0)
+        assert.equal(bodies[2].conversation_history.length, 4, 'zero keeps the unlimited text budget')
+    })
