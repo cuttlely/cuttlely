@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Retiring a multiplexed agent-runtime profile now closes that profile's log files and MCP stderr handles, so temporary harness profiles no longer leave those descriptors open. A profile that is still served keeps writing its logs, and its MCP servers stay connected. [#536](https://github.com/cuttlely/cuttlely/issues/536).
+
 ## [1.7.12] - 2026-11-21
 
 ### Fixed

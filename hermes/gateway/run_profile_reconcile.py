@@ -215,6 +215,10 @@ class GatewayProfileReconcileMixin:
         """Stop and unroute one profile: cancel its reconnects, tear down its adapters, drop its
         bookkeeping and release this process's handles into its home so the deleter's rmtree succeeds.
 
+        Handle release includes session databases, holographic memory stores, this profile's MCP
+        servers and stderr log, and routed profile log handlers. MCP shutdown is always scoped to
+        this profile's hermes_home_key; a process-wide or launch-profile-scoped call would stop other profiles' servers.
+
         The whole teardown runs inside the removed profile's own runtime scope: adapter disconnect
         hooks, the agent-cache eviction (provider/memory shutdown) and the state/memory handle
         release all read config and credentials at call time, and this coroutine runs on the
@@ -256,6 +260,17 @@ class GatewayProfileReconcileMixin:
             with _log_suppressed(logging.DEBUG, "memory-store release failed", exc_info=True):
                 from plugins.memory.holographic.store import MemoryStore
                 MemoryStore.release_all_under(home)
+            # Close this profile's MCP transports and cached stderr log, then its
+            # routed agent/errors/gateway log handlers. Scope must be this profile's
+            # home key: the process-wide wildcard and the launch-profile scope would
+            # tear down every other profile's servers.
+            with _log_suppressed(logging.DEBUG, "MCP server shutdown failed", exc_info=True):
+                from hermes_constants import hermes_home_key
+                from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+                shutdown_mcp_servers(scope=hermes_home_key(home))
+            with _log_suppressed(logging.DEBUG, "profile log handler release failed", exc_info=True):
+                from hermes_logging import release_profile_log_handlers
+                release_profile_log_handlers(home)
             logger.info("[MULTIPLEX] Profile '%s' unserved — %d adapter(s) stopped and unrouted", name, len(adapters))
 
 
