@@ -243,23 +243,18 @@ def try_import(name):
         dynamic_notes.append(f"import {name} failed: {type(error).__name__}: {error}")
         return None
 
-for name in (
-    "hermes_yaml", "cli", "run_agent", "model_tools", "toolsets", "tools.registry",
-    "tools.delegate_tool", "tools.delegate_tool_toolsets", "tools.mcp_tool", "tools.mcp_tool_cuttlely",
-    "tools.skills_tool", "gateway.run", "gateway.platforms.api_server", "hermes_cli.main",
-    "hermes_cli.tools_config", "tui_gateway.server",
-):
-    try_import(name)
-
 # Boot the API server the way scripts/cuttlely-hermes-api.py does, long enough for startup imports.
-port = "8765"
+import socket, threading, time
+with socket.socket() as probe:
+    probe.bind(("127.0.0.1", 0))
+    port = str(probe.getsockname()[1])
 os.environ["API_SERVER_PORT"] = port
 (home / ".env").write_text(
     "\n".join([
         "API_SERVER_ENABLED=true",
         "API_SERVER_HOST=127.0.0.1",
         f"API_SERVER_PORT={port}",
-        "API_SERVER_KEY=measure",
+        f"API_SERVER_KEY={os.urandom(32).hex()}",
         "",
     ]),
     encoding="utf-8",
@@ -286,7 +281,16 @@ os.environ["API_SERVER_PORT"] = port
     ]),
     encoding="utf-8",
 )
-import socket, threading, time
+# Config readers cache their first load; prepare the isolated home before imports,
+# as the Cuttlely launcher does.
+for name in (
+    "hermes_yaml", "cli", "run_agent", "model_tools", "toolsets", "tools.registry",
+    "tools.delegate_tool", "tools.delegate_tool_toolsets", "tools.mcp_tool", "tools.mcp_tool_cuttlely",
+    "tools.skills_tool", "gateway.run", "gateway.platforms.api_server", "hermes_cli.main",
+    "hermes_cli.tools_config", "tui_gateway.server",
+):
+    try_import(name)
+
 def _boot_gateway():
     try:
         import cli
@@ -526,7 +530,18 @@ function main() {
         encoding: 'utf8',
         timeout: 150000,
         maxBuffer: 64 * 1024 * 1024,
-        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1', HERMES_HOME: home }
+        env: {
+            ...process.env,
+            PYTHONDONTWRITEBYTECODE: '1',
+            HOME: home,
+            DATABASE_PATH: home,
+            SECRETKEY_PATH: home,
+            BLOB_STORAGE_PATH: home,
+            CUTTLELY_DATA_DIR: home,
+            LOG_PATH: home,
+            HERMES_HOME: home,
+            HERMES_RUNTIME_DIR: path.join(home, 'runtime')
+        }
     })
     if (res.stderr) process.stderr.write(res.stderr)
     if (res.status !== 0 || !fs.existsSync(reportFile)) {

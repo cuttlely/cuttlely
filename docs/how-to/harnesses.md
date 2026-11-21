@@ -493,6 +493,8 @@ While that pass runs, the harness gateway's `GET /health` (loopback, port `43118
 
 ## Agent runtime health
 
+The agent runtime answers `/health` as soon as its API server is serving. MCP tools connect in the background, with up to four profiles discovering at once. A run waits only for its own profile's discovery, within the existing first-run discovery limit (15 seconds by default). A server that cannot initialize loses only its own tools; working servers remain available. Discovery logs show each profile's start and end, tool count, failed server names and elapsed time. The default per-server connection timeout remains 60 seconds.
+
 Specialists run in the agent runtime, which `scripts/start-cuttlely.sh` starts after the harness gateway answers. `GET /api/v1/ping` answers `503` with the body `boot recompile` until the boot profile compile finishes. After that it stays `pong` while `X-Cuttlely-Hermes` is `up`, `degraded`, or `restarting`. `down` is HTTP 503 and the body `hermes down`. If the compile runs past the start-script cap (180 seconds by default, 300 at most), ping can answer `pong` while chat and prediction still answer `503` with `Retry-After`.
 
 Gateways, load balancers and container liveness probes should use `/api/v1/ping/live` instead. It keeps the same boot and database checks and health headers, but stays 200 during runtime recovery so the UI and operator recovery routes remain reachable. Both health endpoints are unauthenticated. Keep strict ping for monitoring and agent-capacity checks. Verify custom gateway probes after upgrading. [Health checks](./reverse-proxy.md#health-checks).
