@@ -523,7 +523,7 @@ const opsProfile = compileProfile(ops)
 }
 
 check('profile homes differ', researchProfile.dir !== opsProfile.dir)
-check('chief toolsets are delegation, memory, session_search', CHIEF_TOOLSETS.join(',') === 'delegation,memory,session_search')
+check('chief toolsets are roster, memory, session_search', CHIEF_TOOLSETS.join(',') === 'memory,session_search,mcp-roster')
 
 const researchConfig = fs.readFileSync(path.join(researchProfile.dir, 'config.yaml'), 'utf8')
 const opsConfig = fs.readFileSync(path.join(opsProfile.dir, 'config.yaml'), 'utf8')
@@ -533,7 +533,9 @@ check(
 )
 check(
     'research api_server toolsets are the chief set',
-    researchConfig.includes('- delegation') && researchConfig.includes('- memory') && researchConfig.includes('- session_search')
+    apiServerTools(researchConfig).includes('mcp-roster') &&
+        researchConfig.includes('- memory') &&
+        researchConfig.includes('- session_search')
 )
 check(
     'ops config does not contain the research token',
@@ -720,7 +722,7 @@ check(
         !syncedMath.codeExecution &&
         !syncedMath.fileAccess &&
         !syncedMath.shell &&
-        !fs.existsSync(profileFile('calculator--math', 'config.yaml')),
+        fs.existsSync(profileFile('calculator--math', 'config.yaml')),
     calculatorCanvasError?.message
 )
 
@@ -746,7 +748,7 @@ check(
         fs.existsSync(profileFile('field-team--browser', 'config.yaml')) &&
         fs.existsSync(profileFile('field-team--python', 'config.yaml')) &&
         fs.existsSync(profileFile('field-team--files', 'config.yaml')) &&
-        !fs.existsSync(profileFile('field-team--api', 'config.yaml')) &&
+        fs.existsSync(profileFile('field-team--api', 'config.yaml')) &&
         fs.readFileSync(profileFile('field-team--python', 'config.yaml'), 'utf8').includes('code_execution'),
     fieldTeamCanvasError?.message
 )
@@ -798,7 +800,7 @@ check(
             (edge) => edge.source === 'plainText_0' && edge.target === 'memoryVectorStore_0' && edge.targetHandle?.includes('document')
         ) &&
         fs.existsSync(profileFile('chief-of-staff--analyst', 'config.yaml')) &&
-        !fs.existsSync(profileFile('chief-of-staff--researcher', 'config.yaml')) &&
+        fs.existsSync(profileFile('chief-of-staff--researcher', 'config.yaml')) &&
         !/postgres(ql)?:\/\//i.test(analystConfig) &&
         !/postgres(ql)?:\/\//i.test(JSON.stringify(staffFlow)),
     staffCanvasError?.message
@@ -2342,7 +2344,7 @@ check(
 )
 check(
     'the parent profile does not get an analyst bridge',
-    !chiefStaffConfig.includes('CUTTLELY_ANALYST_BRIDGE') &&
+    !chiefStaffConfig.includes('mcp-bridge.mjs') &&
         !/(^|\n) {2}analyst:/.test(yamlSection(chiefStaffConfig, 'mcp_servers')) &&
         !yamlSection(chiefStaffConfig, 'agent').includes('- analyst') &&
         !chiefStaffConfig.includes('mcp-analyst') &&
@@ -3018,7 +3020,7 @@ check(
 )
 check(
     'model keys in record or tool credentials never reach a profile',
-    !recordKeyedEnvs[0].OPENAI_API_KEY &&
+    gatewayCredential(recordKeyedEnvs[0]) &&
         !recordKeyedEnvs[0].XAI_API_KEY &&
         !recordKeyedEnvs[1].XAI_API_KEY &&
         gatewayCredential(recordKeyedEnvs[1]) &&
@@ -3683,7 +3685,7 @@ check(
     'chief and inline specialist calls use the chief credential',
     teamCalls.length > 1 &&
         teamCalls.every((entry) => !hasReasoningField(entry.opts) && !hasReasoningField(entry.bindOpts)) &&
-        !readProfileEnv('team').OPENAI_API_KEY &&
+        gatewayCredential(readProfileEnv('team')) &&
         ['team--browser', 'team--coder', 'team--files'].every((profile) => {
             const env = readProfileEnv(profile)
             return gatewayCredential(env) && !String(env.OPENAI_API_KEY).includes('team-model-key')
@@ -3842,8 +3844,8 @@ check(
     yamlSection(filesYaml, 'terminal').includes(path.join(dataDir, 'workspaces', 'team--files'))
 )
 check(
-    'in-process specialists get no Hermes profile',
-    !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'team--orders'))
+    'in-process specialists have a profile for agent delegation',
+    fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'team--orders'))
 )
 
 const followFrom = contract.seen.length
@@ -4071,7 +4073,7 @@ check(
 check('catalog does not require a langgraph upgrade', catalog.langgraphUpgradeBlocked === false)
 
 const researchAfter = fs.readFileSync(path.join(researchProfile.dir, 'config.yaml'), 'utf8')
-check('sample chief still delegates', apiServerTools(researchAfter).includes('delegation'))
+check('sample chief delegates through the roster', apiServerTools(researchAfter).includes('mcp-roster'))
 check('sample delegation is not pinned to a provider', !yamlSection(researchAfter, 'delegation').includes('provider:'))
 
 const modelFlow = {
@@ -4099,8 +4101,9 @@ check('chat model is not stored as a specialist module', syncedModel.specialists
 const canvasConfig = fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'model-canvas', 'config.yaml'), 'utf8')
 const canvasDelegation = yamlSection(canvasConfig, 'delegation')
 check(
-    'shared specialist model pins delegation',
-    Boolean(canvasDelegation) &&
+    'shared specialist model uses the roster',
+    !canvasDelegation &&
+        apiServerTools(canvasConfig).includes('mcp-roster') &&
         !canvasDelegation.includes('provider:') &&
         syncedModel.chief.model?.nodeName === 'chatXAI' &&
         syncedModel.specialists[0].model?.nodeName === 'chatOpenAI' &&
@@ -4108,12 +4111,16 @@ check(
     canvasDelegation
 )
 check(
-    'chief model stays on the profile',
-    yamlSection(canvasConfig, 'model').includes('provider: custom') && yamlSection(canvasConfig, 'model').includes('default: model-canvas')
+    'chief model is bound to the gateway',
+    yamlSection(canvasConfig, 'model').includes('provider: custom') &&
+        yamlSection(canvasConfig, 'model').includes('default: model-canvas') &&
+        canvasConfig.includes(`base_url: ${JSON.stringify(readProfileEnv('model-canvas').OPENAI_BASE_URL)}`) &&
+        gatewayCredential(readProfileEnv('model-canvas')) &&
+        readProfileEnv('model-canvas').CUTTLELY_GATEWAY_ROLE === 'chief'
 )
 check(
-    'uniform specialists do not get their own profiles',
-    !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'model-canvas--reader'))
+    'uniform specialists get profiles for chief delegation',
+    fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'model-canvas--reader'))
 )
 
 let noChiefCanvas = null
@@ -4278,6 +4285,12 @@ saveHarness(mixed, { overwrite: true })
 compileProfile(mixed)
 const mixedConfig = fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'model-mixed', 'config.yaml'), 'utf8')
 const mixedTools = apiServerTools(mixedConfig)
+check(
+    'mixed chief config and gateway credentials use the same gateway',
+    mixedConfig.includes(`base_url: ${JSON.stringify(readProfileEnv('model-mixed').OPENAI_BASE_URL)}`) &&
+        gatewayCredential(readProfileEnv('model-mixed')) &&
+        readProfileEnv('model-mixed').CUTTLELY_GATEWAY_ROLE === 'chief'
+)
 check(
     'mixed chief drops delegation and offers the roster tool',
     !mixedTools.includes('delegation') && mixedTools.includes('mcp-roster'),
@@ -7221,7 +7234,7 @@ await expectCase('typed MCP server extras stay raw', async () => {
 await expectCase('hermes profiles carry a gateway token, not a provider key', async () => {
     const saved = await capture(() =>
         syncModelCanvas({
-            name: 'maToken',
+            name: 'matoken',
             chatflowId: 'canvas-token',
             workspaceId: 'w1',
             componentNodes: { fakeToolChat: { credential: { name: 'fakeKey' } } },
@@ -7239,7 +7252,7 @@ await expectCase('hermes profiles carry a gateway token, not a provider key', as
         check('hermes profiles carry a gateway token, not a provider key', false, saved.error.message)
         return
     }
-    const profiles = profilesFor('maToken').filter((profile) => profile.name.includes('--'))
+    const profiles = profilesFor('matoken')
     const tokens = profiles.map((profile) => gatewayTokens(profile.env)[0]).filter(Boolean)
     const yamlOk = profiles.every(
         (profile) =>
@@ -7248,7 +7261,12 @@ await expectCase('hermes profiles carry a gateway token, not a provider key', as
     const leaked = profiles.some((profile) => profile.envText.includes('super-secret-profile-value'))
     check(
         'hermes profiles carry a gateway token, not a provider key',
-        profiles.length >= 2 && tokens.length === profiles.length && new Set(tokens).size === tokens.length && yamlOk && !leaked,
+        profiles.length === 3 &&
+            profiles.some((profile) => profile.env.CUTTLELY_GATEWAY_ROLE === 'chief') &&
+            tokens.length === profiles.length &&
+            new Set(tokens).size === tokens.length &&
+            yamlOk &&
+            !leaked,
         `profiles ${profiles.length} tokens ${tokens.length}`
     )
 })

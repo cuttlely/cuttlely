@@ -73,8 +73,8 @@ nice -n 19 npx eslint <changed-ui-files>
 ```
 
 ```bash
-pnpm verify                   # the full gate; `pnpm verify --help` lists the 28 steps
-pnpm verify --fast            # lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
+pnpm verify                   # the full gate; `pnpm verify --help` lists the 29 steps
+pnpm verify --fast            # lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, version-consistency, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
 node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
@@ -83,6 +83,8 @@ CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
 node scripts/media-size.mjs          # image or video over 5 MB not in scripts/media-size.allowlist
 node scripts/proprietary-paths.mjs   # the lint CI job runs it with --base HEAD^1; verify does not
 ```
+
+The `version-consistency` step runs in both modes beside the flow-history `versioning` tests. Its single spot table in `scripts/version-consistency.mjs` checks current release notices and Docker/widget pins against the root package version, accepts the hero's build-time `{version}`, and fails with file and line diagnostics for stale or missing spots. Historical sections are excluded. Run it alone with `node scripts/version-consistency.mjs`; its fixture tests run in `verify-test` and can be run with `node --test scripts/version-consistency.test.mjs scripts/verify.test.mjs`. See [release preparation](../../docs/releases.md#prepare-on-a-fresh-ci-runner).
 
 The full gate needs Linux (CI, a Linux machine or the Docker image). On macOS `packages/harness/profile.mjs` refuses to compile agent profiles, which fails the verify-test, harness-queue-trace, harness, workspace-scope-isolation and canvas-actions steps, and `scripts/harness-run-timeout.test.mjs` in verify-test then never exits, so the gate hangs instead of failing.
 

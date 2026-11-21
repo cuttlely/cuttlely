@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
-**1.7.12 可让 roster 通过 agent runtime 使用的 stdio 框架进行连接。** roster 自 1.0 以来从未连接成功。每个混用模型的 harness 启动约加快 60 秒（两个约加快 2 分钟），且 chief 的 `run_specialist` 工具会完成注册。路由器流量保持不变。对已编译的混用模型 chief 发出的直接请求目前还不会到达模型（尚未绑定提供者）；这项限制列在 1.7.13。同时开始、恢复、暂停或取消 ETL 运行时，不再让已取消或已暂停的运行继续执行，也不会为同一管道再启动第二次运行。[ETL](../docs/how-to/etl.md) · [升级指南](../docs/upgrading.md#upgrading-to-1712)。
+**1.7.12 可让 roster 通过 agent runtime 使用的 stdio 分帧格式进行连接。** roster 自 1.0 以来从未连接成功。每个混用模型的 harness 启动约加快 60 秒（两个约加快 2 分钟），且 chief 的 `run_specialist` 工具会完成注册。路由器流量保持不变。同时开始、恢复、暂停或取消 ETL 运行时，不再让已取消或已暂停的运行继续执行，也不会为同一管道再启动第二次运行。[ETL](../docs/how-to/etl.md) · [升级指南](../docs/upgrading.md#upgrading-to-1712)。
 
 **1.7.11 不再让 agent runtime 在冷启动时陷入死锁。** 当 runtime 状态为 `restarting` 时，启动工具列表不再被拒绝，因此可以响应健康检查并完成启动。在此之前，工具调用与聊天补全仍会被拒绝。[#542](https://github.com/cuttlely/cuttlely/issues/542) · [升级指南](../docs/upgrading.md#upgrading-to-1711)。
 

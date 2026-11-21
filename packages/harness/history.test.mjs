@@ -7,9 +7,17 @@ import { after, test } from 'node:test'
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-private-run-diagnostics-'))
 process.env.CUTTLELY_DATA_DIR = temporary
 const { closeQueueDb, database } = await import('./lock.mjs')
-const { beginHarnessRun, finishHarnessRun, getRun, getRunDiagnostics, getRunResult, listRuns, saveRunResult } = await import(
-    './history.mjs'
-)
+const {
+    beginHarnessRun,
+    failQueuedRun,
+    finishHarnessRun,
+    getRun,
+    getRunDiagnostics,
+    getRunResult,
+    listRuns,
+    queueHarnessRun,
+    saveRunResult
+} = await import('./history.mjs')
 
 after(() => {
     closeQueueDb()
@@ -75,6 +83,17 @@ test('default-off and empty diagnostics do not change public history or saved an
             assert.ok(!/"diagnostics(?:_json)?"\s*:/.test(JSON.stringify(value)))
         }
     }
+})
+
+test('queued agent mode survives failure before execution while router records retain their shape', () => {
+    const queued = queueHarnessRun({ name: 'queued-agent-mode', mode: 'agent', input: 'Example task.' })
+    assert.equal(queued.status, 'queued')
+    assert.equal(queued.mode, 'agent')
+    const failed = failQueuedRun(queued.harness, queued.id, { code: 'aborted', message: 'Example cancelled task.' })
+    assert.equal(failed.status, 'failed')
+    assert.equal(failed.mode, 'agent')
+    const router = queueHarnessRun({ name: 'queued-router-mode', input: 'Example task.' })
+    assert.equal(Object.hasOwn(router, 'mode'), false)
 })
 
 test('private diagnostic lookup preserves harness, run and initiating-key scope', () => {
