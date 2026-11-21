@@ -1,4 +1,9 @@
 // The canvas test chat runs the draft; the public prediction API runs Live.
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import errorHandler from '../../middlewares/errors'
+
 const utilBuildChatflow = jest.fn(async () => ({ text: 'ok' }))
 jest.mock('../../utils/buildChatflow', () => ({ utilBuildChatflow: (...args: any[]) => (utilBuildChatflow as any)(...args) }))
 jest.mock('../../services/chatflows', () => ({
@@ -11,6 +16,10 @@ jest.mock('../../services/harnesses', () => ({
     default: { startCanvasRun: (...args: any[]) => (startCanvasRun as (...a: any[]) => any)(...args) }
 }))
 jest.mock('../../utils/sessionOwnership', () => ({ bindRequestSession: jest.fn() }))
+jest.mock('../../services/flow-drafts', () => ({
+    __esModule: true,
+    default: { flowDataForTestChat: async (flow: { flowData: string }) => flow.flowData }
+}))
 const sseStreamer = { addClient: jest.fn(), removeClient: jest.fn(), streamMetadataEvent: jest.fn(), streamErrorEvent: jest.fn() }
 jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: () => ({ sseStreamer }) }))
 
@@ -18,6 +27,48 @@ import controller from './index'
 import predictionsService from '../../services/predictions'
 
 const chatflows = () => jest.requireMock('../../services/chatflows').default
+
+test.each([
+    ['HARNESS', []],
+    ['CHATFLOW', [{ data: { name: 'harness' } }]],
+    ['AGENTFLOW', [{ data: { name: 'agent', inputs: { tools: [{ agentSelectedTool: 'harness' }] } } }]]
+])('runtime down refuses %s before streaming with 503 and Retry-After', async (type, nodes) => {
+    const previous = process.env.CUTTLELY_DATA_DIR
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-internal-runtime-'))
+    process.env.CUTTLELY_DATA_DIR = dir
+    fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'cooldown' }))
+    utilBuildChatflow.mockClear()
+    startCanvasRun.mockClear()
+    chatflows().getChatflowByIdForWorkspace.mockResolvedValueOnce({ id: 'flow-1', type, flowData: JSON.stringify({ nodes }) })
+    const next = jest.fn()
+    const res: any = {
+        setHeader: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+        flushHeaders: jest.fn()
+    }
+    try {
+        await controller.createInternalPrediction(
+            { params: { id: 'flow-1' }, body: { streaming: true }, user: { id: 'user-1', activeWorkspaceId: 'team-a' } } as any,
+            res,
+            next
+        )
+        expect(next).toHaveBeenCalledTimes(1)
+        await errorHandler(next.mock.calls[0][0], {} as any, res, jest.fn())
+        expect(res.status).toHaveBeenCalledWith(503)
+        expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '5')
+        expect(res.json).toHaveBeenCalledWith(
+            expect.objectContaining({ code: 'RUNTIME_UNAVAILABLE', message: expect.stringMatching(/agent runtime is unavailable/i) })
+        )
+        expect(res.flushHeaders).not.toHaveBeenCalled()
+        expect(utilBuildChatflow).not.toHaveBeenCalled()
+        expect(startCanvasRun).not.toHaveBeenCalled()
+    } finally {
+        if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = previous
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
 
 test('the canvas test chat asks for the draft', async () => {
     const res: any = { json: jest.fn() }

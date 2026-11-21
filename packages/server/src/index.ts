@@ -59,7 +59,7 @@ import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateC
 import { identityStore } from './identity/production'
 import { applyDocumentFrameHeaders, applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
 import { announceFirstRunSetup, createStartupPrinter, reissueExpiredSetupIfOpen, watchFirstRunSetup } from './identity/setupCode'
-import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
+import { markDatabaseOpened, readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
 import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from './startup/flowiseUpgradeGuard'
@@ -115,6 +115,7 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
+            markDatabaseOpened()
             logger.info('📦 [server]: Data Source initialized successfully')
 
             // Run Migrations Scripts

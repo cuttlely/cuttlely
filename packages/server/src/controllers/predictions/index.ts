@@ -17,6 +17,7 @@ import { isStreamingRequest } from '../../utils/streaming'
 import { validateFlowAPIKey } from '../../utils/validateKey'
 import { flowHarnessCaller } from '../../utils/flowHarnessCaller'
 import { runHarnessCanvasChat } from './runHarnessCanvasChat'
+import { assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
 
 // Send input message and get prediction result (External)
 const createPrediction = async (req: Request, res: Response, next: NextFunction) => {
@@ -42,6 +43,7 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             if (!(await validateFlowAPIKey(req, chatflow))) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
+            assertFlowRuntimeAvailable(chatflow)
             // A harness canvas has no node.init. The in-app chat already hands it to the harness runtime.
             // Rate limit, origin and flow authorization above stay as they are.
             if (chatflow.type === 'HARNESS') {

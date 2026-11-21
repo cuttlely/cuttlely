@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
+import { removeSpecificFileFromUpload } from '@cuttlely/components'
 
 // Name and code, not instanceof: the storage package and the server can each load their own multer.
 const isMulterFileTooLarge = (err: unknown): boolean => {
@@ -16,17 +17,34 @@ const asClientError = (err: AppError): AppError => {
     return err
 }
 
+// A request refused because the agent runtime is down never reaches the step that clears its multipart temp files.
+// Remove them here, whichever route refused it, so client retries during an outage do not fill the disk.
+export async function removeStoredUploads(req: Request): Promise<void> {
+    const files = Array.isArray(req.files) ? (req.files as Array<{ path?: string; key?: string }>) : []
+    for (const file of files) {
+        const tempPath = file.path ?? file.key
+        if (!tempPath) continue
+        try {
+            await removeSpecificFileFromUpload(tempPath)
+        } catch {
+            // Already gone.
+        }
+    }
+}
+
 // we need eslint because we have to pass next arg for the error middleware
 // eslint-disable-next-line
 async function errorHandlerMiddleware(err: AppError, req: Request, res: Response, next: NextFunction) {
     const error = asClientError(err)
     const statusCode = error.statusCode || StatusCodes.INTERNAL_SERVER_ERROR
+    if (error.code === 'RUNTIME_UNAVAILABLE') await removeStoredUploads(req)
     if (error.message.includes('401 Incorrect API key provided'))
         error.message = '401 Unauthorized – check your API key and ensure it has access to the requested model.'
     let displayedError = {
         statusCode,
         success: false,
         message: error.message,
+        ...(error.code === 'RUNTIME_UNAVAILABLE' ? { code: error.code } : {}),
         // Provide error stack trace only in development
         stack: process.env.NODE_ENV === 'development' ? error.stack : {}
     }

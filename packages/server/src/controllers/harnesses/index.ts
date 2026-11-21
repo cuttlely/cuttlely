@@ -20,6 +20,7 @@ import { trackBackgroundRun } from '../../settings/runs'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
+import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
 
 // The caller's active team. An API key's user carries that key's workspace. A missing id is 400, not every harness.
 function activeWorkspace(req: Request): string {
@@ -115,6 +116,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         caller = await harnessCallerFor(req)
         expectedChatflowId = caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined
         await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, caller, { expectedChatflowId })
+        assertRuntimeAvailable()
         await completeAccessKeyAdmission(req)
         caller = await harnessCallerFor(req)
     } catch (error) {
