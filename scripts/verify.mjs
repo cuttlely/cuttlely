@@ -139,6 +139,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'grafana-dashboard.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'release-version.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'faq-nav.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'flowise-page.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
