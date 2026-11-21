@@ -5,21 +5,22 @@ Subject: [PATCH] cuttlely: background-mcp-discovery
 
 Serve gateway health while MCP discovery runs across up to four profiles. Gate each API run on its own profile and cancel startup discovery on shutdown. Build /v1/runs agents in a worker under the run profile scope so the discovery wait keeps health and stop requests responsive; recheck shutdown and stop before starting the turn.
 ---
- gateway/cuttlely_mcp_startup.py      |  95 ++++++++++++++++++++
+ gateway/cuttlely_mcp_startup.py      |  106 +++++++++++++++++++++++++++++++
  gateway/platforms/api_server_runs.py |  19 +++-
  gateway/run.py                       | 128 +++++++++++----------------
- 3 files changed, 161 insertions(+), 81 deletions(-)
+ 3 files changed, 172 insertions(+), 81 deletions(-)
  create mode 100644 gateway/cuttlely_mcp_startup.py
 
 diff --git a/gateway/cuttlely_mcp_startup.py b/gateway/cuttlely_mcp_startup.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..42747d2bddfe37c69e2c42790b0150112a9d0baa
+index 0000000000000000000000000000000000000000..4202d2f081afeecb54a1d3597a65afb026203025
 --- /dev/null
 +++ b/gateway/cuttlely_mcp_startup.py
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,106 @@
 +"""Background gateway MCP discovery and profile-local first-run readiness."""
 +
 +import asyncio
++import sys
 +import threading
 +import time
 +from contextlib import nullcontext
@@ -55,13 +56,23 @@ index 0000000000000000000000000000000000000000..42747d2bddfe37c69e2c42790b015011
 +        _pending.update(self.events)
 +        self.task = None
 +
++    def _emit_info(self, message, *args):
++        # Production Cuttlely boots Hermes at verbosity 0 (stderr WARNING only),
++        # so INFO would stay in gateway.log and miss container/Render logs.
++        self.logger.info(message, *args)
++        try:
++            sys.stderr.write((message % args) + "\n")
++            sys.stderr.flush()
++        except Exception:
++            pass
++
 +    def start(self):
 +        self.task = asyncio.create_task(self._run(), name="gateway-mcp-discovery")
 +
 +    def _discover(self, name, home):
 +        started = time.monotonic()
 +        status = []
-+        self.logger.info("MCP discovery start for profile '%s'", name)
++        self._emit_info("MCP discovery start for profile '%s'", name)
 +        try:
 +            from tools.mcp_oauth import suppress_interactive_oauth
 +            from tools.mcp_tool_discovery import discover_mcp_tools, get_mcp_status
@@ -79,7 +90,7 @@ index 0000000000000000000000000000000000000000..42747d2bddfe37c69e2c42790b015011
 +                      if not s["disabled"] and s["status"] not in ("connected", "lazy")]
 +            for server in failed:
 +                self.logger.warning("MCP discovery failed for profile '%s', server '%s'", name, server)
-+            self.logger.info(
++            self._emit_info(
 +                "MCP discovery end for profile '%s': %d tools, failed servers: %s, elapsed %.2fs",
 +                name, sum(s["tools"] for s in status), ", ".join(failed) or "none",
 +                time.monotonic() - started)

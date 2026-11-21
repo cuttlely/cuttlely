@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Agent-runtime MCP discovery start and end lines now also go to stderr, so they appear in container and hosted logs. They already went to the runtime log files. Failed-server lines were already warnings on stderr.
 -   Retiring a multiplexed agent-runtime profile now closes that profile's log files and MCP stderr handles, so temporary harness profiles no longer leave those descriptors open. A profile that is still served keeps writing its logs, and its MCP servers stay connected. [#536](https://github.com/cuttlely/cuttlely/issues/536).
 -   Harness runs: a client disconnect on a synchronous `POST /api/v1/harnesses/:name/runs` request now cancels the run (it already did for streamed requests), so an abandoned agent-mode request stops the chief and records `cancelled`.
 -   Documentation removes the superseded 1.7.12 direct-chief limitation and corrects the Chinese translations of stdio framing.

@@ -4,6 +4,8 @@
 
 #536 leftover work: retiring a multiplexed profile closes that profile's log files and MCP stderr handles (Hermes patch 0014), scoped so a still-served sibling keeps working. Reconcile uses the same path. Issue #536 stays open until this change merges.
 
+Also in this change: MCP discovery start and end lines are written to stderr as well as the runtime log files, so they appear in container and hosted logs (patch 0013 regenerated).
+
 1.7.13 PR A prepares direct chief execution through the existing runs API with optional agent mode; router mode remains the default. Chief gateway binding and the compiler revision change are included. The local base is the 1.7.12 release commit `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)). Publication and deployment remain separate. Outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540).
 
 1.7.12 is published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. Release notes are dated `## [1.7.12] - 2026-11-21`. The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)).
