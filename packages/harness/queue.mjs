@@ -331,10 +331,6 @@ function resultWithRunId(result, runId) {
 }
 
 export async function executeJob(job) {
-    if (cancelRequested(job.id) || job.cancelRequested) {
-        finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'Client disconnected' })
-        return
-    }
     const local = localRuns.get(job.id)
     const controller = new AbortController()
     const onLocalAbort = () => {
@@ -348,6 +344,23 @@ export async function executeJob(job) {
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
     let savedId = ''
+    const onRecorded = (row) => {
+        const id = savedRunId(row)
+        if (id) savedId = id
+        local?.onRecorded?.(row)
+    }
+    const runArgs = {
+        name: job.payload.name,
+        mode: job.payload.mode,
+        chatId: job.payload.chatId,
+        input: job.payload.input,
+        source: local?.source || job.payload.source,
+        runId: local?.runId || job.payload.runId || undefined,
+        apiKeyId: local?.apiKeyId || job.payload.apiKeyId || undefined,
+        traceId: local?.traceId || job.payload.traceId,
+        metadata: jobMetadata(job, local),
+        onRecorded
+    }
     try {
         // No localRuns entry means another process claimed the job. Refuse before runHarness so no history row is written.
         if (!local) {
@@ -357,27 +370,23 @@ export async function executeJob(job) {
                 throw new HarnessError('wrong_workspace', `Harness "${job.payload.name}" belongs to another workspace.`)
             }
         }
-        const { runHarness, assertHarnessWorkspace } = await import('./run.mjs')
+        const { runHarness, assertHarnessWorkspace, recordCancelledHarnessRun } = await import('./run.mjs')
         assertHarnessWorkspace(job.payload.name, callerFlowOptions(job.payload))
+        const cancelBeforeStart = () => {
+            if (!job.cancelRequested && !cancelRequested(job.id) && !local?.signal?.aborted) return
+            controller.abort()
+            recordCancelledHarnessRun(runArgs)
+            throw new HarnessError('aborted', 'Client disconnected')
+        }
+        cancelBeforeStart()
         availability.assertRuntimeAvailable()
         const runtime = await jobRuntime(job, local)
+        cancelBeforeStart()
         // The waiter is another process when the queue is external, so its onRecorded never runs.
         // The saved history id rides on the job result. The waiter reads it and then drops the field.
         const result = await runHarness({
-            name: job.payload.name,
-            mode: job.payload.mode,
-            chatId: job.payload.chatId,
-            input: job.payload.input,
+            ...runArgs,
             images: job.payload.images,
-            source: local?.source || job.payload.source,
-            runId: local?.runId || job.payload.runId || undefined,
-            apiKeyId: local?.apiKeyId || job.payload.apiKeyId || undefined,
-            traceId: local?.traceId || job.payload.traceId,
-            onRecorded: (row) => {
-                const id = savedRunId(row)
-                if (id) savedId = id
-                local?.onRecorded?.(row)
-            },
             budgetMs: local?.budgetMs ?? job.payload.budgetMs ?? undefined,
             timeoutMs: local?.timeoutMs ?? job.payload.timeoutMs ?? undefined,
             baseUrl: local?.baseUrl,
@@ -385,7 +394,6 @@ export async function executeJob(job) {
             componentNodes: runtime.componentNodes,
             loadNode: runtime.loadNode,
             forceSpecialistFailure: local?.forceSpecialistFailure,
-            metadata: jobMetadata(job, local),
             ...(job.payload.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
             modelBaseUrl: local?.modelBaseUrl,
             flowOptions: runtime.flowOptions,
@@ -518,7 +526,12 @@ function kickInline() {
 }
 
 // Test seam: pause a persisted job before any worker claims it.
-export const queueHooks = { afterEnqueue: null }
+export const queueHooks = {
+    afterEnqueue: null,
+    get localRunCount() {
+        return localRuns.size
+    }
+}
 
 export async function runQueuedHarness(args) {
     // Refused before a job row, the same as a run that does not queue.
@@ -537,8 +550,13 @@ export async function runQueuedHarness(args) {
     }
     if (queueHooks.afterEnqueue) await queueHooks.afterEnqueue(job)
     localRuns.set(job.id, args)
-    kickInline()
-    return waitForJob(job.id, { onEvent: args.onEvent, signal: args.signal, timeoutMs: args.timeoutMs })
+    try {
+        kickInline()
+        return await waitForJob(job.id, { onEvent: args.onEvent, signal: args.signal, timeoutMs: args.timeoutMs })
+    } finally {
+        // An external worker cannot remove the waiting process's request context.
+        localRuns.delete(job.id)
+    }
 }
 
 export function startWorkerLoop() {

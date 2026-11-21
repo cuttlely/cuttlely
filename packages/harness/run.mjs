@@ -226,6 +226,26 @@ function rememberRun(args, started, pending, result, error, diagnostics) {
     }
 }
 
+// A queue cancellation before execution still belongs in run history, without starting a model or a turn.
+export function recordCancelledHarnessRun(args) {
+    const started = Date.now()
+    const timings = { routeMs: 0, specialistsMs: 0, handoffMs: 0 }
+    const trace = buildRunTrace({ harness: args.name, timings, wallMs: 0, handoffStatus: 'skipped', question: args.input })
+    trace.status = 'cancelled'
+    trace.mode = args.mode === 'agent' ? 'agent' : 'router'
+    trace.route.status = 'skipped'
+    if (args.mode === 'agent') {
+        trace.chief = { status: 'cancelled', model: publicModelLabel(getHarness(args.name)?.chief?.model), ms: 0 }
+    }
+    rememberRun(
+        args,
+        started,
+        null,
+        maskWorkspacePaths({ text: '', harness: args.name, agents: [], timings, trace }),
+        new HarnessError('aborted', 'Client disconnected')
+    )
+}
+
 // The canvas and Try it pass the draft roster in memory. The saved harness is what external runs read.
 export function harnessForTurn(name, record) {
     if (record) {
