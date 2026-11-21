@@ -2,7 +2,7 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
-Version **1.7.12** connects roster over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Known limitation: a direct request to a compiled mixed-model chief does not reach a model yet (no provider binding), tracked for 1.7.13. Concurrent ETL start, resume, pause and cancel no longer leave a cancelled or paused run running or start a second run for one pipeline. No schema migration or required configuration change is added. The 1.7.11 startup-tool-list fix and the 1.7.10 health-check path and recovery changes still apply. [ETL](./how-to/etl.md) · [Upgrade guide](./upgrading.md#upgrading-to-1712).
+Version **1.7.12** connects roster over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Concurrent ETL start, resume, pause and cancel no longer leave a cancelled or paused run running or start a second run for one pipeline. No schema migration or required configuration change is added. The 1.7.11 startup-tool-list fix and the 1.7.10 health-check path and recovery changes still apply. [ETL](./how-to/etl.md) · [Upgrade guide](./upgrading.md#upgrading-to-1712).
 
 Version **1.7.11** fixes a cold-start deadlock: the agent runtime's startup tool list is no longer refused while the runtime status is `restarting`, so it can answer health and come up. Tool calls and chat completions are still refused until then. No schema migration or required configuration change is added. The 1.7.10 health-check path and recovery changes still apply. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [Upgrade guide](./upgrading.md#upgrading-to-1711).
 
@@ -124,6 +124,8 @@ A run that stopped part way can be started again with the same version. When the
 The release command pushes the commit and tag atomically. When `main` requires pull requests, prepare with `--local`, land the generated version commit through the normal PR checks, and publish the tag afterward. The protected-branch path below preserves that process.
 
 ## Prepare on a fresh CI runner
+
+Both full and fast `pnpm verify` run `version-consistency` beside the flow-history `versioning` tests. It checks the hero badge, FAQ title, agent instructions, current README notices, how-to release heading, and Docker/widget example pins against the root `package.json` version. Missing spots and stale versions fail with file and line diagnostics; past-release sections, changelogs and audit history are excluded. The hero's build-time `{version}` expression is accepted. Keep the designated spots in the single table in `scripts/version-consistency.mjs`; run `node scripts/version-consistency.mjs` to check them separately before release preparation.
 
 When a maintainer machine cannot run the full gate, **Release preparation** (`.github/workflows/release-prepare.yml`) provides a fresh-runner fallback. It has read-only repository permissions. It does not push commits or tags, publish a GitHub release or image, or publish npm packages.
 

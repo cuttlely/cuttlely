@@ -141,6 +141,7 @@ async function resolveModelOnce(binding, ctx) {
             throw new HarnessError('bad_model', `${label} did not return a chat model, so a harness cannot use it.`)
         }
         resolved.chat = chat
+        resolved.modelId = chat.modelName || chat.model || chat.modelId || nodeData.inputs?.modelName || nodeData.inputs?.model || 'unknown'
         resolved.toolCalling = typeof chat.bindTools === 'function'
         return resolved
     } catch (error) {

@@ -1,5 +1,5 @@
 // Local merge gate. Run this before a pull request.
-// Full order fails fast. --fast is lint, typecheck, the unit step, and the fast unit-test steps.
+// Full order fails fast. --fast includes the release version-consistency check and the fast test/check steps.
 // The unit step caps Jest workers (default 50%). Override with CUTTLELY_VERIFY_JEST_WORKERS (a positive integer or a percentage).
 // It runs server Jest, then the node load test with coverage forced off so that test's load budget is a real check.
 // CI runs the same file only under pnpm test:coverage, which does not enforce the budget.
@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REPORT_DIR = path.join(ROOT, '.verify')
 const require = createRequire(import.meta.url)
 
-const STEPS = [
+export const STEPS = [
     {
         name: 'lint',
         fast: true,
@@ -64,9 +64,13 @@ const STEPS = [
             // Keep those files serial so they do not compete for a small runner's CPU.
             '--test-concurrency=1',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
+            path.join(ROOT, 'scripts', 'version-consistency.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'dashflows.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'mcp-stdio.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'roster-mcp.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'agent-mode.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'queue-cancellation.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'gateway-chief.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
             path.join(ROOT, 'scripts', 'check-boundaries.test.mjs'),
             path.join(ROOT, 'scripts', 'health-report.test.mjs'),
@@ -110,6 +114,9 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'hermes-git-config.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-asset-fetch.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-tool-error-preview.test.mjs'),
+            path.join(ROOT, 'scripts', 'hermes-background-mcp.test.mjs'),
+            path.join(ROOT, 'scripts', 'hermes-lifecycle.test.mjs'),
+            path.join(ROOT, 'scripts', 'try-profile-tombstones.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-evidence-budget.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-probe-cache-fd.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-unserve-log-handles.test.mjs'),
@@ -197,6 +204,13 @@ const STEPS = [
         fast: true,
         command: 'pnpm',
         args: ['--dir', 'packages/versioning', 'test']
+    },
+    {
+        // Current release notices and example pins follow the root product version.
+        name: 'version-consistency',
+        fast: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'version-consistency.mjs')]
     },
     {
         // Standalone Harness tracing, tool-parent compatibility, and credential/endpoint isolation.
@@ -417,7 +431,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, version-consistency, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(

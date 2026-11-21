@@ -1335,6 +1335,13 @@ const assertRunRequest = async (
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
+    const mode = body?.mode === undefined ? 'router' : body.mode
+    if (mode !== 'router' && mode !== 'agent') {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'mode must be "router" or "agent".')
+    }
+    if (mode === 'agent' && body.images != null && (!Array.isArray(body.images) || body.images.length > 0)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'mode "agent" does not accept images yet; use router mode')
+    }
     if (
         caller?.via === 'api_key' &&
         caller.harnessIds !== undefined &&
@@ -1392,7 +1399,7 @@ const assertRunRequest = async (
             throw new AppError(StatusCodes.FORBIDDEN, 'That chatId belongs to another caller. Use a new chatId.')
         }
     }
-    return { harness, question, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
+    return { harness, question, mode, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
 }
 
 function recordedId(row: Record<string, unknown> | null): string | undefined {
@@ -1484,6 +1491,7 @@ const startRun = async (
         if (runAdmissionHooks.beforeDispatch) await runAdmissionHooks.beforeDispatch()
         const payload = await run({
             name,
+            mode: prepared.mode,
             chatId: prepared.chatId,
             input: prepared.question,
             source: opts.source === 'playground' || opts.source === 'api' || opts.source === 'schedule' ? opts.source : 'api',
@@ -1579,6 +1587,7 @@ const startBackgroundRun = async (
         history = await loadHarness('history.mjs')
         const queued = history.queueHarnessRun({
             name: prepared.harness.name,
+            mode: prepared.mode,
             chatId,
             source,
             input: prepared.question,

@@ -112,7 +112,9 @@ export function listDirNoFollow(dir) {
     if (!opened) return null
     try {
         if (!fdPath(opened.fd, '.')) return null
-        return fs.readdirSync(`/proc/self/fd/${opened.fd}`)
+        const entries = fs.readdirSync(`/proc/self/fd/${opened.fd}`)
+        // Hermes deletion markers are infrastructure, never profiles for listing, ingest or cleanup.
+        return path.resolve(dir) === path.resolve(profilesRoot()) ? entries.filter((entry) => entry !== '.deleted') : entries
     } finally {
         closeFds(opened.fds)
     }

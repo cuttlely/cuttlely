@@ -39,3 +39,5 @@ hermes/hermes_cli/observability/shared_metrics_snapshot.py
 hermes/hermes_cli/sessions_cmd_journal_mode.py
 hermes/plugins/memory/honcho/cli.py
 hermes/gateway/hosted_rooms_legacy_import.py
+hermes/gateway/cuttlely_mcp_startup.py
+hermes/gateway/run.py
