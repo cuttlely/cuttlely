@@ -982,10 +982,12 @@ def append_event(
 
 def _probe(path: Path, table: str, query: str, params: tuple[Any, ...], unavailable: str) -> bool:
     """Non-blocking existence probe: short timeout, no schema creation or migration."""
+    from hermes_cli.sqlite_safe_read import connect_tracked
+
     if not path.is_file():
         return False
     try:
-        with closing(sqlite3.connect(path, timeout=0.05)) as conn:
+        with closing(connect_tracked(path, connect_fn=sqlite3.connect, timeout=0.05)) as conn:
             table_row = conn.execute(
                 f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}' LIMIT 1").fetchone()
             return table_row is not None and conn.execute(query, params).fetchone() is not None

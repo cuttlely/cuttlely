@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: legacy room import probe owner
+
+What: the one-shot hosted-room import opens the root state.db through connect_tracked, so it counts as a header-probe owner of that inode while it reads, and a connection it cannot identify is treated like any other failed import (rolled back, retried on the next start). Why: patch 0011 closes a probe once the last owner of an inode closes; an unowned in-process read of state.db could have its POSIX locks cancelled by a peer's final release (cuttlely#536).
+---
+ gateway/hosted_rooms_legacy_import.py | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/gateway/hosted_rooms_legacy_import.py b/gateway/hosted_rooms_legacy_import.py
+index 3aae609e073109588e413b025b6f97a802578b89..fe34c25d2fb235c5030ecdc4401e0e3be9607f53 100644
+--- a/gateway/hosted_rooms_legacy_import.py
++++ b/gateway/hosted_rooms_legacy_import.py
+@@ -80,7 +80,12 @@ def _copy_rows(target: sqlite3.Connection, source: Path) -> int:
+ 
+     copied_rooms: list[str] = []
+     existing = {str(row[0]) for row in target.execute("SELECT room_id FROM hosted_rooms")}
+-    with closing(sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=10)) as legacy:
++    from hermes_cli.sqlite_safe_read import connect_tracked
++
++    # Owned like every other state-database connection, so a peer's final release cannot close a
++    # header probe on this inode while the import still holds its read lock.
++    with closing(connect_tracked(f"file:{source}?mode=ro", tracking_path=source, connect_fn=sqlite3.connect,
++                                 uri=True, timeout=10)) as legacy:
+         names = [str(row[0]) for row in legacy.execute(
+             "SELECT name FROM sqlite_master WHERE type='table' AND name GLOB 'hosted_room*'")]
+         # Parents first: hosted_room_events carries a foreign key into hosted_rooms.
+@@ -121,10 +126,12 @@ def import_legacy_rooms(conn: sqlite3.Connection, db_path: Path) -> None:
+     source = source_path(db_path)
+     if source is None or settled(conn, db_path):
+         return
++    from hermes_cli.sqlite_safe_read import UntrackableConnectionError
++
+     conn.execute("SAVEPOINT legacy_import")
+     try:
+         copied = _copy_rows(conn, source) if source.is_file() else 0
+-    except (OSError, sqlite3.Error) as exc:
++    except (OSError, sqlite3.Error, UntrackableConnectionError) as exc:
+         # A locked, unreadable or incompatible legacy store must not take hosted rooms down with
+         # it: drop the partial copy, leave the marker unset, retry on the next process start.
+         conn.execute("ROLLBACK TO legacy_import")

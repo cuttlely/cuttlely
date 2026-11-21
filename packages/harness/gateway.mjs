@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import availability from './availability.cjs'
 import path from 'node:path'
 import { analystSqlTrace, noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
 import { recordRetrievedSources } from './retrieval-capture.mjs'
@@ -624,6 +625,7 @@ async function onRequest(req, res) {
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
             assertStillValid(meta)
+            availability.assertRuntimeAvailable()
             const specs = await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
             assertStillValid(meta)
             sendJson(res, 200, { tools: specs })
@@ -648,6 +650,15 @@ async function onRequest(req, res) {
             return
         }
         const status = error?.statusCode || 502
+        if (error?.code === 'RUNTIME_UNAVAILABLE') {
+            res.setHeader('Retry-After', String(error.retryAfterSeconds))
+            sendJson(res, 503, {
+                code: error.code,
+                message: error.message,
+                error: { code: error.code, message: error.message, type: 'server_error' }
+            })
+            return
+        }
         sendJson(res, status, { error: { message: publicMessage(error?.message, token), type: error?.code || 'server_error' } })
     }
 }
@@ -788,6 +799,7 @@ async function completeChat(req, res, meta) {
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
     assertStillValid(meta)
+    availability.assertRuntimeAvailable()
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
     const bound = bindRequest(req, res)
@@ -1119,6 +1131,7 @@ async function callTool(req, res, meta) {
     const chatId = scope.startsWith(`${record.name}:`) ? scope.slice(record.name.length + 1) : ''
     const ctx = await ownerContext(record, chatId)
     assertStillValid(meta)
+    availability.assertRuntimeAvailable()
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId

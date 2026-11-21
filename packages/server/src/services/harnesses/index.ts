@@ -1,5 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
+import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
+import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
@@ -1255,6 +1257,7 @@ function questionOf(body: Record<string, unknown>) {
 
 function httpHarnessError(error: unknown) {
     const code = (error as { code?: string })?.code
+    if (code === 'RUNTIME_UNAVAILABLE') return toPredictionError(error)
     const message = getErrorMessage(error)
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
     if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
@@ -1441,6 +1444,7 @@ const startRun = async (
         dataSource: opts.runtime?.appDataSource,
         canvasRecord: opts.record
     })
+    assertRuntimeAvailable()
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
     const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
@@ -1565,7 +1569,10 @@ const startBackgroundRun = async (
         prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
             expectedChatflowId: opts.expectedChatflowId
         })
+        // Refuse before admission so a key is not charged for a run that cannot start (clients retry on Retry-After).
+        assertRuntimeAvailable()
         if (opts.admit) opts.caller = await opts.admit()
+        assertRuntimeAvailable()
         const apiKeyId = callerKeyId(opts.caller)
         const source = opts.source || 'api'
         chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
@@ -1821,6 +1828,7 @@ const replayCheck = async (
     await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller, {
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined
     })
+    assertRuntimeAvailable()
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({

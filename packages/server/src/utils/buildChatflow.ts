@@ -1,5 +1,6 @@
 import { accessContext } from '../services/accessKeys/authorization'
 import { Request } from 'express'
+import { assertFlowRuntimeAvailable } from './runtimeAvailability'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { omit, cloneDeep } from 'lodash'
@@ -404,6 +405,8 @@ export const executeFlow = async ({
     nestedFlowCaller,
     nestedFlowDepth
 }: IExecuteFlowParams) => {
+    // The HTTP, nested-flow and queue entry points authorize the flow before dispatching it here.
+    assertFlowRuntimeAvailable(chatflow)
     const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
     sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     // Ensure incomingInput has all required properties with default values
@@ -1307,7 +1310,17 @@ export const utilBuildChatflow = async (
     let stopWatchingClient = () => {}
 
     try {
-        // Validate API Key if its external API request
+        // Validate API Key if its external API request. The key is checked without charging first, so a flow that needs
+        // the agent runtime is refused while it is down before the key is charged (webhook, Orchestrate and A2A callers
+        // retry on Retry-After).
+        if (!isInternal) {
+            if (!(await validateFlowAPIKey(req, chatflow, false))) {
+                throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
+            }
+        }
+
+        assertFlowRuntimeAvailable(chatflow)
+
         if (!isInternal) {
             const isKeyValidated = await validateFlowAPIKey(req, chatflow)
             if (!isKeyValidated) {

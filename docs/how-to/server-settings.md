@@ -91,6 +91,26 @@ Under **Agent runtime** > **Limits**, **Maximum concurrent agent runs** caps how
 
 The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime starts, `scripts/cuttlely-hermes-api.py` writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime's `config.yaml` (`$HERMES_HOME/config.yaml`). Only that key changes; the rest of the file is kept. A saved value replaces a value typed into that file by hand. Clearing the setting removes the value Cuttlely wrote, so the runtime default of 10 applies again, and leaves a value someone typed into the file afterwards alone.
 
+## Agent runtime recovery
+
+The start script supervises the agent runtime inside the image, including with plain `docker run` and no restart policy. These host environment variables apply after restarting the service; they are not controls in the settings panel. When the runtime starts (on the first start, after a runtime restart, and after a whole-stack restart in place), agent calls get `503 RUNTIME_UNAVAILABLE` with `Retry-After` until it answers its first health check. A runtime that has not answered within twice `CUTTLELY_HERMES_HEALTH_GRACE` plus `CUTTLELY_HERMES_HEALTH_WINDOW` (135 seconds by default) counts as a failed restart.
+
+| Variable                                      | Default | What it controls                                                                                                          |
+| --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_HERMES_MAX_RESTARTS`                | `5`     | Restarts allowed in one consecutive failure burst.                                                                        |
+| `CUTTLELY_HERMES_HEALTHY_RESET_SECONDS`       | `600`   | Continuous successful runtime `/health` checks needed to reset the burst counter. Process uptime alone does not reset it. |
+| `CUTTLELY_HERMES_RESTART_BACKOFF_MAX_SECONDS` | `60`    | Maximum restart delay. Backoff starts at a fixed two seconds and doubles: 2, 4, 8, 16, 32, 60, …                          |
+| `CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS`  | `300`   | Wait after budget exhaustion before restarting the whole stack in place. Capped at 3600 seconds.                          |
+| `CUTTLELY_EXIT_ON_EXHAUSTED`                  | Unset   | Set exactly `1` to exit the container non-zero after exhaustion, handing recovery to a host restart policy.               |
+
+Invalid numeric values, including negative values, produce a warning and use the default. Lifetime restart totals persist across healthy-window resets and whole-stack restarts in `hermes-supervisor.json`. A failed health check interrupts the healthy window. Startup grace and active-stream protection continue to apply.
+
+By default, an exhausted burst writes a diagnostic snapshot and an exhausted/cooldown status, then waits 300 seconds with Node, the UI and recovery routes still available. Runtime readiness is 503 throughout the cooldown. The supervisor resets the burst and restarts the server and runtime together through the existing restart-in-place loop. This repeats while the container lives, without requiring Docker, Render or a VM service manager to restart it. Shutdown interrupts the cooldown promptly. For this recovery restart only, server shutdown is capped at five seconds and `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` at ten seconds to keep the liveness interruption within Render's running-instance health window. The first cold startup and strict readiness semantics stay unchanged. Supplied Compose services retain their restart policies for other process failures; they do not enable `CUTTLELY_EXIT_ON_EXHAUSTED`.
+
+Before killing the runtime, the supervisor attempts a time-bounded Linux descriptor snapshot. One stderr line contains only descriptor counts by type (socket, pipe, anon_inode, regular file and other), soft/hard open-file limits, failure reason and restart counters. Paths, descriptor targets and environment values are excluded. A missing process or unavailable `/proc` reports diagnostics unavailable and does not prevent recovery. These counts help diagnose exhaustion; they do not fix the descriptor leak.
+
+Use `/api/v1/ping/live` for gateway and container liveness, and `/api/v1/ping` separately for strict readiness. Agent execution while the runtime is unavailable returns HTTP 503 with `code: "RUNTIME_UNAVAILABLE"` and `Retry-After`, after authorization. [Health checks and probe timing](./docker.md#health-checks).
+
 ## Analyst storage
 
 **Analyst** > **Analyst storage** chooses the private store. Unset is **Auto**: each workspace gets a store the analyst can create tables in. **Off** saves the value `off` and leaves that store off. A value already set on the host, including `off`, `false`, `0`, or `no`, stays as it is and locks the field. A Postgres URL credential on a Postgres (MCP) node, or **Separate Postgres for the analyst** (`CUTTLELY_POSTGRES_URL`), still uses the read-only path. Auto does not replace that URL. [Analyst mode](./analyst.md#which-setting-wins).

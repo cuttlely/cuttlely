@@ -286,7 +286,10 @@ def _check_scratch_dir(hermes_home: Path, _DHH: str) -> None:
 def _session_count(state_db_path: Path):
     import sqlite3
     # mode=ro: doctor is a reader; a writable open of a gateway-held WAL DB is the second-writer class (#103339).
-    conn = sqlite3.connect(read_only_db_uri(state_db_path), uri=True)
+    from hermes_cli.sqlite_safe_read import connect_tracked
+
+    conn = connect_tracked(read_only_db_uri(state_db_path), tracking_path=state_db_path,
+                           connect_fn=sqlite3.connect, uri=True)
     try:
         return conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     finally:
@@ -312,7 +315,10 @@ def _write_health_reason(state_db_path: Path, *, should_fix: bool):
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = Path(tmp) / "state.db"
-        src = sqlite3.connect(read_only_db_uri(state_db_path), uri=True, timeout=1.0)
+        from hermes_cli.sqlite_safe_read import connect_tracked
+
+        src = connect_tracked(read_only_db_uri(state_db_path), tracking_path=state_db_path,
+                              connect_fn=sqlite3.connect, uri=True, timeout=1.0)
         try:
             dest = sqlite3.connect(str(snapshot))
             try:

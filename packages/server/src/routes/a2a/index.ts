@@ -142,6 +142,8 @@ export const a2aErrorHandler = (err: unknown, req: Request, res: Response, _next
         return
     }
     if (err instanceof AppError) {
+        // The agent runtime is down: the caller may retry, so say when.
+        if (err.code === 'RUNTIME_UNAVAILABLE' && err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds))
         sendExternalAgentError(res, mapAppError(err))
         return
     }

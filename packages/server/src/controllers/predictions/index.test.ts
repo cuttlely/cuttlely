@@ -2,6 +2,9 @@
 // A chatflow still builds through the prediction service. The route's own checks stay in front.
 import express from 'express'
 import request from 'supertest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { generateSecretHash } from '../../utils/apiKey'
 import { configureSessionOwnershipForTests, createMemoryGrantStore, resetSessionOwnershipForTests } from '../../utils/sessionOwnership'
 
@@ -146,6 +149,40 @@ beforeEach(() => {
 })
 
 describe('POST /api/v1/prediction/:id', () => {
+    test.each([true, false])(
+        'runtime down refuses a harness before HTTP streaming (%s), while an ordinary flow works',
+        async (streaming) => {
+            const previous = process.env.CUTTLELY_DATA_DIR
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-prediction-runtime-'))
+            process.env.CUTTLELY_DATA_DIR = dir
+            fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'down' }))
+            try {
+                // The open canvas needs no key; the keyed canvas is checked with its own key.
+                for (const [id, auth] of [
+                    [OPEN_ID, false],
+                    [HARNESS_ID, true]
+                ] as const) {
+                    const call = request(app).post(`/api/v1/prediction/${id}`)
+                    if (auth) call.set('Authorization', `Bearer ${PRESENTED}`)
+                    const res = await call.send({ question: 'hi', streaming })
+                    expect(res.status).toBe(503)
+                    expect(res.headers['retry-after']).toBe('5')
+                    expect(res.headers['content-type']).toMatch(/application\/json/)
+                    expect(res.body.code).toBe('RUNTIME_UNAVAILABLE')
+                    expect(res.body.message).toMatch(/agent runtime is unavailable/i)
+                }
+                const unauthorized = await request(app).post(`/api/v1/prediction/${HARNESS_ID}`).send({ question: 'hi', streaming })
+                expect(unauthorized.status).toBe(401)
+                expect(mockStartCanvasRun).not.toHaveBeenCalled()
+                expect((await request(app).post(`/api/v1/prediction/${CHAT_ID}`).send({ question: 'hi' })).status).toBe(200)
+            } finally {
+                if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+                else process.env.CUTTLELY_DATA_DIR = previous
+                fs.rmSync(dir, { recursive: true, force: true })
+            }
+        }
+    )
+
     test('a HARNESS canvas returns the harness result and does not build the graph', async () => {
         const res = await request(app)
             .post(`/api/v1/prediction/${HARNESS_ID}`)

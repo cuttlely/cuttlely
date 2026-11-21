@@ -541,3 +541,59 @@ jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async (
 beforeEach(() => {
     for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })
+
+describe('Prediction access while the agent runtime is unavailable', () => {
+    // A flow with a Harness node, so it needs the agent runtime. The key check is recorded, not run: this checks where the charge happens, and the
+    // tests above cover which keys pass.
+    const H = '99999999-9999-4999-8999-999999999999'
+    let dataDir = ''
+    let previousDataDir: string | undefined
+    let keyChecks: jest.SpyInstance
+
+    const setRuntime = (state: string) =>
+        fs.writeFileSync(path.join(dataDir, 'hermes-supervisor.json'), JSON.stringify({ state, restarts: 0, pid: 0 }))
+
+    beforeAll(() => {
+        mockDb.chatflows.set(H, {
+            id: H,
+            workspaceId: WS,
+            apikeyid: 'apikey-k',
+            flowData: JSON.stringify({ nodes: [{ id: 'harness_0', data: { name: 'harness' } }], edges: [] })
+        })
+    })
+
+    beforeEach(() => {
+        dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prediction-runtime-'))
+        previousDataDir = process.env.CUTTLELY_DATA_DIR
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        keyChecks = jest.spyOn(jest.requireActual('./validateKey'), 'validateFlowAPIKey').mockImplementation(async () => true)
+    })
+
+    afterEach(() => {
+        keyChecks.mockRestore()
+        if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = previousDataDir
+        fs.rmSync(dataDir, { recursive: true, force: true })
+    })
+
+    it('runtime down -> 503 RUNTIME_UNAVAILABLE before the key is charged, 0 writes, controller not reached', async () => {
+        setRuntime('down')
+        const res = await multipart(H, { Authorization: `Bearer ${KEY_K}` })
+        expect(res.status).toBe(503)
+        expect(res.body.code).toBe('RUNTIME_UNAVAILABLE')
+        expect(res.headers['retry-after']).toBeDefined()
+        expectNoWritesAndNoMulter()
+        expect(mockState.controllerCalls).toBe(0)
+        // The key was checked without charging, and no charging check ran.
+        expect(keyChecks).toHaveBeenCalled()
+        for (const call of keyChecks.mock.calls) expect(call[2]).toBe(false)
+    })
+
+    it('runtime up (control) -> the key is charged and the request reaches the controller', async () => {
+        setRuntime('up')
+        const res = await multipart(H, { Authorization: `Bearer ${KEY_K}` })
+        expect(res.status).toBe(200)
+        expect(mockState.controllerCalls).toBe(1)
+        expect(keyChecks.mock.calls.some((call) => call[2] !== false)).toBe(true)
+    })
+})

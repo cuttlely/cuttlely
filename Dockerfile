@@ -169,9 +169,11 @@ ENV HOST=0.0.0.0
 
 EXPOSE 43117
 
-# docker run and Compose report healthy once ping answers. The first start can take a few minutes.
+# Application liveness keeps the UI reachable during runtime recovery. Strict readiness is /api/v1/ping.
+# --start-period applies only to the container's first start. After a restart in place /api/v1/ping/live answers as
+# soon as the server listens (readiness waits for the recompile), so the down gap stays far below 15s x 20 = 300s.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=300s --retries=20 \
-    CMD curl -fsS "http://127.0.0.1:${PORT:-43117}/api/v1/ping" || exit 1
+    CMD curl -fsS "http://127.0.0.1:${PORT:-43117}/api/v1/ping/live" || exit 1
 
 # Root at start so the persistent disk can be chowned, then the entrypoint drops to node.
 ENTRYPOINT ["bash", "scripts/render-entrypoint.sh"]

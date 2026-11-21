@@ -1,5 +1,5 @@
 import http from 'http'
-import { readyBanner, setBootStep, startingPageHtml, startStartingPage } from './startingPage'
+import { markDatabaseOpened, readyBanner, setBootStep, startingPageHtml, startStartingPage } from './startingPage'
 
 const get = (port: number, path: string) =>
     new Promise<{ status: number; type: string; body: string }>((resolve, reject) => {
@@ -30,6 +30,31 @@ describe('starting page', () => {
         const again = http.createServer()
         await new Promise<void>((resolve, reject) => again.once('error', reject).listen(port, '127.0.0.1', () => resolve()))
         await new Promise<void>((resolve) => again.close(() => resolve()))
+    })
+
+    it('answers liveness only after a restart in place and once the database opened, while readiness stays not ready', async () => {
+        const previous = process.env.CUTTLELY_STACK_RESTARTED
+        const page = await startStartingPage(0, '127.0.0.1')
+        try {
+            const port = page!.port()
+            markDatabaseOpened(true)
+            delete process.env.CUTTLELY_STACK_RESTARTED
+            expect((await get(port, '/api/v1/ping/live')).status).toBe(503)
+            process.env.CUTTLELY_STACK_RESTARTED = '1'
+            // The database has not opened (unreachable or not yet tried): liveness fails.
+            markDatabaseOpened(false)
+            expect((await get(port, '/api/v1/ping/live')).status).toBe(503)
+            markDatabaseOpened(true)
+            const live = await get(port, '/api/v1/ping/live')
+            expect(live.status).toBe(200)
+            expect(live.body).toBe('pong')
+            expect((await get(port, '/api/v1/ping')).status).toBe(503)
+        } finally {
+            markDatabaseOpened(false)
+            if (previous === undefined) delete process.env.CUTTLELY_STACK_RESTARTED
+            else process.env.CUTTLELY_STACK_RESTARTED = previous
+            await page!.close()
+        }
     })
 
     it('steps aside when the port is taken', async () => {
