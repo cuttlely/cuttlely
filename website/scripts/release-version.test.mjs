@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, describe, it } from 'node:test'
-import { changelogLatestVersion, releaseVersion, repoRoot } from './release-version.mjs'
+import { changelogLatestVersion, findRepoRoot, releaseVersion, repoRoot } from './release-version.mjs'
 
 const tmpDirs = new Set()
 after(() => {
@@ -27,6 +27,20 @@ describe('releaseVersion', () => {
         tmpDirs.add(dir)
         fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: 'main' }))
         assert.throws(() => releaseVersion(dir), /not a release/)
+    })
+
+    it('finds the repo root from a nested website dist path', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-version-'))
+        tmpDirs.add(dir)
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'cuttlely-workspace', version: '9.9.9' }))
+        fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), '## [9.9.9] - 2026-01-01\n')
+        const websitePkg = path.join(dir, 'website')
+        fs.mkdirSync(websitePkg)
+        fs.writeFileSync(path.join(websitePkg, 'package.json'), JSON.stringify({ name: 'cuttlely-website', version: '1.0.0' }))
+        const nested = path.join(dir, 'website', 'dist', '.prerender', 'chunks')
+        fs.mkdirSync(nested, { recursive: true })
+        assert.equal(findRepoRoot(nested), dir)
+        assert.equal(releaseVersion(findRepoRoot(nested)), '9.9.9')
     })
 })
 
