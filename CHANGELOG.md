@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.11] - 2026-11-20
+
 ### Fixed
 
 -   The agent runtime no longer deadlocks on a cold start: its startup tool list is no longer refused while the runtime status is `restarting`, so it can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542).
@@ -1141,7 +1143,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...HEAD
+[1.7.11]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
