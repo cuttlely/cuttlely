@@ -346,21 +346,14 @@ for (const capacityWaitSeconds of [0, 3]) {
                 await new Promise((resolve) => server.close(resolve))
             })
             const reply = new Promise((resolve, reject) => {
-                let buffer = Buffer.alloc(0)
+                let buffer = ''
                 child.once('error', reject)
                 child.once('exit', () => reject(new Error(`Roster exited before its reply: ${stderr}`)))
                 child.stdout.on('data', (chunk) => {
-                    buffer = Buffer.concat([buffer, chunk])
-                    const headerEnd = buffer.indexOf('\r\n\r\n')
-                    if (headerEnd < 0) return
-                    const length = Number(
-                        buffer
-                            .subarray(0, headerEnd)
-                            .toString()
-                            .match(/Content-Length:\s*(\d+)/i)?.[1]
-                    )
-                    if (!Number.isFinite(length) || buffer.length < headerEnd + 4 + length) return
-                    resolve(JSON.parse(buffer.subarray(headerEnd + 4, headerEnd + 4 + length).toString()))
+                    buffer += chunk.toString('utf8')
+                    const end = buffer.indexOf('\n')
+                    if (end < 0) return
+                    resolve(JSON.parse(buffer.slice(0, end)))
                 })
             })
             const message = JSON.stringify({
@@ -369,7 +362,7 @@ for (const capacityWaitSeconds of [0, 3]) {
                 method: 'tools/call',
                 params: { name: 'run_specialist', arguments: { name: 'worker', task: 'Process supplied fixture rows.' } }
             })
-            child.stdin.write(`Content-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`)
+            child.stdin.write(`${message}\n`)
             const response = await reply
             assert.equal(response.id, 7)
             assert.equal(response.result.isError, !capacityWaitSeconds)

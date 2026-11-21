@@ -316,22 +316,15 @@ test('nested specialist transport failure also releases only its accepted worker
         await exited
         clearTimeout(timer)
     })
-    let buffer = Buffer.alloc(0)
+    let buffer = ''
     const pending = new Map()
     child.stdout.on('data', (chunk) => {
-        buffer = Buffer.concat([buffer, chunk])
+        buffer += chunk.toString('utf8')
         for (;;) {
-            const end = buffer.indexOf('\r\n\r\n')
+            const end = buffer.indexOf('\n')
             if (end < 0) return
-            const length = Number(
-                buffer
-                    .subarray(0, end)
-                    .toString()
-                    .match(/Content-Length:\s*(\d+)/i)?.[1]
-            )
-            if (!Number.isFinite(length) || buffer.length < end + 4 + length) return
-            const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length).toString())
-            buffer = buffer.subarray(end + 4 + length)
+            const message = JSON.parse(buffer.slice(0, end))
+            buffer = buffer.slice(end + 1)
             pending.get(message.id)?.(message)
             pending.delete(message.id)
         }
@@ -344,7 +337,7 @@ test('nested specialist transport failure also releases only its accepted worker
             method: 'tools/call',
             params: { name: 'run_specialist', arguments: { name: 'worker', task: 'Process supplied fixture text.' } }
         })
-        child.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+        child.stdin.write(`${body}\n`)
         const response = await reply
         assert.equal(response.result.isError, true, stderr)
         assert.deepEqual([...remote.active], ['another-chat'], 'nested worker survived the failed status request')
