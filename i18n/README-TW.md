@@ -21,7 +21,7 @@ Node 20+ 和 Docker
 
 **1.7.12 可讓 roster 透過 agent runtime 使用的 stdio 框架進行連線。** roster 自 1.0 以來從未連線成功。每個混用模型的 harness 啟動約加快 60 秒（兩個約加快 2 分鐘），且 chief 的 `run_specialist` 工具會完成註冊。路由器流量維持不變。對已編譯的混用模型 chief 發出的直接請求目前還不會到達模型（尚未綁定提供者）；這項限制列在 1.7.13。同時開始、恢復、暫停或取消 ETL 執行時，不再讓已取消或已暫停的執行繼續跑，也不會為同一條管道再啟動第二次執行。[ETL](../docs/how-to/etl.md) · [升級指南](../docs/upgrading.md#upgrading-to-1712)。
 
-**1.7.11 可讓有多個 harness 設定檔的環境啟動 agent runtime。** 當 runtime 狀態為 `restarting` 時，啟動工具清單不再被拒絕，因此可以回應健康檢查並完成啟動。在此之前，工具呼叫與聊天補全仍會被拒絕。[#542](https://github.com/cuttlely/cuttlely/issues/542) · [升級指南](../docs/upgrading.md#upgrading-to-1711)。
+**1.7.11 不再讓 agent runtime 在冷啟動時陷入死結。** 當 runtime 狀態為 `restarting` 時，啟動工具清單不再被拒絕，因此可以回應健康檢查並完成啟動。在此之前，工具呼叫與聊天補全仍會被拒絕。[#542](https://github.com/cuttlely/cuttlely/issues/542) · [升級指南](../docs/upgrading.md#upgrading-to-1711)。
 
 **1.7.10 在 agent runtime 復原期間仍可使用 UI。** 映像檔、Compose 和 Render 的健康檢查改為探測 `/api/v1/ping/live`；請一併更新自訂閘道與負載平衡器的探測路徑。[健康檢查](../docs/how-to/reverse-proxy.md#health-checks) · [升級指南](../docs/upgrading.md#upgrading-to-1710)。
 

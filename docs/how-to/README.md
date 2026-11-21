@@ -9,7 +9,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 
 ## New in 1.7.11
 
--   **Start the agent runtime with several harness profiles.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [Upgrade guide](../upgrading.md#upgrading-to-1711).
+-   **Let the agent runtime finish a cold start.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [Upgrade guide](../upgrading.md#upgrading-to-1711).
 
 ## New in 1.7.10
 

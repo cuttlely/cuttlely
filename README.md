@@ -29,7 +29,7 @@ Node 20+ and Docker
 
 **1.7.12 connects roster over the stdio framing the agent runtime uses.** Roster had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. A direct request to a compiled mixed-model chief does not reach a model yet (no provider binding); this is tracked for 1.7.13. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
 
-**1.7.11 starts the agent runtime when several harness profiles are present.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1711).
+**1.7.11 no longer deadlocks the agent runtime on a cold start.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1711).
 
 **1.7.10 keeps the UI reachable during agent runtime recovery.** The image, Compose and Render health checks now probe `/api/v1/ping/live`; update custom gateway and load-balancer probes. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
 

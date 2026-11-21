@@ -39,7 +39,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Known issues
 
 -   Orchestrate and A2A responses during an agent-runtime outage are unchanged from 1.7.9 (the key may be charged and the retry hint isn't carried in the protocol response); tracked in [#540](https://github.com/cuttlely/cuttlely/issues/540) for 1.7.11.
--   On instances with several harness profiles, the agent runtime can fail to start: its startup tool list is refused while the runtime status is `restarting`, so it does not answer health before the start deadline and the supervisor restarts it in a loop (`x-cuttlely-hermes: restarting`, agent calls answer `503 RUNTIME_UNAVAILABLE`). Raising `CUTTLELY_HERMES_HEALTH_GRACE` does not help. Fixed in 1.7.11. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [#543](https://github.com/cuttlely/cuttlely/pull/543).
+-   The agent runtime can deadlock on a cold start: its startup tool list is refused while the runtime status is `restarting`, so it does not answer health before the start deadline and the supervisor restarts it in a loop (`x-cuttlely-hermes: restarting`, agent calls answer `503 RUNTIME_UNAVAILABLE`). Raising `CUTTLELY_HERMES_HEALTH_GRACE` does not help. Fixed in 1.7.11. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [#543](https://github.com/cuttlely/cuttlely/pull/543).
 
 ### Maintenance
 

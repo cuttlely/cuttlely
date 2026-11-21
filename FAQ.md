@@ -48,7 +48,7 @@ The agent runtime no longer deadlocks on a cold start: its startup tool list is 
 
 ### What changed in 1.7.10?
 
-The Docker image, Compose files and Render Blueprint health checks now probe `/api/v1/ping/live`, so the UI and operator recovery stay reachable while the agent runtime recovers; strict readiness stays at `/api/v1/ping`. The runtime supervisor backs off, cools down and restarts the stack in place, agent calls answer `503 RUNTIME_UNAVAILABLE` with `Retry-After` while it is down, and a descriptor leak in repeated agent-team runs is fixed. Dash Flows can keep its data in the application Postgres database behind a default-off switch. The runtime startup failure on instances with several harness profiles is fixed in 1.7.11 ([#542](https://github.com/cuttlely/cuttlely/issues/542)). No schema migration is added. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
+The Docker image, Compose files and Render Blueprint health checks now probe `/api/v1/ping/live`, so the UI and operator recovery stay reachable while the agent runtime recovers; strict readiness stays at `/api/v1/ping`. The runtime supervisor backs off, cools down and restarts the stack in place, agent calls answer `503 RUNTIME_UNAVAILABLE` with `Retry-After` while it is down, and a descriptor leak in repeated agent-team runs is fixed. Dash Flows can keep its data in the application Postgres database behind a default-off switch. The runtime cold-start deadlock is fixed in 1.7.11 ([#542](https://github.com/cuttlely/cuttlely/issues/542)). No schema migration is added. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
 
 ### What changed in 1.7.9?
 
