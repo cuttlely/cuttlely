@@ -3,6 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
 import { profileDir } from './paths.mjs'
+import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
@@ -48,7 +49,14 @@ const tools = [
     }
 ]
 
-let buffer = Buffer.alloc(0)
+const stdio = createMcpStdio(
+    (body) => {
+        handle(body).catch((error) => {
+            send(null, { content: [{ type: 'text', text: error.message }], isError: true })
+        })
+    },
+    (packet) => fs.writeSync(1, packet)
+)
 const activeRequests = new Map()
 let shuttingDown = false
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
@@ -59,25 +67,7 @@ if (isMain) {
     process.on('SIGINT', () => void shutdown())
     process.stdin.on('data', (chunk) => {
         if (shuttingDown) return
-        buffer = Buffer.concat([buffer, chunk])
-        for (;;) {
-            const headerEnd = buffer.indexOf('\r\n\r\n')
-            if (headerEnd === -1) return
-            const header = buffer.slice(0, headerEnd).toString('utf8')
-            const match = header.match(/Content-Length:\s*(\d+)/i)
-            if (!match) {
-                buffer = buffer.slice(headerEnd + 4)
-                continue
-            }
-            const length = Number(match[1])
-            const start = headerEnd + 4
-            if (buffer.length < start + length) return
-            const body = buffer.slice(start, start + length).toString('utf8')
-            buffer = buffer.slice(start + length)
-            handle(body).catch((error) => {
-                send(null, { content: [{ type: 'text', text: error.message }], isError: true })
-            })
-        }
+        stdio.receive(chunk)
     })
 }
 
@@ -104,7 +94,7 @@ async function handle(body) {
         activeRequests.get(message.params?.requestId)?.controller.abort()
         return
     }
-    if (message.id == null || shuttingDown) return
+    if (message.id === undefined || message.id === null || shuttingDown) return
     if (message.method === 'initialize') {
         return send(message.id, {
             protocolVersion: '2024-11-05',
@@ -205,10 +195,8 @@ async function runSpecialist(args, signal) {
 
 function send(id, result) {
     if (shuttingDown) return
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, result })
-    const packet = `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`
     try {
-        fs.writeSync(1, packet)
+        stdio.send({ jsonrpc: '2.0', id, result })
     } catch (error) {
         if (error.code === 'EPIPE' || error.code === 'EBADF') void shutdown()
         else throw error

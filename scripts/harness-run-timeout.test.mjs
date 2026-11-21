@@ -318,7 +318,7 @@ test('nested roster tasks receive unlimited or five-minute waits and refresh aft
 
 function mcpPacket(message) {
     const body = JSON.stringify({ jsonrpc: '2.0', ...message })
-    return `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`
+    return `${body}\n`
 }
 
 for (const cancellation of ['notification', 'stdin EOF', 'SIGTERM']) {
@@ -379,23 +379,16 @@ for (const cancellation of ['notification', 'stdin EOF', 'SIGTERM']) {
             server.closeAllConnections()
             await new Promise((resolve) => server.close(resolve))
         })
-        let buffer = Buffer.alloc(0)
+        let buffer = ''
         let replied
         const response = new Promise((resolve) => (replied = resolve))
         child.stdout.on('data', (chunk) => {
-            buffer = Buffer.concat([buffer, chunk])
+            buffer += chunk.toString('utf8')
             for (;;) {
-                const headerEnd = buffer.indexOf('\r\n\r\n')
-                if (headerEnd < 0) return
-                const length = Number(
-                    buffer
-                        .subarray(0, headerEnd)
-                        .toString()
-                        .match(/Content-Length:\s*(\d+)/i)?.[1]
-                )
-                if (!Number.isFinite(length) || buffer.length < headerEnd + 4 + length) return
-                const message = JSON.parse(buffer.subarray(headerEnd + 4, headerEnd + 4 + length).toString())
-                buffer = buffer.subarray(headerEnd + 4 + length)
+                const end = buffer.indexOf('\n')
+                if (end < 0) return
+                const message = JSON.parse(buffer.slice(0, end))
+                buffer = buffer.slice(end + 1)
                 if (message.id === 7) replied(message)
             }
         })
