@@ -31,7 +31,7 @@ import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { removeContainedTree } from './profile.mjs'
-import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
@@ -175,7 +175,7 @@ export function registerProfileToken({
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
-    const directory = profileName || ''
+    const directory = hermesProfileId(profileName || '')
     if (directory) {
         for (const [existing, meta] of [...tokens]) {
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
