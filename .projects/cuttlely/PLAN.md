@@ -2,7 +2,7 @@
 
 ## Current release work
 
-1.7.10 is being cut. `#537` landed as `2d43158ac5ce2567d974d2dad22e1184e691e6f5` and `#538` as `df67384014be0b2ef6c6cb7a49710d43c9e6eb34`. The release branch dates the changelog `## [1.7.10] - 2026-11-20` and bumps the four product manifests. Orchestrate and A2A outage-response follow-up is [#540](https://github.com/cuttlely/cuttlely/issues/540) for 1.7.11. 1.7.9 remains published at `0beeb62a` (#524) until 1.7.10 is tagged.
+1.7.11 is being cut. `#543` landed as `4afa3009aa11709673f9e0207263fa081faf526e` and closes the 1.7.10 cold-start deadlock in [#542](https://github.com/cuttlely/cuttlely/issues/542). The release branch dates the changelog `## [1.7.11] - 2026-11-20` and bumps the four product manifests. Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.10 remains published at `5f41b83d` ([#541](https://github.com/cuttlely/cuttlely/pull/541)) until 1.7.11 is tagged.
 
 ## Milestones
 
@@ -32,7 +32,9 @@
 
 ## Next concrete tasks
 
--   **1.7.10 release (in progress).** Version bumps and dated changelog for #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`) and #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`). Known issue #540 is deferred to 1.7.11.
+-   **1.7.11 release (in progress).** Version bumps and dated changelog for #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542). Known issue #540 remains open.
+
+-   **1.7.10 release (published).** Published as `5f41b83d` ([#541](https://github.com/cuttlely/cuttlely/pull/541)), tagged `v1.7.10`. Release notes are dated `## [1.7.10] - 2026-11-20` and cover #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`) and #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`).
 
 -   **1.7.9 release (published).** Published as `0beeb62a` ([#524](https://github.com/cuttlely/cuttlely/pull/524)). The merge audit and complete documentation landed in #523. All 28 fresh preparation steps, image checks, normal version-PR checks, both npm artifacts, website content/media and hosted runtime checks are recorded in STATUS. New release notes go under `## [Unreleased]`.
 

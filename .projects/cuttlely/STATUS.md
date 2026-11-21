@@ -1,3 +1,7 @@
+## 1.7.11 release
+
+Release notes are dated `## [1.7.11] - 2026-11-20`. They include the runtime startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`), which closes the 1.7.10 cold-start deadlock in #542. Orchestrate and A2A outage responses stay as in 1.7.10 and remain tracked in #540.
+
 ## Runtime startup deadlock (#542, 1.7.11)
 
 1.7.10 regression from #537 round 2: every runtime launch, including the cold start, stays `restarting` until its first health answer, and the gateway's `POST /harness/tools/list` also refused while `restarting`. The runtime's MCP servers list their tools during startup, gave up after 3 refused attempts, and the runtime never answered health inside the 135-second start deadline, so the supervisor killed it in a loop. `packages/harness/gateway.mjs` no longer checks runtime availability on tools/list (metadata only); tool calls and chat completions still answer `503 RUNTIME_UNAVAILABLE` with `Retry-After`. The start deadline and `CUTTLELY_HERMES_HEALTH_GRACE` default are unchanged. Tests: `packages/harness/gateway-runtime-startup.test.mjs` (run by `packages/harness/check.mjs`) and the `a cold start discovers tools while restarting` case in `scripts/hermes-supervisor.test.mjs`, where the stub runtime answers health only after tools/list succeeds and must reach `up` with zero restarts under the default deadline. Both fail with the old check.
