@@ -227,6 +227,59 @@ test('Caps cannot compile or run over caps; the existing chief, specialists, tok
     await discardTryProfile('abcddcba')
 })
 
+for (const order of ['legacy-first', 'owner-first'])
+    test(
+        `disk reload ignores the legacy Caps chief token with ${order} creation`,
+        isolatedCase(`legacy-token-${order}`, async () => {
+            let owner = recordFor('caps')
+            const contender = recordFor('Caps')
+            const legacy = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', contender.name)
+            if (order === 'legacy-first') fs.mkdirSync(legacy, { recursive: true })
+            const compiled = compileProfile(owner)
+            if (order === 'owner-first') fs.mkdirSync(legacy)
+            const stale = crypto.randomBytes(32).toString('base64url')
+            const env = {
+                ...readProfileEnv(owner.name),
+                OPENAI_API_KEY: stale,
+                CUTTLELY_GATEWAY_HARNESS: contender.name,
+                CUTTLELY_GATEWAY_CREATED: contender.createdAt
+            }
+            fs.writeFileSync(
+                path.join(legacy, '.env'),
+                Object.entries(env)
+                    .map(([key, value]) => `${key}=${value}\n`)
+                    .join('')
+            )
+            fs.writeFileSync(path.join(legacy, 'harness-parent'), `${contender.name}\n`)
+            const before = snapshot(legacy)
+            assert.equal(adoptLegacyChiefProfile(contender.name), false)
+            assert.throws(() => compileProfile(contender), collision)
+            for (let reload = 0; reload < 3; reload += 1) {
+                const current = readProfileEnv(owner.name).OPENAI_API_KEY
+                forgetProfileToken(current)
+                forgetProfileToken(stale)
+                bootHarnessGateway()
+                assert.equal(profileTokenKnown(current), true)
+                assert.equal(profileTokenKnown(stale), false)
+                assert.equal(await completion(current), 200)
+                assert.equal(await completion(stale), 401)
+                // Recompilation replaces the token for the exact lowercase directory it writes.
+                owner = saveHarness(
+                    { ...owner, chief: { model: { ...chief.model, inputs: { modelName: `chief-model-${reload}` } } } },
+                    { overwrite: true }
+                )
+                assert.equal(compileProfile(owner).dir, compiled.dir)
+                const fresh = readProfileEnv(owner.name).OPENAI_API_KEY
+                assert.notEqual(fresh, current)
+                assert.equal(profileTokenKnown(current), false)
+                assert.equal(await completion(current), 401)
+                assert.equal(await completion(fresh), 200)
+                assert.equal(await completion(stale), 401)
+            }
+            assert.deepEqual(snapshot(legacy), before)
+        })
+    )
+
 test('TigerMom upgrade moves only the chief once, recompiles version 10, reloads its token and runs agent mode', async () => {
     const record = recordFor('TigerMom')
     const legacy = path.join(profilesRoot, record.name)

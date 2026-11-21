@@ -175,6 +175,7 @@ export function registerProfileToken({
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
+    // Match the lowercase directory that profileDir() writes, including a capitalised chief name.
     const directory = hermesProfileId(profileName || '')
     if (directory) {
         for (const [existing, meta] of [...tokens]) {
@@ -439,6 +440,8 @@ function ingestProfileTokens(abandoned = new Set()) {
     if (!entries) return
     for (const entry of entries) {
         if (abandoned.has(entry)) continue
+        // The runtime never serves legacy capitalised folders, even when their lowercase target already exists.
+        if (entry !== hermesProfileId(entry)) continue
         // A link is not a profile the runtime loads, including one that could not be renamed aside.
         if (entry.endsWith('.quarantine') || /\.quarantine-\d+$/.test(entry)) continue
         const dir = path.join(root, entry)
@@ -470,7 +473,7 @@ function ingestProfileTokens(abandoned = new Set()) {
             harnessName,
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
-            profileName: hermesProfileId(entry),
+            profileName: entry,
             tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
