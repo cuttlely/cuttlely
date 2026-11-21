@@ -11,31 +11,57 @@ import { fileURLToPath } from 'node:url'
 const script = fileURLToPath(new URL('./roster-mcp.mjs', import.meta.url))
 const headerPacket = (body) => `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`
 
-function startRoster(t, apiUrl = '') {
+async function startRoster(t, apiUrl = '') {
     const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-roster-stdio-'))
     const home = path.join(data, 'hermes')
     const name = 'mixed-fixture'
     const specialist = `${name}--worker`
     const profileDir = (profile) => path.join(home, 'profiles', profile)
-    fs.mkdirSync(profileDir(name), { recursive: true })
-    fs.mkdirSync(profileDir(specialist), { recursive: true })
-    fs.writeFileSync(
-        path.join(profileDir(name), 'harness-roster.json'),
-        JSON.stringify({
+    const compilerEnv = {
+        HOME: data,
+        DATABASE_PATH: data,
+        CUTTLELY_DATA_DIR: data,
+        CUTTLELY_HERMES_HOME: home,
+        HERMES_API_URL: apiUrl,
+        CUTTLELY_HARNESS_RUN_TIMEOUT_MS: '5000'
+    }
+    const previous = Object.fromEntries(Object.keys(compilerEnv).map((key) => [key, process.env[key]]))
+    let rosterEnv
+    try {
+        Object.assign(process.env, compilerEnv)
+        const { compileProfile } = await import('./profile.mjs')
+        const record = {
+            name,
             chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
-            specialists: [
-                { name: 'worker', profileName: specialist, model: { nodeName: 'fixtureChat', inputs: { modelName: 'worker-model' } } }
-            ]
-        })
-    )
-    fs.writeFileSync(path.join(profileDir(specialist), '.env'), 'API_SERVER_KEY=offline-fixture-only\n', { mode: 0o600 })
+            specialists: [{ name: 'worker', model: { nodeName: 'fixtureChat', inputs: { modelName: 'worker-model' } } }]
+        }
+        compileProfile(record)
+        const configFile = path.join(profileDir(name), 'config.yaml')
+        const config = fs.readFileSync(configFile, 'utf8')
+        // The compiler writes env strings as JSON-quoted YAML scalars.
+        const rosterBlock = config.split('\n  roster:\n')[1].split('\nmodel:')[0]
+        rosterEnv = Object.fromEntries(
+            [...rosterBlock.matchAll(/^ {6}([A-Z_]+): (".*")$/gm)].map(([, key, value]) => [key, JSON.parse(value)])
+        )
+        assert.equal(rosterEnv.HERMES_API_URL, apiUrl || 'http://127.0.0.1:8642')
+        fs.utimesSync(configFile, 1, 1)
+        const before = fs.statSync(configFile).mtimeMs
+        compileProfile(record)
+        assert.equal(fs.readFileSync(configFile, 'utf8'), config, 'unchanged settings keep identical config bytes')
+        assert.equal(fs.statSync(configFile).mtimeMs, before, 'unchanged settings do not rewrite config.yaml')
+    } finally {
+        for (const [key, value] of Object.entries(previous)) {
+            if (value === undefined) delete process.env[key]
+            else process.env[key] = value
+        }
+    }
     const child = spawn(process.execPath, [script, '--harness', name], {
         env: {
-            ...process.env,
-            CUTTLELY_DATA_DIR: data,
-            CUTTLELY_HERMES_HOME: home,
-            HERMES_API_URL: apiUrl,
-            CUTTLELY_HARNESS_RUN_TIMEOUT_MS: '5000'
+            // Match the runtime's filtered stdio environment: runtime settings come only from the compiled block.
+            PATH: process.env.PATH,
+            HOME: data,
+            DATABASE_PATH: data,
+            ...rosterEnv
         },
         stdio: ['pipe', 'pipe', 'pipe']
     })
@@ -87,7 +113,7 @@ function startRoster(t, apiUrl = '') {
     return { name, specialist, send, reply }
 }
 
-test('Hermes newline stdio initializes at id 0, lists tools and delegates to a mixed-model specialist', { timeout: 10000 }, async (t) => {
+test('compiled roster env delegates to a non-default runtime port over Hermes newline stdio', { timeout: 10000 }, async (t) => {
     const calls = []
     const output = 'Fixture specialist answer.\nSecond line: café.'
     const server = http.createServer(async (req, res) => {
@@ -105,7 +131,8 @@ test('Hermes newline stdio initializes at id 0, lists tools and delegates to a m
         server.closeAllConnections()
         await new Promise((resolve) => server.close(resolve))
     })
-    const roster = startRoster(t, `http://127.0.0.1:${server.address().port}`)
+    assert.notEqual(server.address().port, 8642)
+    const roster = await startRoster(t, `http://127.0.0.1:${server.address().port}`)
     roster.send({
         id: 0,
         method: 'initialize',
@@ -143,7 +170,7 @@ test('Hermes newline stdio initializes at id 0, lists tools and delegates to a m
 })
 
 test('roster still echoes Content-Length framing and can switch back to newline JSON', { timeout: 10000 }, async (t) => {
-    const roster = startRoster(t)
+    const roster = await startRoster(t)
     roster.send({ id: 0, method: 'initialize' }, 'header')
     const initialized = await roster.reply('header')
     assert.equal(initialized.id, 0)

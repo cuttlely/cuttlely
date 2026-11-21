@@ -1167,6 +1167,12 @@ function callController(method, req) {
         const res = {
             statusCode: 200,
             body: null,
+            locals: {},
+            writableFinished: false,
+            // Controllers that watch for a client disconnect subscribe to the response's close event.
+            once() {
+                return this
+            },
             status(code) {
                 this.statusCode = code
                 return this

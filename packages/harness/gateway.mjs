@@ -163,7 +163,15 @@ export function reopenHarnessTokens(harnessName) {
     closingHarnesses.delete(String(harnessName || ''))
 }
 
-export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName, tryProfile = false }) {
+export function registerProfileToken({
+    token,
+    harnessName,
+    specialistName,
+    modelKey,
+    profileName,
+    tryProfile = false,
+    role = 'specialist'
+}) {
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
@@ -176,6 +184,7 @@ export function registerProfileToken({ token, harnessName, specialistName, model
     // A harness being deleted gets no new published token: a run that compiles meanwhile cannot undo the revocation.
     if (!tryProfile && closingHarnesses.has(String(harnessName || ''))) return
     const next = {
+        role,
         harnessName,
         specialistName,
         modelKey: modelKey || '',
@@ -446,7 +455,8 @@ function ingestProfileTokens(abandoned = new Set()) {
         if (!TOKEN_RE.test(token) || !/^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(base)) continue
         const harnessName = env.CUTTLELY_GATEWAY_HARNESS || readParent(dir)
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
-        if (!harnessName || !specialistName) continue
+        const role = env.CUTTLELY_GATEWAY_ROLE || 'specialist'
+        if (!['chief', 'specialist'].includes(role) || !harnessName || (role === 'specialist' && !specialistName)) continue
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
@@ -456,6 +466,7 @@ function ingestProfileTokens(abandoned = new Set()) {
         // createdAt, or none recorded) gets fresh tokens when it next compiles, never this one.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !issuedForSavedRecord(harnessName, env.CUTTLELY_GATEWAY_CREATED)) continue
         tokens.set(token, {
+            role,
             harnessName,
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
@@ -622,6 +633,7 @@ async function onRequest(req, res) {
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
+            assertToolRole(meta)
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
             assertStillValid(meta)
@@ -704,15 +716,16 @@ function specialistOf(record, name) {
     return (record.specialists || []).find((item) => item.name === name) || null
 }
 
-function fallbackBinding(record, specialistName) {
+function fallbackBinding(record, specialistName, role) {
+    if (role === 'chief') return record.chief?.fallbackModel?.nodeName ? record.chief.fallbackModel : null
     const specialist = specialistOf(record, specialistName)
     if (specialist?.fallbackModel?.nodeName) return specialist.fallbackModel
     if (record.chief?.fallbackModel?.nodeName) return record.chief.fallbackModel
     return null
 }
 
-function modelBinding(record, specialistName) {
-    const specialist = specialistOf(record, specialistName)
+function modelBinding(record, specialistName, role) {
+    const specialist = role === 'chief' ? record.chief : specialistOf(record, specialistName)
     if (!specialist) throw new HarnessError('not_found', `Specialist "${specialistName}" is not on harness "${record.name}".`)
     if (specialist.model?.nodeName) return specialist.model
     if (record.chief?.model?.nodeName) return record.chief.model
@@ -801,15 +814,14 @@ async function completeChat(req, res, meta) {
     const ctx = await ownerContext(record)
     assertStillValid(meta)
     availability.assertRuntimeAvailable()
-    const primary = modelBinding(record, meta.specialistName)
-    const fallback = fallbackBinding(record, meta.specialistName)
+    const primary = modelBinding(record, meta.specialistName, meta.role)
+    const fallback = fallbackBinding(record, meta.specialistName, meta.role)
     const bound = bindRequest(req, res)
     let result
     try {
         result = await withModelFallback({
             primary,
             fallback,
-            onUse: () => console.info(`[harness] ${record.name} gateway fallback ${fallback.label || fallback.nodeName}`),
             run: async (binding, windowMs, controlSignal) => {
                 const parts = [bound.signal]
                 if (controlSignal) parts.push(controlSignal)
@@ -821,6 +833,18 @@ async function completeChat(req, res, meta) {
                 try {
                     // Nothing is awaited between this check and the model call starting.
                     assertStillValid(meta)
+                    console.info(
+                        `[harness-gateway] completion role=${logField(meta.role)} harness=${logField(record.name)} profile=${logField(
+                            meta.profileName
+                        )} provider=${logField(resolved.nodeName)} model=${logField(
+                            resolved.modelId ||
+                                resolved.chat?.modelName ||
+                                resolved.chat?.model ||
+                                binding.inputs?.modelName ||
+                                binding.inputs?.model ||
+                                'unknown'
+                        )}`
+                    )
                     return await invokeChat(resolved, {
                         messages: body.messages,
                         tools: body.tools,
@@ -1119,7 +1143,20 @@ function toolSpec(binding, kind, ownName) {
     }
 }
 
+function logField(value) {
+    return String(value || '').replace(/[\r\n\s=]/g, '_')
+}
+
+function assertToolRole(meta) {
+    if (meta.role === 'chief') {
+        const error = new HarnessError('forbidden', 'Chief profiles use roster tools, not the gateway tool bridge.')
+        error.statusCode = 403
+        throw error
+    }
+}
+
 async function callTool(req, res, meta) {
+    assertToolRole(meta)
     const body = await parseJson(req)
     assertStillValid(meta)
     if (!body.name || typeof body.name !== 'string') {
