@@ -19,6 +19,7 @@ services:
           paths:
               - website/**
               - docs/**
+              - package.json
               - FAQ.md
               - README.md
               - CHANGELOG.md

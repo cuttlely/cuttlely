@@ -151,7 +151,7 @@ Below the numbers, each step has a check mark when it is done, then a line of co
 
 ![The steps of the first run: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
 
-While a run is going, **Pause** stops it after the current batch and **Cancel** stops it for good. A paused run shows **Resume**. A run that read to the end but rejected some records, or could not read a file, is `partial`. A file it could not read keeps the chunks from the last run. A `partial` run is served, the same as `succeeded`. If more than 5% of the records are rejected, after at least 100 records, the run fails instead and the served version does not change.
+While a run is going, **Pause** stops it after the current batch and **Cancel** stops it for good. A paused run shows **Resume**. Starting, resuming, pausing and cancelling runs at the same moment does not leave a cancelled or paused run running or start a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused. A pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. A run that read to the end but rejected some records, or could not read a file, is `partial`. A file it could not read keeps the chunks from the last run. A `partial` run is served, the same as `succeeded`. If more than 5% of the records are rejected, after at least 100 records, the run fails instead and the served version does not change.
 
 ### Run it again
 
