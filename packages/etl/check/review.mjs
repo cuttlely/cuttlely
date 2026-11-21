@@ -113,14 +113,17 @@ const fast = { now: () => clock, sleep: async (ms) => (clock += ms) }
 
 async function runFlow(id, flowData, { mode = 'incremental', settings = {}, ctx = {} } = {}) {
     api.configureRunner({ contextFor: () => ({ storeCountSettle: fast, flowOptions: {}, ...ctx }) })
-    const saved = api.recordVersion({ workspaceId: WS, id, name: id, flowData })
+    const saved = await api.recordVersion({ workspaceId: WS, id, name: id, flowData })
     if (saved.problems.length) return { problems: saved.problems }
-    const started = api.startRun(id, { mode, settings: { batchSize: 16, concurrency: 1, maxRetries: 2, maxErrors: 100000, ...settings } })
-    let detail = api.runDetail(started.id)
+    const started = await api.startRun(id, {
+        mode,
+        settings: { batchSize: 16, concurrency: 1, maxRetries: 2, maxErrors: 100000, ...settings }
+    })
+    let detail = await api.runDetail(started.id)
     while (['queued', 'running', 'pausing', 'cancelling'].includes(detail.status)) {
         await api.waitForIdle()
         await new Promise((resolve) => setImmediate(resolve))
-        detail = api.runDetail(started.id)
+        detail = await api.runDetail(started.id)
     }
     return { ...detail, version: started.version }
 }
@@ -474,10 +477,15 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
     const resumeFile = write('dup-resume/dup.csv', lines)
     const clean = await runFlow('rv-dup-clean', localFlow(cleanFile, 'rv-dup-clean'), { settings: { batchSize: 10 } })
     api.configureRunner({ contextFor: () => ({ flowOptions: {} }) })
-    api.recordVersion({ workspaceId: WS, id: 'rv-dup-resume', name: 'rv-dup-resume', flowData: localFlow(resumeFile, 'rv-dup-resume') })
+    await api.recordVersion({
+        workspaceId: WS,
+        id: 'rv-dup-resume',
+        name: 'rv-dup-resume',
+        flowData: localFlow(resumeFile, 'rv-dup-resume')
+    })
     const { executeRun } = await import('../execute.mjs')
     const { insertRun, updateRun } = await import('../runs.mjs')
-    const run = insertRun({
+    const run = await insertRun({
         pipelineId: 'rv-dup-resume',
         version: 1,
         mode: 'incremental',
@@ -488,12 +496,12 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
     const faults = { ledger: (batch) => (batch.seq === 1 ? (control.stopRequested = 'pause') : null) && null }
     const running = executeRun(run.id, { control, ctx: { flowOptions: {}, faults } })
     await running
-    const interrupted = api.runDetail(run.id)
-    updateRun(run.id, { status: 'running' })
+    const interrupted = await api.runDetail(run.id)
+    await updateRun(run.id, { status: 'running' })
     const { resumeInterruptedRuns, waitForIdle } = await import('../runner.mjs')
-    resumeInterruptedRuns()
+    await resumeInterruptedRuns()
     await waitForIdle()
-    const resumed = api.runDetail(run.id)
+    const resumed = await api.runDetail(run.id)
     const shape = (collection) =>
         vectors(collection)
             // Everything but the chunk id (it hashes the pipeline id) and the folder name, which differ by design.

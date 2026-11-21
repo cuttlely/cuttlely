@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { EtlError } from './errors.mjs'
-import { now, stmt } from './db.mjs'
+import { now } from './db.mjs'
+import * as etlStore from './store.mjs'
 import { nextCron } from './cron.mjs'
 import { activeRunFor, getRun } from './runs.mjs'
 import { configureRunner, startRun } from './runner.mjs'
@@ -80,68 +81,70 @@ function normalize(input = {}) {
     return { kind, cron: null, every, unit, mode }
 }
 
-function requirePipeline(pipelineId) {
-    const pipeline = getPipeline(pipelineId)
+async function requirePipeline(pipelineId) {
+    const pipeline = await getPipeline(pipelineId)
     if (!pipeline) throw new EtlError('not_found', 'Save the pipeline before scheduling it.', 404)
     return pipeline
 }
 
-export function listSchedules(pipelineId) {
-    return stmt('SELECT * FROM schedules WHERE pipeline_id = ? ORDER BY created_at').all(pipelineId).map(rowToSchedule)
+export async function listSchedules(pipelineId) {
+    return (await etlStore.all('SELECT * FROM schedules WHERE pipeline_id = ? ORDER BY created_at', [pipelineId])).map(rowToSchedule)
 }
 
-export function getSchedule(id) {
-    return rowToSchedule(stmt('SELECT * FROM schedules WHERE id = ?').get(id))
+export async function getSchedule(id) {
+    return rowToSchedule(await etlStore.get('SELECT * FROM schedules WHERE id = ?', [id]))
 }
 
-export function createSchedule(pipelineId, input = {}) {
-    requirePipeline(pipelineId)
+export async function createSchedule(pipelineId, input = {}) {
+    await requirePipeline(pipelineId)
     const spec = normalize(input)
     const id = crypto.randomUUID()
     const stamp = now()
     const next = nextRunAt(spec, schedulerNow()).toISOString()
-    stmt(
+    await etlStore.run(
         `INSERT INTO schedules (id, pipeline_id, kind, every_n, every_unit, cron, mode, status, next_run_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
-    ).run(id, pipelineId, spec.kind, spec.every, spec.unit, spec.cron, spec.mode, next, stamp, stamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        [id, pipelineId, spec.kind, spec.every, spec.unit, spec.cron, spec.mode, next, stamp, stamp]
+    )
     return getSchedule(id)
 }
 
-export function updateSchedule(id, input = {}) {
-    const current = getSchedule(id)
+export async function updateSchedule(id, input = {}) {
+    const current = await getSchedule(id)
     if (!current) throw new EtlError('not_found', 'Schedule was not found.', 404)
     const spec = normalize({ ...current, ...input, every: input.every ?? current.every, unit: input.unit ?? current.unit })
     const next = nextRunAt(spec, schedulerNow()).toISOString()
-    stmt(
-        `UPDATE schedules SET kind = ?, every_n = ?, every_unit = ?, cron = ?, mode = ?, next_run_at = ?, updated_at = ? WHERE id = ?`
-    ).run(spec.kind, spec.every, spec.unit, spec.cron, spec.mode, next, now(), id)
+    await etlStore.run(
+        `UPDATE schedules SET kind = ?, every_n = ?, every_unit = ?, cron = ?, mode = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+        [spec.kind, spec.every, spec.unit, spec.cron, spec.mode, next, now(), id]
+    )
     return getSchedule(id)
 }
 
-export function pauseSchedule(id) {
-    const current = getSchedule(id)
+export async function pauseSchedule(id) {
+    const current = await getSchedule(id)
     if (!current) throw new EtlError('not_found', 'Schedule was not found.', 404)
-    stmt(`UPDATE schedules SET status = 'paused', updated_at = ? WHERE id = ?`).run(now(), id)
+    await etlStore.run(`UPDATE schedules SET status = 'paused', updated_at = ? WHERE id = ?`, [now(), id])
     return getSchedule(id)
 }
 
-export function resumeSchedule(id) {
-    const current = getSchedule(id)
+export async function resumeSchedule(id) {
+    const current = await getSchedule(id)
     if (!current) throw new EtlError('not_found', 'Schedule was not found.', 404)
     let next = current.nextRunAt
     if (!next || new Date(next).getTime() <= schedulerNow().getTime()) next = nextRunAt(current, schedulerNow()).toISOString()
-    stmt(`UPDATE schedules SET status = 'active', next_run_at = ?, updated_at = ? WHERE id = ?`).run(next, now(), id)
+    await etlStore.run(`UPDATE schedules SET status = 'active', next_run_at = ?, updated_at = ? WHERE id = ?`, [next, now(), id])
     return getSchedule(id)
 }
 
-export function deleteSchedule(id) {
-    const current = getSchedule(id)
+export async function deleteSchedule(id) {
+    const current = await getSchedule(id)
     if (!current) throw new EtlError('not_found', 'Schedule was not found.', 404)
-    stmt('DELETE FROM schedules WHERE id = ?').run(id)
+    await etlStore.run('DELETE FROM schedules WHERE id = ?', [id])
     return { id, deleted: true }
 }
 
-function mark(id, fields) {
+async function mark(id, fields) {
     const sets = []
     const values = []
     for (const [key, value] of Object.entries(fields)) {
@@ -150,16 +153,16 @@ function mark(id, fields) {
     }
     sets.push('updated_at = ?')
     values.push(now(), id)
-    stmt(`UPDATE schedules SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    await etlStore.run(`UPDATE schedules SET ${sets.join(', ')} WHERE id = ?`, values)
 }
 
-export function noteRunSettled(runId) {
-    const run = getRun(runId)
+export async function noteRunSettled(runId) {
+    const run = await getRun(runId)
     if (!run) return
-    const rows = stmt(`SELECT id, last_result FROM schedules WHERE last_run_id = ?`).all(runId)
+    const rows = await etlStore.all(`SELECT id, last_result FROM schedules WHERE last_run_id = ?`, [runId])
     for (const row of rows) {
         if (row.last_result === 'skipped') continue
-        mark(row.id, { last_result: run.status, last_reason: run.error || null })
+        await mark(row.id, { last_result: run.status, last_reason: run.error || null })
     }
 }
 
@@ -168,15 +171,16 @@ function installSettled() {
 }
 
 // Due active schedules fire once. A pipeline that already has a run is skipped and the reason is stored.
-export function tickSchedules() {
+export async function tickSchedules() {
     if (ticking) return []
     ticking = true
     installSettled()
     const outcomes = []
     try {
-        const due = stmt(
-            `SELECT * FROM schedules WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at`
-        ).all(schedulerNow().toISOString())
+        const due = await etlStore.all(
+            `SELECT * FROM schedules WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at`,
+            [schedulerNow().toISOString()]
+        )
         for (const row of due) {
             const schedule = rowToSchedule(row)
             const at = schedulerNow()
@@ -184,15 +188,15 @@ export function tickSchedules() {
             let runId = null
             let reason = null
             try {
-                const running = activeRunFor(schedule.pipelineId)
+                const running = await activeRunFor(schedule.pipelineId)
                 if (running) {
                     outcome = 'skipped'
                     reason = `Run ${running.id.slice(0, 8)} is still ${running.status}. This tick was skipped so runs do not stack.`
-                    mark(schedule.id, { last_result: 'skipped', last_reason: reason })
+                    await mark(schedule.id, { last_result: 'skipped', last_reason: reason })
                 } else {
-                    const run = startRun(schedule.pipelineId, { mode: schedule.mode })
+                    const run = await startRun(schedule.pipelineId, { mode: schedule.mode })
                     runId = run.id
-                    mark(schedule.id, {
+                    await mark(schedule.id, {
                         last_run_id: run.id,
                         last_run_at: at.toISOString(),
                         last_result: 'running',
@@ -202,10 +206,10 @@ export function tickSchedules() {
             } catch (error) {
                 outcome = 'failed'
                 reason = error.message
-                mark(schedule.id, { last_result: 'failed', last_reason: reason })
+                await mark(schedule.id, { last_result: 'failed', last_reason: reason })
             }
             const next = nextRunAt(schedule, at).toISOString()
-            stmt('UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE id = ?').run(next, now(), schedule.id)
+            await etlStore.run('UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE id = ?', [next, now(), schedule.id])
             outcomes.push({ scheduleId: schedule.id, outcome, runId, reason })
         }
         return outcomes
@@ -214,18 +218,16 @@ export function tickSchedules() {
     }
 }
 
-export function startScheduler() {
+export async function startScheduler() {
     installSettled()
     if (timer) return
     timer = setInterval(() => {
-        try {
-            tickSchedules()
-        } catch {
+        tickSchedules().catch(() => {
             // a bad row must not kill the loop; the next tick tries again
-        }
+        })
     }, pollMs)
     timer.unref?.()
-    tickSchedules()
+    await tickSchedules()
 }
 
 export function stopScheduler() {

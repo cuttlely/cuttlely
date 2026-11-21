@@ -45,60 +45,62 @@ function runSummary(run) {
     return { ...run, active: isActive(run.id) }
 }
 
-export function bootEtl() {
-    const resumed = resumeInterruptedRuns()
-    startScheduler()
+export async function bootEtl() {
+    const resumed = await resumeInterruptedRuns()
+    await startScheduler()
     return resumed
 }
 
-export function listPipelineSummaries({ workspaceId } = {}) {
-    return listPipelines({ workspaceId }).map((pipeline) => {
-        const latest = latestVersion(pipeline.id)
-        return {
+export async function listPipelineSummaries({ workspaceId } = {}) {
+    const summaries = []
+    for (const pipeline of await listPipelines({ workspaceId })) {
+        const latest = await latestVersion(pipeline.id)
+        summaries.push({
             ...pipeline,
             latestVersion: latest?.version ?? null,
             problems: latest?.problems?.problems || [],
             store: latest?.spec?.store?.label || null,
             embeddings: latest?.spec?.embeddings?.label || null,
             sources: (latest?.spec?.sources || []).map((source) => source.label),
-            stats: pipelineStats(pipeline.id),
-            lastRun: runSummary(lastRunFor(pipeline.id)),
-            schedules: listSchedules(pipeline.id)
-        }
-    })
+            stats: await pipelineStats(pipeline.id),
+            lastRun: runSummary(await lastRunFor(pipeline.id)),
+            schedules: await listSchedules(pipeline.id)
+        })
+    }
+    return summaries
 }
 
-export function pipelineDetail(id) {
-    const pipeline = getPipeline(id)
+export async function pipelineDetail(id) {
+    const pipeline = await getPipeline(id)
     if (!pipeline) throw new EtlError('not_found', 'This ETL pipeline has not been saved yet.', 404)
-    const latest = latestVersion(id)
+    const latest = await latestVersion(id)
     return {
         ...pipeline,
         latestVersion: latest?.version ?? null,
         spec: latest?.spec || null,
         problems: latest?.problems?.problems || [],
         warnings: latest?.problems?.warnings || [],
-        stats: pipelineStats(id),
-        versions: listVersions(id),
-        runs: listRuns(id, 20).map(runSummary),
-        schedules: listSchedules(id)
+        stats: await pipelineStats(id),
+        versions: await listVersions(id),
+        runs: (await listRuns(id, 20)).map(runSummary),
+        schedules: await listSchedules(id)
     }
 }
 
-export function versionDetail(id, version) {
-    const found = getVersion(id, version, { withFlow: true })
+export async function versionDetail(id, version) {
+    const found = await getVersion(id, version, { withFlow: true })
     if (!found) throw new EtlError('not_found', `Version ${version} was not found.`, 404)
     return found
 }
 
-export function runDetail(runId, { after = 0 } = {}) {
-    const run = getRun(runId)
+export async function runDetail(runId, { after = 0 } = {}) {
+    const run = await getRun(runId)
     if (!run) throw new EtlError('not_found', `Run ${runId} was not found.`, 404)
-    return { ...runSummary(run), events: listEvents(runId, { after }) }
+    return { ...runSummary(run), events: await listEvents(runId, { after }) }
 }
 
-export function pipelineRuns(id, limit) {
-    return listRuns(id, limit).map(runSummary)
+export async function pipelineRuns(id, limit) {
+    return (await listRuns(id, limit)).map(runSummary)
 }
 
 const UPLOAD_NAME = /[^A-Za-z0-9._-]+/g
@@ -107,7 +109,7 @@ const UPLOAD_NAME = /[^A-Za-z0-9._-]+/g
 // Uploads are stored under the pipeline's workspace (uploads/<workspace>/<pipeline>/<uuid>/), and only a pipeline in
 // that workspace can read them. The caller has already checked the pipeline against the workspace.
 export async function saveUpload(readable, fileName, { workspaceId, pipelineId } = {}) {
-    const pipeline = getPipeline(pipelineId)
+    const pipeline = await getPipeline(pipelineId)
     if (!pipeline || !pipeline.workspaceId || pipeline.workspaceId !== requireWorkspaceId(workspaceId)) {
         throw new EtlError('not_found', 'This ETL pipeline was not found in your workspace.', 404)
     }

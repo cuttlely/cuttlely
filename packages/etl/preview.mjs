@@ -2,7 +2,7 @@ import { errorMessage } from './errors.mjs'
 import { compilePipeline, embeddingFingerprint } from './graph.mjs'
 import { createEmbeddings } from './embed.mjs'
 import { chunkId } from './execute.mjs'
-import { stmt } from './db.mjs'
+import * as etlStore from './store.mjs'
 import { checkPath, estimateSource, normalizeKey, sourceUnits } from './sources.mjs'
 import { compileTransforms, createSplitter, fillKeyTemplate, keyTemplateOf, splitDoc } from './transform.mjs'
 import { LOCAL_EMBEDDINGS } from './graph.mjs'
@@ -17,11 +17,11 @@ function clip(text) {
     return clipText(text, TEXT_LIMIT + 1)
 }
 
-function existingIds(pipelineId, ids) {
+async function existingIds(pipelineId, ids) {
     if (!pipelineId || !ids.length) return new Set()
-    const rows = stmt(`SELECT chunk_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${ids.map(() => '?').join(', ')})`).all(
-        pipelineId,
-        ...ids
+    const rows = await etlStore.all(
+        `SELECT chunk_id FROM records WHERE pipeline_id = ? AND chunk_id IN (${ids.map(() => '?').join(', ')})`,
+        [pipelineId, ...ids]
     )
     return new Set(rows.map((row) => row.chunk_id))
 }
@@ -139,7 +139,7 @@ export async function previewPipeline({ pipelineId = 'preview', flowData, limit 
             result.problems.push(`${source.label}: ${summary.error}`)
         }
     }
-    const known = existingIds(
+    const known = await existingIds(
         pipelineId,
         chunks.map((chunk) => chunk.id)
     )
