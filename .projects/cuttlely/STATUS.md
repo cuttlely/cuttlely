@@ -1,3 +1,7 @@
+## 1.7.10 release
+
+Release notes are dated `## [1.7.10] - 2026-11-20`. They include runtime containment from #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`), the probe-cache fix from #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`), the default HEALTHCHECK / Compose / `render.yaml` `healthCheckPath` move to `/api/v1/ping/live`, and the recommendation that plain `docker run` use `--restart unless-stopped`. Orchestrate and A2A outage responses stay as in 1.7.9 and are tracked in #540 for 1.7.11.
+
 ## Runtime containment (#536, parts 2 and 3)
 
 Public `/api/v1/ping/live` is the container and gateway liveness probe; `/api/v1/ping` stays strict readiness with the existing boot compile gate. A down runtime refuses Harness execution with `503 RUNTIME_UNAVAILABLE` and `Retry-After`; ordinary flows and operator recovery routes stay available. The Dockerfile HEALTHCHECK, the application Compose services and Render use the liveness path. The deployment guide separates restart probes from traffic-readiness probes for any gateway or load balancer.

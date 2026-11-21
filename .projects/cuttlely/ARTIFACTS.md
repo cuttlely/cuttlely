@@ -1,3 +1,7 @@
+## 1.7.10 release
+
+-   `CHANGELOG.md` and the four product manifests (`package.json`, `packages/server/package.json`, `packages/cli/package.json`, `packages/chat-widget/package.json`): dated 1.7.10 notes and version bumps for #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`) and #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`).
+
 ## ETL responsiveness and recovery
 
 -   `packages/etl/cooperate.mjs`, `sources.mjs`, `execute.mjs`: cooperative source/run bookkeeping, checkpoint-bounded duplicate seeding and first-error retention.

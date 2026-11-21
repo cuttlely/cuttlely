@@ -2,7 +2,7 @@
 
 ## Current release work
 
-1.7.9 is published at `0beeb62a` (#524): GitHub release, image and both npm packages. Full preparation, protected version checks, tagged image startup, package integrity, hosted health and an isolated standalone query were verified. The initial post-rollout specialist connection refusal and later recovery are recorded in STATUS; no startup root cause is claimed.
+1.7.10 is being cut. `#537` landed as `2d43158ac5ce2567d974d2dad22e1184e691e6f5` and `#538` as `df67384014be0b2ef6c6cb7a49710d43c9e6eb34`. The release branch dates the changelog `## [1.7.10] - 2026-11-20` and bumps the four product manifests. Orchestrate and A2A outage-response follow-up is [#540](https://github.com/cuttlely/cuttlely/issues/540) for 1.7.11. 1.7.9 remains published at `0beeb62a` (#524) until 1.7.10 is tagged.
 
 ## Milestones
 
@@ -31,6 +31,8 @@
 | 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                                                                                                                       |
 
 ## Next concrete tasks
+
+-   **1.7.10 release (in progress).** Version bumps and dated changelog for #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`) and #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`). Known issue #540 is deferred to 1.7.11.
 
 -   **1.7.9 release (published).** Published as `0beeb62a` ([#524](https://github.com/cuttlely/cuttlely/pull/524)). The merge audit and complete documentation landed in #523. All 28 fresh preparation steps, image checks, normal version-PR checks, both npm artifacts, website content/media and hosted runtime checks are recorded in STATUS. New release notes go under `## [Unreleased]`.
 
