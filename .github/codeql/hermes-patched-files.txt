@@ -41,3 +41,4 @@ hermes/plugins/memory/honcho/cli.py
 hermes/gateway/hosted_rooms_legacy_import.py
 hermes/gateway/cuttlely_mcp_startup.py
 hermes/gateway/run.py
+hermes/gateway/run_profile_reconcile.py

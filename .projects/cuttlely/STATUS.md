@@ -1,3 +1,7 @@
+## Unserve closes profile log and MCP stderr handles (#536 leftover)
+
+Retiring a multiplexed agent-runtime profile now closes that profile's log files and MCP stderr handles. `_unserve_profile` calls `release_profile_log_handlers(home)` and `shutdown_mcp_servers(scope=hermes_home_key(home))`, never a bare shutdown and never `scope=None`, so a still-served sibling keeps writing its logs and its MCP servers stay connected. Reconcile goes through the same method. This is Hermes patch 0014. Test: `scripts/hermes-unserve-log-handles.test.mjs`, which checks that descriptor counts return to the warmed baseline across serve/unserve cycles, that a sibling profile keeps working, and that reconcile uses the same path. Issue #536 stays open until this change merges. This is local PR preparation; publication and live verification are separate.
+
 ## 1.7.13 boot health and supervisor hygiene (PR B)
 
 The agent runtime serves health checks while MCP tools connect in the background (patch 0013), with up to four profiles discovering at once. A run waits only for its own profile within the existing discovery wait (patch 0003), and a server that never answers drops only its own tools. Discovery logs name each profile and failed server, with tool counts and elapsed time. The per-server connect timeout, health grace and 135-second start deadline are unchanged. Test: scripts/hermes-background-mcp.test.mjs.
