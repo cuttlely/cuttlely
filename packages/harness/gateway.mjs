@@ -30,8 +30,8 @@ import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { removeContainedTree } from './profile.mjs'
-import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
+import { removeContainedTree, specialistProfileName } from './profile.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, harnessProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
@@ -175,7 +175,7 @@ export function registerProfileToken({
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
-    const directory = hermesProfileId(profileName || '')
+    const directory = harnessProfileId(profileName || '')
     if (directory) {
         for (const [existing, meta] of [...tokens]) {
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
@@ -458,6 +458,12 @@ function ingestProfileTokens(abandoned = new Set()) {
         const role = env.CUTTLELY_GATEWAY_ROLE || 'specialist'
         if (!['chief', 'specialist'].includes(role) || !harnessName || (role === 'specialist' && !specialistName)) continue
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
+        if (env.CUTTLELY_GATEWAY_TRY !== '1') {
+            const chiefId = harnessProfileId(harnessName)
+            const expected = role === 'chief' ? chiefId : specialistProfileName(chiefId, specialistName)
+            if (entry !== expected) continue
+            if (chiefId !== harnessName && env.CUTTLELY_GATEWAY_PROFILE !== entry) continue
+        }
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
         // A harness being deleted gets no published token back from disk either.

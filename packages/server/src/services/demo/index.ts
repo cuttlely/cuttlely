@@ -204,7 +204,7 @@ async function ensureDemoFiles(demo: DemoDefinition): Promise<void> {
     const profile = await loadHarness('profile.mjs')
     const source = demoDataDir(demo.dataDir)
     for (const [specialist, files] of Object.entries(demo.files)) {
-        const profileName = profile.specialistProfileName(demo.harness, specialist)
+        const profileName = profile.specialistProfileName(profile.harnessProfileId(demo.harness), specialist)
         const folder = profile.specialistWorkspace(profileName)
         if (!specialistFilesReady(folder, files)) await stageDemoWorkspace(folder, source, files, demo.harness, profileName)
     }
@@ -219,7 +219,7 @@ async function releaseIdentifiedDemoWorkspaces(demo: DemoDefinition): Promise<vo
     const byProfile = new Map<string, { folder: string; files: string[] }>()
     const expected: string[] = []
     for (const [specialist, files] of Object.entries(demo.files)) {
-        const profileName = profile.specialistProfileName(demo.harness, specialist)
+        const profileName = profile.specialistProfileName(profile.harnessProfileId(demo.harness), specialist)
         expected.push(profileName)
         byProfile.set(profileName, { folder: profile.specialistWorkspace(profileName), files })
     }
@@ -326,7 +326,10 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
     await releaseIdentifiedDemoWorkspaces(demo)
     const folders: Record<string, string> = {}
     for (const specialist of Object.keys(demo.files)) {
-        folders[specialist] = profile.specialistWorkspace(profile.specialistProfileName(demo.harness, specialist)).split(path.sep).join('/')
+        folders[specialist] = profile
+            .specialistWorkspace(profile.specialistProfileName(profile.harnessProfileId(demo.harness), specialist))
+            .split(path.sep)
+            .join('/')
     }
 
     const chatModel = { name: model.name, credential: credentialId, inputs: model.modelName ? { modelName: model.modelName } : {} }

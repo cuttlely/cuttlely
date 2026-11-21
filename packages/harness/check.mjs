@@ -152,7 +152,7 @@ const {
 } = await import('./trace.mjs')
 const { getHarness } = await import('./store.mjs')
 const { CHIEF_MODEL_REQUIRED } = await import('./errors.mjs')
-const { harnessStoreDir } = await import('./paths.mjs')
+const { harnessStoreDir, harnessProfileId } = await import('./paths.mjs')
 const { fallbackToolChoice, normalizeArithmeticQuestion, validArgs } = await import('./tool-fallback.mjs')
 const {
     UPLOAD_PREPEND_TOKENS,
@@ -399,7 +399,7 @@ function specialistNamed(roster, name) {
 }
 
 function profileFile(name, file) {
-    return path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name, file)
+    return path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', harnessProfileId(name), file)
 }
 
 const research = readJson('samples/harnesses/research.json')
@@ -456,10 +456,10 @@ const opsProfile = compileProfile(ops)
         recompiled = false
     }
     check('a harness recompiles over its own specialist profiles', recompiled && !profileDestinationConflicts(first).length)
-    // Harness names are case-sensitive: Joinx--b and joinx--b are two owners of the same lowercased profile names.
+    // Names that differ in case compile into separate runtime ids.
     check(
         'a harness whose name differs only by case does not take over the other harness profiles',
-        JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' })) === JSON.stringify(['joinx--b--c', 'joinx--b--y']),
+        profileDestinationConflicts({ ...first, name: 'JOINX--b' }).length === 0,
         JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' }))
     )
     // A preset switches tools on at save, which gives a specialist its own profile even with one model in the roster.
@@ -3766,7 +3766,7 @@ check(
     (await warmHarnessProfiles({ names: ['missing-harness'], baseUrl: contract.url })).length === 0
 )
 
-const profileYaml = (name) => fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name, 'config.yaml'), 'utf8')
+const profileYaml = (name) => fs.readFileSync(profileFile(name, 'config.yaml'), 'utf8')
 const disabledTools = (yaml) =>
     yamlSection(yaml, 'agent')
         .split('\n')
@@ -5062,7 +5062,7 @@ function warningText(saved) {
 function profilesFor(harnessName) {
     const dir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
     if (!fs.existsSync(dir)) return []
-    const prefix = String(harnessName).toLowerCase()
+    const prefix = harnessProfileId(harnessName)
     return fs
         .readdirSync(dir)
         .filter((name) => name === prefix || name.startsWith(`${prefix}--`))
@@ -6394,7 +6394,7 @@ await expectCase('custom MCP runs through the node', async () => {
     await maybeConfigure(ctx)
     const profiles = profilesFor('maMcp')
     const yaml = profiles.map((profile) => profile.yaml).join('\n')
-    const token = profiles.flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = gatewayTokens(profiles.find((profile) => profile.env.CUTTLELY_GATEWAY_SPECIALIST === 'operator')?.env)[0]
     let toolReached = false
     const gateway = await openGateway()
     try {
@@ -6791,7 +6791,7 @@ await expectCase('custom MCP SQL tools are refused', async () => {
         return
     }
     await maybeConfigure(ctx)
-    const token = profilesFor('maSqlMcp').flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = gatewayTokens(profilesFor('maSqlMcp').find((profile) => profile.env.CUTTLELY_GATEWAY_SPECIALIST === 'operator')?.env)[0]
     const gateway = await openGateway()
     let detail = 'gateway token missing'
     let ok = false
@@ -7825,6 +7825,7 @@ await expectCase(
         const a4 = []
         for (const [label, run] of cases) {
             const name = `masentinel${label}`.replace(/\W/g, '')
+            const profilePath = path.join(root, harnessProfileId(name))
             const record = saveHarness(
                 {
                     name,
@@ -7837,11 +7838,11 @@ await expectCase(
             compileProfile(record)
             forgetCompiledProfile(name)
             const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
-            fs.cpSync(path.join(root, name), outside, { recursive: true })
+            fs.cpSync(profilePath, outside, { recursive: true })
             fs.writeFileSync(path.join(outside, 'sentinel'), 'sentinel-bytes')
             const sent = fs.statSync(path.join(outside, 'sentinel'))
-            fs.rmSync(path.join(root, name), { recursive: true, force: true })
-            fs.symlinkSync(outside, path.join(root, name))
+            fs.rmSync(profilePath, { recursive: true, force: true })
+            fs.symlinkSync(outside, profilePath)
             const before = snap(outside)
             let refused = false
             try {
@@ -7851,13 +7852,13 @@ await expectCase(
                 refused = error?.code === 'profile_link'
             }
             // Warm-up catches the compiler refusal. The link is gone and the target was not written.
-            if (label === 'warm-up' && !fs.existsSync(path.join(root, name))) refused = true
+            if (label === 'warm-up' && !fs.existsSync(profilePath)) refused = true
             const after = snap(outside)
             const sentinel = fs.statSync(path.join(outside, 'sentinel'))
             const sameTree = before === after
             const mtimeSame = sentinel.mtimeMs === sent.mtimeMs
             const bytesSame = fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'sentinel-bytes'
-            const linkGone = !fs.existsSync(path.join(root, name))
+            const linkGone = !fs.existsSync(profilePath)
             const ok = refused && sameTree && mtimeSame && bytesSame && linkGone
             a4.push({ label, ok, refused, sameTree, mtimeSame, linkGone })
             check(
@@ -7865,7 +7866,7 @@ await expectCase(
                 ok,
                 JSON.stringify({ label, refused, same: sameTree, mtime: mtimeSame })
             )
-            fs.rmSync(path.join(root, name), { recursive: true, force: true })
+            fs.rmSync(profilePath, { recursive: true, force: true })
             fs.rmSync(outside, { recursive: true, force: true })
         }
         check(
@@ -8920,7 +8921,7 @@ await expectCase('the gateway rejects unknown tokens and streams when asked', as
         return
     }
     await maybeConfigure(ctx)
-    const token = profilesFor('maStream').flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = gatewayTokens(profilesFor('maStream').find((profile) => profile.env.CUTTLELY_GATEWAY_SPECIALIST === 'loop')?.env)[0]
     let rejected = false
     let streamed = false
     let usageStreamed = null
@@ -9028,7 +9029,7 @@ await expectCase("the node's reasoning settings are not overridden", async () =>
         })
     )
     await maybeConfigure(ctx)
-    const token = profilesFor('maReason').flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = gatewayTokens(profilesFor('maReason').find((profile) => profile.env.CUTTLELY_GATEWAY_SPECIALIST === 'loop')?.env)[0]
     const beforeGateway = invocationsOf(FakeToolChat).length
     const gateway = await openGateway()
     try {
@@ -12261,7 +12262,12 @@ check(
         )
     const tokenFor = (name) => {
         const token = `${name}Token`.padEnd(43, 'x').slice(0, 43)
-        gatewayApi.registerProfileToken({ token, harnessName: name, specialistName: 'reader', profileName: `${name}--reader` })
+        gatewayApi.registerProfileToken({
+            token,
+            harnessName: name,
+            specialistName: 'reader',
+            profileName: `${harnessProfileId(name)}--reader`
+        })
         return token
     }
     const refuseExternal = async (name, callerWorkspace) => {
@@ -12298,7 +12304,7 @@ check(
                     method: 'POST',
                     path: '/harness/tools/call',
                     token: tokenFor(name),
-                    body: { name: 'unavailable', scope: `${name}--reader:${name}-chat#turn-one`, arguments: {} }
+                    body: { name: 'unavailable', scope: `${harnessProfileId(name)}--reader:${name}-chat#turn-one`, arguments: {} }
                 })
                 gatewayStatus = called.status
                 gatewayBody = called.body
@@ -17689,7 +17695,7 @@ await (async () => {
         { overwrite: true }
     )
     compileProfileCached(getHarness(name))
-    const publishedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name)
+    const publishedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', harnessProfileId(name))
     const publishedSoul = fs.readFileSync(path.join(publishedDir, 'SOUL.md'), 'utf8')
     const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
     const souls = new Map()
@@ -18605,8 +18611,8 @@ await (async () => {
     child('mixed--b', 'mixed')
     const caseSweep = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
     check(
-        'the sweep keeps profiles whose id matches a saved harness in another letter case',
-        exists('mixed--b') && !caseSweep.removed.includes('mixed--b'),
+        'the sweep treats differently cased saved names as separate owners',
+        !exists('mixed--b') && caseSweep.removed.includes('mixed--b'),
         JSON.stringify(caseSweep)
     )
     dropJson('Mixed')
@@ -18709,20 +18715,20 @@ await (async () => {
             !cleanup.nameReuseBlockers('gone').length,
         JSON.stringify({ linkedOutcome, wsOnly, linkedRoot })
     )
-    // A profile cleanup cannot attribute (a roster cut off mid-write) and a workspace in another letter case block reuse.
+    // An unattributed profile and a workspace under the hashed runtime prefix block reuse.
     fs.mkdirSync(path.join(profilesDir, 'torn'), { recursive: true })
     fs.writeFileSync(path.join(profilesDir, 'torn', 'harness-roster.json'), '{"name": "to')
     fs.writeFileSync(path.join(profilesDir, 'torn', 'memory.md'), 'private')
     fs.mkdirSync(path.join(workDir, 'torn'), { recursive: true })
-    fs.mkdirSync(path.join(workDir, 'mixedteam--reader'), { recursive: true })
+    fs.mkdirSync(path.join(workDir, `${harnessProfileId('MixedTeam')}--reader`), { recursive: true })
     const torn = await cleanup.removeHarnessProfiles('torn')
     const mixedCase = await cleanup.removeHarnessProfiles('MixedTeam')
     check(
-        'an unattributed profile or a workspace in another letter case blocks reuse of the name',
+        'an unattributed profile or a workspace under the runtime prefix blocks reuse of the name',
         torn.kept.includes('profiles/torn') &&
             torn.kept.includes('workspaces/torn') &&
             fs.existsSync(path.join(profilesDir, 'torn', 'memory.md')) &&
-            mixedCase.kept.includes('workspaces/mixedteam--reader'),
+            mixedCase.kept.includes(`workspaces/${harnessProfileId('MixedTeam')}--reader`),
         JSON.stringify({ torn, mixedCase })
     )
     // A fitted specialist name of a long harness name (tryx plus a hash) is checked when the save names it.
@@ -18738,7 +18744,7 @@ await (async () => {
     fs.rmSync(path.join(workDir, fittedName), { recursive: true, force: true })
     fs.rmSync(path.join(profilesDir, 'torn'), { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'torn'), { recursive: true, force: true })
-    fs.rmSync(path.join(workDir, 'mixedteam--reader'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, `${harnessProfileId('MixedTeam')}--reader`), { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'wsonly--a'), { recursive: true, force: true })
     fs.rmSync(path.join(profilesDir, 'linked'))
     fs.rmSync(outside, { recursive: true, force: true })

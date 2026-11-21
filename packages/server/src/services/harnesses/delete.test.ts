@@ -110,6 +110,7 @@ const fakeModules = (file: string) => {
     }
     if (file === 'profile.mjs') {
         return Promise.resolve({
+            harnessProfileId: (name: string) => name,
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
             compileProfileCached: () => undefined,
             credentialIdsFor: () => [],

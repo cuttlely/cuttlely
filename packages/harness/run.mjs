@@ -1,3 +1,4 @@
+import { harnessProfileId } from './paths.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
@@ -662,7 +663,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
 
 async function runAgentChief(context, input) {
     const started = Date.now()
-    const profileName = context.roster.tryId ? tryProfileName(context.roster.tryId) : context.name
+    const profileName = context.roster.tryId ? tryProfileName(context.roster.tryId) : harnessProfileId(context.name)
     const sessionId = specialistSessionId(profileName, context.chatId, context.turnId)
     const request = {
         harnessName: profileName,

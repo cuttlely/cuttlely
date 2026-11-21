@@ -3,7 +3,9 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { HarnessError } from './errors.mjs'
-import { dataRoot, profileDir } from './paths.mjs'
+import { migrateHarnessProfiles } from './profile.mjs'
+import { getHarness } from './store.mjs'
+import { dataRoot, harnessProfileId, profileDir } from './paths.mjs'
 
 // Unpublished canvas sessions are not runtime profiles. The scope keeps equal
 // names in different canvases or teams from sharing draft conversation state.
@@ -54,7 +56,11 @@ function dbPath(harnessName, scope, create) {
         }
         return file
     }
-    return path.join(profileDir(harnessName), 'sessions.sqlite')
+    if (harnessName !== harnessProfileId(harnessName)) {
+        const record = getHarness(harnessName)
+        if (record) migrateHarnessProfiles(record)
+    }
+    return path.join(profileDir(harnessProfileId(harnessName)), 'sessions.sqlite')
 }
 
 // One connection per session file for the life of the process. Opening the file and

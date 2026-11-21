@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { readProfileEnv } from './profile.mjs'
-import { hermesBaseUrl, hermesProfileId } from './paths.mjs'
+import { hermesBaseUrl, harnessProfileId } from './paths.mjs'
 import { beginHermesStream } from './runtime/hermes-stream.mjs'
 import { capacityRetryDelayMs, isRejectedCapacityAdmission, specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
@@ -14,7 +14,7 @@ const POLL_MAX_MS = 250
 // One prompt-cache scope per profile: Hermes pins requests that share it to one backend, so a
 // new chat reuses the cached system prompt and tool schemas instead of starting cold.
 export function hermesCacheScope(harnessName) {
-    return `cuttlely:${harnessName}`
+    return `cuttlely:${harnessProfileId(harnessName)}`
 }
 
 function runHeaders(harnessName, apiKey) {
@@ -94,12 +94,12 @@ export async function createRun({
     onCapacityWait
 } = {}) {
     assertLoopback(baseUrl)
-    const env = readProfileEnv(harnessName)
+    const env = readProfileEnv(harnessProfileId(harnessName))
     const apiKey = env.API_SERVER_KEY
     if (!apiKey) {
         throw new HarnessError('missing_profile', `Harness "${harnessName}" has no profile API key. Compile the roster first.`)
     }
-    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs`
+    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessProfileId(harnessName))}/v1/runs`
     const deadline = Date.now() + startWaitMs
     const capacityWaitMs = specialistCapacityWaitSeconds(capacityWaitSeconds) * 1000
     const capacityDeadline = capacityWaitMs > 0 ? Date.now() + Math.min(capacityWaitMs, timeoutMs > 0 ? timeoutMs : Infinity) : 0
@@ -169,8 +169,8 @@ export async function createRun({
 export async function stopRun({ harnessName, runId, baseUrl = hermesBaseUrl(), fetchImpl = fetch, timeoutMs = 2000 } = {}) {
     if (!runId) return true
     assertLoopback(baseUrl)
-    const env = readProfileEnv(harnessName)
-    const runUrl = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs/${encodeURIComponent(
+    const env = readProfileEnv(harnessProfileId(harnessName))
+    const runUrl = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessProfileId(harnessName))}/v1/runs/${encodeURIComponent(
         runId
     )}`
     const controller = new AbortController()
@@ -221,8 +221,8 @@ export async function waitForRun({
     signal
 } = {}) {
     assertLoopback(baseUrl)
-    const env = readProfileEnv(harnessName)
-    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs/${encodeURIComponent(runId)}`
+    const env = readProfileEnv(harnessProfileId(harnessName))
+    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessProfileId(harnessName))}/v1/runs/${encodeURIComponent(runId)}`
     const headers = runHeaders(harnessName, env.API_SERVER_KEY)
     const started = Date.now()
     const deadline = timeoutMs > 0 ? started + timeoutMs : Infinity

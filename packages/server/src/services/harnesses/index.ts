@@ -941,7 +941,7 @@ export async function clearStaleNameData(name: string, record?: { specialists?: 
             const profile = await loadHarness('profile.mjs')
             for (const specialist of record!.specialists!) {
                 try {
-                    expected.push(profile.specialistProfileName(name, specialist?.name))
+                    expected.push(profile.specialistProfileName(profile.harnessProfileId(name), specialist?.name))
                 } catch {
                     // A name that cannot get a profile fails the save later, with its own message.
                 }

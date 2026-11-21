@@ -57,7 +57,7 @@ A specialist call still running when the turn ends is recorded as cancelled. For
 
 ## Model binding
 
-Chief and specialist profiles send model completions to Cuttlely's loopback gateway. The gateway binds each profile token to its configured model node and credential, including any configured fallback. The profile holds only its scoped gateway token; it never holds the upstream credential. A request's model string does not select a different upstream model.
+Chief and specialist profiles send model completions to Cuttlely's loopback gateway. The gateway binds each profile token to its configured model node and credential, including any configured fallback. The chief profile holds its scoped gateway token, the runtime's API server key and tool credentials, but no model provider keys; it never holds the upstream credential. A request's model string does not select a different upstream model. Harness names with capitals use a lowercase runtime profile id with a short hash of the original name; existing folders are renamed once on upgrade to preserve sessions and memory.
 
 The gateway logs the resolved provider node and model id for each completion attempt, including fallback attempts, with the role, harness and profile name. Those log lines contain no keys, tokens or request headers.
 

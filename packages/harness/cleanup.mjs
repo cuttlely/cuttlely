@@ -6,7 +6,7 @@
 // - Only entries directly inside the profiles root (or the specialist workspaces root) are touched. Both roots
 //   are resolved with realpath. A target whose realpath is outside its root, or is the root, is refused.
 // - Symbolic links are never followed: a link is unlinked, its target stays.
-// - A profile whose harness still has a store file (exact name, or the same name in another letter case) stays.
+// - A profile whose harness still has a store file (exact saved name) stays.
 // - Gateway tokens are revoked before any directory is removed. If that fails, nothing is removed.
 // - A profile directory is first moved into a trash directory under the runtime home and then removed, so a
 //   crash midway leaves either the intact profile or a trash entry. Both are picked up by the next run.
@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { closeHarnessTokens, reopenHarnessTokens, revokeHarnessTokens } from './gateway.mjs'
-import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, harnessProfileId } from './paths.mjs'
 import { forgetCompiledProfile, stopRuntimeProfile } from './profile.mjs'
 import { assertHarnessName, deleteHarness } from './store.mjs'
 
@@ -310,13 +310,9 @@ function savedNames() {
     }
 }
 
-// Saved under this exact name, or under the same name in another letter case (one file on a case-insensitive disk).
+// Store ownership is case-sensitive, just like saved harness names.
 function stillSaved(id, saved) {
-    if (!saved) return true
-    if (saved.has(id)) return true
-    const lower = id.toLowerCase()
-    for (const name of saved) if (name.toLowerCase() === lower) return true
-    return false
+    return !saved || saved.has(id)
 }
 
 // What a profile directory belongs to: { kind: 'home' | 'child', id } or null when it is not a saved-harness profile.
@@ -339,7 +335,7 @@ function ownerOf(root, entry, base) {
         if (name && name !== parent) return null
         return { kind: 'child', id: parent }
     }
-    if (name && name === base) return { kind: 'home', id: name }
+    if (name && (name === base || harnessProfileId(name) === base)) return { kind: 'home', id: name }
     return null
 }
 
@@ -348,6 +344,7 @@ function ownerOf(root, entry, base) {
 // not be read, and every folder counts as claimed.
 function claimedBySaved(entry, saved, root = profilesRoot()) {
     if (stillSaved(entry, saved)) return true
+    for (const name of saved) if (harnessProfileId(name) === entry) return true
     const dir = containedEntry(root, entry)
     const name = dir ? rosterName(dir) : ''
     return Boolean(name) && stillSaved(name, saved)
@@ -683,34 +680,32 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
     return blockers.length ? { ...outcome, kept: [...outcome.kept, ...blockers] } : outcome
 }
 
-// Paths a harness saved under this name would compile into (profile names are lowercased, specialists and fitted
+// Paths a harness saved under this name would compile into (profile names use harnessProfileId, specialists and fitted
 // hashes come after "--") that are still there after cleanup: a profiles or workspaces root that is not a plain
 // directory, any profile entry not owned by another harness (a linked one, one whose markers are missing, unreadable
 // or conflicting, one cleanup kept), and a workspace whose profile is gone or is not another harness's.
 // Entries of a saved harness are skipped, except an exact output path of this harness owned by another one, which blocks.
 export function nameReuseBlockers(name, { expected = [] } = {}) {
     const id = assertHarnessName(name)
-    const lower = id.toLowerCase()
+    const runtimeId = harnessProfileId(id)
     const saved = savedNames()
     const blockers = []
-    const exact = new Set(expected.map((entry) => String(entry).toLowerCase()))
+    const exact = new Set(expected.map((entry) => String(entry)))
     const mine = (entry) => {
-        const low = entry.toLowerCase()
-        return low === lower || low.startsWith(`${lower}--`) || exact.has(low)
+        return entry === runtimeId || entry.startsWith(`${runtimeId}--`) || exact.has(entry)
     }
     const otherHarness = (entry) => {
         const owner = profileOwner(entry)
-        return Boolean(owner) && owner.id.toLowerCase() !== lower
+        return Boolean(owner) && owner.id !== id
     }
-    const destinations = new Set([lower, ...exact])
+    const destinations = new Set([runtimeId, ...exact])
     const foreign = (entry) => {
-        const low = entry.toLowerCase()
         if (otherHarness(entry)) return true
         // A saved harness of another name whose home is this entry, or whose roster this profile carries.
-        if (low !== lower && stillSaved(entry, saved)) return true
+        if (entry !== runtimeId && stillSaved(entry, saved)) return true
         const dir = containedEntry(profilesRoot(), entry)
         const roster = dir ? rosterName(dir) : ''
-        if (roster && roster.toLowerCase() !== lower && stillSaved(roster, saved)) return true
+        if (roster && roster !== id && stillSaved(roster, saved)) return true
         return false
     }
     for (const [label, root] of [
@@ -733,7 +728,7 @@ export function nameReuseBlockers(name, { expected = [] } = {}) {
             if (!mine(entry)) continue
             // An exact output path of this harness (its home or a specialist profile it compiles into) that belongs to
             // another harness, saved or not, blocks the save: compiling would write into that harness's profile.
-            if (destinations.has(entry.toLowerCase()) && lstatOrNull(path.join(root, entry)) && foreign(entry)) {
+            if (destinations.has(entry) && lstatOrNull(path.join(root, entry)) && foreign(entry)) {
                 blockers.push(`${label}/${entry} (belongs to another harness)`)
                 continue
             }
