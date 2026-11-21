@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Documentation removes the superseded 1.7.12 direct-chief limitation and corrects the Chinese translations of stdio framing.
 -   Agent-mode follow-ups now give the chief the chat's bounded conversation history. Timeout and abort history retains in-flight specialist calls, recording unfinished calls as cancelled.
 -   Agent mode forwards turn images to the chief, reserves the compiled chief prompt's estimated size when fitting conversation context, and records client-aborted traces as cancelled to match run history. The agent-mode guide shows API-key background starts and polling, and distinguishes the synchronous and background runs endpoints.
 -   Agent-mode chief roster calls follow a non-default runtime port.
