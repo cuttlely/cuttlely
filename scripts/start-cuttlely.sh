@@ -385,11 +385,12 @@ kill_hermes_pid() {
     hermes_number CUTTLELY_HERMES_STOP_GRACE_SECONDS 15 integer
     grace="$CUTTLELY_HERMES_STOP_GRACE_SECONDS"
     # A container stop drains Node first. Both shells share the remaining 28s budget
-    # through this monotonic deadline; a runtime-only restart keeps the full grace.
+    # through this monotonic deadline, with a floor of 2s (or the configured grace
+    # if lower); a runtime-only restart keeps the full grace.
     if [[ -f "${HERMES_STOP:-}" ]]; then
         deadline="$(cat "$HERMES_STOP")"
         if [[ "$deadline" =~ ^[0-9]+$ ]]; then
-            grace="$(awk -v deadline="$deadline" -v now="$(hermes_clock)" -v grace="$grace" 'BEGIN { remaining = int(deadline - now); if (remaining < 0) remaining = 0; print remaining < grace ? remaining : grace }')"
+            grace="$(awk -v deadline="$deadline" -v now="$(hermes_clock)" -v grace="$grace" 'BEGIN { floor = grace < 2 ? grace : 2; remaining = int(deadline - now); if (remaining < floor) remaining = floor; print remaining < grace ? remaining : grace }')"
         fi
     fi
     hermes_diagnostics "$reason" restart "$pid"

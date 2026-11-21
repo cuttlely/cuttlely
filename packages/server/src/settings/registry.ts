@@ -1917,7 +1917,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Grace period before a forced stop',
-        help: 'Whole seconds after SIGTERM before the start script forces the agent runtime to stop. Zero forces an immediate stop; invalid values use 15 seconds. Container shutdown caps this wait by the remaining shutdown budget.',
+        help: 'Whole seconds after SIGTERM before the start script forces the agent runtime to stop. Zero forces an immediate stop; invalid values use 15 seconds. Container shutdown caps this wait by the remaining shutdown budget, with at least 2 seconds (or the configured grace if lower).',
         type: 'number',
         unit: 'seconds',
         min: 0,

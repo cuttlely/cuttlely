@@ -886,11 +886,44 @@ wait "$pid" || true
         try {
             assert.equal(await run.exited, 0, run.output)
             assert.ok(Date.now() - started < 4000, run.output)
-            assert.match(run.output, /reason=container shutdown stop grace=[01]s/)
+            assert.match(run.output, /reason=container shutdown stop grace=2s/)
         } finally {
             await stopSupervisor(run, dir)
         }
     })
+
+    for (const grace of ['15', '0']) {
+        it(`keeps a ${grace === '0' ? 'zero' : 'two-second'} grace floor after the container shutdown deadline`, async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-floor-'))
+            const run = spawnScript(
+                `set -euo pipefail
+HERMES_STOP="$CUTTLELY_DATA_DIR/stop"
+${superviseSource()}
+hermes_diagnostics() { :; }
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => setTimeout(() => process.exit(0), 1000))
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/ready", "1")
+    setInterval(() => {}, 1000)
+' &
+pid=$!
+while [[ ! -f "$CUTTLELY_DATA_DIR/ready" ]]; do sleep 0.05; done
+awk -v now="$(hermes_clock)" 'BEGIN { print int(now) - 1 }' > "$HERMES_STOP"
+kill_hermes_pid "$pid" "container shutdown"
+wait "$pid"
+`,
+                { ...isolatedEnv(dir), CUTTLELY_HERMES_STOP_GRACE_SECONDS: grace }
+            )
+            try {
+                assert.equal(await run.exited, grace === '0' ? 137 : 0, run.output)
+                if (grace === '0') {
+                    assert.match(run.output, /Hermes SIGKILL escalation: pid=\d+ reason=container shutdown stop grace=0s\./)
+                } else assert.doesNotMatch(run.output, /SIGKILL/)
+            } finally {
+                await stopSupervisor(run, dir)
+            }
+        })
+    }
 
     it('keeps Hermes alive through the default 25s drain and finishes container cleanup within 30s', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-default-stop-budget-'))
@@ -933,7 +966,7 @@ wait "$HERMES_PID" 2>/dev/null || true
             const elapsed = Date.now() - started
             assert.ok(elapsed >= 25000 && elapsed < 30000, `${elapsed}ms\n${run.output}`)
             assert.match(run.output, /server draining[\s\S]*server drained[\s\S]*runtime received stop/)
-            assert.match(run.output, /stop grace=[0-2]s/)
+            assert.match(run.output, /stop grace=2s/)
         } finally {
             await stopSupervisor(run, dir)
         }
