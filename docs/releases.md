@@ -119,6 +119,8 @@ The release command pushes the commit and tag atomically. When `main` requires p
 
 ## Prepare on a fresh CI runner
 
+Both full and fast `pnpm verify` run `version-consistency` beside the flow-history `versioning` tests. It checks the hero badge, FAQ title, agent instructions, current README notices, how-to release heading, and Docker/widget example pins against the root `package.json` version. Missing spots and stale versions fail with file and line diagnostics; past-release sections, changelogs and audit history are excluded. The hero's build-time `{version}` expression is accepted. Keep the designated spots in the single table in `scripts/version-consistency.mjs`; run `node scripts/version-consistency.mjs` to check them separately before release preparation.
+
 When a maintainer machine cannot run the full gate, **Release preparation** (`.github/workflows/release-prepare.yml`) provides a fresh-runner fallback. It has read-only repository permissions. It does not push commits or tags, publish a GitHub release or image, or publish npm packages.
 
 To verify a pushed branch without preparing a release:

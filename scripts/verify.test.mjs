@@ -4,10 +4,56 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
-import { jestMaxWorkers, nodeLoadBudgetJestArgs, runStepCommand, timingTable, unitJestArgs } from './verify.mjs'
+import { fileURLToPath } from 'node:url'
+import { STEPS, jestMaxWorkers, nodeLoadBudgetJestArgs, runStepCommand, timingTable, unitJestArgs } from './verify.mjs'
 
 const KEY = 'CUTTLELY_VERIFY_JEST_WORKERS'
 const previous = process.env[KEY]
+
+describe('release version-consistency gate', () => {
+    it('runs alongside versioning in both full and fast verification', () => {
+        for (const steps of [STEPS, STEPS.filter((step) => step.fast)]) {
+            const index = steps.findIndex((step) => step.name === 'versioning')
+            const check = steps[index + 1]
+            assert.equal(check.name, 'version-consistency')
+            assert.equal(check.command, process.execPath)
+            assert.deepEqual(check.args, [path.resolve('scripts/version-consistency.mjs')])
+        }
+    })
+
+    it('runs the consistency fixtures with the other script tests', () => {
+        assert.ok(STEPS.find((step) => step.name === 'verify-test').args.includes(path.resolve('scripts/version-consistency.test.mjs')))
+    })
+
+    it('documents version-consistency in the full and fast help orders', (t) => {
+        const env = { ...process.env }
+        delete env.NODE_TEST_CONTEXT
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-help-'))
+        t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+        const output = path.join(dir, 'output.log')
+        const fd = fs.openSync(output, 'w')
+        let help
+        try {
+            help = spawnSync(process.execPath, [fileURLToPath(new URL('./verify.mjs', import.meta.url)), '--help'], {
+                stdio: ['ignore', fd, fd],
+                env
+            })
+        } finally {
+            fs.closeSync(fd)
+        }
+        assert.ifError(help.error)
+        const text = fs.readFileSync(output, 'utf8')
+        assert.equal(help.status, 0, text)
+        for (const prefix of ['steps:', '--fast runs']) {
+            assert.ok(
+                text
+                    .split('\n')
+                    .find((line) => line.startsWith(prefix))
+                    .includes('versioning, version-consistency,')
+            )
+        }
+    })
+})
 
 afterEach(() => {
     if (previous === undefined) delete process.env[KEY]
