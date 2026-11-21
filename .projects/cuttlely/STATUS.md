@@ -1,3 +1,7 @@
+## 1.7.10 site and docs pass (held)
+
+Branch `site/1710-release-notes` brings the homepage notice, English/Japanese/Korean README leads and latest-stable lines, FAQ, docs index, how-to "New in", releases page, upgrade guide and version pins to 1.7.10. The upgrade guide adds an operator note on the HEALTHCHECK / Compose / Render `healthCheckPath` move to `/api/v1/ping/live`. CHANGELOG Known issues adds the runtime startup regression (#542) next to #540. The site changelog page is generated from CHANGELOG.md at build. Held: no PR or merge until the 1.7.11 hotfix for #542 is healthy; the version references may move to 1.7.11 then.
+
 ## 1.7.10 release
 
 Release notes are dated `## [1.7.10] - 2026-11-20`. They include runtime containment from #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`), the probe-cache fix from #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`), the default HEALTHCHECK / Compose / `render.yaml` `healthCheckPath` move to `/api/v1/ping/live`, and the recommendation that plain `docker run` use `--restart unless-stopped`. Orchestrate and A2A outage responses stay as in 1.7.9 and are tracked in #540 for 1.7.11.
