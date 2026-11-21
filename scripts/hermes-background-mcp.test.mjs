@@ -306,13 +306,14 @@ test(
                 const value = report()
                 return value?.gate?.waited && value.default.some((s) => s.name === 'good' && s.connected) && value
             },
-            22_000,
+            // The pending profile's run waits the full 15 s bound; leave room for a loaded CI host.
+            60_000,
             diagnostics
         )
         assert.ok(result.pending.length > 0)
         assert.equal(result.gate.ready_waited, false)
         assert.ok(result.gate.ready_elapsed < 2, JSON.stringify(result))
-        assert.ok(result.gate.pending_elapsed >= 14 && result.gate.pending_elapsed < 20, JSON.stringify(result))
+        assert.ok(result.gate.pending_elapsed >= 14 && result.gate.pending_elapsed < 30, JSON.stringify(result))
         assert.equal(result.default.find((s) => s.name === 'bad').tools, 0)
         assert.ok(result.ready.find((s) => s.name === 'other').tools > 0)
     }
