@@ -19,7 +19,13 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
-最新稳定版是 **1.7.9**。请固定镜像 `1.7.9`，或安装 `cuttlely@1.7.9`。[1.7.9 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.9) · [更新日志](../CHANGELOG.md)。
+**1.7.12 可让 roster 通过 agent runtime 使用的 stdio 框架进行连接。** roster 自 1.0 以来从未连接成功。每个混用模型的 harness 启动约加快 60 秒（两个约加快 2 分钟），且 chief 的 `run_specialist` 工具会完成注册。路由器流量保持不变。对已编译的混用模型 chief 发出的直接请求目前还不会到达模型（尚未绑定提供者）；这项限制列在 1.7.13。同时开始、恢复、暂停或取消 ETL 运行时，不再让已取消或已暂停的运行继续执行，也不会为同一管道再启动第二次运行。[ETL](../docs/how-to/etl.md) · [升级指南](../docs/upgrading.md#upgrading-to-1712)。
+
+**1.7.11 不再让 agent runtime 在冷启动时陷入死锁。** 当 runtime 状态为 `restarting` 时，启动工具列表不再被拒绝，因此可以响应健康检查并完成启动。在此之前，工具调用与聊天补全仍会被拒绝。[#542](https://github.com/cuttlely/cuttlely/issues/542) · [升级指南](../docs/upgrading.md#upgrading-to-1711)。
+
+**1.7.10 在 agent runtime 恢复期间仍可使用 UI。** 镜像、Compose 和 Render 的健康检查改为探测 `/api/v1/ping/live`；请一并更新自定义网关与负载均衡器的探测路径。[健康检查](../docs/how-to/reverse-proxy.md#health-checks) · [升级指南](../docs/upgrading.md#upgrading-to-1710)。
+
+最新稳定版是 **1.7.12**。请固定镜像 `1.7.12`，或安装 `cuttlely@1.7.12`。[1.7.12 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.12) · [更新日志](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是从更早的版本升级，必须采取行动。** 请先备份数据库、加密密钥和设置，并在部署前阅读[操作员的指定与恢复](../docs/how-to/instance-operator.md)，以免被锁在浏览器管理之外。完整检查清单（包括以主机日志一次性代码提出的申请、`CUTTLELY_INSTANCE_OPERATOR`，以及访问密钥强制执行默认保持关闭）见[升级注意事项](../docs/upgrading.md)（“1.7.0 security-exception upgrade”节）和[更新日志](../CHANGELOG.md)。初始设置代码只会创建第一个账号，而且只有在主机已开启本地登录时才有效（Docker 和 `npx cuttlely start` 默认会开启）。它不能用来配置服务，也不会指定实例操作员。[登录](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 

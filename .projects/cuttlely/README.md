@@ -18,7 +18,7 @@ Cuttlely is open-source, context-aware agent orchestration (Apache-2.0). It give
 
 ## How to resume
 
-1.7.9 is published at `0beeb62a` (#524) on GitHub, as a container image and in both npm packages. STATUS records the fresh 28-step preparation, protected merge, image/package integrity, deployed site and standalone Harness query checks, including the initial post-rollout connection refusal and external-dashboard limitation. The complete merge/documentation audit landed in #523.
+1.7.12 is published at `abbc637e` (#548) on GitHub, as a container image and in both npm packages. `CHANGELOG.md` dates it `## [1.7.12] - 2026-11-21`. It includes the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`), which closes #546, and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). Known limitation: a direct request to a compiled mixed-model chief does not reach a model yet (no provider binding), tracked for 1.7.13. Orchestrate and A2A outage responses remain tracked in #540. Historical 1.7.11, 1.7.10, 1.7.9 and earlier publication receipts remain in STATUS.
 
 Historical 1.7.8 and 1.7.7 publication and hosted-upgrade receipts remain in STATUS. `docs/releases.md` and `scripts/release.mjs` describe the protected-main release procedure. User/team lifecycle landed in #501; its CI and deployed checks are also recorded in STATUS. Keep preparation, publication and deployment checks separate.
 
