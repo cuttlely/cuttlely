@@ -16,8 +16,6 @@ The localhost switch for HTTP building blocks is `HTTP_ALLOW_LOCALHOST`. The def
 
 The agent runtime concurrency limit is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. The default is `10`. Accepted values are whole numbers from `1` to `50`, or `0` for no limit; negative values and values above `50` are refused. Higher values use more memory and CPU. It applies after a restart: the start script writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime’s `config.yaml` and keeps the other keys there.
 
-The start-script supervisor also accepts the host-only `CUTTLELY_HERMES_STOP_GRACE_SECONDS`, outside the settings registry below. It allows up to 15 seconds after SIGTERM before forcing the agent runtime to stop with SIGKILL. Accepted values are non-negative whole seconds; zero escalates immediately and invalid values use 15 with a warning. Each escalation logs the process id, reason and grace. [Agent runtime recovery](../how-to/server-settings.md#agent-runtime-recovery). Container shutdown caps this wait by the time remaining in a 28-second budget shared with Node draining (25 seconds by default); runtime-only restarts use the full grace.
-
 Pinned queries are `CUTTLELY_PINNED_QUERIES`. They are on only when the value is exactly `1` or `true`. Any other value, including `false`, `yes`, `on`, `TRUE`, and an empty value, leaves them off. Off removes the pinned query tools at the next start.
 
 The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).
@@ -157,6 +155,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_HERMES_HEALTH_GRACE`               | 60                                          | 0 to 3600         | seconds       | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_HEALTH_FAILS`               | 3                                           | 1 to 100          | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_HEALTH_WINDOW`              | 15                                          | 0 to 3600         | seconds       | Host, then Server settings     | Yes     |
+| `CUTTLELY_HERMES_STOP_GRACE_SECONDS`         | 15                                          | —                 | seconds       | Host only                      | Yes     |
 | `CUTTLELY_HERMES_START_WAIT_MS`              | 60000                                       | 0 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUSTOM_MCP_TOOLS_MAX_BYTES`                 | 524288                                      | 1024 to 104857600 | bytes         | Host, then Server settings     | Yes     |
 | `CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS`            | 15000                                       | 1 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |

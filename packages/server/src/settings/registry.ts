@@ -1913,6 +1913,21 @@ export const SETTINGS: SettingDef[] = [
         risk: 'low'
     },
     {
+        key: 'CUTTLELY_HERMES_STOP_GRACE_SECONDS',
+        section: 'advanced',
+        group: 'Agent runtime health',
+        label: 'Grace period before a forced stop',
+        help: 'Whole seconds after SIGTERM before the start script forces the agent runtime to stop. Zero forces an immediate stop; invalid values use 15 seconds. Container shutdown caps this wait by the remaining shutdown budget.',
+        type: 'number',
+        unit: 'seconds',
+        min: 0,
+        integer: true,
+        defaultLabel: '15 seconds',
+        defaultValue: '15',
+        envOnly: true,
+        risk: 'low'
+    },
+    {
         key: 'CUTTLELY_HERMES_START_WAIT_MS',
         section: 'advanced',
         group: 'Agent runtime health',
