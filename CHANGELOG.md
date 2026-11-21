@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Orchestrate and A2A check the runtime before charging and answer 503 `RUNTIME_UNAVAILABLE` with `Retry-After` ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
+
 ## [1.7.12] - 2026-11-21
 
 ### Fixed

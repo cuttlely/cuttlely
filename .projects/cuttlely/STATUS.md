@@ -1,3 +1,9 @@
+## Orchestrate and A2A runtime admission (#540, 1.7.13)
+
+The working-tree fix for [#540](https://github.com/cuttlely/cuttlely/issues/540) checks runtime availability after keyed-flow validation and before charging Orchestrate completions and A2A `message/send` and `message/stream`. Runtime states `down`, `restarting`, `cooldown` and `exhausted` return HTTP 503 with `RUNTIME_UNAVAILABLE` and `Retry-After` in each protocol's JSON error envelope before a stream starts. A2A discovery and task reads remain available. Runtime failures after admission retain the existing in-protocol behavior.
+
+`packages/server/src/routes/runtimeAdmission.test.ts` covers the real authorization and scoped-key admission path. Targeted validation, full verification and deployment are separate; the full gate runs later. Product versions remain 1.7.12 until release preparation.
+
 ## 1.7.10, 1.7.11 and 1.7.12 site and docs pass
 
 Branch `site/1710-release-notes` (PR #545) brings the homepage notice, English/Japanese/Korean README leads and latest-stable lines, Traditional and Simplified Chinese latest-stable pins, FAQ, docs index, how-to "New in", releases page, upgrade guide and version pins to 1.7.12. It covers 1.7.10 (health-check path `/api/v1/ping/live`, runtime recovery, descriptor-leak fix, Dash Flows Postgres preview), the 1.7.11 startup-tool-list fix for #542, and 1.7.12 (roster stdio framing from #547 / #546, and the ETL async-store fixes from #535). The site changelog page is generated from CHANGELOG.md at build.
