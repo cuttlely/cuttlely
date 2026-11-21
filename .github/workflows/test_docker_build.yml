@@ -70,7 +70,7 @@ jobs:
             - name: Assets style kit tests
               run: docker run --rm --entrypoint bash cuttlely -c 'hermes/.venv/bin/python packages/harness/presets/assets/test_cuttlely_assets.py'
             - name: Analyst chat scope and schema refresh through the runtime's MCP handler
-              run: docker run --rm --entrypoint bash -e CUTTLELY_REQUIRE_HERMES_RUNTIME=1 cuttlely -c 'node --test scripts/hermes-analyst-scope.test.mjs scripts/hermes-mcp-schema-refresh.test.mjs'
+              run: docker run --rm --entrypoint bash -e CUTTLELY_REQUIRE_HERMES_RUNTIME=1 cuttlely -c 'node --test scripts/hermes-analyst-scope.test.mjs scripts/hermes-mcp-schema-refresh.test.mjs scripts/hermes-background-mcp.test.mjs'
             - name: Use Node.js 24.15.0
               id: node
               continue-on-error: true

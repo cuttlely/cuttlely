@@ -219,6 +219,7 @@ configure_hermes_supervisor() {
     hermes_number CUTTLELY_HERMES_HEALTH_GRACE 60
     hermes_number CUTTLELY_HERMES_HEALTH_FAILS 3 integer
     hermes_number CUTTLELY_HERMES_HEALTH_WINDOW 15
+    hermes_number CUTTLELY_HERMES_STOP_GRACE_SECONDS 15 integer
     HERMES_MAX_RESTARTS="$CUTTLELY_HERMES_MAX_RESTARTS"
 }
 write_hermes_status() {
@@ -375,23 +376,39 @@ start_hermes_when_gateway_ready() {
 }
 kill_hermes_pid() {
     local pid="$1"
-    local grace=0
+    local ticks=0 reason="${2:-shutdown}" grace deadline
     # pid 0 (the status file's "down") would signal this whole process group.
     if [[ ! "$pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$pid" 2>/dev/null; then
         return 0
     fi
-    hermes_diagnostics "${2:-shutdown}" restart "$pid"
-    kill "$pid" 2>/dev/null || true
-    while kill -0 "$pid" 2>/dev/null && [[ "$grace" -lt 10 ]]; do
+    # cleanup also calls this from the parent shell, outside the configured supervisor.
+    hermes_number CUTTLELY_HERMES_STOP_GRACE_SECONDS 15 integer
+    grace="$CUTTLELY_HERMES_STOP_GRACE_SECONDS"
+    # A container stop drains Node first. Both shells share the remaining 28s budget
+    # through this monotonic deadline, with a floor of 2s (or the configured grace
+    # if lower); a runtime-only restart keeps the full grace.
+    if [[ -f "${HERMES_STOP:-}" ]]; then
+        deadline="$(cat "$HERMES_STOP")"
+        if [[ "$deadline" =~ ^[0-9]+$ ]]; then
+            grace="$(awk -v deadline="$deadline" -v now="$(hermes_clock)" -v grace="$grace" 'BEGIN { floor = grace < 2 ? grace : 2; remaining = int(deadline - now); if (remaining < floor) remaining = floor; print remaining < grace ? remaining : grace }')"
+        fi
+    fi
+    hermes_diagnostics "$reason" restart "$pid"
+    kill -TERM "$pid" 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null && [[ "$ticks" -lt "$((grace * 5))" ]]; do
         sleep 0.2
-        grace=$((grace + 1))
+        ticks=$((ticks + 1))
     done
     if kill -0 "$pid" 2>/dev/null; then
-        hermes_diagnostics "${2:-shutdown}" restart "$pid"
-        kill -9 "$pid" 2>/dev/null || true
+        hermes_diagnostics "$reason" restart "$pid"
+        echo "Hermes SIGKILL escalation: pid=${pid} reason=${reason} stop grace=${grace}s." >&2
+        kill -KILL "$pid" 2>/dev/null || true
     fi
 }
 start_hermes_once() {
+    if ! "$NODE_BIN" "$ROOT/scripts/sweep-try-profiles.mjs" >/dev/null 2>&1; then
+        echo "Hermes pre-start try-profile sweep failed; continuing runtime start." >&2
+    fi
     "$PYTHON" "$ROOT/scripts/cuttlely-hermes-api.py" &
     HERMES_PID=$!
 }
@@ -401,7 +418,7 @@ supervise_hermes() {
     local restarts=0 lifetime_restarts status=0 delay=0 reason=""
     lifetime_restarts="$("$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" lifetime)"
     # The background supervisor owns its child and must reap it on a stop signal.
-    trap 'kill_hermes_pid "${HERMES_PID:-0}"; exit 0' TERM INT
+    trap 'kill_hermes_pid "${HERMES_PID:-0}"; wait "${HERMES_PID:-0}" 2>/dev/null || true; exit 0' TERM INT
     while true; do
         [[ -f "$HERMES_STOP" ]] && return 0
         start_hermes_once
@@ -550,6 +567,8 @@ hermes_final_escalation() {
 WORKER_PIDS=()
 
 cleanup() {
+    local shutdown_deadline
+    shutdown_deadline="$(awk -v now="$(hermes_clock)" 'BEGIN { print int(now) + 28 }')"
     # Cuttlely first, and wait for it: on SIGTERM it lets running answers and streams finish (CUTTLELY_DRAIN_TIMEOUT_MS,
     # 25 seconds by default, then it ends the rest and exits). Hermes stays up meanwhile so agent team runs can finish.
     if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
@@ -566,7 +585,7 @@ cleanup() {
         fi
         wait "$CUTTLELY_PID" 2>/dev/null || true
     fi
-    touch "$HERMES_STOP"
+    printf '%s\n' "$shutdown_deadline" > "$HERMES_STOP"
     if [[ -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
         kill "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
         wait "$HERMES_SUPERVISOR_PID" 2>/dev/null || true

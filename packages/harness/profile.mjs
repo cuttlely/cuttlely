@@ -863,6 +863,23 @@ export function removeContainedTree(absDir) {
     }
 }
 
+// Hermes keeps deletion markers outside profile trees so late runtime writes cannot revive them.
+export function markProfileDeleted(name) {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) {
+        throw new HarnessError('bad_name', 'Invalid runtime profile name.')
+    }
+    const held = ensureContainedDir(profilesRoot())
+    closeFds(held.fds)
+    writeIfChanged(path.join(profilesRoot(), '.deleted', name), 'deleted\n')
+}
+
+function clearProfileDeleted(name) {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) {
+        throw new HarnessError('bad_name', 'Invalid runtime profile name.')
+    }
+    removeContainedTree(path.join(profilesRoot(), '.deleted', name))
+}
+
 function noteTreeMutation(logical) {
     if (typeof profileWriteTest.beforeTreeMutation === 'function') profileWriteTest.beforeTreeMutation(logical)
 }
@@ -1848,6 +1865,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
         // The saved record this token was issued for: a later harness under the same name has another createdAt.
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
+    clearProfileDeleted(specialist.profileName)
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 }
 
@@ -2332,6 +2350,7 @@ function compileProfileFiles(record, options = {}) {
         CUTTLELY_GATEWAY_ROLE: 'chief',
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
+    clearProfileDeleted(profileName)
     // Written last: a compile that stopped partway has no version, so the next boot compiles it again.
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
     return { dir, roster: compiled, apiServerKey }
@@ -2420,6 +2439,11 @@ function forgetTryTokens(scope) {
 
 function removeOneTryDir(entry) {
     const dir = path.join(hermesHome(), 'profiles', entry)
+    try {
+        markProfileDeleted(entry)
+    } catch {
+        // Marker failure must not stop removal of this tree.
+    }
     try {
         // A file standing in for the directory is a tombstone. Leave it. A link is not followed.
         const st = lstatNoFollow(dir)
@@ -2660,6 +2684,13 @@ export async function discardTryProfile(tryId) {
     try {
         const names = tryProfileNames(scope)
         const owned = names.length ? names : [scope]
+        for (const entry of owned) {
+            try {
+                markProfileDeleted(entry)
+            } catch {
+                // Unsafe or unavailable marker paths must not abort try teardown.
+            }
+        }
         await closeTryRuntime(owned)
         forgetTryTokens(scope)
         for (const entry of owned) removeOneTryDir(entry)

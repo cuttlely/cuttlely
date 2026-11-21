@@ -17,7 +17,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Agent mode accepts text only in 1.7.13: requests with images return HTTP 400 with guidance to use router mode, before any chief call. Agent mode reserves the compiled chief prompt's estimated size when fitting conversation context and records client-aborted traces as cancelled to match run history. The agent-mode guide shows API-key background starts and polling, and distinguishes the synchronous and background runs endpoints.
 -   Agent-mode chief roster calls follow a non-default runtime port.
 -   Chief profiles now bind to the gateway for single-model and mixed-model teams, including canvas try profiles, so direct chief calls reach the configured model without storing its credential in a profile. The gateway logs the resolved upstream provider node and model id for each completion attempt, including fallbacks, without keys or tokens.
+-   The agent runtime answers health checks while MCP tools connect in the background. Up to four profiles discover tools at once, and a run waits only for its own profile, within the existing time limit. An unresponsive MCP server no longer delays runtime health or removes working tools from other servers.
+-   A completed runtime shutdown now records a clean exit, so the next start does not falsely warn that it exited UNCLEANLY. The launcher now records the exit after shutdown returns, keeping its existing startup path and stop exit status. Runtime shutdown also allows up to 15 seconds after its stop signal before forcing the process to exit. Container shutdown caps this grace by the time left in a 28-second budget shared with application draining, with at least 2 seconds (or the configured grace if lower). `CUTTLELY_HERMES_STOP_GRACE_SECONDS` changes that wait, and every forced exit records the process, reason and wait used. [Runtime recovery](./docs/how-to/server-settings.md#agent-runtime-recovery).
+-   Temporary Try it profiles are marked deleted before cleanup so concurrent runtime scans skip them. Leftovers are swept before each runtime start, and recompiling the same profile name clears its deletion marker.
 -   Orchestrate and A2A check the runtime before charging and answer 503 `RUNTIME_UNAVAILABLE` with `Retry-After` ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
+
+### Maintenance
+
+-   Supervisor tests pass temporary paths through child-process environment variables instead of inserting them into shell commands, addressing the shell-command-injection scanning alert.
 
 ## [1.7.12] - 2026-11-21
 

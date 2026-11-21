@@ -17,6 +17,14 @@ describe('startup options reference', () => {
         ])
         expect(rows.find((row) => row.key === 'INVITE_TOKEN_EXPIRY_IN_HOURS')?.where).toBe('Server settings, then the host')
         expect(rows.find((row) => row.key === 'SMTP_PASSWORD')?.where).toBe('Host only')
+        expect(rows.find((row) => row.key === 'CUTTLELY_HERMES_STOP_GRACE_SECONDS')).toEqual({
+            key: 'CUTTLELY_HERMES_STOP_GRACE_SECONDS',
+            default: '15',
+            range: '—',
+            unit: 'seconds',
+            where: 'Host only',
+            restart: 'Yes'
+        })
         const hidden = new Set([
             ...SETTINGS.filter((setting) => setting.type === 'secret').map((setting) => setting.key),
             ...READ_ONLY_SETTINGS.map((setting) => setting.key)
