@@ -2,7 +2,7 @@
 
 ## Current release work
 
-1.7.11 is being cut. `#543` landed as `4afa3009aa11709673f9e0207263fa081faf526e` and closes the 1.7.10 cold-start deadlock in [#542](https://github.com/cuttlely/cuttlely/issues/542). The release branch dates the changelog `## [1.7.11] - 2026-11-20` and bumps the four product manifests. Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.10 remains published at `5f41b83d` ([#541](https://github.com/cuttlely/cuttlely/pull/541)) until 1.7.11 is tagged.
+1.7.12 is being cut. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. The release branch dates the changelog `## [1.7.12] - 2026-11-21` and bumps the four product manifests. Direct chief calls on mixed-model harnesses still need a model binding, tracked for 1.7.13. Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)) until 1.7.12 is tagged.
 
 ## Milestones
 
@@ -32,7 +32,9 @@
 
 ## Next concrete tasks
 
--   **1.7.11 release (in progress).** Version bumps and dated changelog for #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542). Known issue #540 remains open.
+-   **1.7.12 release (in progress).** Version bumps and dated changelog for #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). Known limitation: direct chief calls on mixed-model harnesses still need a model binding (1.7.13). Known issue #540 remains open.
+
+-   **1.7.11 release (published).** Published as `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)), tagged `v1.7.11`. Release notes are dated `## [1.7.11] - 2026-11-20` and cover #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542).
 
 -   **1.7.10 release (published).** Published as `5f41b83d` ([#541](https://github.com/cuttlely/cuttlely/pull/541)), tagged `v1.7.10`. Release notes are dated `## [1.7.10] - 2026-11-20` and cover #537 (`2d43158ac5ce2567d974d2dad22e1184e691e6f5`) and #538 (`df67384014be0b2ef6c6cb7a49710d43c9e6eb34`).
 

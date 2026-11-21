@@ -1,3 +1,7 @@
+## 1.7.12 release
+
+-   `CHANGELOG.md` and the four product manifests (`package.json`, `packages/server/package.json`, `packages/cli/package.json`, `packages/chat-widget/package.json`): dated 1.7.12 notes and version bumps for the roster stdio-framing fix in #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store start/resume/pause/cancel fixes in #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`).
+
 ## ETL async store
 
 -   `packages/etl/store.mjs`: async `all`, `get`, `run`, `exec`, `tx` and `withPipelineLock` on the one SQLite connection.
