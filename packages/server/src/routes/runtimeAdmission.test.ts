@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
-import { AppError } from '../errors/appError'
+import { AccessKeyUnavailableError } from '../services/accessKeys/errors'
 import { parsePolicy } from '../services/accessKeys/policy'
 import { clearMinuteBuckets, utcWindows } from '../services/accessKeys/limiter'
 import { fixtureAccessData } from '../utils/accessKeyTestFixtures'
@@ -41,7 +41,7 @@ jest.mock('../services/apikey', () => ({
     __esModule: true,
     default: {
         getApiKey: async (token: string) => {
-            if (mockKeyStoreUnavailable) throw new AppError(503, 'Access key verification is unavailable.')
+            if (mockKeyStoreUnavailable) throw new AccessKeyUnavailableError('Access key verification is unavailable.')
             return token === TOKEN ? mockKey : undefined
         }
     }
@@ -75,7 +75,7 @@ const mockFlows = new Map([
     ]
 ])
 let mockKeyStoreUnavailable = false
-let mockExecutionError: AppError | undefined
+let mockExecutionError: AccessKeyUnavailableError | undefined
 const mockUsage = new Map<string, { principalId: string; period: string; operation: string; accepted: number }>()
 const usageId = (row: { principalId: string; period: string; operation: string }) => `${row.principalId}:${row.period}:${row.operation}`
 
@@ -264,7 +264,7 @@ it('keeps A2A task reads available while the runtime is down', async () => {
 
 it.each([executions[0], executions[2]])('preserves a wrapped runtime error on $label', async (execution) => {
     setRuntime('up')
-    mockExecutionError = Object.assign(new AppError(503, 'The agent runtime is recovering. Try again later.'), {
+    mockExecutionError = Object.assign(new AccessKeyUnavailableError('The agent runtime is recovering. Try again later.'), {
         code: 'RUNTIME_UNAVAILABLE',
         retryAfterSeconds: 17
     })

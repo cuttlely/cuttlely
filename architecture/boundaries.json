@@ -21,6 +21,7 @@
             "packages/server/src/routes/a2a/**",
             "packages/server/src/controllers/a2a/**",
             "packages/server/src/services/a2a/**",
+            "packages/server/src/routes/runtimeAdmission.test.ts",
             "packages/components/nodes/harness/**",
             "packages/ui/src/views/harnesses/**",
             "packages/ui/src/views/chatmessage/Harness*",
@@ -1098,7 +1099,8 @@
                 "packages/server/src/services/orchestrate/**",
                 "packages/server/src/routes/a2a/**",
                 "packages/server/src/controllers/a2a/**",
-                "packages/server/src/services/a2a/**"
+                "packages/server/src/services/a2a/**",
+                "packages/server/src/routes/runtimeAdmission.test.ts"
             ],
             "entryPoints": ["packages/server/src/routes/orchestrate/index.ts", "packages/server/src/routes/a2a/index.ts"]
         },
