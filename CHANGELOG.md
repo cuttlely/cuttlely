@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   With ETL database calls now asynchronous, starting, resuming, pausing and cancelling ETL runs at the same moment does not leave a cancelled or paused run running or create a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./docs/how-to/etl.md) · [#535](https://github.com/cuttlely/cuttlely/pull/535).
 
-## [1.7.11] - 2026-11-20
+## [1.7.11] - 2026-11-21
 
 ### Fixed
 

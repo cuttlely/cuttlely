@@ -8,7 +8,7 @@ Every ETL module in `packages/etl` reaches SQLite through `packages/etl/store.mj
 
 ## 1.7.11 release
 
-Release notes are dated `## [1.7.11] - 2026-11-20`. They include the runtime startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`), which closes the 1.7.10 cold-start deadlock in #542. Orchestrate and A2A outage responses stay as in 1.7.10 and remain tracked in #540.
+Release notes are dated `## [1.7.11] - 2026-11-21`. They include the runtime startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`), which closes the 1.7.10 cold-start deadlock in #542. Orchestrate and A2A outage responses stay as in 1.7.10 and remain tracked in #540.
 
 ## Runtime startup deadlock (#542, 1.7.11)
 
