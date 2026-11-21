@@ -528,7 +528,7 @@ test('agent history uses rolling memory, analyst page compaction and the chief c
     assert.ok(prompt.length <= 48 * 4, 'history and memory fit the same chief context cap')
 })
 
-test('agent images reach the chief as multipart input without entering follow-up history', async () => {
+test('agent images are refused before createRun or history recording; empty images allow text', async () => {
     const name = 'agent-images'
     saveHarness({
         name,
@@ -536,7 +536,6 @@ test('agent images reach the chief as multipart input without entering follow-up
         chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
         specialists: [{ name: 'worker' }]
     })
-    const images = ['data:image/png;base64,iVBORw0KGgo=', 'https://example.com/fixture.png']
     const bodies = []
     const run = (attachments) =>
         runHarness({
@@ -551,16 +550,24 @@ test('agent images reach the chief as multipart input without entering follow-up
                 return new Response(JSON.stringify({ status: 'completed', output: 'A loaf of bread.' }))
             }
         })
-    await run(images)
-    assert.deepEqual(bodies[0].input, [
-        {
-            role: 'user',
-            content: [
-                { type: 'text', text: 'What is in this picture?' },
-                ...images.map((url) => ({ type: 'image_url', image_url: { url } }))
-            ]
-        }
-    ])
+    for (const images of [
+        ['data:image/png;base64,iVBORw0KGgo='],
+        ['https://example.com/fixture.png'],
+        [{ url: 'https://example.com/fixture.png' }],
+        ['unsupported-image'],
+        'https://example.com/fixture.png',
+        { url: 'https://example.com/fixture.png' }
+    ]) {
+        await assert.rejects(run(images), {
+            code: 'bad_images',
+            message: 'mode "agent" does not accept images yet; use router mode'
+        })
+        assert.equal(bodies.length, 0, 'no runtime createRun call')
+        assert.deepEqual(listRuns(name), [], 'refusal opens no run row')
+        assert.deepEqual(readMessages(name, 'image-chat'), [], 'refusal records no conversation turn')
+    }
+    await run([])
+    assert.equal(bodies[0].input, 'What is in this picture?')
     assert.deepEqual(bodies[0].conversation_history, [])
     await run()
     assert.equal(bodies[1].input, 'What is in this picture?')

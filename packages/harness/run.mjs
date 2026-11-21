@@ -83,7 +83,7 @@ import {
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
-import { cachedPromptTokens, invokeChat, resolveModel, userContent } from './model.mjs'
+import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
@@ -244,6 +244,9 @@ export function harnessForTurn(name, record) {
 async function runHarnessBody(args = {}) {
     if (args.mode !== undefined && !['router', 'agent'].includes(args.mode)) {
         throw new HarnessError('bad_mode', 'mode must be "router" or "agent".')
+    }
+    if (args.mode === 'agent' && args.images != null && (!Array.isArray(args.images) || args.images.length > 0)) {
+        throw new HarnessError('bad_images', 'mode "agent" does not accept images yet; use router mode')
     }
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
@@ -674,8 +677,7 @@ async function runAgentChief(context, input) {
         const created = await createRun({
             ...request,
             body: {
-                // /v1/runs takes multipart content from the last input message.
-                input: context.images.length ? [{ role: 'user', content: userContent(user.content, context.images) }] : user.content,
+                input: user.content,
                 conversation_history: fitted.messages.slice(1, -1),
                 ...(fitted.messages[0].content ? { instructions: fitted.messages[0].content } : {}),
                 session_id: sessionId,

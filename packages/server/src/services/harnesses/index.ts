@@ -1339,6 +1339,9 @@ const assertRunRequest = async (
     if (mode !== 'router' && mode !== 'agent') {
         throw new AppError(StatusCodes.BAD_REQUEST, 'mode must be "router" or "agent".')
     }
+    if (mode === 'agent' && body.images != null && (!Array.isArray(body.images) || body.images.length > 0)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'mode "agent" does not accept images yet; use router mode')
+    }
     if (
         caller?.via === 'api_key' &&
         caller.harnessIds !== undefined &&

@@ -22,6 +22,8 @@ The bakery name, question and chat id are made-up examples. Keep the access key 
 
 Omit `mode`, or send `"mode": "router"`, to use router mode. Any other value returns HTTP 400 with a message naming the two accepted values. Agent mode uses the same authentication, workspace and caller checks, Harness run permission, harness access grants, API-key admission and start rate limit as router runs. A refused caller starts no chief call and records no run.
 
+Agent mode accepts text only in 1.7.13. A non-empty `images` field returns HTTP 400 on synchronous, streaming and background runs: `mode "agent" does not accept images yet; use router mode`. The request starts no chief call and records no run. Use router mode for images.
+
 ## Read the result
 
 The endpoint determines whether the request waits, for both authorized API-key and signed-in session callers:
@@ -51,7 +53,7 @@ While queued or running, the response has `finished: false` and `result: null`. 
 
 Cuttlely records one harness run with `mode: "agent"`; the chief's final text is its output, and specialist calls made through `run_specialist` are its steps. The chat and turn context follows those calls, so specialist workspace scope and nested flows use the admitted caller's context.
 
-A specialist call still running when the turn ends is recorded as cancelled. For synchronous `/runs` requests, including streams, a client disconnect before the response finishes cancels the run; the harness history row and trace both say `cancelled`. Background `/runs/async` runs continue after the client disconnects; there is currently no harness run cancel endpoint. Reuse `chatId` for follow-ups: the chief receives the same recent turns and rolling memory as router mode. Cuttlely reserves the estimated size of the compiled chief instructions and roster before fitting history, memory and the request into the remaining chief text budget. This estimate excludes runtime-added prompts, tool schemas and image tokens. Failed turns do not enter that conversation history.
+A specialist call still running when the turn ends is recorded as cancelled. For synchronous `/runs` requests, including streams, a client disconnect before the response finishes cancels the run; the harness history row and trace both say `cancelled`. Background `/runs/async` runs continue after the client disconnects; there is currently no harness run cancel endpoint. Reuse `chatId` for follow-ups: the chief receives the same recent turns and rolling memory as router mode. Cuttlely reserves the estimated size of the compiled chief instructions and roster before fitting history, memory and the request into the remaining chief text budget. This estimate excludes runtime-added prompts and tool schemas. Failed turns do not enter that conversation history.
 
 ## Model binding
 
