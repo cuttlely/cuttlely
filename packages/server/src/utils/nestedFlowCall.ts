@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { DataSource } from 'typeorm'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { AppError } from '../errors/appError'
+import { assertFlowRuntimeAvailable } from './runtimeAvailability'
 import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
 import { authorizeNestedFlowKey } from '../services/accessKeys/authorization'
 import { ChatType, IComponentNodes, IHarnessCaller, INestedFlowCaller, IPredictionQueueAppServer } from '../Interface'
@@ -56,6 +57,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
     const target = await runtime.appDataSource.getRepository(ChatFlow).findOneBy({ id: request.targetFlowId })
     if (!target) throw new AppError(404, `Chatflow ${request.targetFlowId} not found`)
     const harnessCaller = await authorizeNestedFlowCaller(runtime.caller, runtime.parentWorkspaceId, target, runtime.appDataSource)
+    assertFlowRuntimeAvailable(target)
     const chatId = request.chatId || uuidv4()
     const incomingInput = {
         question: request.question,

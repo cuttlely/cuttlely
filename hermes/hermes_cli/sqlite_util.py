@@ -38,11 +38,13 @@ def open_db(
     a first opener initializing a shared DB can make it ignore the busy timeout, notably on Windows.
     """
     from hermes_state_wal import apply_wal_with_fallback
+    from hermes_cli.sqlite_safe_read import connect_tracked
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     # Resolved at call time: fd-leak tests patch ``sqlite3.connect`` through the caller's module.
-    conn = sqlite3.connect(path, timeout=busy_timeout_ms / 1000, check_same_thread=check_same_thread)
+    conn = connect_tracked(path, connect_fn=sqlite3.connect, timeout=busy_timeout_ms / 1000,
+                           check_same_thread=check_same_thread)
     try:
         conn.row_factory = row_factory
         conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")

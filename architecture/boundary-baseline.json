@@ -578,6 +578,11 @@
         },
         {
             "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "#536 tests drive the inherited ping controller, route allowlist and error middleware directly to assert liveness/readiness and runtime-unavailable responses"
+        },
+        {
+            "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
             "to": "packages/server/src/services/predictions/index.ts"
         },
         {
@@ -648,6 +653,16 @@
         {
             "from": "packages/server/src/controllers/ping/index.test.ts",
             "to": "packages/server/src/controllers/ping/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/ping/live.test.ts",
+            "to": "packages/server/src/controllers/ping/index.ts",
+            "reason": "#536 tests drive the inherited ping controller, route allowlist and error middleware directly to assert liveness/readiness and runtime-unavailable responses"
+        },
+        {
+            "from": "packages/server/src/controllers/ping/live.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "#536 tests drive the inherited ping controller, route allowlist and error middleware directly to assert liveness/readiness and runtime-unavailable responses"
         },
         {
             "from": "packages/server/src/controllers/predictions/index.test.ts",

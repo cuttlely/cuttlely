@@ -75,12 +75,13 @@ test('the image build allowlist names packages that exist and build', () => {
 })
 
 test('the root Compose file checks health with ping', () => {
-    assert.match(service('docker-compose.yml').healthcheck.test.join(' '), /\/api\/v1\/ping/)
+    assert.match(service('docker-compose.yml').healthcheck.test.join(' '), /\/api\/v1\/ping\/live"/)
 })
 
-test('the Dockerfile has a ping health check and names its source repository', () => {
+test('the Dockerfile has a liveness health check and names its source repository', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
-    assert.match(dockerfile, /^HEALTHCHECK .*\n\s+CMD curl -fsS "http:\/\/127\.0\.0\.1:\$\{PORT:-43117\}\/api\/v1\/ping"/m)
+    // Liveness keeps the container healthy through a runtime-only outage (#536); /api/v1/ping stays readiness.
+    assert.match(dockerfile, /^HEALTHCHECK .*\n\s+CMD curl -fsS "http:\/\/127\.0\.0\.1:\$\{PORT:-43117\}\/api\/v1\/ping\/live"/m)
     assert.match(dockerfile, /org\.opencontainers\.image\.source="https:\/\/github\.com\/cuttlely\/cuttlely"/)
 })
 

@@ -316,7 +316,18 @@ test(
         const result = spawnSync(chosen.command, [PROOF], {
             cwd: ROOT,
             encoding: 'utf8',
-            env: { ...process.env, PYTHONPATH: HERMES, PYTHONDONTWRITEBYTECODE: '1' }
+            // A git hook (pre-push from a linked worktree) exports GIT_DIR and friends. The proof
+            // builds its own fixture repositories, so they must not inherit the outer repository.
+            env: {
+                ...Object.fromEntries(
+                    Object.entries(process.env).filter(
+                        ([key]) =>
+                            !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|PREFIX|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES)$/.test(key)
+                    )
+                ),
+                PYTHONPATH: HERMES,
+                PYTHONDONTWRITEBYTECODE: '1'
+            }
         })
         assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
         assert.match(result.stdout, /hardened snapshot, create, and cleanup did not/)

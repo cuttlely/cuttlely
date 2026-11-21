@@ -2,6 +2,14 @@
 
 Use this guide when a reverse proxy or cloud gateway sits in front of a self-hosted install. The proxy must keep streaming requests open. It must also stop reusing an upstream connection before Cuttlely closes that connection.
 
+## Health checks
+
+Use **`GET /api/v1/ping/live`** for liveness and service restart decisions. It stays 200 while Node and the database can serve, including runtime failures and exhaustion cooldowns, so UI and operator recovery routes remain available. It returns 503 during the first startup compile gate and while the database is unreachable.
+
+Use **`GET /api/v1/ping`** separately for strict readiness and agent routing. Its existing contract is unchanged: a down runtime returns 503 `hermes down`, startup and database failures return 503, and `up`, `degraded` or `restarting` can return `pong` once the other checks pass. Agent requests separately return immediate 503 `RUNTIME_UNAVAILABLE` with `Retry-After` while the runtime is unavailable, after authorization.
+
+Both health endpoints are public and retain their existing runtime, Analyst and database headers. After upgrading, check your gateway's actual probe path and failure budget. On the first boot liveness waits for the boot compile; after a restart in place it answers as soon as the server listens and has opened the database, so a failure budget like the image's 15 seconds × 20 is enough. Runtime recovery runs inside the image, including on VMs and plain Docker installs. The [deployment health-check table and examples](./docker.md#health-checks) explain timing and routing; [recovery settings](./server-settings.md#agent-runtime-recovery) describe the cooldown and opt-in container exit.
+
 ## 1. Keep upstream connections open
 
 Use HTTP/1.1 between the proxy and Cuttlely. Allow the proxy to reuse upstream connections.
@@ -89,7 +97,7 @@ Cuttlely leaves overall request time limits to the proxy. The Node server's defa
 ## 5. Check the result
 
 1. Restart Cuttlely and reload the proxy.
-2. Open `/api/v1/ping` through the public address. It should answer `pong`.
+2. Open `/api/v1/ping/live` through the public address. It should answer `pong`. Check strict `/api/v1/ping` separately for agent readiness.
 3. Start a streaming chat that runs for more than 30 seconds.
 4. Leave the app idle for more than one minute, then send another request.
 5. Check the proxy and server logs if either request ends without an HTTP response.
