@@ -1275,7 +1275,15 @@ wait "$CUTTLELY_PID"
 }
 
 function isolatedEnv(dir) {
-    return { ...childEnv, HOME: dir, DATABASE_PATH: dir, CUTTLELY_DATA_DIR: dir }
+    return {
+        ...childEnv,
+        HOME: dir,
+        DATABASE_PATH: dir,
+        SECRETKEY_PATH: dir,
+        BLOB_STORAGE_PATH: dir,
+        CUTTLELY_DATA_DIR: dir,
+        LOG_PATH: dir
+    }
 }
 
 function spawnScript(script, env) {

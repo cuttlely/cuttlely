@@ -111,6 +111,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'harness-asset-fetch.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-tool-error-preview.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-background-mcp.test.mjs'),
+            path.join(ROOT, 'scripts', 'hermes-lifecycle.test.mjs'),
             path.join(ROOT, 'scripts', 'try-profile-tombstones.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-evidence-budget.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-probe-cache-fd.test.mjs'),

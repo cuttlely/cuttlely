@@ -4,6 +4,8 @@ The agent runtime serves health checks while MCP tools connect in the background
 
 Runtime restarts allow `CUTTLELY_HERMES_STOP_GRACE_SECONDS` (default 15) after SIGTERM before a forced exit, and every forced exit logs the pid, reason and grace used. On container stop, Node drains first and the runtime grace is capped by the time left in a 28-second budget, which fits Render's default 30-second window and the Compose allowance of 35 seconds.
 
+The false UNCLEANLY report also occurred after prompt shutdowns: the legacy CLI gateway path returned without the runtime's lifecycle exit stamp. `scripts/cuttlely-hermes-api.py` keeps that entry and, only after a normal return, calls `mark_exited(0, reason="graceful_shutdown")` and the bounded log drain. It preserves main's SIGTERM exit code of 0 and does not invoke the broader gateway entry's bootstrap, config migration or CLI installation steps. Real SIGTERM stop/restart checks cover single-profile and multiplex operation, including repeated stop signals; SIGKILL still leaves the running sentinel and produces the next boot's unclean-exit warning. Regression: `scripts/hermes-lifecycle.test.mjs`, wired into verification; it fails on the cached main launcher because completed shutdown leaves the sentinel running. This is local validation, not a deployment or full-gate claim.
+
 Try it profiles get the runtime's `profiles/.deleted/<name>` marker before removal, the existing file guard stays for the settle window, and leftovers are swept before each runtime start (capped at two seconds, nonfatal). A compile of the same name clears the marker. Supervisor tests pass temporary paths through the child environment instead of the shell command (code-scanning alert 1506).
 
 ## 1.7.12 release

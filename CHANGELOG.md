@@ -7,7 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   The agent runtime answers health checks while MCP tools connect in the background. Up to four profiles discover tools at once, and a run waits only for its own profile, within the existing time limit. An unresponsive MCP server no longer delays runtime health or removes working tools from other servers.
--   Runtime shutdown allows up to 15 seconds after its stop signal before forcing the process to exit. Container shutdown caps this grace by the time left in a 28-second budget shared with application draining. `CUTTLELY_HERMES_STOP_GRACE_SECONDS` changes that wait, and every forced exit records the process, reason and wait used. [Runtime recovery](./docs/how-to/server-settings.md#agent-runtime-recovery).
+-   A completed runtime shutdown now records a clean exit, so the next start does not falsely warn that it exited UNCLEANLY. The launcher now records the exit after shutdown returns, keeping its existing startup path and stop exit status. Runtime shutdown also allows up to 15 seconds after its stop signal before forcing the process to exit. Container shutdown caps this grace by the time left in a 28-second budget shared with application draining. `CUTTLELY_HERMES_STOP_GRACE_SECONDS` changes that wait, and every forced exit records the process, reason and wait used. [Runtime recovery](./docs/how-to/server-settings.md#agent-runtime-recovery).
 -   Temporary Try it profiles are marked deleted before cleanup so concurrent runtime scans skip them. Leftovers are swept before each runtime start, and recompiling the same profile name clears its deletion marker.
 
 ### Maintenance
