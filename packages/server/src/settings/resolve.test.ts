@@ -49,6 +49,14 @@ describe('server settings resolver', () => {
         )
     })
 
+    it('never applies a saved runtime stop grace to the start script environment', () => {
+        const key = 'CUTTLELY_HERMES_STOP_GRACE_SECONDS'
+        expect(fileValuesToApply({}, { [key]: '0' })).toEqual({})
+        expect(fileValuesToApply({ [key]: '30' }, { [key]: '0' })).toEqual({})
+        expect(effectiveValue(pick(resolveSettings({ env: {} }), key))).toBe('15')
+        expect(pick(resolveSettings({ env: { [key]: '0' } }), key)).toEqual({ key, value: '0', source: 'host' })
+    })
+
     it('reports the default as the effective value', () => {
         expect(effectiveValue({ key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS', value: '', source: 'default' })).toBe('45000')
         expect(effectiveValue({ key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS', value: '60000', source: 'file' })).toBe('60000')

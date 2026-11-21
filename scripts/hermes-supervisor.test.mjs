@@ -12,7 +12,7 @@ import { pingForHermesStatus, readHermesStatus, writeHermesStatus } from './herm
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // Child Node helpers are application processes, not node:test workers.
-const childEnv = { ...process.env }
+const childEnv = { ...process.env, ROOT, NODE_BIN: process.execPath }
 delete childEnv.NODE_TEST_CONTEXT
 
 describe('hermes supervisor status', () => {
@@ -40,13 +40,11 @@ describe('hermes supervisor status', () => {
         const log = path.join(dir, 'supervisor.log')
         const script = `
 set -euo pipefail
-DATA=${JSON.stringify(dir)}
+DATA="$CUTTLELY_DATA_DIR"
 export CUTTLELY_DATA_DIR="$DATA"
 export CUTTLELY_HERMES_MAX_RESTARTS=2
 export CUTTLELY_HERMES_RESTART_DELAY=0
 HERMES_MAX_RESTARTS=2
-ROOT=${JSON.stringify(ROOT)}
-NODE_BIN=${JSON.stringify(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 write_hermes_status() { "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4"; }
 hermes_backoff_seconds() { echo "\${CUTTLELY_HERMES_RESTART_DELAY:-0}"; }
@@ -57,7 +55,7 @@ ${superviseSource()}
 supervise_hermes
 `
         try {
-            const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+            const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
             let combined = ''
             child.stdout.on('data', (chunk) => {
                 combined += chunk
@@ -94,7 +92,7 @@ supervise_hermes
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-health-'))
         const script = `
 set -euo pipefail
-DATA=${JSON.stringify(dir)}
+DATA="$CUTTLELY_DATA_DIR"
 export CUTTLELY_DATA_DIR="$DATA"
 export CUTTLELY_HERMES_MAX_RESTARTS=1
 export CUTTLELY_HERMES_RESTART_DELAY=0
@@ -104,8 +102,6 @@ export STATUS_FILE="$DATA/hermes-supervisor.json"
 export COUNT_FILE="$DATA/count"
 echo 0 > "$COUNT_FILE"
 HERMES_MAX_RESTARTS=1
-ROOT=${JSON.stringify(ROOT)}
-NODE_BIN=${JSON.stringify(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 write_hermes_status() { "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4"; }
 hermes_backoff_seconds() { echo "0"; }
@@ -141,7 +137,7 @@ ${superviseSource()}
 supervise_hermes
 `
         try {
-            const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+            const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
             let combined = ''
             child.stdout.on('data', (chunk) => {
                 combined += chunk
@@ -172,7 +168,7 @@ supervise_hermes
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-blip-'))
         const script = `
 set -euo pipefail
-DATA=${JSON.stringify(dir)}
+DATA="$CUTTLELY_DATA_DIR"
 export CUTTLELY_DATA_DIR="$DATA"
 export CUTTLELY_HERMES_MAX_RESTARTS=2
 export CUTTLELY_HERMES_RESTART_DELAY=0
@@ -181,8 +177,6 @@ export CUTTLELY_HERMES_HEALTH_FAILS=3
 export PROBES="$DATA/probes"
 echo 0 > "$PROBES"
 HERMES_MAX_RESTARTS=2
-ROOT=${JSON.stringify(ROOT)}
-NODE_BIN=${JSON.stringify(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 write_hermes_status() { "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4"; }
 hermes_backoff_seconds() { echo "0"; }
@@ -200,7 +194,7 @@ start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' & HERMES_PID=
 ${superviseSource()}
 supervise_hermes
 `
-        const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+        const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
         let combined = ''
         child.stdout.on('data', (chunk) => {
             combined += chunk
@@ -259,14 +253,13 @@ supervise_hermes
 set -euo pipefail
 export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
 export CUTTLELY_GATEWAY_WAIT_SECONDS=8
-NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
-"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' ${JSON.stringify(mark)}
+"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' "$CUTTLELY_DATA_DIR/hermes-started"
 `
         try {
-            const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+            const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
             const code = await new Promise((resolve, reject) => {
                 const timer = setTimeout(() => {
                     child.kill('SIGTERM')
@@ -315,14 +308,13 @@ set -euo pipefail
 export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
 export CUTTLELY_GATEWAY_WAIT_SECONDS=2
 export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=10
-NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
-"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' ${JSON.stringify(mark)}
+"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' "$CUTTLELY_DATA_DIR/hermes-started"
 `
             try {
-                const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+                const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
                 let output = ''
                 child.stdout.on('data', (chunk) => (output += chunk))
                 const code = await new Promise((resolve, reject) => {
@@ -367,14 +359,13 @@ export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
 date() { printf '0\\n'; }
 export CUTTLELY_GATEWAY_WAIT_SECONDS=1
 export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=2
-NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
 `
         const started = Number(process.hrtime.bigint() / 1000000n)
         try {
-            const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+            const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
             let output = ''
             child.stdout.on('data', (chunk) => (output += chunk))
             child.stderr.on('data', (chunk) => (output += chunk))
@@ -399,6 +390,7 @@ wait_for_gateway
     })
 
     it('a longer gateway wait is still bounded by the compiling cap', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-gateway-long-cap-'))
         const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
         const gatewayAnswers = source.match(/gateway_answers\(\) \{[\s\S]*?\n\}/)[0]
         const waitForGateway = source.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)[0]
@@ -413,14 +405,13 @@ set -euo pipefail
 export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
 export CUTTLELY_GATEWAY_WAIT_SECONDS=30
 export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=2
-NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
 `
         const started = Number(process.hrtime.bigint() / 1000000n)
         try {
-            const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+            const child = spawn('bash', ['-c', script], { env: isolatedEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] })
             let output = ''
             child.stdout.on('data', (chunk) => (output += chunk))
             child.stderr.on('data', (chunk) => (output += chunk))
@@ -441,6 +432,7 @@ wait_for_gateway
         } finally {
             server.closeAllConnections?.()
             await new Promise((resolve) => server.close(resolve))
+            fs.rmSync(dir, { recursive: true, force: true })
         }
     })
 
@@ -690,7 +682,7 @@ wait_for_gateway
         const flag = path.join(dir, 'streaming')
         fs.writeFileSync(flag, '1')
         const check = path.join(dir, 'stream-check.sh')
-        fs.writeFileSync(check, `#!/bin/sh\nif [ -f ${JSON.stringify(flag)} ]; then exit 0; fi\nexit 1\n`)
+        fs.writeFileSync(check, '#!/bin/sh\nif [ -f "$CUTTLELY_DATA_DIR/streaming" ]; then exit 0; fi\nexit 1\n')
         fs.chmodSync(check, 0o755)
         const child = spawnSupervisor(dir, {
             CUTTLELY_HERMES_HEALTH_GRACE: '0',
@@ -708,6 +700,242 @@ wait_for_gateway
             assert.ok((status.restarts || 0) > 0 || status.state === 'restarting')
         } finally {
             await stopSupervisor(child, dir)
+        }
+    })
+})
+
+describe('runtime stop grace', () => {
+    it('validates a non-negative whole number of seconds and keeps the 15s default', () => {
+        for (const [value, expected] of [
+            [undefined, '15'],
+            ['0', '0'],
+            ['03', '3'],
+            ['-1', '15'],
+            ['1.5', '15'],
+            ['garbage', '15']
+        ]) {
+            const env = { PATH: process.env.PATH }
+            if (value !== undefined) env.CUTTLELY_HERMES_STOP_GRACE_SECONDS = value
+            const result = spawnSync(
+                'bash',
+                [
+                    '-c',
+                    `${superviseSource()}
+configure_hermes_supervisor
+printf '%s' "$CUTTLELY_HERMES_STOP_GRACE_SECONDS"`
+                ],
+                { encoding: 'utf8', env }
+            )
+            assert.equal(result.status, 0, result.stderr)
+            assert.equal(result.stdout, expected)
+            if (value === '-1' || value === '1.5' || value === 'garbage') {
+                assert.match(result.stderr, /STOP_GRACE_SECONDS.*Using 15/)
+            } else assert.equal(result.stderr, '')
+        }
+    })
+
+    it('allows a runtime that takes more than two seconds to stop cleanly', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-grace-'))
+        const run = spawnScript(
+            `${superviseSource()}
+hermes_diagnostics() { :; }
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => setTimeout(() => process.exit(0), 2300))
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/ready", "1")
+    setInterval(() => {}, 1000)
+' &
+pid=$!
+while [[ ! -f "$CUTTLELY_DATA_DIR/ready" ]]; do sleep 0.05; done
+kill_hermes_pid "$pid" "test shutdown"
+wait "$pid"
+`,
+            isolatedEnv(dir)
+        )
+        try {
+            assert.equal(await run.exited, 0, run.output)
+            assert.doesNotMatch(run.output, /SIGKILL/)
+        } finally {
+            await stopSupervisor(run, dir)
+        }
+    })
+
+    it('logs the pid, reason and zero grace when a runtime ignores SIGTERM', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-kill-'))
+        const run = spawnScript(
+            `${superviseSource()}
+hermes_diagnostics() { :; }
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => {})
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/ready", String(process.pid))
+    setInterval(() => {}, 1000)
+' &
+pid=$!
+while [[ ! -f "$CUTTLELY_DATA_DIR/ready" ]]; do sleep 0.05; done
+kill_hermes_pid "$pid" "health failures 3"
+status=0
+wait "$pid" || status=$?
+[[ "$status" -eq 137 ]]
+`,
+            { ...isolatedEnv(dir), CUTTLELY_HERMES_STOP_GRACE_SECONDS: '0' }
+        )
+        try {
+            assert.equal(await run.exited, 0, run.output)
+            const pid = fs.readFileSync(path.join(dir, 'ready'), 'utf8')
+            assert.ok(run.output.includes(`Hermes SIGKILL escalation: pid=${pid} reason=health failures 3 stop grace=0s.`), run.output)
+        } finally {
+            await stopSupervisor(run, dir)
+        }
+    })
+
+    it('passes shell metacharacters in stack paths as environment data', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stack-$(false)-\'"-'))
+        const run = stackSupervisor(dir, true, false)
+        try {
+            assert.equal(await run.exited, 70, run.output)
+            assert.equal(readHermesStatus(dir)?.state, 'exhausted', run.output)
+        } finally {
+            await stopSupervisor(run, dir)
+        }
+    })
+
+    it('sweeps abandoned try profiles before every runtime launch', () => {
+        const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+        const start = source.match(/start_hermes_once\(\) \{[\s\S]*?\n\}/)[0]
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-sweep-'))
+        try {
+            const result = spawnSync(
+                'bash',
+                [
+                    '-c',
+                    `set -euo pipefail
+${start}
+NODE_BIN=record_sweep
+PYTHON=record_runtime
+record_sweep() { echo sweep >> "$CUTTLELY_DATA_DIR/order"; }
+record_runtime() { echo runtime >> "$CUTTLELY_DATA_DIR/order"; }
+start_hermes_once
+wait "$HERMES_PID"
+start_hermes_once
+wait "$HERMES_PID"`
+                ],
+                { encoding: 'utf8', env: isolatedEnv(dir) }
+            )
+            assert.equal(result.status, 0, result.stderr)
+            assert.equal(fs.readFileSync(path.join(dir, 'order'), 'utf8'), 'sweep\nruntime\nsweep\nruntime\n')
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('continues a runtime start when the pre-start sweep fails under errexit', () => {
+        const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+        const start = source.match(/start_hermes_once\(\) \{[\s\S]*?\n\}/)[0]
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-sweep-failed-'))
+        try {
+            const result = spawnSync(
+                'bash',
+                [
+                    '-c',
+                    `set -euo pipefail
+${start}
+NODE_BIN=failed_sweep
+PYTHON=record_runtime
+failed_sweep() { return 1; }
+record_runtime() { echo runtime >> "$CUTTLELY_DATA_DIR/order"; }
+start_hermes_once
+wait "$HERMES_PID"
+start_hermes_once
+wait "$HERMES_PID"`
+                ],
+                { encoding: 'utf8', env: isolatedEnv(dir) }
+            )
+            assert.equal(result.status, 0, result.stderr)
+            assert.equal(fs.readFileSync(path.join(dir, 'order'), 'utf8'), 'runtime\nruntime\n')
+            assert.equal(result.stderr.trim().split('\n').length, 2)
+            assert.match(result.stderr, /sweep failed; continuing runtime start/)
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('caps container shutdown grace by the deadline shared with the draining parent', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-budget-'))
+        const run = spawnScript(
+            `set -euo pipefail
+HERMES_STOP="$CUTTLELY_DATA_DIR/stop"
+${superviseSource()}
+hermes_diagnostics() { :; }
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => {})
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/ready", "1")
+    setInterval(() => {}, 1000)
+' &
+pid=$!
+while [[ ! -f "$CUTTLELY_DATA_DIR/ready" ]]; do sleep 0.05; done
+# Simulate the drain consuming all but two seconds of the container budget.
+awk -v now="$(hermes_clock)" 'BEGIN { print int(now) + 2 }' > "$HERMES_STOP"
+kill_hermes_pid "$pid" "container shutdown"
+wait "$pid" || true
+`,
+            isolatedEnv(dir)
+        )
+        const started = Date.now()
+        try {
+            assert.equal(await run.exited, 0, run.output)
+            assert.ok(Date.now() - started < 4000, run.output)
+            assert.match(run.output, /reason=container shutdown stop grace=[01]s/)
+        } finally {
+            await stopSupervisor(run, dir)
+        }
+    })
+
+    it('keeps Hermes alive through the default 25s drain and finishes container cleanup within 30s', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-default-stop-budget-'))
+        const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+        const cleanup = source.match(/cleanup\(\) \{[\s\S]*?\n\}/)[0]
+        const run = spawnScript(
+            `set -euo pipefail
+DATA="$CUTTLELY_DATA_DIR"
+HERMES_STOP="$DATA/stop"
+WORKER_PIDS=()
+${superviseSource()}
+${cleanup}
+hermes_diagnostics() { :; }
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => {
+        console.log("server draining")
+        setTimeout(() => { console.log("server drained"); process.exit(0) }, 25000)
+    })
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/server-ready", "1")
+    setInterval(() => {}, 1000)
+' &
+CUTTLELY_PID=$!
+"$NODE_BIN" -e '
+    const fs = require("fs")
+    process.on("SIGTERM", () => { console.log("runtime received stop") })
+    fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/runtime-ready", "1")
+    setInterval(() => {}, 1000)
+' &
+HERMES_PID=$!
+while [[ ! -f "$DATA/server-ready" || ! -f "$DATA/runtime-ready" ]]; do sleep 0.05; done
+cleanup
+wait "$HERMES_PID" 2>/dev/null || true
+`,
+            { ...isolatedEnv(dir), CUTTLELY_HERMES_STOP_GRACE_SECONDS: '15' }
+        )
+        const started = Date.now()
+        try {
+            assert.equal(await run.exited, 0, run.output)
+            const elapsed = Date.now() - started
+            assert.ok(elapsed >= 25000 && elapsed < 30000, `${elapsed}ms\n${run.output}`)
+            assert.match(run.output, /server draining[\s\S]*server drained[\s\S]*runtime received stop/)
+            assert.match(run.output, /stop grace=[0-2]s/)
+        } finally {
+            await stopSupervisor(run, dir)
         }
     })
 })
@@ -967,10 +1195,8 @@ function recoverySupervisor(
     } = {}
 ) {
     const script = `set -euo pipefail
-DATA=${JSON.stringify(dir)}
+DATA="$CUTTLELY_DATA_DIR"
 export CUTTLELY_DATA_DIR="$DATA"
-ROOT=${JSON.stringify(ROOT)}
-NODE_BIN=${JSON.stringify(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 export CUTTLELY_EXIT_ON_EXHAUSTED=${exit ? 1 : 0}
 export CUTTLELY_HERMES_MAX_RESTARTS=${max}
@@ -982,11 +1208,11 @@ export CUTTLELY_HERMES_HEALTH_WINDOW=0
 export CUTTLELY_HERMES_HEALTH_FAILS=1
 health_calls=0
 hermes_answers_health() { ${health}; }
-start_hermes_once() { "$NODE_BIN" -e ${shellQuote(childCode)} & HERMES_PID=$!; }
+start_hermes_once() { "$NODE_BIN" -e "$HERMES_TEST_CHILD" & HERMES_PID=$!; }
 ${superviseSource()}
 supervise_hermes
 `
-    return spawnScript(script)
+    return spawnScript(script, { ...isolatedEnv(dir), HERMES_TEST_CHILD: childCode })
 }
 
 function stackSupervisor(dir, exit, withHttp = !exit) {
@@ -1014,10 +1240,9 @@ setInterval(() => {}, 1000)`
     fs.writeFileSync(
         path.join(dir, 'scripts/start-cuttlely.sh'),
         `set -euo pipefail
-DATA=${shellQuote(dir)}
-ROOT=${shellQuote(ROOT)}
+DATA="$CUTTLELY_DATA_DIR"
+ROOT="$REPO_ROOT"
 export CUTTLELY_DATA_DIR="$DATA"
-NODE_BIN=${shellQuote(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 rm -f "$HERMES_STOP"
 HERMES_PARENT_PID=$$
@@ -1032,22 +1257,38 @@ export CUTTLELY_EXIT_ON_EXHAUSTED=${exit ? 1 : 0}
 export CUTTLELY_HERMES_MAX_RESTARTS=0
 export CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS=0.8
 hermes_answers_health() { return 0; }
-start_hermes_once() { "$NODE_BIN" -e ${shellQuote(runtime)} & HERMES_PID=$!; }
-"$NODE_BIN" -e ${shellQuote(server)} &
+start_hermes_once() { "$NODE_BIN" -e "$HERMES_TEST_RUNTIME" & HERMES_PID=$!; }
+"$NODE_BIN" -e "$HERMES_TEST_SERVER" &
 CUTTLELY_PID=$!
 supervise_hermes &
 HERMES_SUPERVISOR_PID=$!
 wait "$CUTTLELY_PID"
 `
     )
-    return spawnScript(`set -euo pipefail\nROOT=${shellQuote(dir)}\nexport CUTTLELY_DATA_DIR=${shellQuote(dir)}\n${outer}`)
+    return spawnScript(`set -euo pipefail\n${outer}`, {
+        ...isolatedEnv(dir),
+        ROOT: dir,
+        REPO_ROOT: ROOT,
+        HERMES_TEST_RUNTIME: runtime,
+        HERMES_TEST_SERVER: server
+    })
 }
 
-function spawnScript(script) {
+function isolatedEnv(dir) {
+    return { ...childEnv, HOME: dir, DATABASE_PATH: dir, CUTTLELY_DATA_DIR: dir }
+}
+
+function spawnScript(script, env) {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-supervisor-output-'))
     const outputPath = path.join(outputDir, 'output')
+    const scriptPath = path.join(outputDir, 'supervisor.sh')
+    fs.writeFileSync(scriptPath, script)
     const outputFd = fs.openSync(outputPath, 'w')
-    const child = spawn('bash', ['-c', script], { env: childEnv, stdio: ['ignore', outputFd, outputFd], detached: true })
+    const child = spawn('bash', ['-c', 'exec bash "$SUPERVISOR_SCRIPT"'], {
+        env: { ...env, SUPERVISOR_SCRIPT: scriptPath },
+        stdio: ['ignore', outputFd, outputFd],
+        detached: true
+    })
     fs.closeSync(outputFd)
     const state = {
         child,
@@ -1059,10 +1300,6 @@ function spawnScript(script) {
     }
     state.exited = new Promise((resolve) => child.on('exit', resolve))
     return state
-}
-
-function shellQuote(value) {
-    return "'" + value.replaceAll("'", "'\\''") + "'"
 }
 
 function delay(ms) {
@@ -1173,35 +1410,32 @@ start_hermes_once() {
 start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
     const script = `
 set -euo pipefail
-DATA=${JSON.stringify(dir)}
+DATA="$CUTTLELY_DATA_DIR"
 export CUTTLELY_DATA_DIR="$DATA"
-export CUTTLELY_HERMES_MAX_RESTARTS=${options.CUTTLELY_HERMES_MAX_RESTARTS || '2'}
-export CUTTLELY_HERMES_RESTART_DELAY=0
-export CUTTLELY_HERMES_HEALTH_GRACE=${options.CUTTLELY_HERMES_HEALTH_GRACE ?? '60'}
-export CUTTLELY_HERMES_HEALTH_WINDOW=${options.CUTTLELY_HERMES_HEALTH_WINDOW ?? '15'}
-export CUTTLELY_HERMES_HEALTH_FAILS=${options.CUTTLELY_HERMES_HEALTH_FAILS || '3'}
-${options.CUTTLELY_HERMES_STREAM_CHECK ? `export CUTTLELY_HERMES_STREAM_CHECK=${JSON.stringify(options.CUTTLELY_HERMES_STREAM_CHECK)}` : ''}
 export PROBES="$DATA/probes"
 export COUNT_FILE="$DATA/count"
 export RECOVER_FILE="$DATA/recover"
 echo 0 > "$PROBES"
 echo 0 > "$COUNT_FILE"
 HERMES_MAX_RESTARTS="$CUTTLELY_HERMES_MAX_RESTARTS"
-ROOT=${JSON.stringify(ROOT)}
-NODE_BIN=${JSON.stringify(process.execPath)}
 HERMES_STOP="$DATA/hermes-supervisor.stop"
 write_hermes_status() { "$NODE_BIN" "$ROOT/scripts/hermes-health.mjs" write "$1" "$2" "$3" "$4"; }
 hermes_backoff_seconds() { echo "0"; }
 kill_hermes_pid() { local pid="$1"; if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null || true; fi; }
-${Object.entries(options)
-    .filter(([name]) => name.startsWith('CUTTLELY_'))
-    .map(([name, value]) => `export ${name}=${JSON.stringify(String(value))}`)
-    .join('\n')}
 ${healthBody}
 ${superviseSource()}
 supervise_hermes
 `
-    const child = spawn('bash', ['-lc', script], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    const env = {
+        ...isolatedEnv(dir),
+        CUTTLELY_HERMES_MAX_RESTARTS: '2',
+        CUTTLELY_HERMES_RESTART_DELAY: '0',
+        CUTTLELY_HERMES_HEALTH_GRACE: '60',
+        CUTTLELY_HERMES_HEALTH_WINDOW: '15',
+        CUTTLELY_HERMES_HEALTH_FAILS: '3',
+        ...Object.fromEntries(Object.entries(options).filter(([name]) => name.startsWith('CUTTLELY_')))
+    }
+    const child = spawn('bash', ['-c', script], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     const state = { output: '', exited: null }
     child.stdout.on('data', (chunk) => {
         state.output += chunk
@@ -1257,8 +1491,7 @@ function gatewayBootBranch(dir, restarted) {
     const end = source.indexOf('\nif [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then', start)
     assert.ok(start > 0 && end > start, 'boot branch found in start-cuttlely.sh')
     const script = `set -uo pipefail
-DATA=${shellQuote(dir)}
-NODE_BIN=${shellQuote(process.execPath)}
+DATA="$CUTTLELY_DATA_DIR"
 HERMES_STOP="$DATA/stop"
 ${restarted ? 'export CUTTLELY_STACK_RESTARTED=1' : 'unset CUTTLELY_STACK_RESTARTED'}
 export CUTTLELY_GATEWAY_WAIT_SECONDS=1 CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=1
@@ -1273,7 +1506,7 @@ ${source.slice(start, end)}
 wait "$HERMES_SUPERVISOR_PID" 2>/dev/null
 kill "$CUTTLELY_PID" 2>/dev/null
 `
-    return spawnScript(script)
+    return spawnScript(script, isolatedEnv(dir))
 }
 
 describe('recovery restart with a slow server start', () => {

@@ -60,6 +60,14 @@ describe('checking values from the page', () => {
         expect(checkValue(queryTimeout, '500').ok).toBe(false)
     })
 
+    it('keeps the runtime stop grace on the host and accepts non-negative whole seconds', () => {
+        const grace = def('CUTTLELY_HERMES_STOP_GRACE_SECONDS')
+        expect(grace).toMatchObject({ envOnly: true, defaultValue: '15', unit: 'seconds', min: 0, integer: true })
+        expect(grace.runtime).toBeUndefined()
+        for (const value of ['0', '15', '3601']) expect(checkValue(grace, value)).toEqual({ ok: true, value })
+        for (const value of ['-1', '1.5', 'Infinity', 'NaN', 'soon']) expect(checkValue(grace, value).ok).toBe(false)
+    })
+
     it('accepts an unlimited agent run or five minutes, in raw milliseconds', () => {
         const runTime = def('CUTTLELY_HARNESS_RUN_TIMEOUT_MS')
         expect(runTime).toMatchObject({ section: 'runtime', group: 'Limits', unit: 'ms-as-seconds', defaultValue: '240000' })

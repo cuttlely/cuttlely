@@ -2439,8 +2439,10 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
         # One API run has no second turn. MCP tools register on a background thread;
         # building the agent first lets the model call a tool that is not registered yet.
         from hermes_cli.mcp_startup import ensure_mcp_discovery_before_agent_build
-        ensure_mcp_discovery_before_agent_build(
-            logger=logger, single_query=True, thread_name="api-server-mcp-discovery")
+        from gateway.cuttlely_mcp_startup import wait_for_gateway_mcp_discovery
+        if not wait_for_gateway_mcp_discovery():
+            ensure_mcp_discovery_before_agent_build(
+                logger=logger, single_query=True, thread_name="api-server-mcp-discovery")
         agent = AIAgent(**agent_kwargs)
         route_source = (
             "session_model_lock" if confirmed_runtime_lock
