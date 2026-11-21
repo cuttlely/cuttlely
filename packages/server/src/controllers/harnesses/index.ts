@@ -123,13 +123,15 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         next(error)
         return
     }
+    const signal = watchClientDisconnect(res)
     if (!isStreamingRequest(req)) {
         try {
             const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
                 source,
                 workspaceId,
                 caller,
-                expectedChatflowId
+                expectedChatflowId,
+                signal
             })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
@@ -137,7 +139,6 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         }
         return
     }
-    const signal = watchClientDisconnect(res)
     res.status(StatusCodes.OK)
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')

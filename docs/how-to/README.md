@@ -4,7 +4,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 
 ## New in 1.7.12
 
--   **Connect roster over the runtime's stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. A direct request to a compiled mixed-model chief does not reach a model yet (no provider binding); this is tracked for 1.7.13. [Upgrade guide](../upgrading.md#upgrading-to-1712).
+-   **Connect roster over the runtime's stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. [Upgrade guide](../upgrading.md#upgrading-to-1712).
 -   **Keep concurrent ETL controls consistent.** Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. [ETL](./etl.md).
 
 ## New in 1.7.11
@@ -112,6 +112,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 ## Build agent teams
 
 -   [Harnesses](./harnesses.md). Build an agent team, connect a chat model, try it, publish it and call it from your app.
+-   [Run a harness in agent mode](./harness-agent-mode.md). Call the chief on the agent runtime and let it delegate through `run_specialist`.
 -   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
 -   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
 -   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.

@@ -11,7 +11,7 @@ import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
@@ -21,7 +21,7 @@ import { agentRunTimeoutMs } from './budget.mjs'
 
 const require = createRequire(import.meta.url)
 
-const CHIEF_TOOLSETS = ['delegation', 'memory', 'session_search']
+const CHIEF_TOOLSETS = ['memory', 'session_search', 'mcp-roster']
 const BLOCKED_UNLESS_ENABLED = ['terminal', 'browser', 'code_execution', 'file', 'web']
 // Read-only Hermes skills (skills_list, skill_view; a Cuttlely patch in hermes/toolsets.py). Playbooks live in
 // the profile's skills folder under PLAYBOOK_DIR, which Cuttlely owns and rewrites on every compile.
@@ -1310,7 +1310,6 @@ function resolveRoster(record, profileName = record.name) {
     const mixed = unique.length > 1
     const seen = new Set()
     for (const specialist of specialists) {
-        if (!mixed && !needsAgentLoop(specialist)) continue
         if (mixed && !specialist.model) {
             throw new HarnessError('bad_model', `Specialist "${specialist.name}" needs a model when the roster uses more than one.`)
         }
@@ -1326,17 +1325,10 @@ function resolveRoster(record, profileName = record.name) {
 
 function chiefPrompt(record, options = {}) {
     const specialists = options.specialists || record.specialists || []
-    const mixed = Boolean(options.mixed)
     const lines = [`You are Harness Prime for the "${record.name}" harness.`]
-    if (mixed) {
-        lines.push('You may only use run_specialist, memory, and session_search.')
-        lines.push('Do not use delegate_task. Each specialist has its own model.')
-        lines.push('Call run_specialist with the specialist name and the task.')
-    } else {
-        lines.push('You may only use delegate_task, memory, and session_search.')
-        lines.push('Shell, browser, and code execution are not yours.')
-        lines.push('Delegate each piece of work with a task whose goal starts with [specialist:NAME].')
-    }
+    lines.push('You may only use run_specialist, memory, and session_search.')
+    lines.push('Do not use delegate_task. Specialists run in their own profiles.')
+    lines.push('Call run_specialist with the specialist name and the task.')
     lines.push('If one specialist fails, answer from the specialists that finished and name the failure.')
     const analystCount = specialists.filter((specialist) => hasAnalystTool(specialist)).length
     if (analystCount === 1) lines.push(CHIEF_ANALYST)
@@ -1405,6 +1397,7 @@ function pushMcpServers(yaml, blocks) {
 }
 
 function pushModel(yaml, defaultName, baseUrl, quoted = false) {
+    if (baseUrl !== gatewayUrl()) throw new HarnessError('bad_model', 'Every agent profile must use the harness gateway model URL.')
     yaml.push('model:')
     yaml.push('  provider: custom')
     // A selected model name may contain ':', '/' or '@' (Bedrock, OpenRouter, Vertex); quote it.
@@ -1420,10 +1413,10 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueSpecialistToken(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
-    const key = modelKey(specialist.model)
+function issueProfileToken({ role, record, model, harnessName, profileName, specialistName, tryProfile, adoptUnstamped = false }) {
+    const key = modelKey(model)
     const base = gatewayUrl()
-    const previous = readEnvFile(profileEnvPath(specialist.profileName))
+    const previous = readEnvFile(profileEnvPath(profileName))
     const sameBase = String(previous.OPENAI_BASE_URL || '').replace(/\/$/, '') === base.replace(/\/$/, '')
     // A published token is reused only for the record it was issued for: a profile left by an earlier harness under
     // the name (another createdAt, or none) gets a fresh token, so a bearer refused at startup never comes back.
@@ -1433,15 +1426,20 @@ function issueSpecialistToken(record, specialist, profileName, tryProfile, adopt
           // A profile compiled before the stamp existed keeps its token when the boot upgrade has matched its owner.
           (adoptUnstamped && previous.CUTTLELY_GATEWAY_CREATED === undefined)
     const reusable =
-        sameBase && sameRecord && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
+        sameBase &&
+        sameRecord &&
+        (previous.CUTTLELY_GATEWAY_ROLE || 'specialist') === role &&
+        previous.CUTTLELY_MODEL_KEY === key &&
+        /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
     registerProfileToken({
         token,
         // The profile directory that holds harness-roster.json, not the saved harness name when this is a try.
-        harnessName: profileName,
-        specialistName: specialist.name,
+        role,
+        harnessName,
+        specialistName,
         modelKey: key,
-        profileName: specialist.profileName,
+        profileName,
         tryProfile: Boolean(tryProfile)
     })
     return { token, base, modelKey: key }
@@ -1788,7 +1786,16 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
-    const issued = issueSpecialistToken(record, specialist, profileName, tryProfile, adoptUnstamped && ownedBefore)
+    const issued = issueProfileToken({
+        role: 'specialist',
+        record,
+        model: specialist.model,
+        harnessName: profileName,
+        profileName: specialist.profileName,
+        specialistName: specialist.name,
+        tryProfile,
+        adoptUnstamped: adoptUnstamped && ownedBefore
+    })
     const bridgeOn = usesBridge(specialist)
     const bridge = serverNameFor(specialist)
     const enabled = specialist.hermesToolsets.filter((name) => bridgeOn || name !== bridge || requestedBuiltin(specialist, name))
@@ -1854,6 +1861,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
         CUTTLELY_MODEL_KEY: issued.modelKey,
         CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
+        CUTTLELY_GATEWAY_ROLE: 'specialist',
         // The saved record this token was issued for: a later harness under the same name has another createdAt.
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
@@ -2274,7 +2282,7 @@ function compileProfileFiles(record, options = {}) {
         chief: { ...record.chief, model: resolved.chiefModel },
         specialists: resolved.specialists,
         chiefToolsets: CHIEF_TOOLSETS,
-        dispatch: resolved.mixed ? 'roster' : 'delegation',
+        dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
         defaultEvidenceBytes: defaultEvidenceBytes()
     }
@@ -2285,27 +2293,28 @@ function compileProfileFiles(record, options = {}) {
     if (!fs.existsSync(memoryFile)) writeContained(memoryFile, `# ${record.name}\n`)
 
     const disabled = [...BLOCKED_UNLESS_ENABLED]
-    if (resolved.mixed) disabled.push('delegation')
-    // The parent (router) profile never calls a specialist bridge directly. Each
+    disabled.push('delegation')
+    // The chief profile never calls a specialist bridge directly. Each
     // specialist profile starts its own bridge with a gateway token. A bridge here
     // has no token, so it fails at boot, and a failed analyst tools/list would
     // write 0 tools over the file the specialist bridge just marked ready.
     const mcpBlocks = mcpServerBlocks(compiled).filter((block) => !isSpecialistBridge(block))
-    if (resolved.mixed) {
-        mcpBlocks.push({
-            name: 'roster',
-            command: process.execPath,
-            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName],
-            // Avoid the runtime's generic 300s MCP ceiling. Its infinite wait still polls user interrupts.
-            timeout: Infinity,
-            // The runtime filters inherited stdio environments. Pass only these nonsecret settings explicitly.
-            env: {
-                CUTTLELY_HARNESS_RUN_TIMEOUT_MS: String(compiled.agentRunTimeoutMs),
-                CUTTLELY_DATA_DIR: dataRoot(),
-                CUTTLELY_HERMES_HOME: hermesHome()
-            }
-        })
-    }
+    mcpBlocks.push({
+        name: 'roster',
+        command: process.execPath,
+        args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName],
+        // Avoid the runtime's generic 300s MCP ceiling. Its infinite wait still polls user interrupts.
+        timeout: Infinity,
+        // The runtime filters inherited stdio environments. Pass only these nonsecret settings explicitly.
+        env: {
+            // The runtime injects its trusted session id into _cuttlelyScope for marked MCP servers.
+            CUTTLELY_ANALYST_BRIDGE: '1',
+            CUTTLELY_HARNESS_RUN_TIMEOUT_MS: String(compiled.agentRunTimeoutMs),
+            CUTTLELY_DATA_DIR: dataRoot(),
+            CUTTLELY_HERMES_HOME: hermesHome(),
+            HERMES_API_URL: hermesBaseUrl()
+        }
+    })
     for (const block of mcpBlocks) {
         if (block.name === 'roster') continue
         disabled.push(block.name)
@@ -2318,18 +2327,29 @@ function compileProfileFiles(record, options = {}) {
     for (const name of disabled) yaml.push(`    - ${name}`)
     yaml.push('platform_toolsets:')
     yaml.push('  api_server:')
-    const apiToolsets = resolved.mixed ? ['memory', 'session_search', 'mcp-roster'] : CHIEF_TOOLSETS
-    for (const name of apiToolsets) yaml.push(`    - ${name}`)
-    if (!resolved.mixed) {
-        yaml.push('delegation:')
-        yaml.push('  inherit_mcp_toolsets: false')
-        yaml.push('  max_iterations: 20')
-    }
+    for (const name of CHIEF_TOOLSETS) yaml.push(`    - ${name}`)
     pushMcpServers(yaml, mcpBlocks)
-    pushModel(yaml, profileName)
+    const issued = issueProfileToken({
+        role: 'chief',
+        record,
+        model: resolved.chiefModel,
+        harnessName: profileName,
+        profileName,
+        tryProfile,
+        adoptUnstamped: Boolean(options.adoptUnstampedTokens)
+    })
+    pushModel(yaml, profileName, issued.base)
+    pushProviders(yaml)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
 
-    const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record))
+    const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record), {
+        OPENAI_BASE_URL: issued.base,
+        OPENAI_API_KEY: issued.token,
+        CUTTLELY_MODEL_KEY: issued.modelKey,
+        CUTTLELY_GATEWAY_HARNESS: profileName,
+        CUTTLELY_GATEWAY_ROLE: 'chief',
+        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
+    })
     clearProfileDeleted(profileName)
     // Written last: a compile that stopped partway has no version, so the next boot compiles it again.
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
@@ -2697,7 +2717,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '9'
+export const PROFILE_COMPILER_VERSION = '10'
 
 function compilerVersionOf(dir) {
     try {

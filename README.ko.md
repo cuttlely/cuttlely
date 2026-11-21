@@ -27,7 +27,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.12에서는 roster가 에이전트 런타임이 사용하는 stdio 프레이밍으로 연결됩니다.** roster는 1.0 이후 한 번도 연결되지 않았습니다. 혼합 모델 harness마다 기동이 약 60초 빨라지고(두 개면 약 2분), chief의 `run_specialist` 도구가 등록됩니다. 라우터 트래픽은 그대로입니다. 컴파일된 혼합 모델 chief에 대한 직접 요청은 아직 모델에 도달하지 않습니다(공급자 바인딩이 없음). 이는 1.7.13에서 다룰 예정입니다. 같은 순간에 ETL 실행을 시작, 재개, 일시 중지, 취소해도 취소되었거나 일시 중지된 실행이 계속 실행되거나 한 파이프라인에서 두 번째 실행이 시작되지 않습니다. [ETL](./docs/how-to/etl.md) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1712).
+**1.7.12에서는 roster가 에이전트 런타임이 사용하는 stdio 프레이밍으로 연결됩니다.** roster는 1.0 이후 한 번도 연결되지 않았습니다. 혼합 모델 harness마다 기동이 약 60초 빨라지고(두 개면 약 2분), chief의 `run_specialist` 도구가 등록됩니다. 라우터 트래픽은 그대로입니다. 같은 순간에 ETL 실행을 시작, 재개, 일시 중지, 취소해도 취소되었거나 일시 중지된 실행이 계속 실행되거나 한 파이프라인에서 두 번째 실행이 시작되지 않습니다. [ETL](./docs/how-to/etl.md) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1712).
 
 **1.7.11에서는 콜드 스타트에서 에이전트 런타임이 더 이상 교착 상태에 빠지지 않습니다.** 런타임 상태가 `restarting`일 때도 시작 도구 목록이 거부되지 않으므로, 헬스 체크에 응답하고 기동을 마칠 수 있습니다. 도구 호출과 채팅 완성은 그때까지 계속 거부됩니다. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1711).
 

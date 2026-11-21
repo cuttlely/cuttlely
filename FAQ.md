@@ -40,7 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.7.12?
 
-Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. A direct request to a compiled mixed-model chief does not reach a model yet (no provider binding); this is tracked for 1.7.13. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. Use matching 1.7.12 server and widget packages. No schema migration is added. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
+Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. Use matching 1.7.12 server and widget packages. No schema migration is added. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
 
 ### What changed in 1.7.11?
 

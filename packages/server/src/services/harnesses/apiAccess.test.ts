@@ -176,10 +176,32 @@ describe('harness API runs with an API key', () => {
         expect(handled).toEqual(['startBackgroundRun bakery', 'getRunResult bakery'])
     })
 
+    it.each([
+        ['/runs', 'createRun', 200],
+        ['/runs/async', 'startBackgroundRun', 202]
+    ])('routes an authorized agent API-key call on %s to %s', async (suffix, controller, status) => {
+        const res = await request(app())
+            .post(`/api/v1/harnesses/bakery${suffix}`)
+            .set('Authorization', 'Bearer bakery-key')
+            .send({ question: 'How many loaves?', mode: 'agent' })
+        expect(res.status).toBe(status)
+        expect(handled).toEqual([`${controller} bakery`])
+    })
+
     it('still needs the role permission: a listed harness does not let a view-only key start a run', async () => {
         const res = await start('view-only-key')
         expect(res.status).toBe(403)
         expect(res.body).toEqual({ message: 'Forbidden' })
+        expect(handled).toEqual([])
+    })
+
+    it.each(['view-only-key', 'empty-key'])('refuses agent mode before chief dispatch or run recording for %s', async (token) => {
+        const res = await request(app())
+            .post('/api/v1/harnesses/bakery/runs')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ question: 'How many loaves?', mode: 'agent' })
+        expect(res.status).toBe(403)
+        // The real route refuses before the controller can start a chief or write a run.
         expect(handled).toEqual([])
     })
 
