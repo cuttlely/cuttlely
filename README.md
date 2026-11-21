@@ -27,7 +27,9 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.7.10 keeps the UI reachable during agent runtime recovery.** The image, Compose and Render health checks now probe `/api/v1/ping/live`; update custom gateway and load-balancer probes. Known issue: on instances with several harness profiles the runtime can fail to start ([#542](https://github.com/cuttlely/cuttlely/issues/542)); stay on 1.7.9 until 1.7.11. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
+**1.7.11 starts the agent runtime when several harness profiles are present.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1711).
+
+**1.7.10 keeps the UI reachable during agent runtime recovery.** The image, Compose and Render health checks now probe `/api/v1/ping/live`; update custom gateway and load-balancer probes. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
 
 **1.7.9 traces standalone Harness chatflows in LangSmith.** Enable LangSmith in the chatflow’s Analytics settings; a Tool Agent wrapper is no longer required. [LangSmith tracing](./docs/reference/langsmith-tracing.md). ETL stays responsive during scans and resumes interrupted repository files. New local-password installations can create their first owner from host configuration. [ETL](./docs/how-to/etl.md) · [First owner](./docs/how-to/sign-in.md#from-host-configuration).
 
@@ -35,7 +37,7 @@ Node 20+ and Docker
 
 **1.7.6 improves imported agent teams and local user administration.** **Import & verify** chooses safe date, calendar and numeric samples for saved queries, and you can test an unpublished harness before its first Publish. **User Management** adds password reset links, Disable/Reactivate controls and **View team access**. Pending invitations show their real status and their team role can be changed without inviting the person again. [Import and verify](./docs/how-to/import-verify.md) · [Manage users and teams](./docs/how-to/users-without-authkit.md). [Model cost estimates](./docs/reference/model-list.md) include the current Together AI Kimi K3 standard rates.
 
-Latest stable is **1.7.10**. Pin image `1.7.10` or install `cuttlely@1.7.10`. [1.7.10 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.10) · [Changelog](./CHANGELOG.md).
+Latest stable is **1.7.11**. Pin image `1.7.11` or install `cuttlely@1.7.11`. [1.7.11 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.11) · [Changelog](./CHANGELOG.md).
 
 **1.7.0 is a security-exception release. If you're upgrading from an earlier version, it needs action.** Back up the database, encryption key and settings, then read [operator onboarding and recovery](./docs/how-to/instance-operator.md) before you deploy, so you don't lock yourself out of browser administration. The full checklist, including the host-log claim, `CUTTLELY_INSTANCE_OPERATOR`, and access-key enforcement staying off by default, is in [Upgrade warnings](./docs/upgrading.md) (section "1.7.0 security-exception upgrade") and the [changelog](./CHANGELOG.md). The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It cannot configure the service, and it does not designate the instance operator. [Sign in](./docs/how-to/sign-in.md) · [Your first 10 minutes](#your-first-10-minutes).
 

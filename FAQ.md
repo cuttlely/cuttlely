@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.10)
+# Cuttlely FAQ (1.7.11)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,9 +38,13 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.10?
+### What's new in 1.7.11?
 
-The Docker image, Compose files and Render Blueprint health checks now probe `/api/v1/ping/live`, so the UI and operator recovery stay reachable while the agent runtime recovers; strict readiness stays at `/api/v1/ping`. The runtime supervisor backs off, cools down and restarts the stack in place, agent calls answer `503 RUNTIME_UNAVAILABLE` with `Retry-After` while it is down, and a descriptor leak in repeated agent-team runs is fixed. Dash Flows can keep its data in the application Postgres database behind a default-off switch. Known issue: instances with several harness profiles can fail to start the runtime ([#542](https://github.com/cuttlely/cuttlely/issues/542)); stay on 1.7.9 until 1.7.11. No schema migration is added. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
+The agent runtime no longer deadlocks on a cold start: its startup tool list is no longer refused while the runtime status is `restarting`, so it can answer health and come up. Tool calls and chat completions are still refused until then. Use matching 1.7.11 server and widget packages. No schema migration is added. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1711).
+
+### What changed in 1.7.10?
+
+The Docker image, Compose files and Render Blueprint health checks now probe `/api/v1/ping/live`, so the UI and operator recovery stay reachable while the agent runtime recovers; strict readiness stays at `/api/v1/ping`. The runtime supervisor backs off, cools down and restarts the stack in place, agent calls answer `503 RUNTIME_UNAVAILABLE` with `Retry-After` while it is down, and a descriptor leak in repeated agent-team runs is fixed. Dash Flows can keep its data in the application Postgres database behind a default-off switch. The runtime startup failure on instances with several harness profiles is fixed in 1.7.11 ([#542](https://github.com/cuttlely/cuttlely/issues/542)). No schema migration is added. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
 
 ### What changed in 1.7.9?
 

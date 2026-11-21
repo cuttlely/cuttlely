@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.11
+
+-   **Start the agent runtime with several harness profiles.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [Upgrade guide](../upgrading.md#upgrading-to-1711).
+
 ## New in 1.7.10
 
 -   **Point health checks at liveness.** The image, Compose and Render probe `/api/v1/ping/live`; keep strict `/api/v1/ping` for readiness. [Health checks](./reverse-proxy.md#health-checks).
