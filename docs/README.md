@@ -14,6 +14,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Build
 
 -   [Tune and publish an agent team](./how-to/tune-agent-team.md). Choose tested SQL, direct answers, pin-first rules or source-preserved reports and files, coordinate limits, call Live through the API, and check a draft before publishing.
+-   [Run a harness in agent mode](./how-to/harness-agent-mode.md). Use the runs API to run the chief on the agent runtime and delegate through `run_specialist`.
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, call it from a chatflow, and [read web pages as source text](./how-to/harnesses.md#read-web-pages-as-source-text) with the Web Browser card.
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).

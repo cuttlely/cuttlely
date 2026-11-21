@@ -2,7 +2,7 @@
 
 ## Current release work
 
-1.7.12 is being cut. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. The release branch dates the changelog `## [1.7.12] - 2026-11-21` and bumps the four product manifests. Direct chief calls on mixed-model harnesses still need a model binding, tracked for 1.7.13. Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)) until 1.7.12 is tagged.
+1.7.13 PR A prepares direct chief execution through the existing runs API with optional agent mode; router mode remains the default. Chief gateway binding and the compiler revision change are included. The local base is the 1.7.12 release commit `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)). Publication and deployment remain separate. Outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540).
 
 ## Milestones
 
@@ -32,7 +32,7 @@
 
 ## Next concrete tasks
 
--   **1.7.12 release (in progress).** Version bumps and dated changelog for #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). Known limitation: direct chief calls on mixed-model harnesses still need a model binding (1.7.13). Known issue #540 remains open.
+-   **1.7.12 release (historical).** Version bumps and dated changelog for #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Outage-response follow-up remains #540.
 
 -   **1.7.11 release (published).** Published as `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)), tagged `v1.7.11`. Release notes are dated `## [1.7.11] - 2026-11-20` and cover #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542).
 

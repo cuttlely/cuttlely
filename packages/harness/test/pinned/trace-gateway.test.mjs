@@ -26,6 +26,7 @@ const { chiefInstructions, specialistSoul, hermesToolsetsFor } = await import('.
 const { applyAnalystPageRoute, hermesToolEvent, logToolEvent } = await import('../../run.mjs')
 const { emptyTrace, reduceHarnessEvent } = await import('../../trace.mjs')
 // Captured from ae8394e7 gateway, profile and run modules with the same in-process node stub.
+// The chief prompt reflects roster delegation introduced with agent mode in 1.7.13.
 const golden = JSON.parse(fs.readFileSync(new URL('./no-pins-golden.json', import.meta.url)))
 
 test('PostgreSQL node diagnostics become failed steps in the specialist run trace', async () => {
