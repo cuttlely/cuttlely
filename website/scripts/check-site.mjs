@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mediaHrefProblems, repoMediaLinkProblems } from './media-version.mjs'
+import { releaseVersion } from './release-version.mjs'
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -277,6 +278,11 @@ export function checkSite(dist, { csp = null } = {}) {
     const homeTight = homeText.replace(/\s+/g, '')
     if (home.includes(RETIRED_TAGLINE) || homeText.includes(RETIRED_TAGLINE) || homeTight.includes(RETIRED_TAGLINE.replace(/\s+/g, '')))
         problems.push('index.html: shows the retired tagline')
+    const version = releaseVersion()
+    const badge = (home.match(/data-release-version="([^"]+)"/) || [])[1]
+    if (badge !== version || !home.includes(`New in ${version}:`)) {
+        problems.push(`index.html: hero release badge is not ${version} from package.json`)
+    }
     if (!home.includes('href="/quickstart/?ref=home-hero"')) problems.push('index.html: the hero quickstart link has no ref tag')
     if (!home.includes('href="/flowise/"')) {
         problems.push('index.html: missing href="/flowise/"')

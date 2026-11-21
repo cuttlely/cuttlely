@@ -5,6 +5,7 @@ import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { checkSite, visibleText, homeFirstLoadBytes } from './check-site.mjs'
 import { mediaUrl } from './media-version.mjs'
+import { releaseVersion } from './release-version.mjs'
 
 const siteDirs = new Set()
 
@@ -24,7 +25,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}<title>Cuttlely | Context-aware agent orchestration, open source</title><meta name="description" content="Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Context-aware agent orchestration · Open source, Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a></div><div class="cl-hero-art"></div><h2 id="ctx">Put your agents on a token diet.</h2><p>In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663.</p><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
+const home = `<html><head>${head}<title>Cuttlely | Context-aware agent orchestration, open source</title><meta name="description" content="Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Context-aware agent orchestration · Open source, Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a><p><strong class="cl-hero-release" data-release-version="${releaseVersion()}">New in ${releaseVersion()}:</strong> Roster now connects over the stdio framing the agent runtime uses.</p></div><div class="cl-hero-art"></div><h2 id="ctx">Put your agents on a token diet.</h2><p>In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663.</p><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -43,6 +44,21 @@ const base = {
 describe('check-site', () => {
     it('passes a clean site', () => {
         assert.deepEqual(checkSite(site(base)).problems, [])
+    })
+
+    it('fails when the hero release badge does not match package.json', () => {
+        const wrong = home.replaceAll(releaseVersion(), '0.0.0')
+        const problems = checkSite(site({ ...base, 'index.html': wrong })).problems.join('\n')
+        assert.match(problems, /hero release badge is not/)
+    })
+
+    it('fails when the hero release badge is missing', () => {
+        const missing = home.replace(
+            /<p><strong class="cl-hero-release"[^<]+<\/strong> Roster now connects over the stdio framing the agent runtime uses.<\/p>/,
+            ''
+        )
+        const problems = checkSite(site({ ...base, 'index.html': missing })).problems.join('\n')
+        assert.match(problems, /hero release badge is not/)
     })
 
     it('finds broken links, missing anchors and outside resources', () => {
