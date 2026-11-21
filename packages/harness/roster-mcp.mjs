@@ -2,14 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
-import { harnessProfileId, profileDir } from './paths.mjs'
+import { profileDir } from './paths.mjs'
 import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import { agentTurn, recordAgentStep } from './agent-run-context.mjs'
 
-const harnessName = harnessProfileId(flag('--harness'))
+const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
 
 // The profile directory run_specialist would launch for this specialist, or '' when it is not on that roster.
@@ -26,7 +26,7 @@ function flag(name) {
 
 function readRoster(name) {
     if (!name) return null
-    const file = path.join(profileDir(harnessProfileId(name)), 'harness-roster.json')
+    const file = path.join(profileDir(name), 'harness-roster.json')
     if (!fs.existsSync(file)) return null
     try {
         return JSON.parse(fs.readFileSync(file, 'utf8'))

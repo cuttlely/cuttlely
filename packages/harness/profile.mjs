@@ -11,7 +11,7 @@ import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, profileDir, harnessProfileId, profileHash } from './paths.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
@@ -32,6 +32,7 @@ export const SPECIALIST_PLAYBOOKS =
 const SPECIALIST_STALE_SECONDS = 45
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const PROFILE_MAX = 64
+const PROFILE_HASH = 8
 
 // Provider keys are never written into a profile. Tool credentials still cannot smuggle one in under these names.
 const MODEL_ENV_KEYS = [
@@ -112,6 +113,10 @@ function trimLeadingDashes(value) {
     let start = 0
     while (start < value.length && value.charCodeAt(start) === 45) start += 1
     return value.slice(start)
+}
+
+function profileHash(value) {
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, PROFILE_HASH)
 }
 
 // A try id is "try" plus 16 hex characters, so a long specialist slug no longer fits in 64.
@@ -1074,7 +1079,7 @@ function writeEnvFile(file, env) {
 }
 
 export function profileEnvPath(name) {
-    return path.join(profileDir(harnessProfileId(name)), '.env')
+    return path.join(profileDir(name), '.env')
 }
 
 export function readProfileEnv(name) {
@@ -1269,7 +1274,7 @@ function modelKey(model) {
     return ''
 }
 
-function resolveRoster(record, profileName = harnessProfileId(record.name)) {
+function resolveRoster(record, profileName = record.name) {
     const chiefModel = modelChoice(record.chief?.model)
     if (!chiefModel) {
         throw new HarnessError('missing_model', `Harness "${record.name}" cannot run: no Harness Prime model. ${CHIEF_MODEL_REQUIRED}`)
@@ -1406,15 +1411,13 @@ function issueProfileToken({ role, record, model, harnessName, profileName, spec
     const reusable =
         sameBase &&
         sameRecord &&
-        (harnessName === harnessProfileId(harnessName) || previous.CUTTLELY_GATEWAY_PROFILE === profileName) &&
         (previous.CUTTLELY_GATEWAY_ROLE || 'specialist') === role &&
         previous.CUTTLELY_MODEL_KEY === key &&
         /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
-    if (!reusable) forgetProfileToken(previous.OPENAI_API_KEY)
     registerProfileToken({
         token,
-        // Published ownership uses the exact saved name; a try uses its temporary profile id.
+        // The profile directory that holds harness-roster.json, not the saved harness name when this is a try.
         role,
         harnessName,
         specialistName,
@@ -1742,7 +1745,7 @@ function preflightTree(dir) {
     refuseDescendantLinks(path.join(dir, 'skills', PLAYBOOK_DIR))
 }
 
-function compileSpecialistProfile(record, specialist, owner, tryProfile, adoptUnstamped = false) {
+function compileSpecialistProfile(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
     const dir = profileDir(specialist.profileName)
     preflightTree(dir)
     const workspace = specialistWorkspace(specialist.profileName)
@@ -1756,21 +1759,21 @@ function compileSpecialistProfile(record, specialist, owner, tryProfile, adoptUn
         workHeld = ensureContainedDir(workspace)
         installPresetKit(specialist, workspace, (file, text) => writeContained(file, text))
         // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
-        ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(owner)
+        ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
         // The version file says the compile finished: it goes first and comes back after the last write.
         removeChild(dirHeld.fd, dir, 'harness-compiler')
     } finally {
         closeFds(dirHeld.fds)
         if (workHeld) closeFds(workHeld.fds)
     }
-    writeIfChanged(path.join(dir, 'harness-parent'), `${owner}\n`)
+    writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
     const issued = issueProfileToken({
         role: 'specialist',
         record,
         model: specialist.model,
-        harnessName: owner,
+        harnessName: profileName,
         profileName: specialist.profileName,
         specialistName: specialist.name,
         tryProfile,
@@ -1839,8 +1842,7 @@ function compileSpecialistProfile(record, specialist, owner, tryProfile, adoptUn
         OPENAI_BASE_URL: issued.base,
         OPENAI_API_KEY: issued.token,
         CUTTLELY_MODEL_KEY: issued.modelKey,
-        CUTTLELY_GATEWAY_HARNESS: owner,
-        CUTTLELY_GATEWAY_PROFILE: specialist.profileName,
+        CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
         CUTTLELY_GATEWAY_ROLE: 'specialist',
         // The saved record this token was issued for: a later harness under the same name has another createdAt.
@@ -1858,7 +1860,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     try {
         for (const entry of namesIn(opened.fd, root)) {
             if (!entry || entry === '.' || entry === '..') continue
-            if (entry === harnessProfileId(parent) || keep.has(entry)) continue
+            if (entry === parent || keep.has(entry)) continue
             const dir = path.join(root, entry)
             // A link is not a directory this pass may read. Ownership comes from the entry name.
             const st = lstatChild(opened.fd, root, entry)
@@ -1885,19 +1887,13 @@ function markerText(file) {
 // Profile directories this harness would compile into that another harness already has: its home holding another
 // harness's specialist, or a specialist name (joined with "--") holding another harness's home or specialist.
 // Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
-export function profileDestinationConflicts(record, profileName = harnessProfileId(record?.name)) {
+export function profileDestinationConflicts(record, profileName = record?.name) {
     const home = String(profileName || '')
-    const owner = String(record?.name || '')
+    // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
     const conflicts = []
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
-    const homeRoster = onDiskRoster(homeDir)
-    if (
-        (homeParent && homeParent !== owner) ||
-        (homeRoster?.name && homeRoster.name !== owner) ||
-        (home !== owner && fs.existsSync(path.join(harnessStoreDir(), `${home}.json`)))
-    )
-        conflicts.push(home)
+    if (homeParent && homeParent !== home) conflicts.push(home)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
     const normalized = {
         ...record,
@@ -1910,7 +1906,7 @@ export function profileDestinationConflicts(record, profileName = harnessProfile
         if (!dest) continue
         const dir = profileDir(dest)
         const parent = markerText(path.join(dir, 'harness-parent'))
-        if ((parent && parent !== owner) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
+        if ((parent && parent !== home) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
     }
     return conflicts
 }
@@ -2019,7 +2015,7 @@ function setAsideConfig(dir) {
 // including a specialist this compile just added. Best effort; the boot pass ends with setAsideOutdatedConfigs.
 // A linked folder is left alone: moving its config would write through the link.
 function setAsideUnfinishedConfigs(profileName) {
-    const parent = profileDir(harnessProfileId(profileName))
+    const parent = profileDir(profileName)
     if (!isLink(parent)) setAsideConfig(parent)
     const root = path.join(hermesHome(), 'profiles')
     // Quiet: a link at the profiles directory is left for the caller. An absolute listing would follow it.
@@ -2204,10 +2200,8 @@ function sealProfilePaths(record, profileName) {
 }
 
 function compileProfileFiles(record, options = {}) {
-    const profileName = options.profileName || harnessProfileId(record.name)
+    const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
-    const owner = tryProfile ? profileName : record.name
-    if (!tryProfile) migrateHarnessProfiles(record)
     // The profiles directory itself, then every segment this compile would write. A link is removed from the
     // load path so the runtime does not read config.yaml through it. Ancestors outside that tree are refused
     // and left in place.
@@ -2261,9 +2255,9 @@ function compileProfileFiles(record, options = {}) {
     for (const specialist of resolved.specialists) {
         if (!specialist.profileName) continue
         keep.add(specialist.profileName)
-        compileSpecialistProfile(record, specialist, owner, tryProfile, Boolean(options.adoptUnstampedTokens))
+        compileSpecialistProfile(record, specialist, profileName, tryProfile, Boolean(options.adoptUnstampedTokens))
     }
-    forgetRetiredSpecialistProfiles(owner, keep)
+    forgetRetiredSpecialistProfiles(profileName, keep)
 
     const compiled = {
         ...record,
@@ -2321,7 +2315,7 @@ function compileProfileFiles(record, options = {}) {
         role: 'chief',
         record,
         model: resolved.chiefModel,
-        harnessName: owner,
+        harnessName: profileName,
         profileName,
         tryProfile,
         adoptUnstamped: Boolean(options.adoptUnstampedTokens)
@@ -2334,8 +2328,7 @@ function compileProfileFiles(record, options = {}) {
         OPENAI_BASE_URL: issued.base,
         OPENAI_API_KEY: issued.token,
         CUTTLELY_MODEL_KEY: issued.modelKey,
-        CUTTLELY_GATEWAY_HARNESS: owner,
-        CUTTLELY_GATEWAY_PROFILE: profileName,
+        CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_ROLE: 'chief',
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
@@ -2693,7 +2686,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '11'
+export const PROFILE_COMPILER_VERSION = '10'
 
 function compilerVersionOf(dir) {
     try {
@@ -2729,7 +2722,7 @@ function profileTreeBlocked(dir) {
 // Whether the published profile for this record, or one of its specialists, came from another compiler version.
 // A directory with no version file is a compile from an older server or one that stopped partway.
 export function profileOutdated(record) {
-    const dir = profileDir(harnessProfileId(record.name))
+    const dir = profileDir(record.name)
     if (!fs.existsSync(dir)) {
         // No parent folder: never compiled, unless specialist folders of this harness survived it.
         const root = path.join(hermesHome(), 'profiles')
@@ -2774,13 +2767,13 @@ function isLink(dir) {
 
 // Profile folders this compile would write that are links. Compiling through one would write into the link's target.
 // profileName is the directory being compiled (a try uses its own name, not the saved harness name).
-function linkedProfileDirs(record, profileName = harnessProfileId(record?.name)) {
+function linkedProfileDirs(record, profileName = record?.name) {
     const root = path.join(hermesHome(), 'profiles')
     // A link above the profiles directory is refused before the roster or the directory list is read.
     refuseAncestorsOf(root)
     // Listing a linked profiles directory would read its target. The caller moves that one link aside.
     if (isLink(root)) return [root]
-    const home = String(profileName || harnessProfileId(record?.name))
+    const home = String(profileName || record?.name || '')
     const owner = String(record?.name || home)
     const dirs = new Set()
     const homeDir = home ? profileDir(home) : ''
@@ -2823,88 +2816,6 @@ function linkedProfileDirs(record, profileName = harnessProfileId(record?.name))
     return [...dirs].filter(isLink)
 }
 
-// One-time upgrade from the exact-case chief and lowercased specialist layout. Ownership markers keep
-// saved names exactly; a lowercase sibling harness must never donate its profiles or workspaces.
-export function migrateHarnessProfiles(record) {
-    const name = record?.name
-    if (!name || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name) || name === harnessProfileId(name)) return 0
-    const id = harnessProfileId(name)
-    let moved = 0
-    const move = (root, source, target) => {
-        if (source === target) return false
-        const opened = openDirNoFollow(root, { quiet: true })
-        if (!opened) return false
-        try {
-            const st = lstatChild(opened.fd, root, source)
-            if (!st?.isDirectory() || st.isSymbolicLink() || lstatChild(opened.fd, root, target)) return false
-            fs.renameSync(childPath(opened.fd, root, source), childPath(opened.fd, root, target))
-            moved += 1
-            return true
-        } finally {
-            closeFds(opened.fds)
-        }
-    }
-    const rootHeld = openDirNoFollow(profilesRoot(), { quiet: true })
-    if (!rootHeld) return 0
-    const chiefStat = lstatChild(rootHeld.fd, profilesRoot(), name)
-    closeFds(rootHeld.fds)
-    const chief = profileDir(name)
-    const chiefHeld = chiefStat?.isDirectory() && !chiefStat.isSymbolicLink() ? openDirNoFollow(chief, { quiet: true }) : null
-    const roster = chiefHeld ? onDiskRoster(chief) : null
-    if (chiefHeld) closeFds(chiefHeld.fds)
-    const parent = readMarker(path.join(chief, 'harness-parent'))
-    let env = null
-    if (chiefHeld) {
-        try {
-            env = readEnvFile(path.join(chief, '.env'))
-        } catch {
-            // Unreadable ownership stays put.
-        }
-    }
-    if (
-        env &&
-        (!roster?.name || roster.name === name) &&
-        (!parent || parent === name) &&
-        (!env.CUTTLELY_GATEWAY_HARNESS || env.CUTTLELY_GATEWAY_HARNESS === name) &&
-        !readMarker(path.join(chief, 'harness-try'))
-    ) {
-        move(profilesRoot(), name, id)
-    }
-    // Include retired specialists from the previous compiled roster as well as the currently saved roster.
-    const specialists = [
-        ...(record.specialists || []),
-        ...(roster?.specialists || []),
-        ...(onDiskRoster(profileDir(id))?.specialists || [])
-    ]
-    // A surviving specialist may be absent from both rosters after an interrupted save.
-    for (const entry of listDirNoFollow(profilesRoot()) || []) {
-        const dir = profileDir(entry)
-        if (readMarker(path.join(dir, 'harness-parent')) !== name) continue
-        try {
-            const slug = readEnvFile(path.join(dir, '.env')).CUTTLELY_GATEWAY_SPECIALIST
-            if (slug && entry === specialistProfileName(name.toLowerCase(), slug)) specialists.push({ name: slug })
-        } catch {
-            // An unreadable credential file cannot supply a legacy specialist identity.
-        }
-    }
-    for (const specialist of specialists) {
-        const legacy = specialistProfileName(name.toLowerCase(), specialist?.name)
-        const next = specialistProfileName(id, specialist?.name)
-        const dir = profileDir(legacy)
-        if (
-            readMarker(path.join(dir, 'harness-parent')) === name &&
-            !onDiskRoster(dir)?.name &&
-            !fs.existsSync(path.join(harnessStoreDir(), `${legacy}.json`))
-        ) {
-            if (move(profilesRoot(), legacy, next)) move(workspacesRoot(), legacy, next)
-        } else if (!lstatNoFollow(dir) && readMarker(path.join(profileDir(next), 'harness-parent')) === name) {
-            // A previous boot may have moved the profile before a workspace move failed.
-            move(workspacesRoot(), legacy, next)
-        }
-    }
-    return moved
-}
-
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
 // harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
@@ -2912,14 +2823,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
         if (!record?.name) continue
-        let linked
-        try {
-            migrateHarnessProfiles(record)
-            linked = linkedProfileDirs(record)
-        } catch (error) {
-            results.push({ name: record.name, status: 'failed', error: error.message })
-            continue
-        }
+        const linked = linkedProfileDirs(record)
         if (linked.length) {
             const stuck = linked.filter((dir) => !quarantineContained(dir))
             const where = stuck.length ? stuck : linked
@@ -2940,7 +2844,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             continue
         }
         if (!outdated) continue
-        const roster = onDiskRoster(profileDir(harnessProfileId(record.name)))
+        const roster = onDiskRoster(profileDir(record.name))
         // Specialist tokens from before the createdAt stamp are kept only when the profile on disk is this record's.
         const sameRecord = Boolean(record.createdAt) && String(roster?.createdAt || '') === String(record.createdAt)
         try {
@@ -3238,11 +3142,9 @@ export function compileProfileCached(record, options = {}) {
 }
 
 export function chiefInstructions(record) {
-    const text = readTextNoFollow(path.join(profileDir(harnessProfileId(record.name)), 'SOUL.md'))
+    const text = readTextNoFollow(path.join(profileDir(record.name), 'SOUL.md'))
     if (text != null) return text
     return chiefPrompt(record)
 }
 
 export { CHIEF_TOOLSETS, MODEL_ENV_KEYS }
-
-export { harnessProfileId } from './paths.mjs'

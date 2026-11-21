@@ -60,18 +60,6 @@ afterEach(() => {
     else process.env[KEY] = previous
 })
 
-describe('harness profile case regression coverage', () => {
-    it('runs beside agent-mode coverage in both harness gates', () => {
-        const file = path.resolve('packages/harness/chief-profile-case.test.mjs')
-        const args = STEPS.find((step) => step.name === 'verify-test').args
-        assert.equal(args[args.indexOf(path.resolve('packages/harness/agent-mode.test.mjs')) + 1], file)
-        const manifest = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-        assert.ok(
-            manifest.scripts['harness:check'].includes('packages/harness/agent-mode.test.mjs packages/harness/chief-profile-case.test.mjs')
-        )
-    })
-})
-
 describe('verify jest workers', () => {
     it('defaults the unit step to 50% when the env is unset or blank', () => {
         delete process.env[KEY]
