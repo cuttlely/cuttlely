@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   The agent runtime no longer deadlocks on a cold start: its startup tool list is no longer refused while the runtime status is `restarting`, so it can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542).
+
 ## [1.7.10] - 2026-11-20
 
 ### Added

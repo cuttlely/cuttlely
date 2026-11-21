@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -597,6 +598,52 @@ wait_for_gateway
         }
     })
 
+    it('a cold start discovers tools while restarting and answers health without a restart', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-cold-tools-'))
+        const previousDataDir = process.env.CUTTLELY_DATA_DIR
+        process.env.CUTTLELY_DATA_DIR = dir
+        const { saveHarness } = await import('../packages/harness/store.mjs')
+        const { setGatewayContext, startGateway, registerProfileToken, forgetProfileToken } = await import(
+            '../packages/harness/gateway.mjs'
+        )
+        const name = 'cold-start-team'
+        saveHarness({
+            name,
+            chief: { model: { nodeName: 'unused' } },
+            specialists: [{ name: 'worker', modules: [{ nodeName: 'fixtureTool', inputs: { name: 'startup_tool' } }] }]
+        })
+        const previous = setGatewayContext(async () => ({ componentNodes: {}, flowOptions: {} }))
+        const token = crypto.randomBytes(32).toString('base64url')
+        registerProfileToken({ token, harnessName: name, specialistName: 'worker', profileName: `${name}--worker` })
+        const gateway = await startGateway({ port: 0 })
+        const child = spawnSupervisor(dir, {
+            CUTTLELY_STACK_RESTARTED: '',
+            CUTTLELY_HERMES_HEALTH_GRACE: '60',
+            CUTTLELY_HERMES_HEALTH_WINDOW: '15',
+            CUTTLELY_TEST_TOOLS_URL: `http://127.0.0.1:${gateway.port}/harness/tools/list`,
+            CUTTLELY_TEST_TOOLS_TOKEN: token,
+            health: 'startup-tools'
+        })
+        try {
+            const starting = await waitForStatus(dir, (row) => row?.state === 'restarting', child, 8000)
+            assert.equal(starting.restarts, 0)
+            const up = await waitForStatus(dir, (row) => row?.state === 'up', child, 8000)
+            const probe = JSON.parse(fs.readFileSync(path.join(dir, 'tools-probe.json'), 'utf8'))
+            assert.equal(probe.state, 'restarting')
+            assert.equal(probe.status, 200)
+            assert.equal(probe.tools[0].name, 'startup_tool')
+            assert.equal(up.restarts, 0)
+            assert.doesNotMatch(child.output, /did not answer health after start|Restart 1 of/)
+        } finally {
+            await stopSupervisor(child, dir)
+            forgetProfileToken(token)
+            setGatewayContext(previous)
+            await gateway.close()
+            if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDataDir
+        }
+    })
+
     it('a cold start that never answers health uses the restart budget under the same deadline', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-cold-never-'))
         const child = spawnSupervisor(dir, {
@@ -1045,7 +1092,28 @@ function superviseSource() {
 function spawnSupervisor(dir, options) {
     const health = options.health || 'fail-after-one'
     const healthBody =
-        health === 'replacement-slow'
+        health === 'startup-tools'
+            ? `hermes_answers_health() {
+    "$NODE_BIN" --input-type=module -e '
+        import fs from "node:fs"
+        const dir = process.env.CUTTLELY_DATA_DIR
+        const ready = dir + "/tools-ready"
+        if (fs.existsSync(ready)) process.exit(0)
+        const state = JSON.parse(fs.readFileSync(dir + "/hermes-supervisor.json", "utf8")).state
+        const response = await fetch(process.env.CUTTLELY_TEST_TOOLS_URL, {
+            method: "POST",
+            headers: { Authorization: "Bearer " + process.env.CUTTLELY_TEST_TOOLS_TOKEN, "Content-Type": "application/json" },
+            body: "{}",
+            signal: AbortSignal.timeout(2000)
+        })
+        const body = await response.json()
+        fs.writeFileSync(dir + "/tools-probe.json", JSON.stringify({ state, status: response.status, tools: body.tools }))
+        if (response.status !== 200 || body.tools?.length !== 1) process.exit(1)
+        fs.writeFileSync(ready, "1")
+    '
+}
+start_hermes_once() { "$NODE_BIN" -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & HERMES_PID=$!; }`
+            : health === 'replacement-slow'
             ? `hermes_answers_health() {
     n=$(cat "$PROBES")
     n=$((n + 1))
