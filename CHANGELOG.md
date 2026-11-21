@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   A pause or cancel that lands while ETL restart recovery runs after a server start is no longer overwritten, and an ETL run that fails to start after a pause or cancel ends paused or cancelled instead of failed. [#539](https://github.com/cuttlely/cuttlely/issues/539).
+
 ## [1.7.12] - 2026-11-21
 
 ### Fixed
