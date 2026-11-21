@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { dataRoot } from './paths.mjs'
+import { createMcpStdio } from './mcp-stdio.mjs'
 import { noteAnalystToolCount } from './runtime/analyst-mcp-status.mjs'
 
 // Same shape profile.mjs accepts for a specialist gateway token (32 bytes, base64url).
@@ -24,42 +25,8 @@ function flag(name) {
     return index === -1 ? '' : process.argv[index + 1] || ''
 }
 
-let buffer = Buffer.alloc(0)
-// MCP stdio is newline-delimited JSON. Content-Length framing is still accepted for older callers.
-let framing = 'line'
-process.stdin.on('data', (chunk) => {
-    buffer = Buffer.concat([buffer, chunk])
-    // The framing loop runs until the stdin chunk is fully consumed.
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const text = buffer.toString('utf8', 0, Math.min(buffer.length, 32)).trimStart()
-        if (/^Content-Length:/i.test(text)) {
-            const headerEnd = buffer.indexOf('\r\n\r\n')
-            if (headerEnd === -1) return
-            const header = buffer.slice(0, headerEnd).toString('utf8')
-            const match = header.match(/Content-Length:\s*(\d+)/i)
-            if (!match) {
-                buffer = buffer.slice(headerEnd + 4)
-                continue
-            }
-            const length = Number(match[1])
-            const start = headerEnd + 4
-            if (buffer.length < start + length) return
-            const body = buffer.slice(start, start + length).toString('utf8')
-            buffer = buffer.slice(start + length)
-            framing = 'header'
-            handle(body)
-            continue
-        }
-        const newline = buffer.indexOf('\n')
-        if (newline === -1) return
-        const line = buffer.slice(0, newline).toString('utf8').trim()
-        buffer = buffer.slice(newline + 1)
-        if (!line) continue
-        framing = 'line'
-        handle(line)
-    }
-})
+const stdio = createMcpStdio(handle, (packet) => fs.writeSync(1, packet))
+process.stdin.on('data', stdio.receive)
 
 async function handle(body) {
     let message
@@ -272,17 +239,13 @@ function outcomeText(value) {
 }
 
 function send(id, result) {
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, result })
-    const packet = framing === 'header' ? `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}` : `${payload}\n`
-    fs.writeSync(1, packet)
+    stdio.send({ jsonrpc: '2.0', id, result })
 }
 
 function sendError(id, code, message) {
-    const payload = JSON.stringify({
+    stdio.send({
         jsonrpc: '2.0',
         id,
         error: { code, message: String(message || 'The harness gateway did not answer.') }
     })
-    const packet = framing === 'header' ? `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}` : `${payload}\n`
-    fs.writeSync(1, packet)
 }

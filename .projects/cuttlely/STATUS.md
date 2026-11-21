@@ -1,3 +1,7 @@
+## Roster MCP stdio framing (1.7.12 hotfix)
+
+Mixed-model harness chiefs delegate through the roster server's `run_specialist`. Before this fix `packages/harness/roster-mcp.mjs` read and wrote only Content-Length frames, while the agent runtime's MCP client speaks newline-delimited JSON over stdio, so roster never answered `initialize`; the runtime's 60-second MCP connect timeout cancelled it on every start and the chief had no `run_specialist`. `packages/harness/mcp-stdio.mjs` now holds the one dual-framing reader and writer (newline JSON by default, Content-Length still accepted, replies in the framing last received) used by both `mcp-bridge.mjs` and `roster-mcp.mjs`. `packages/harness/roster-mcp.test.mjs` drives roster the way the runtime does (newline `initialize` at id 0, `tools/list`, a `run_specialist` call that must reach a stub runtime) and keeps one Content-Length case; `packages/harness/mcp-stdio.test.mjs` covers the framing module. Both run in `scripts/verify.mjs` and `pnpm harness:check`. The existing roster fixtures and `callMcpToolsList` in `check.mjs` now use newline framing. The 135-second runtime deadline and the runtime health wait on MCP discovery are unchanged.
+
 ## 1.7.11 release
 
 Release notes are dated `## [1.7.11] - 2026-11-20`. They include the runtime startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`), which closes the 1.7.10 cold-start deadlock in #542. Orchestrate and A2A outage responses stay as in 1.7.10 and remain tracked in #540.

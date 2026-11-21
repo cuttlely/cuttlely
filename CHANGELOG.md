@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Mixed-model harness chiefs can delegate again: the roster tool server now answers MCP's newline-delimited stdio messages, so the agent runtime connects right away instead of timing out twice (about two minutes) on every start and leaving `run_specialist` unavailable. Content-Length framing is still accepted.
+
 ## [1.7.11] - 2026-11-20
 
 ### Fixed

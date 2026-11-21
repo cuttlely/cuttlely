@@ -19808,31 +19808,25 @@ function mcpBridgeMessages(mode, messages) {
 function callMcpToolsList(script, argv) {
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [script, ...argv], { stdio: ['pipe', 'pipe', 'pipe'] })
-        let buffer = Buffer.alloc(0)
+        let buffer = ''
         let stderr = ''
         const messages = []
         child.stderr.on('data', (chunk) => {
             stderr += chunk.toString('utf8')
         })
         child.stdout.on('data', (chunk) => {
-            buffer = Buffer.concat([buffer, chunk])
+            buffer += chunk.toString('utf8')
             // eslint-disable-next-line no-constant-condition
             while (true) {
-                const headerEnd = buffer.indexOf('\r\n\r\n')
-                if (headerEnd === -1) return
-                const header = buffer.slice(0, headerEnd).toString('utf8')
-                const match = header.match(/Content-Length:\s*(\d+)/i)
-                if (!match) return reject(new Error('bad mcp frame'))
-                const length = Number(match[1])
-                const start = headerEnd + 4
-                if (buffer.length < start + length) return
-                messages.push(JSON.parse(buffer.slice(start, start + length).toString('utf8')))
-                buffer = buffer.slice(start + length)
+                const end = buffer.indexOf('\n')
+                if (end === -1) return
+                messages.push(JSON.parse(buffer.slice(0, end)))
+                buffer = buffer.slice(end + 1)
             }
         })
         child.on('error', reject)
         const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
-        child.stdin.write(`Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`)
+        child.stdin.write(`${payload}\n`)
         const timer = setTimeout(() => {
             child.kill()
             reject(new Error(`mcp list timed out ${stderr}`))

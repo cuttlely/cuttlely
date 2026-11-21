@@ -23,6 +23,7 @@
         "./images.mjs": "./images.mjs",
         "./lock.mjs": "./lock.mjs",
         "./mcp-bridge.mjs": "./mcp-bridge.mjs",
+        "./mcp-stdio.mjs": "./mcp-stdio.mjs",
         "./model.mjs": "./model.mjs",
         "./node-pool.mjs": "./node-pool.mjs",
         "./offline-options.mjs": "./offline-options.mjs",
