@@ -132,13 +132,13 @@ function etl(body: string, canvas?: string) {
         `  const node = JSON.parse(flowData).nodes.find((item) => item.data.name === 'etlLocalVectorStore');`,
         `  return node.data.inputs.collection;`,
         `};`,
-        `const pinned = (version) => {`,
-        `  const row = getVersion(ID, version, { withFlow: true });`,
+        `const pinned = async (version) => {`,
+        `  const row = await getVersion(ID, version, { withFlow: true });`,
         `  return { version: row.version, collection: collectionOf(row.flowData) };`,
         `};`,
-        `const serving = () => {`,
-        `  const row = latestVersion(ID, { withFlow: true });`,
-        `  return { version: row.version, collection: collectionOf(row.flowData), chunks: pipelineStats(ID).chunks, problems: row.problems?.problems || [] };`,
+        `const serving = async () => {`,
+        `  const row = await latestVersion(ID, { withFlow: true });`,
+        `  return { version: row.version, collection: collectionOf(row.flowData), chunks: (await pipelineStats(ID)).chunks, problems: row.problems?.problems || [] };`,
         `};`,
         `const out = await (async () => { ${body} })();`,
         `process.stdout.write('__ETL__' + JSON.stringify(out));`
@@ -170,8 +170,8 @@ describe('pipeline Live and drafts', () => {
     test('an edit does not change what a scheduled run or a full rebuild reads until Publish, and rollback switches it back', async () => {
         const recorded = etl(
             `
-            const saved = recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
-            return { problems: saved.problems, ...serving() };
+            const saved = await recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
+            return { problems: saved.problems, ...(await serving()) };
         `,
             LIVE
         )
@@ -191,7 +191,7 @@ describe('pipeline Live and drafts', () => {
             `
             const result = await api.previewPipeline({ pipelineId: ID, flowData: process.env.CANVAS, limit: 5, embed: false, ctx: { workspaceId: WS } });
             const sample = (result.steps?.load?.samples || []).map((row) => row.pageContent).join('\\n');
-            return { sample, problems: result.problems, ...serving() };
+            return { sample, problems: result.problems, ...(await serving()) };
         `,
             DRAFT
         )
@@ -201,23 +201,23 @@ describe('pipeline Live and drafts', () => {
         expect(preview).toMatchObject({ version: 1, collection: 'live-catalog', chunks: 0 })
 
         const scheduled = etl(`
-            const created = api.createSchedule(ID, { kind: 'interval', every: 60, unit: 'minutes', mode: 'incremental' });
+            const created = await api.createSchedule(ID, { kind: 'interval', every: 60, unit: 'minutes', mode: 'incremental' });
             stmt('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', created.id);
-            const outcomes = api.tickSchedules();
+            const outcomes = await api.tickSchedules();
             const started = outcomes.find((item) => item.outcome === 'started');
             if (!started) return { outcomes };
             await api.waitForIdle();
-            const run = getRun(started.runId);
-            return { status: run.status, error: run.error, ...pinned(run.version), chunks: pipelineStats(ID).chunks };
+            const run = await getRun(started.runId);
+            return { status: run.status, error: run.error, ...(await pinned(run.version)), chunks: (await pipelineStats(ID)).chunks };
         `)
         expect(scheduled).toMatchObject({ status: 'succeeded', version: 1, collection: 'live-catalog' })
         expect(scheduled.chunks).toBeGreaterThan(0)
 
         const rebuild = etl(`
-            const started = api.startRun(ID, { mode: 'full', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
+            const started = await api.startRun(ID, { mode: 'full', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
             await api.waitForIdle();
-            const run = getRun(started.id);
-            return { status: run.status, error: run.error, mode: run.mode, ...pinned(run.version) };
+            const run = await getRun(started.id);
+            return { status: run.status, error: run.error, mode: run.mode, ...(await pinned(run.version)) };
         `)
         expect(rebuild).toMatchObject({ status: 'succeeded', mode: 'full', version: 1, collection: 'live-catalog' })
 
@@ -226,11 +226,11 @@ describe('pipeline Live and drafts', () => {
         expect(published.flowData).toBe(stamped)
         const afterPublishSync = etl(
             `
-            const saved = recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
-            const started = api.startRun(ID, { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
+            const saved = await recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
+            const started = await api.startRun(ID, { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
             await api.waitForIdle();
-            const run = getRun(started.id);
-            return { problems: saved.problems, status: run.status, error: run.error, ...pinned(run.version) };
+            const run = await getRun(started.id);
+            return { problems: saved.problems, status: run.status, error: run.error, ...(await pinned(run.version)) };
         `,
             stamped
         )
@@ -245,11 +245,11 @@ describe('pipeline Live and drafts', () => {
         rolled.flowData = LIVE
         const afterRollbackSync = etl(
             `
-            recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
-            const started = api.startRun(ID, { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
+            await recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
+            const started = await api.startRun(ID, { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } });
             await api.waitForIdle();
-            const run = getRun(started.id);
-            return { status: run.status, error: run.error, ...pinned(run.version), serving: serving() };
+            const run = await getRun(started.id);
+            return { status: run.status, error: run.error, ...(await pinned(run.version)), serving: await serving() };
         `,
             LIVE
         )
@@ -266,11 +266,11 @@ describe('pipeline Live and drafts', () => {
     }, 120000)
 
     test('PUT /api/v1/chatflows still writes Live while a draft is open', async () => {
-        etl(`recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS }); return serving();`, LIVE)
+        etl(`await recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS }); return serving();`, LIVE)
         const saved = await saveDraft(flow(), DRAFT, context)
         const wrote = etl(
             `
-            recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
+            await recordVersion({ id: ID, name: NAME, workspaceId: WS, flowData: process.env.CANVAS });
             return serving();
         `,
             API
@@ -286,9 +286,9 @@ describe('pipeline Live and drafts', () => {
         await saveDraft(flow(), DRAFT, context)
         const preview = etl(
             `
-            const chunksBefore = pipelineStats(ID).chunks;
+            const chunksBefore = (await pipelineStats(ID)).chunks;
             await api.previewPipeline({ pipelineId: ID, flowData: process.env.CANVAS, limit: 5, ctx: { workspaceId: WS } });
-            return { chunksBefore, ...serving() };
+            return { chunksBefore, ...(await serving()) };
         `,
             DRAFT
         )

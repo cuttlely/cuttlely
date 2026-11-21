@@ -40,31 +40,36 @@ api.configureRunner({
     })
 })
 try {
-    const saved = api.recordVersion({ id: 'resume-markdown', name: 'Resume Markdown', workspaceId: WS, flowData: flow('resume-markdown') })
+    const saved = await api.recordVersion({
+        id: 'resume-markdown',
+        name: 'Resume Markdown',
+        workspaceId: WS,
+        flowData: flow('resume-markdown')
+    })
     check('multi-batch Markdown fixture compiles', saved.problems.length === 0, saved.problems.join(';'))
-    const started = api.startRun('resume-markdown', { settings: { batchSize: 64, concurrency: 1 } })
+    const started = await api.startRun('resume-markdown', { settings: { batchSize: 64, concurrency: 1 } })
     await Promise.race([
         blocked,
         new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('Second embedding batch did not reach its gate')), 5000)))
     ])
     clearTimeout(timer)
-    api.pauseRun(started.id)
+    await api.pauseRun(started.id)
     release()
     await api.waitForIdle()
-    const paused = api.runDetail(started.id)
+    const paused = await api.runDetail(started.id)
     check(
         'Markdown fixture pauses within its first record',
         paused.status === 'paused' && paused.checkpoint.ordinal === 0 && !paused.checkpoint.done && paused.counters.embedded > 0
     )
-    api.resumeRun(started.id)
+    await api.resumeRun(started.id)
     await api.waitForIdle()
-    const resumed = api.runDetail(started.id)
+    const resumed = await api.runDetail(started.id)
     check(
         'replayed Markdown record is not a duplicate',
         resumed.status === 'succeeded' && resumed.counters.errors === 0 && resumed.summary.read === 1
     )
-    api.recordVersion({ id: 'clean-markdown', name: 'Clean Markdown', workspaceId: WS, flowData: flow('clean-markdown') })
-    api.startRun('clean-markdown', { settings: { batchSize: 64, concurrency: 1 } })
+    await api.recordVersion({ id: 'clean-markdown', name: 'Clean Markdown', workspaceId: WS, flowData: flow('clean-markdown') })
+    await api.startRun('clean-markdown', { settings: { batchSize: 64, concurrency: 1 } })
     await api.waitForIdle()
     const content = (c) =>
         LocalVectorStore.open(c)

@@ -11,32 +11,32 @@ const { uploadsRoot } = await import('../paths.mjs')
 
 const A = 'ws-api14-a'
 const B = 'ws-api14-b'
-const outcome = (fn) => {
+const outcome = async (fn) => {
     try {
-        fn()
+        await fn()
         return { ok: true }
     } catch (error) {
         return { code: error.code, status: error.status, message: error.message }
     }
 }
-const listed = (ws) => api.listPipelineSummaries({ workspaceId: ws }).map((p) => p.id)
+const listed = async (ws) => (await api.listPipelineSummaries({ workspaceId: ws })).map((p) => p.id)
 
 const dir = path.join(root, 'api14')
 fs.mkdirSync(dir, { recursive: true })
 const csv = path.join(dir, 'a.csv')
 fs.writeFileSync(csv, 'sku,name,notes\nA-1,Lantern,brass\n')
-api.recordVersion({ workspaceId: A, id: 'api14-a', name: 'API14 A', flowData: flowFor(csv, 'api14-a') })
-api.recordVersion({ workspaceId: B, id: 'api14-b', name: 'API14 B', flowData: flowFor(csv, 'api14-b') })
-const run = api.startRun('api14-a', { mode: 'incremental' })
+await api.recordVersion({ workspaceId: A, id: 'api14-a', name: 'API14 A', flowData: flowFor(csv, 'api14-a') })
+await api.recordVersion({ workspaceId: B, id: 'api14-b', name: 'API14 B', flowData: flowFor(csv, 'api14-b') })
+const run = await api.startRun('api14-a', { mode: 'incremental' })
 await api.waitForIdle()
-const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, unit: 'hours' })
+const schedule = await api.createSchedule('api14-a', { kind: 'interval', every: 1, unit: 'hours' })
 
 // List
 {
-    const fromA = listed(A)
-    const fromB = listed(B)
-    const noWs = outcome(() => api.listPipelineSummaries({}))
-    const blank = outcome(() => api.listPipelineSummaries({ workspaceId: '  ' }))
+    const fromA = await listed(A)
+    const fromB = await listed(B)
+    const noWs = await outcome(() => api.listPipelineSummaries({}))
+    const blank = await outcome(() => api.listPipelineSummaries({ workspaceId: '  ' }))
     check(
         'Workspace scope list: workspace B does not list A’s pipeline (and A does not list B’s); no workspace id throws workspace_required',
         fromA.includes('api14-a') &&
@@ -48,8 +48,8 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
             blank.code === 'workspace_required',
         JSON.stringify({ fromA, fromB, noWs, blank })
     )
-    const options = outcome(() => api.pipelineOptions())
-    const optionsB = api.pipelineOptions(B).map((o) => o.name)
+    const options = await outcome(() => api.pipelineOptions())
+    const optionsB = (await api.pipelineOptions(B)).map((o) => o.name)
     check(
         'Workspace scope list: the ETL Retriever dropdown lists only the caller’s workspace and throws without one',
         options.code === 'workspace_required' && optionsB.includes('API14 B') && !optionsB.includes('API14 A'),
@@ -59,10 +59,10 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
 
 // Get by id, and everything reached through a pipeline
 {
-    const missing = outcome(() => api.pipelineInWorkspace('api14-none', B))
-    const other = outcome(() => api.pipelineInWorkspace('api14-a', B))
-    const own = api.pipelineInWorkspace('api14-a', A)
-    const noWs = outcome(() => api.pipelineInWorkspace('api14-a', undefined))
+    const missing = await outcome(() => api.pipelineInWorkspace('api14-none', B))
+    const other = await outcome(() => api.pipelineInWorkspace('api14-a', B))
+    const own = await api.pipelineInWorkspace('api14-a', A)
+    const noWs = await outcome(() => api.pipelineInWorkspace('api14-a', undefined))
     check(
         'Workspace scope get-by-id: A’s pipeline is a 404 from workspace B, with the same message as a missing id; no workspace id throws',
         other.status === 404 &&
@@ -72,11 +72,11 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
             noWs.code === 'workspace_required',
         JSON.stringify({ other, missing, noWs })
     )
-    const runB = outcome(() => api.runInWorkspace(run.id, B))
-    const runA = api.runInWorkspace(run.id, A)
-    const schedB = outcome(() => api.scheduleInWorkspace(schedule.id, B))
-    const schedA = api.scheduleInWorkspace(schedule.id, A)
-    const hijack = outcome(() => api.recordVersion({ workspaceId: B, id: 'api14-a', name: 'API14 A', flowData: flowFor(csv, 'x') }))
+    const runB = await outcome(() => api.runInWorkspace(run.id, B))
+    const runA = await api.runInWorkspace(run.id, A)
+    const schedB = await outcome(() => api.scheduleInWorkspace(schedule.id, B))
+    const schedA = await api.scheduleInWorkspace(schedule.id, A)
+    const hijack = await outcome(() => api.recordVersion({ workspaceId: B, id: 'api14-a', name: 'API14 A', flowData: flowFor(csv, 'x') }))
     check(
         'Workspace scope child rows: A’s run and schedule are 404 from B; B cannot save over A’s pipeline id',
         runB.status === 404 &&
@@ -84,23 +84,23 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
             schedB.status === 404 &&
             schedA.id === schedule.id &&
             hijack.status === 404 &&
-            api.getPipeline('api14-a').workspaceId === A,
+            (await api.getPipeline('api14-a')).workspaceId === A,
         JSON.stringify({ runB, schedB, hijack })
     )
 }
 
 // New pipelines must have a workspace: the app check and the database triggers
 {
-    const app = outcome(() => api.recordVersion({ id: 'api14-nows', name: 'API14 no ws', flowData: flowFor(csv, 'n') }))
+    const app = await outcome(() => api.recordVersion({ id: 'api14-nows', name: 'API14 no ws', flowData: flowFor(csv, 'n') }))
     const handle = db()
-    const rawInsert = outcome(() =>
+    const rawInsert = await outcome(() =>
         handle
             .prepare(
                 "INSERT INTO pipelines (id, name, name_key, workspace_id, created_at, updated_at) VALUES ('api14-raw', 'r', 'r', NULL, 'x', 'x')"
             )
             .run()
     )
-    const rawUpdate = outcome(() => handle.prepare("UPDATE pipelines SET workspace_id = NULL WHERE id = 'api14-a'").run())
+    const rawUpdate = await outcome(() => handle.prepare("UPDATE pipelines SET workspace_id = NULL WHERE id = 'api14-a'").run())
     const indexes = handle
         .prepare('PRAGMA index_list(pipelines)')
         .all()
@@ -110,9 +110,9 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
         app.code === 'workspace_required' &&
             /workspace_required/.test(rawInsert.message || '') &&
             /workspace_required/.test(rawUpdate.message || '') &&
-            api.getPipeline('api14-a').workspaceId === A &&
-            !api.getPipeline('api14-nows') &&
-            !api.getPipeline('api14-raw') &&
+            (await api.getPipeline('api14-a')).workspaceId === A &&
+            !(await api.getPipeline('api14-nows')) &&
+            !(await api.getPipeline('api14-raw')) &&
             indexes.includes('pipelines_workspace'),
         JSON.stringify({ app, rawInsert, rawUpdate, indexes })
     )
@@ -140,29 +140,29 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
         .run()
     handle.exec(WORKSPACE_TRIGGERS)
 
-    const beforeA = listed(A)
-    const beforeB = listed(B)
-    const nullGet = outcome(() => api.pipelineInWorkspace('api14-old-default', A))
+    const beforeA = await listed(A)
+    const beforeB = await listed(B)
+    const nullGet = await outcome(() => api.pipelineInWorkspace('api14-old-default', A))
     check(
         'Workspace scope strict filter: pipelines with a NULL workspace are listed to no workspace and are a 404 everywhere',
-        api.unassignedPipelineCount() === 4 &&
+        (await api.unassignedPipelineCount()) === 4 &&
             !beforeA.some((id) => id.startsWith('api14-old')) &&
             !beforeB.some((id) => id.startsWith('api14-old')) &&
             nullGet.status === 404,
         JSON.stringify({ beforeA, beforeB, nullGet })
     )
 
-    const first = api.backfillWorkspaces({ flowWorkspaces: { 'api14-old-flow': A }, defaultWorkspaceId: null })
-    const orphanGet = outcome(() => api.pipelineInWorkspace('api14-old-orphan', A))
+    const first = await api.backfillWorkspaces({ flowWorkspaces: { 'api14-old-flow': A }, defaultWorkspaceId: null })
+    const orphanGet = await outcome(() => api.pipelineInWorkspace('api14-old-orphan', A))
     // A chat flow's workspace wins over the default.
-    const second = api.backfillWorkspaces({ flowWorkspaces: { 'api14-old-both': B }, defaultWorkspaceId: A })
-    const third = api.backfillWorkspaces({ flowWorkspaces: {}, defaultWorkspaceId: A })
+    const second = await api.backfillWorkspaces({ flowWorkspaces: { 'api14-old-both': B }, defaultWorkspaceId: A })
+    const third = await api.backfillWorkspaces({ flowWorkspaces: {}, defaultWorkspaceId: A })
     const child = (sql) => handle.prepare(sql).get()?.workspace_id
-    const afterA = listed(A)
-    const afterB = listed(B)
-    const getB = outcome(() => api.pipelineInWorkspace('api14-old-default', B))
-    const runB = outcome(() => api.runInWorkspace('api14-old-run', B))
-    const schedB = outcome(() => api.scheduleInWorkspace('api14-old-sched', B))
+    const afterA = await listed(A)
+    const afterB = await listed(B)
+    const getB = await outcome(() => api.pipelineInWorkspace('api14-old-default', B))
+    const runB = await outcome(() => api.runInWorkspace('api14-old-run', B))
+    const schedB = await outcome(() => api.scheduleInWorkspace('api14-old-sched', B))
     check(
         'Workspace scope backfill: a NULL pipeline takes its chat flow’s workspace, else the default; without either it stays unassigned; counts are returned for the log; a rerun is a no-op',
         first.pipelines === 4 &&
@@ -173,10 +173,10 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
             second.pipelines === 3 &&
             second.fromFlow === 1 &&
             second.fromDefault === 2 &&
-            api.getPipeline('api14-old-both').workspaceId === B &&
+            (await api.getPipeline('api14-old-both')).workspaceId === B &&
             second.childRows === 4 &&
             third.pipelines === 0 &&
-            api.unassignedPipelineCount() === 0 &&
+            (await api.unassignedPipelineCount()) === 0 &&
             child("SELECT workspace_id FROM runs WHERE id = 'api14-old-run'") === A &&
             child("SELECT workspace_id FROM run_events WHERE run_id = 'api14-old-run'") === A &&
             child("SELECT workspace_id FROM records WHERE chunk_id = 'c1' AND pipeline_id = 'api14-old-default'") === A &&
@@ -188,7 +188,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
         ['api14-old-flow', 'api14-old-default', 'api14-old-orphan'].every((id) => afterA.includes(id) && !afterB.includes(id)) &&
             afterB.includes('api14-old-both') &&
             !afterA.includes('api14-old-both') &&
-            api.pipelineInWorkspace('api14-old-default', A).id === 'api14-old-default' &&
+            (await api.pipelineInWorkspace('api14-old-default', A)).id === 'api14-old-default' &&
             getB.status === 404 &&
             runB.status === 404 &&
             schedB.status === 404,

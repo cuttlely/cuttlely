@@ -141,14 +141,17 @@ async function runFlow(id, flowData, t, { mode = 'incremental', settings = {}, c
             ...ctx
         })
     })
-    const saved = api.recordVersion({ workspaceId: WS, id, name: id, flowData })
+    const saved = await api.recordVersion({ workspaceId: WS, id, name: id, flowData })
     if (saved.problems.length) return { problems: saved.problems }
-    const started = api.startRun(id, { mode, settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1000, ...settings } })
-    let detail = api.runDetail(started.id)
+    const started = await api.startRun(id, {
+        mode,
+        settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1000, ...settings }
+    })
+    let detail = await api.runDetail(started.id)
     while (['queued', 'running', 'pausing', 'cancelling'].includes(detail.status)) {
         await api.waitForIdle()
         await new Promise((resolve) => setImmediate(resolve))
-        detail = api.runDetail(started.id)
+        detail = await api.runDetail(started.id)
     }
     return detail
 }
