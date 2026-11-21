@@ -1319,7 +1319,7 @@ export function assertChiefProfileAvailable(name) {
 export function adoptLegacyChiefProfile(name) {
     assertHarnessName(name)
     const id = hermesProfileId(name)
-    if (id === name) return false
+    if (id === name || id === 'default') return false
     let opened
     try {
         if (chiefProfileCollision(name)) return false

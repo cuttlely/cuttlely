@@ -6,7 +6,7 @@
 // - Only entries directly inside the profiles root (or the specialist workspaces root) are touched. Both roots
 //   are resolved with realpath. A target whose realpath is outside its root, or is the root, is refused.
 // - Symbolic links are never followed: a link is unlinked, its target stays.
-// - A profile whose harness still has a store file (exact name, or the same name in another letter case) stays.
+// - A chief whose exact owner is saved stays. Specialists also keep the case-insensitive saved-name protection.
 // - Gateway tokens are revoked before any directory is removed. If that fails, nothing is removed.
 // - A profile directory is first moved into a trash directory under the runtime home and then removed, so a
 //   crash midway leaves either the intact profile or a trash entry. Both are picked up by the next run.
@@ -319,6 +319,10 @@ function stillSaved(id, saved) {
     return false
 }
 
+function ownerStillSaved(id, saved) {
+    return !saved || saved.has(id)
+}
+
 // What a profile directory belongs to: { kind: 'home' | 'child', id } or null when it is not a saved-harness profile.
 function profileOwner(entry) {
     return ownerOf(profilesRoot(), entry, entry)
@@ -336,17 +340,18 @@ function ownerOf(root, entry, base) {
     if (parent) {
         // A folder whose roster names another harness is not this parent's specialist.
         if (name && name !== parent) return null
-        if (hermesProfileId(parent) === base) return name ? { kind: 'home', id: parent } : null
+        if (hermesProfileId(parent) === base) return { kind: 'home', id: parent }
         return { kind: 'child', id: parent }
     }
     if (name && (name === base || hermesProfileId(name) === base)) return { kind: 'home', id: name }
     return null
 }
 
-// A profile folder named after a saved harness, or whose roster names one, belongs to that harness whatever its
-// harness-parent marker says, so it is never revoked or removed for another harness. saved null: the store could
-// not be read, and every folder counts as claimed.
+// An owned lowercase chief follows its exact owner, even when another saved name lowercases to the same id.
+// Specialists and unknown folders retain the saved-name protection. An unreadable store claims every folder.
 function claimedBySaved(entry, saved, root = profilesRoot()) {
+    const owner = ownerOf(root, entry, entry)
+    if (owner?.kind === 'home' && entry === hermesProfileId(owner.id)) return ownerStillSaved(owner.id, saved)
     if (stillSaved(entry, saved)) return true
     const dir = containedEntry(root, entry)
     const name = dir ? rosterName(dir) : ''
@@ -471,7 +476,11 @@ async function closeRuntime(id, entries) {
 // Revokes the tokens, then removes each entry. Returns the removed entries.
 // Refuses when the harness is still saved. A revocation failure removes nothing.
 async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now = Date.now, revoked = false } = {}) {
-    if (stillSaved(id, savedNames())) {
+    // An exact chief owner can release its profiles despite a saved case variant. Keep the older conservative
+    // case check for specialist-only cleanup, where there is no chief establishing that ownership.
+    const exactChief = entries.some((entry) => entry === hermesProfileId(id) && profileOwner(entry)?.kind === 'home')
+    const isSaved = (saved) => (exactChief ? ownerStillSaved(id, saved) : stillSaved(id, saved))
+    if (isSaved(savedNames())) {
         cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it is still saved or the store could not be read`)
         return { removed: [], kept: entries, error: null }
     }
@@ -518,7 +527,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     let after = before
     for (const [index, entry] of entries.entries()) {
         after = savedNames()
-        if (stillSaved(id, after)) {
+        if (isSaved(after)) {
             cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
             kept.push(...entries.slice(index))
             break
@@ -539,7 +548,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         const afterPark = async (parkedDir) => {
             const stopped = await closeRuntime(id, [entry])
             if (!stopped.has(entry)) return false
-            if (stillSaved(id, savedNames())) {
+            if (isSaved(savedNames())) {
                 cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": it was saved again during cleanup`)
                 return false
             }

@@ -57,7 +57,7 @@ A specialist call still running when the turn ends is recorded as cancelled. For
 
 ## Model binding
 
-Harness names with capitals use the lowercase name as the runtime profile id; an existing capitalised chief folder is renamed once on upgrade; two harnesses whose names differ only in case cannot both be compiled.
+Harness names with capitals use the lowercase name as the runtime profile id; an existing capitalised chief folder is renamed once on upgrade; two harnesses whose names differ only in case cannot both be compiled; a harness named `default` (any case) cannot use agent mode.
 
 Chief and specialist profiles send model completions to Cuttlely's loopback gateway. The gateway binds each profile token to its configured model node and credential, including any configured fallback. The chief profile holds its scoped gateway token plus the runtime's API server key and tool credentials, and no model provider keys; it never holds the upstream credential. A request's model string does not select a different upstream model.
 

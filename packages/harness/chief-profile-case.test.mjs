@@ -72,7 +72,7 @@ before(async () => {
         calls.push({ url: req.url, method: req.method })
         const id = decodeURIComponent((req.url.match(/^\/p\/([^/]+)\//) || [])[1] || '')
         res.setHeader('content-type', 'application/json')
-        if (!HERMES_PROFILE_ID.test(id) || !fs.existsSync(path.join(profileDir(id), 'config.yaml'))) {
+        if (id === 'default' || !HERMES_PROFILE_ID.test(id) || !fs.existsSync(path.join(profileDir(id), 'config.yaml'))) {
             res.writeHead(404).end(JSON.stringify({ error: 'Unknown or unconfigured profile' }))
         } else if (req.headers.authorization !== `Bearer ${readProfileEnv(id).API_SERVER_KEY}`) {
             res.writeHead(401).end(JSON.stringify({ error: 'Unauthorized' }))
@@ -105,7 +105,7 @@ const recordFor = (name) =>
             { name: 'writer', model: { nodeName: 'fixtureChat', inputs: { modelName: 'writer-model' } } }
         ]
     })
-const run = (name, mode = 'agent') =>
+const run = (name, mode = 'agent', options = {}) =>
     runHarness({
         name,
         mode,
@@ -116,7 +116,8 @@ const run = (name, mode = 'agent') =>
         flowOptions: { workspaceId: 'fixture-workspace', harnessCaller: { via: 'session' } },
         loadNode: async () => {
             throw new Error('The router must not run in agent mode.')
-        }
+        },
+        ...options
     })
 const boot = (records) => recompileOutdatedProfiles(records, { log: { info() {}, warn() {} } })
 const completion = async (token) => {
@@ -530,3 +531,122 @@ test('cleanup recognizes exact saved ownership in a lowercase chief folder', asy
         Object.assign(cleanupHooks, previous)
     }
 })
+
+for (const ownership of ['marked', 'marker-only', 'legacy unmarked'])
+    test(
+        `deleting the ${ownership} collision owner releases its chief for the remaining harness`,
+        isolatedCase(`deleted-owner-${ownership}`, async () => {
+            const owner = recordFor('Caps')
+            const compiled = compileProfileCached(owner)
+            appendTurn(owner.name, 'owner-chat', 'Old question', 'Old answer')
+            closeSessions()
+            fs.writeFileSync(path.join(compiled.dir, 'memory', 'MEMORY.md'), 'Old owner memory.\n')
+            const token = readProfileEnv(owner.name).OPENAI_API_KEY
+            const contender = recordFor('caps')
+            assert.throws(() => compileProfile(contender), collisionFor(contender.name, owner.name))
+            if (ownership === 'legacy unmarked') fs.unlinkSync(path.join(compiled.dir, 'harness-parent'))
+            if (ownership === 'marker-only') fs.unlinkSync(path.join(compiled.dir, 'harness-roster.json'))
+            const previous = { ...cleanupHooks }
+            Object.assign(cleanupHooks, { log() {}, close: async () => true })
+            try {
+                const deleted = await deleteHarnessAndProfiles(owner.name)
+                assert.ok(deleted.removed.includes('caps'))
+                assert.ok(!fs.existsSync(compiled.dir))
+                assert.equal(profileTokenKnown(token), false)
+                assert.equal(await completion(token), 401)
+                const fresh = compileProfileCached(contender)
+                assert.equal(fresh.dir, compiled.dir)
+                assert.equal(fs.readFileSync(path.join(fresh.dir, 'harness-parent'), 'utf8').trim(), contender.name)
+                assert.notEqual(readProfileEnv(contender.name).OPENAI_API_KEY, token)
+                assert.deepEqual(readMessages(contender.name, 'owner-chat'), [])
+                assert.ok(!fs.readFileSync(path.join(fresh.dir, 'memory', 'MEMORY.md'), 'utf8').includes('Old owner memory.'))
+                assert.equal(await completion(readProfileEnv(contender.name).OPENAI_API_KEY), 200)
+                assert.equal((await run(contender.name)).text, 'Chief answer.')
+            } finally {
+                Object.assign(cleanupHooks, previous)
+            }
+        })
+    )
+
+test(
+    'deleting the non-owner Caps preserves caps profiles, tokens, sessions and memory byte-for-byte',
+    isolatedCase('deleted-non-owner', async () => {
+        const owner = recordFor('caps')
+        const compiled = compileProfileCached(owner)
+        appendTurn(owner.name, 'owner-chat', 'Kept question', 'Kept answer')
+        closeSessions()
+        fs.writeFileSync(path.join(compiled.dir, 'memory', 'MEMORY.md'), 'Kept owner memory.\n')
+        const contender = recordFor('Caps')
+        assert.throws(() => compileProfile(contender), collisionFor(contender.name, owner.name))
+        const folders = [compiled.dir, ...compiled.roster.specialists.map((item) => profileDir(item.profileName))]
+        const before = folders.map(snapshot)
+        const token = readProfileEnv(owner.name).OPENAI_API_KEY
+        const stopped = []
+        const previous = { ...cleanupHooks }
+        Object.assign(cleanupHooks, {
+            log() {},
+            close: async (entry) => {
+                stopped.push(entry)
+                return true
+            }
+        })
+        try {
+            assert.deepEqual((await deleteHarnessAndProfiles(contender.name)).removed, [])
+            assert.deepEqual(stopped, [])
+            assert.deepEqual(folders.map(snapshot), before)
+            assert.equal(profileTokenKnown(token), true)
+            assert.equal(await completion(token), 200)
+            assert.equal((await run(owner.name)).text, 'Chief answer.')
+        } finally {
+            Object.assign(cleanupHooks, previous)
+        }
+    })
+)
+
+for (const name of ['Default', 'default', 'DEFAULT'])
+    test(
+        `${name} refuses agent mode before runtime calls, keeps router mode and never adopts its legacy folder`,
+        isolatedCase(`reserved-${name}`, async () => {
+            const record = recordFor(name)
+            const legacy = path.join(path.dirname(profileDir(name)), name)
+            if (name !== 'default') {
+                fs.mkdirSync(legacy, { recursive: true })
+                fs.writeFileSync(path.join(legacy, 'kept.txt'), 'Legacy default memory.\n')
+            }
+            assert.equal(adoptLegacyChiefProfile(name), false)
+            if (name !== 'default') assert.ok(!fs.existsSync(profileDir(name)))
+            compileProfileCached(record)
+            if (name !== 'default')
+                assert.deepEqual(snapshot(legacy), { 'kept.txt': Buffer.from('Legacy default memory.\n').toString('base64') })
+            const base = `http://127.0.0.1:${runtime.address().port}`
+            assert.equal((await fetch(`${base}/p/default/v1/runs`, { method: 'POST' })).status, 404)
+            calls.length = 0
+            await assert.rejects(run(name), (error) => {
+                assert.ok(error instanceof HarnessError)
+                assert.equal(error.code, 'bad_name')
+                assert.equal(
+                    error.message,
+                    `Harness "${name}" cannot run in agent mode: the runtime reserves the profile name "default". Rename the harness to use agent mode.`
+                )
+                return true
+            })
+            assert.deepEqual(calls, [])
+            assert.deepEqual(listRuns(name), [])
+            const result = await run(name, 'router', {
+                loadNode: async () =>
+                    class {
+                        async init() {
+                            return {
+                                invoke: async (messages) => ({
+                                    content: String(messages[0]?.content).includes('You route work')
+                                        ? JSON.stringify({ steps: [{ specialist: 'reader', task: 'Answer the fixture.' }] })
+                                        : 'Router answer.'
+                                })
+                            }
+                        }
+                    }
+            })
+            assert.equal(result.text, 'Router answer.')
+            assert.ok(calls.every((call) => !call.url.startsWith('/p/default/')))
+        })
+    )
