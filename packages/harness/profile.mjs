@@ -11,8 +11,15 @@ import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, profileDir } from './paths.mjs'
-import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, hermesProfileId, profileDir } from './paths.mjs'
+import {
+    ANALYST_RULES_MAX_CHARS,
+    ROUTING_SUMMARY_CHARS,
+    assertHarnessName,
+    listHarnessNames,
+    joinedAnalystRules,
+    routingSummaryText
+} from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
@@ -1274,6 +1281,64 @@ function modelKey(model) {
     return ''
 }
 
+// The exact harness-parent owns the lowercase folder. Without a marker, a saved lowercase name wins;
+// otherwise only a unique legacy folder breaks a tie between capitalised names. Ambiguous names are refused.
+function chiefProfileCollision(name) {
+    const id = hermesProfileId(name)
+    const others = listHarnessNames().filter((other) => other !== name && hermesProfileId(other) === id)
+    if (!others.length) return
+    const owner = readMarker(path.join(profileDir(name), 'harness-parent'))
+    if (owner) return owner === name ? undefined : owner
+    if (name === id) return
+    if (others.includes(id)) return id
+    const root = profilesRoot()
+    const opened = openDirNoFollow(root, { quiet: true })
+    if (!opened) return others[0]
+    try {
+        const legacy = [name, ...others].filter((candidate) => lstatChild(opened.fd, root, candidate)?.isDirectory())
+        if (legacy.length === 1) return legacy[0] === name ? undefined : legacy[0]
+        return others[0]
+    } finally {
+        closeFds(opened.fds)
+    }
+}
+
+export function assertChiefProfileAvailable(name) {
+    const other = chiefProfileCollision(name)
+    if (other) {
+        throw new HarnessError(
+            'bad_name',
+            `Harness "${name}" cannot be compiled: its runtime profile "${hermesProfileId(
+                name
+            )}" is the same as harness "${other}". Rename one of them.`
+        )
+    }
+}
+
+// Upgrade only the chief directory. Path getters never move data, and specialist ids keep their existing spelling.
+export function adoptLegacyChiefProfile(name) {
+    assertHarnessName(name)
+    const id = hermesProfileId(name)
+    if (id === name) return false
+    let opened
+    try {
+        if (chiefProfileCollision(name)) return false
+        const root = profilesRoot()
+        opened = openDirNoFollow(root, { quiet: true })
+        if (!opened) return false
+        const source = lstatChild(opened.fd, root, name)
+        if (!source?.isDirectory() || source.isSymbolicLink() || lstatChild(opened.fd, root, id)) return false
+        fs.renameSync(childPath(opened.fd, root, name), childPath(opened.fd, root, id))
+        writeIfChanged(path.join(root, id, 'harness-parent'), `${name}\n`)
+        return true
+    } catch {
+        // Leave unavailable or unreadable profiles for a later upgrade.
+        return false
+    } finally {
+        if (opened) closeFds(opened.fds)
+    }
+}
+
 function resolveRoster(record, profileName = record.name) {
     const chiefModel = modelChoice(record.chief?.model)
     if (!chiefModel) {
@@ -1396,7 +1461,17 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueProfileToken({ role, record, model, harnessName, profileName, specialistName, tryProfile, adoptUnstamped = false }) {
+function issueProfileToken({
+    role,
+    record,
+    model,
+    harnessName,
+    profileName,
+    specialistName,
+    tryProfile,
+    adoptUnstamped = false,
+    refresh = false
+}) {
     const key = modelKey(model)
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(profileName))
@@ -1409,6 +1484,7 @@ function issueProfileToken({ role, record, model, harnessName, profileName, spec
           // A profile compiled before the stamp existed keeps its token when the boot upgrade has matched its owner.
           (adoptUnstamped && previous.CUTTLELY_GATEWAY_CREATED === undefined)
     const reusable =
+        !refresh &&
         sameBase &&
         sameRecord &&
         (previous.CUTTLELY_GATEWAY_ROLE || 'specialist') === role &&
@@ -1860,7 +1936,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     try {
         for (const entry of namesIn(opened.fd, root)) {
             if (!entry || entry === '.' || entry === '..') continue
-            if (entry === parent || keep.has(entry)) continue
+            if (entry === hermesProfileId(parent) || keep.has(entry)) continue
             const dir = path.join(root, entry)
             // A link is not a directory this pass may read. Ownership comes from the entry name.
             const st = lstatChild(opened.fd, root, entry)
@@ -1889,11 +1965,12 @@ function markerText(file) {
 // Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
 export function profileDestinationConflicts(record, profileName = record?.name) {
     const home = String(profileName || '')
+    const homeId = hermesProfileId(home)
     // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
-    const conflicts = []
+    const conflicts = chiefProfileCollision(home) ? [homeId] : []
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
-    if (homeParent && homeParent !== home) conflicts.push(home)
+    if (homeParent && homeParent !== home && !conflicts.includes(homeId)) conflicts.push(homeId)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
     const normalized = {
         ...record,
@@ -2174,7 +2251,13 @@ export function compileProfile(record, options = {}) {
         return compileProfileFiles(record, options)
     } catch (error) {
         // A name taken by another harness, or a folder that is a link, is refused before anything is written.
-        if (!options.tryProfile && error?.code !== 'name_taken' && error?.code !== 'profile_link' && error?.code !== 'profile_platform') {
+        if (
+            !options.tryProfile &&
+            error?.code !== 'bad_name' &&
+            error?.code !== 'name_taken' &&
+            error?.code !== 'profile_link' &&
+            error?.code !== 'profile_platform'
+        ) {
             setAsideUnfinishedConfigs(options.profileName || record.name)
         }
         throw error
@@ -2202,6 +2285,10 @@ function sealProfilePaths(record, profileName) {
 function compileProfileFiles(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
+    if (!tryProfile) {
+        assertChiefProfileAvailable(record.name)
+        adoptLegacyChiefProfile(profileName)
+    }
     // The profiles directory itself, then every segment this compile would write. A link is removed from the
     // load path so the runtime does not read config.yaml through it. Ancestors outside that tree are refused
     // and left in place.
@@ -2234,6 +2321,8 @@ function compileProfileFiles(record, options = {}) {
         }
     }
     const dir = profileDir(profileName)
+    const refreshChiefToken =
+        !tryProfile && profileName !== hermesProfileId(profileName) && compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION
     noteTreeMutation(dir)
     // Cleared before any specialist compiles: a compile that fails partway leaves the parent outdated for the next boot.
     const held = ensureContainedDir(dir)
@@ -2250,6 +2339,7 @@ function compileProfileFiles(record, options = {}) {
         closeFds(held.fds)
     }
 
+    if (!tryProfile) writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     const resolved = resolveRoster(record, profileName)
     const keep = new Set()
     for (const specialist of resolved.specialists) {
@@ -2313,6 +2403,7 @@ function compileProfileFiles(record, options = {}) {
     pushMcpServers(yaml, mcpBlocks)
     const issued = issueProfileToken({
         role: 'chief',
+        refresh: refreshChiefToken,
         record,
         model: resolved.chiefModel,
         harnessName: profileName,
@@ -2686,7 +2777,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '10'
+export const PROFILE_COMPILER_VERSION = '11'
 
 function compilerVersionOf(dir) {
     try {
@@ -2823,6 +2914,13 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
         if (!record?.name) continue
+        try {
+            assertChiefProfileAvailable(record.name)
+            adoptLegacyChiefProfile(record.name)
+        } catch (error) {
+            results.push({ name: record.name, status: 'failed', error: error.message })
+            continue
+        }
         const linked = linkedProfileDirs(record)
         if (linked.length) {
             const stuck = linked.filter((dir) => !quarantineContained(dir))
@@ -3114,6 +3212,7 @@ function recheckCached(compiled) {
 }
 
 export function compileProfileCached(record, options = {}) {
+    assertChiefProfileAvailable(record.name)
     const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
     const key = [hermesHome(), agentRunTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
     const cached = compiledProfiles.get(record.name)

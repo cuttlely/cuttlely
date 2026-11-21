@@ -1,4 +1,3 @@
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -33,32 +32,7 @@ export function hermesProfileId(name) {
 }
 
 export function profileDir(name) {
-    const id = hermesProfileId(name)
-    const dir = path.join(hermesHome(), 'profiles', id)
-    if (id !== name) adoptMixedCaseProfileDir(path.join(hermesHome(), 'profiles', name), dir)
-    return dir
-}
-
-// A harness saved with capitals compiled into profiles/<Name> before 1.7.13, a folder the runtime never served.
-// Move it to the lowercase id once, so its sessions and memory stay with the harness. A link, or a lowercase folder
-// that is already there (the same folder on a case-insensitive disk), is left alone.
-function adoptMixedCaseProfileDir(legacy, dir) {
-    try {
-        if (!fs.lstatSync(legacy).isDirectory()) return
-    } catch {
-        return
-    }
-    try {
-        fs.lstatSync(dir)
-        return
-    } catch (error) {
-        if (error?.code !== 'ENOENT') return
-    }
-    try {
-        fs.renameSync(legacy, dir)
-    } catch {
-        // Left for the next call. The compile still writes the lowercase folder.
-    }
+    return path.join(hermesHome(), 'profiles', hermesProfileId(name))
 }
 
 export function vendoredHermesDir() {

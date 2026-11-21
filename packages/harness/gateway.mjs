@@ -470,7 +470,7 @@ function ingestProfileTokens(abandoned = new Set()) {
             harnessName,
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
-            profileName: entry,
+            profileName: hermesProfileId(entry),
             tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }

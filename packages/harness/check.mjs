@@ -399,7 +399,7 @@ function specialistNamed(roster, name) {
 }
 
 function profileFile(name, file) {
-    return path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name, file)
+    return path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', String(name).toLowerCase(), file)
 }
 
 const research = readJson('samples/harnesses/research.json')
@@ -459,7 +459,8 @@ const opsProfile = compileProfile(ops)
     // Harness names are case-sensitive: Joinx--b and joinx--b are two owners of the same lowercased profile names.
     check(
         'a harness whose name differs only by case does not take over the other harness profiles',
-        JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' })) === JSON.stringify(['joinx--b--c', 'joinx--b--y']),
+        JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' })) ===
+            JSON.stringify(['joinx--b', 'joinx--b--c', 'joinx--b--y']),
         JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' }))
     )
     // A preset switches tools on at save, which gives a specialist its own profile even with one model in the roster.
@@ -6394,7 +6395,9 @@ await expectCase('custom MCP runs through the node', async () => {
     await maybeConfigure(ctx)
     const profiles = profilesFor('maMcp')
     const yaml = profiles.map((profile) => profile.yaml).join('\n')
-    const token = profiles.flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = profiles
+        .filter((profile) => profile.env.CUTTLELY_GATEWAY_ROLE === 'specialist')
+        .flatMap((profile) => gatewayTokens(profile.env))[0]
     let toolReached = false
     const gateway = await openGateway()
     try {
@@ -6791,7 +6794,9 @@ await expectCase('custom MCP SQL tools are refused', async () => {
         return
     }
     await maybeConfigure(ctx)
-    const token = profilesFor('maSqlMcp').flatMap((profile) => gatewayTokens(profile.env))[0]
+    const token = profilesFor('maSqlMcp')
+        .filter((profile) => profile.env.CUTTLELY_GATEWAY_ROLE === 'specialist')
+        .flatMap((profile) => gatewayTokens(profile.env))[0]
     const gateway = await openGateway()
     let detail = 'gateway token missing'
     let ok = false
@@ -7824,7 +7829,7 @@ await expectCase(
         ]
         const a4 = []
         for (const [label, run] of cases) {
-            const name = `masentinel${label}`.replace(/\W/g, '')
+            const name = `masentinel${label}`.replace(/\W/g, '').toLowerCase()
             const record = saveHarness(
                 {
                     name,

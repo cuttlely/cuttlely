@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { closeHarnessTokens, reopenHarnessTokens, revokeHarnessTokens } from './gateway.mjs'
-import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { forgetCompiledProfile, stopRuntimeProfile } from './profile.mjs'
 import { assertHarnessName, deleteHarness } from './store.mjs'
 
@@ -278,7 +278,7 @@ function isTempProfile(dir, parent) {
     if (lstatOrNull(path.join(dir, 'harness-try'))) return true
     if (envFlag(dir, 'CUTTLELY_GATEWAY_TRY') === '1') return true
     if (!parent) return false
-    const parentDir = containedEntry(profilesRoot(), parent)
+    const parentDir = containedEntry(profilesRoot(), hermesProfileId(parent))
     return Boolean(parentDir && lstatOrNull(path.join(parentDir, 'harness-try')))
 }
 
@@ -334,12 +334,12 @@ function ownerOf(root, entry, base) {
     if (isTempProfile(dir, parent)) return null
     const name = rosterName(dir)
     if (parent) {
-        if (parent === base) return null
         // A folder whose roster names another harness is not this parent's specialist.
         if (name && name !== parent) return null
+        if (hermesProfileId(parent) === base) return name ? { kind: 'home', id: parent } : null
         return { kind: 'child', id: parent }
     }
-    if (name && name === base) return { kind: 'home', id: name }
+    if (name && (name === base || hermesProfileId(name) === base)) return { kind: 'home', id: name }
     return null
 }
 
@@ -700,7 +700,7 @@ export function nameReuseBlockers(name, { expected = [] } = {}) {
     }
     const otherHarness = (entry) => {
         const owner = profileOwner(entry)
-        return Boolean(owner) && owner.id.toLowerCase() !== lower
+        return Boolean(owner) && owner.id !== id
     }
     const destinations = new Set([lower, ...exact])
     const foreign = (entry) => {
@@ -710,7 +710,7 @@ export function nameReuseBlockers(name, { expected = [] } = {}) {
         if (low !== lower && stillSaved(entry, saved)) return true
         const dir = containedEntry(profilesRoot(), entry)
         const roster = dir ? rosterName(dir) : ''
-        if (roster && roster.toLowerCase() !== lower && stillSaved(roster, saved)) return true
+        if (roster && roster !== id && stillSaved(roster, saved)) return true
         return false
     }
     for (const [label, root] of [
