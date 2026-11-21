@@ -155,6 +155,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_HERMES_HEALTH_GRACE`               | 60                                          | 0 to 3600         | seconds       | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_HEALTH_FAILS`               | 3                                           | 1 to 100          | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_HEALTH_WINDOW`              | 15                                          | 0 to 3600         | seconds       | Host, then Server settings     | Yes     |
+| `CUTTLELY_HERMES_STOP_GRACE_SECONDS`         | 15                                          | —                 | seconds       | Host only                      | Yes     |
 | `CUTTLELY_HERMES_START_WAIT_MS`              | 60000                                       | 0 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUSTOM_MCP_TOOLS_MAX_BYTES`                 | 524288                                      | 1024 to 104857600 | bytes         | Host, then Server settings     | Yes     |
 | `CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS`            | 15000                                       | 1 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |

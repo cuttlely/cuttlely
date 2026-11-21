@@ -30,7 +30,7 @@ import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { removeContainedTree } from './profile.mjs'
+import { markProfileDeleted, removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
@@ -390,6 +390,11 @@ function abandonedTryEntry(entry, parentMarker) {
 }
 
 function removeProfileTree(entry) {
+    try {
+        markProfileDeleted(entry)
+    } catch {
+        // A malformed legacy name or unwritable marker must not prevent tree cleanup.
+    }
     const dir = path.join(hermesHome(), 'profiles', entry)
     try {
         const env = readEnvFile(path.join(dir, '.env'))
