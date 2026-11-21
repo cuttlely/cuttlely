@@ -4,6 +4,29 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.12
+
+Back up the application database, encryption key and settings first. Use matching 1.7.12 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.
+
+-   **Roster stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Known limitation: a direct request to a compiled mixed-model chief does not reach a model yet (no provider binding), tracked for 1.7.13.
+-   **ETL run control.** Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./how-to/etl.md).
+-   **1.7.11 and 1.7.10 changes.** If you are upgrading from 1.7.10 or earlier, the 1.7.11 startup-tool-list fix also applies. If you are upgrading from 1.7.9 or earlier, the 1.7.10 health-check path and runtime-recovery changes also apply. Follow [Upgrading to 1.7.11](#upgrading-to-1711) and [Upgrading to 1.7.10](#upgrading-to-1710).
+
+## Upgrading to 1.7.11
+
+Back up the application database, encryption key and settings first. Use matching 1.7.11 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.
+
+-   **Agent runtime startup.** The runtime's startup tool list is no longer refused while the runtime status is `restarting`, so it can answer health and come up. Tool calls and chat completions are still refused until then. [#542](https://github.com/cuttlely/cuttlely/issues/542).
+-   **1.7.10 health checks and recovery.** If you are upgrading from 1.7.9 or earlier, the 1.7.10 health-check path and runtime-recovery changes also apply. Follow [Upgrading to 1.7.10](#upgrading-to-1710).
+
+## Upgrading to 1.7.10
+
+Back up the application database, encryption key and settings first. Use matching 1.7.10 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.
+
+-   **Health check path (operators).** The Docker image `HEALTHCHECK`, the Compose files and the Render Blueprint `healthCheckPath` now probe `GET /api/v1/ping/live` instead of `/api/v1/ping`. If you run your own gateway, load balancer, orchestrator probe or a Render service created before this change, update its health check path to `/api/v1/ping/live` after upgrading. Keep `/api/v1/ping` for readiness monitoring. Plain `docker run` should use `--restart unless-stopped`. Details are in the containment section below.
+-   **Dash Flows on Postgres (preview).** `CUTTLELY_APP_DATABASE_STORES` stays off by default. [Storage on Postgres](./how-to/dashflows.md#storage-on-postgres-preview).
+-   **Known issue in 1.7.10 (fixed in 1.7.11).** The agent runtime could deadlock on a cold start and restart in a loop (`x-cuttlely-hermes: restarting`). Raising `CUTTLELY_HERMES_HEALTH_GRACE` did not help. Upgrade to 1.7.11 ([#542](https://github.com/cuttlely/cuttlely/issues/542)).
+
 ## Agent runtime containment upgrade
 
 Back up the application database, encryption key and settings before upgrading. This containment change adds no schema migration and preserves default-Off access-key enforcement. It improves recovery and availability; the runtime descriptor-leak fix is separate.

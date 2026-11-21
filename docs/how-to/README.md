@@ -2,6 +2,21 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.12
+
+-   **Connect roster over the runtime's stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. A direct request to a compiled mixed-model chief does not reach a model yet (no provider binding); this is tracked for 1.7.13. [Upgrade guide](../upgrading.md#upgrading-to-1712).
+-   **Keep concurrent ETL controls consistent.** Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. [ETL](./etl.md).
+
+## New in 1.7.11
+
+-   **Let the agent runtime finish a cold start.** The startup tool list is no longer refused while the runtime status is `restarting`, so the runtime can answer health and come up. Tool calls and chat completions are still refused until then. [Upgrade guide](../upgrading.md#upgrading-to-1711).
+
+## New in 1.7.10
+
+-   **Point health checks at liveness.** The image, Compose and Render probe `/api/v1/ping/live`; keep strict `/api/v1/ping` for readiness. [Health checks](./reverse-proxy.md#health-checks).
+-   **Recover the agent runtime in place.** Backoff, cooldown and in-place stack restart, with `503 RUNTIME_UNAVAILABLE` and `Retry-After` while it is down. [Agent runtime recovery](./server-settings.md#agent-runtime-recovery).
+-   **Store Dash Flows on Postgres (preview).** Default-off `CUTTLELY_APP_DATABASE_STORES` switch. [Storage on Postgres](./dashflows.md#storage-on-postgres-preview).
+
 ## New in 1.7.9
 
 -   **Trace a single Harness node.** Use LangSmith Analytics without a Tool Agent wrapper. [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows).
