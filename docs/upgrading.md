@@ -4,6 +4,19 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.13
+
+Analyst on Postgres now keeps each role's encrypted password and legacy workspace mapping in the application database. Provisioning imports existing `.enc` files unchanged and leaves them untouched; new passwords are stored only in the database. Back up the application database, encryption key and settings before upgrading.
+
+**One-time upgrade behavior on ephemeral or unshared disks:** the new instance has no `.enc` file to import, so it sets a new Analyst role password once. While the old instance is still running, its Analyst queries fail authentication (`28P01`) until it exits.
+
+-   Only Analyst is affected. Other features and stored credentials are not.
+-   It happens once per environment. After that, every restart and every extra instance reads the same password from the database.
+-   Stop the old instance before starting the new one to avoid it, so only one instance runs during that deploy.
+-   Installs whose new instance sees the same `SECRETKEY_PATH` (single host, persistent volume) import the existing file and are not affected.
+
+If the legacy `analyst-role.enc` workspace mapping was already lost before this upgrade, it cannot be recovered automatically. Keep the same credential encryption key: a changed key refuses the stored secret rather than resetting the role password. [Analyst storage](./how-to/analyst.md#postgres).
+
 ## Upgrading to 1.7.12
 
 Back up the application database, encryption key and settings first. Use matching 1.7.12 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.

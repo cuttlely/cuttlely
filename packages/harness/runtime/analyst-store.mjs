@@ -372,7 +372,8 @@ export function isAnalystAreaRole(user) {
     return AREA_ROLE.test(String(user || ''))
 }
 const SECRET_FILE = 'analyst-role.enc'
-const LOCK_FILE = 'analyst-role.lock'
+const SECRET_SCHEMA = 'cuttlely_analyst_admin'
+const SECRET_LOCK_CLASS = 526
 
 const CREATEROLE_ERROR =
     'Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.'
@@ -686,77 +687,104 @@ function secretPath(env, area = analystArea('')) {
 }
 
 async function readSecretRecord(env, key, area = analystArea('')) {
-    let payload
+    let ciphertext
     try {
-        payload = await fs.promises.readFile(secretPath(env, area), 'utf8')
+        ciphertext = await fs.promises.readFile(secretPath(env, area), 'utf8')
     } catch (error) {
         if (error.code === 'ENOENT') return null
         throw new Error(SECRET_ERROR)
     }
-    const parsed = decryptJson(payload, key)
+    return { ...parseSecretRecord(ciphertext, key, area), ciphertext }
+}
+
+function parseSecretRecord(ciphertext, key, area) {
+    const parsed = decryptJson(ciphertext, key)
     if (!parsed || parsed.role !== area.role || typeof parsed.password !== 'string' || !parsed.password) {
         throw new Error(SECRET_ERROR)
     }
     return parsed
 }
 
-async function readSecret(env, key, area = analystArea('')) {
-    return (await readSecretRecord(env, key, area))?.password || null
+async function lockRoleSecret(client, role) {
+    await client.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [SECRET_LOCK_CLASS, role])
 }
 
-async function writeSecret(env, key, password, area = analystArea(''), workspace = '') {
-    const dir = secretDir(env)
-    await fs.promises.mkdir(dir, { recursive: true })
-    const file = secretPath(env, area)
-    const tmp = `${file}.${process.pid}.tmp`
-    const record = { role: area.role, password, ...(workspace ? { workspace } : {}) }
-    await fs.promises.writeFile(tmp, encryptJson(record, key), { mode: 0o600 })
-    await fs.promises.rename(tmp, file)
-    await fs.promises.chmod(file, 0o600)
+async function ensurePostgresSchema(client, schema) {
+    const existing = await client.query('SELECT 1 FROM pg_namespace WHERE nspname = $1', [schema])
+    if (!existing.rowCount) await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`)
 }
 
-// The legacy login goes to the first workspace that asks. Its secret records that workspace.
-async function postgresAreaFor(env, key, workspace) {
-    const tag = analystWorkspaceTag(workspace)
-    const legacy = analystArea('')
-    if (!tag) return legacy
-    const own = analystArea(tag)
-    if (fs.existsSync(secretPath(env, own))) return own
-    const record = await readSecretRecord(env, key, legacy)
-    if (!record) return own
-    if (!record.workspace) {
-        await writeSecret(env, key, record.password, legacy, tag)
-        return legacy
-    }
-    return record.workspace === tag ? legacy : own
-}
-
-async function withSecretLock(env, fn) {
-    const dir = secretDir(env)
-    await fs.promises.mkdir(dir, { recursive: true })
-    const lockPath = path.join(dir, LOCK_FILE)
-    const started = Date.now()
-    for (;;) {
+async function roleSecretTable(client) {
+    const existing = await client.query('SELECT to_regclass($1) AS own, to_regclass($2) AS fallback', [
+        `${SECRET_SCHEMA}.role_secret`,
+        'public.role_secret'
+    ])
+    // Keep using an earlier fallback even if the app login later gains CREATE SCHEMA permission.
+    let schema = !existing.rows[0].own && existing.rows[0].fallback ? 'public' : SECRET_SCHEMA
+    if (schema === SECRET_SCHEMA) {
+        await client.query('SAVEPOINT analyst_secret_schema')
         try {
-            const handle = await fs.promises.open(lockPath, 'wx', 0o600)
-            try {
-                return await fn()
-            } finally {
-                await handle.close()
-                await fs.promises.unlink(lockPath).catch(() => {})
-            }
+            await ensurePostgresSchema(client, schema)
         } catch (error) {
-            if (error.code !== 'EEXIST') throw error
-            try {
-                const stat = await fs.promises.stat(lockPath)
-                if (Date.now() - stat.mtimeMs > 15000) await fs.promises.unlink(lockPath)
-            } catch {
-                // The other worker released the lock.
+            await client.query('ROLLBACK TO SAVEPOINT analyst_secret_schema')
+            if (error.code !== '42501') throw error
+            schema = 'public'
+        }
+        await client.query('RELEASE SAVEPOINT analyst_secret_schema')
+    }
+    if (schema === SECRET_SCHEMA) await client.query(`REVOKE ALL ON SCHEMA ${quoteIdent(schema)} FROM PUBLIC`)
+    const table = `${quoteIdent(schema)}.role_secret`
+    await client.query(`CREATE TABLE IF NOT EXISTS ${table} (
+        role text PRIMARY KEY,
+        workspace_tag text NULL,
+        ciphertext text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )`)
+    await client.query(`REVOKE ALL ON TABLE ${table} FROM PUBLIC`)
+    return table
+}
+
+// Rows are authoritative. Files are read only when importing a role that has no row yet.
+// Every caller holds the legacy role lock before looking at its mapping, so only one workspace claims it.
+async function postgresAreaFor(client, table, env, key, workspace, existingOnly) {
+    const tag = analystWorkspaceTag(workspace)
+    const own = analystArea(tag)
+    const legacy = analystArea('')
+    const rows = await client.query(`SELECT role, workspace_tag, ciphertext FROM ${table} WHERE role = ANY($1::text[])`, [
+        [own.role, legacy.role]
+    ])
+    const ownRow = rows.rows.find((row) => row.role === own.role)
+    if (ownRow) return { area: own, row: ownRow }
+    let legacyRow = rows.rows.find((row) => row.role === legacy.role)
+    let imported
+    if (!legacyRow && !existingOnly) {
+        const ownFile = tag ? await readSecretRecord(env, key, own) : null
+        if (ownFile) return { area: own, imported: ownFile }
+        const legacyFile = await readSecretRecord(env, key, legacy)
+        if (legacyFile) {
+            imported = legacyFile
+            legacyRow = {
+                role: legacy.role,
+                workspace_tag: legacyFile.workspace || null,
+                ciphertext: legacyFile.ciphertext
             }
-            if (Date.now() - started > 20000) throw new Error('Analyst mode could not lock the role secret.')
-            await new Promise((resolve) => setTimeout(resolve, 50))
+            await client.query(`INSERT INTO ${table} (role, workspace_tag, ciphertext) VALUES ($1, $2, $3)`, [
+                legacyRow.role,
+                legacyRow.workspace_tag,
+                legacyRow.ciphertext
+            ])
         }
     }
+    if (legacyRow && (!tag || !legacyRow.workspace_tag || legacyRow.workspace_tag === tag)) {
+        // Decrypt before changing the mapping. A different key never claims or resets a role.
+        parseSecretRecord(legacyRow.ciphertext, key, legacy)
+        if (tag && !legacyRow.workspace_tag) {
+            await client.query(`UPDATE ${table} SET workspace_tag = $1, updated_at = now() WHERE role = $2`, [tag, legacy.role])
+        }
+        return { area: legacy, row: legacyRow, imported }
+    }
+    return { area: own }
 }
 
 function sslConfig(env) {
@@ -923,31 +951,42 @@ async function isolateRole(client, area = analystArea('')) {
     if (executable.rowCount > 0) throw new Error(ISOLATION_ERROR)
 }
 
-async function provisionPostgres(env, workspace = '') {
+const postgresStoreContexts = new WeakMap()
+
+async function provisionPostgres(env, workspace = '', existingOnly = false) {
     const config = appClientConfig(env)
     const key = await encryptionKey(env)
-    return withSecretLock(env, async () => {
-        const area = await postgresAreaFor(env, key, workspace)
-        let password = await readSecret(env, key, area)
-        const createdSecret = !password
-        if (!password) password = randomBytes(24).toString('base64url')
-        const client = new Client(config)
+    const client = new Client(config)
+    let password
+    let area
+    try {
+        await client.connect()
+        const privilege = await client.query('SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user')
+        const row = privilege.rows[0]
+        if (!row || (!row.rolsuper && !row.rolcreaterole)) throw new Error(CREATEROLE_ERROR)
+        await client.query('BEGIN')
         try {
-            await client.connect()
-            const privilege = await client.query('SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user')
-            const row = privilege.rows[0]
-            if (!row || (!row.rolsuper && !row.rolcreaterole)) throw new Error(CREATEROLE_ERROR)
-            await client.query('BEGIN')
-            try {
+            // Lock order is always legacy then workspace. This also serializes initial table DDL.
+            await lockRoleSecret(client, ANALYST_ROLE)
+            const table = await roleSecretTable(client)
+            const resolved = await postgresAreaFor(client, table, env, key, workspace, existingOnly)
+            area = resolved.area
+            if (area.role !== ANALYST_ROLE) await lockRoleSecret(client, area.role)
+            const role = quoteIdent(area.role)
+            if (resolved.row && !resolved.imported) {
+                password = parseSecretRecord(resolved.row.ciphertext, key, area).password
+            } else {
+                if (existingOnly) throw new Error(SECRET_ERROR)
+                const imported = resolved.imported || (await readSecretRecord(env, key, area))
+                password = imported?.password || randomBytes(24).toString('base64url')
                 const existing = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [area.role])
-                const role = quoteIdent(area.role)
                 if (existing.rowCount === 0) {
                     await client.query(
                         `CREATE ROLE ${role} WITH LOGIN PASSWORD ${quoteLiteral(
                             password
                         )} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION`
                     )
-                } else if (createdSecret) {
+                } else if (!imported) {
                     await client.query(`ALTER ROLE ${role} WITH LOGIN PASSWORD ${quoteLiteral(password)}`)
                 }
                 await client.query(
@@ -956,34 +995,43 @@ async function provisionPostgres(env, workspace = '') {
                     )}`
                 )
                 await client.query(`ALTER ROLE ${role} SET search_path TO ${quoteIdent(area.schema)}`)
-                await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(area.schema)}`)
-                await isolateRole(client, area)
-                await optional(client, `ALTER SCHEMA ${quoteIdent(area.schema)} OWNER TO ${role}`)
-                await client.query('COMMIT')
-            } catch (error) {
-                await client.query('ROLLBACK').catch(() => {})
-                throw error
+                const ciphertext = imported?.ciphertext || encryptJson({ role: area.role, password }, key)
+                if (!resolved.row) {
+                    await client.query(`INSERT INTO ${table} (role, workspace_tag, ciphertext) VALUES ($1, $2, $3)`, [
+                        area.role,
+                        area.tag || null,
+                        ciphertext
+                    ])
+                }
             }
+            await ensurePostgresSchema(client, area.schema)
+            await isolateRole(client, area)
+            await optional(client, `ALTER SCHEMA ${quoteIdent(area.schema)} OWNER TO ${role}`)
             const created = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [area.role])
             if (created.rowCount !== 1) throw new Error(ISOLATION_ERROR)
-            if (createdSecret) await writeSecret(env, key, password, area, area.tag)
+            await client.query('COMMIT')
         } catch (error) {
-            if (error.message === CREATEROLE_ERROR || error.message === ISOLATION_ERROR || error.message === SECRET_ERROR) throw error
-            throw scrub(error, [password, config.password])
-        } finally {
-            await client.end().catch(() => {})
+            await client.query('ROLLBACK').catch(() => {})
+            throw error
         }
-        return {
-            engine: 'postgres',
-            host: config.host,
-            port: config.port,
-            database: config.database,
-            user: area.role,
-            schema: area.schema,
-            password,
-            ssl: config.ssl
-        }
-    })
+    } catch (error) {
+        if (error.message === CREATEROLE_ERROR || error.message === ISOLATION_ERROR || error.message === SECRET_ERROR) throw error
+        throw scrub(error, [password, config.password])
+    } finally {
+        await client.end().catch(() => {})
+    }
+    const store = {
+        engine: 'postgres',
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        user: area.role,
+        schema: area.schema,
+        password,
+        ssl: config.ssl
+    }
+    postgresStoreContexts.set(store, { env: { ...env }, workspace })
+    return store
 }
 
 let SqliteDatabase
@@ -1717,6 +1765,32 @@ function analystPgClient(store, ms, queryTimeout = ms + 5000) {
 }
 
 export async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+    try {
+        return await queryPostgresOnce(store, statement, replay, timeoutMs, env)
+    } catch (error) {
+        const context = postgresStoreContexts.get(store)
+        if (error.code !== '28P01' || !context) throw error
+        const key = storeKey(context.env, context.workspace)
+        let pending = ready.get(key)
+        if (!pending || (await pending) === store) {
+            ready.delete(key)
+            pending = provisionPostgres(context.env, context.workspace, true).catch((failure) => {
+                if (ready.get(key) === pending) ready.delete(key)
+                throw failure
+            })
+            ready.set(key, pending)
+        }
+        return queryPostgresOnce(await pending, statement, replay, timeoutMs, env)
+    }
+}
+
+function postgresQueryError(error, password, connecting) {
+    const failure = new AnalystToolError(scrub(error, [password]).message, analystErrorOutcome(error))
+    if (connecting && error.code === '28P01') failure.code = error.code
+    return failure
+}
+
+async function queryPostgresOnce(store, statement, replay, timeoutMs, env) {
     const ms = analystStatementTimeoutMs(timeoutMs, env)
     const scope = replay?.paging?.scope || ''
     if (scope) return queryPostgresRun(scope, store, statement, replay, ms)
@@ -1725,14 +1799,15 @@ export async function queryPostgres(store, statement, replay, timeoutMs = ANALYS
     const metered = { query: meteredQuery(client, timer) }
     const runner = postgresRunner(metered)
     runner.timer = timer
+    let connected = false
     try {
         await timeStep(runner, 'connect', () => client.connect())
+        connected = true
         if (!isAnalystAreaRole(store.user)) throw new Error(ISOLATION_ERROR)
         if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
         return await runPostgresStatement(metered, statement, replay?.paging, runner)
     } catch (error) {
-        const outcome = analystErrorOutcome(error)
-        throw new AnalystToolError(scrub(error, [store.password]).message, outcome)
+        throw postgresQueryError(error, store.password, !connected)
     } finally {
         await client.end().catch(() => {})
         recordQueryTimings(timer)
@@ -1780,9 +1855,11 @@ function queryPostgresRun(scope, store, statement, replay, ms) {
         const client = { query: meteredQuery(session.client, timer) }
         const runner = postgresRunner(client)
         runner.timer = timer
+        let connected = false
         try {
             // A reused session is already connected, so its connect step is about 0.
             await timeStep(runner, 'connect', () => session.connected)
+            connected = true
             // The analyst's own SET from an earlier call does not carry over.
             await client.query(`SET statement_timeout = ${ms}`)
             await client.query(`SET search_path TO ${quoteIdent(store.schema || ANALYST_SCHEMA)}`)
@@ -1791,7 +1868,7 @@ function queryPostgresRun(scope, store, statement, replay, ms) {
         } catch (error) {
             const outcome = analystErrorOutcome(error)
             if (outcome === 'transport' && pgRunSessions.get(scope) === session) closePgRunSession(scope)
-            throw new AnalystToolError(scrub(error, [store.password]).message, outcome)
+            throw postgresQueryError(error, store.password, !connected)
         } finally {
             // Each call still commits on its own, as when every call opened its own connection.
             if (pgRunSessions.get(scope) === session) {

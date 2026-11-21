@@ -4,6 +4,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Analyst on Postgres keeps each role's encrypted password and legacy workspace mapping in the application database, so restarts and extra instances reuse the same password. Existing `.enc` files are imported without changing the password and left untouched. [#526](https://github.com/cuttlely/cuttlely/issues/526).
+
+### Upgrade notes / breaking changes
+
+-   **One-time Analyst upgrade on ephemeral or unshared disks:** when the new instance has no `.enc` file to import, it sets a new Analyst role password once. While the old instance is still running, its Analyst queries fail authentication (`28P01`) until it exits. Only Analyst is affected; other features and stored credentials are not. This happens once per environment; after that, every restart and every extra instance reads the same password from the database. Stop the old instance before starting the new one to avoid it. Installs whose new instance sees the same `SECRETKEY_PATH` (single host, persistent volume) import the existing file and are not affected. [Upgrade guide](./docs/upgrading.md#upgrading-to-1713).
+
 ## [1.7.12] - 2026-11-21
 
 ### Fixed

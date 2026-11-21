@@ -163,6 +163,18 @@ jobs:
                   grep -qx '# fail 0' "$RUNNER_TEMP/dashflows-pg.tap"
                   grep -qx '# skipped 0' "$RUNNER_TEMP/dashflows-pg.tap"
                   awk '/^# pass /{found=1; if ($3 < 50) exit 1} END{if (!found) exit 1}' "$RUNNER_TEMP/dashflows-pg.tap"
+            - name: Analyst role secret tests ran
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: |
+                  status=0
+                  node --test --test-reporter=tap scripts/analyst-readonly-role.test.mjs > "$RUNNER_TEMP/analyst-role.tap" || status=$?
+                  grep -E '^(not ok|# (tests|pass|fail|skipped) )' "$RUNNER_TEMP/analyst-role.tap" || true
+                  if [ "$status" -ne 0 ]; then cat "$RUNNER_TEMP/analyst-role.tap"; exit "$status"; fi
+                  grep -qx '# fail 0' "$RUNNER_TEMP/analyst-role.tap"
+                  grep -qx '# skipped 0' "$RUNNER_TEMP/analyst-role.tap"
+                  awk '/^# pass /{found=1; if ($3 < 27) exit 1} END{if (!found) exit 1}' "$RUNNER_TEMP/analyst-role.tap"
             - name: Harness LangSmith tracing regressions
               run: >-
                   pnpm --dir packages/components exec jest --runInBand --forceExit --coverage=false
@@ -259,11 +271,18 @@ jobs:
                   CUTTLELY_TEST_PG_REQUIRED: '1'
                   CUTTLELY_TEST_GUARD_LEGACY_ROUND_TRIPS: '1'
               run: node --test scripts/analyst-relations.test.mjs
-            - name: Analyst tests for a login that defaults to read-only transactions
+            - name: Analyst role and secret tests ran
               env:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
-              run: node --test scripts/analyst-readonly-role.test.mjs
+              run: |
+                  status=0
+                  node --test --test-reporter=tap scripts/analyst-readonly-role.test.mjs > "$RUNNER_TEMP/analyst-role.tap" || status=$?
+                  grep -E '^(not ok|# (tests|pass|fail|skipped) )' "$RUNNER_TEMP/analyst-role.tap" || true
+                  if [ "$status" -ne 0 ]; then cat "$RUNNER_TEMP/analyst-role.tap"; exit "$status"; fi
+                  grep -qx '# fail 0' "$RUNNER_TEMP/analyst-role.tap"
+                  grep -qx '# skipped 0' "$RUNNER_TEMP/analyst-role.tap"
+                  awk '/^# pass /{found=1; if ($3 < 27) exit 1} END{if (!found) exit 1}' "$RUNNER_TEMP/analyst-role.tap"
             - name: Analyst pinned query tests
               env:
                   PGPASSWORD: postgres
