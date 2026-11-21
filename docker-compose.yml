@@ -28,7 +28,7 @@ services:
         restart: unless-stopped
         init: true
         # On stop, Cuttlely lets running answers finish for up to 25 seconds (CUTTLELY_DRAIN_TIMEOUT_MS). Docker's
-        # default of 10 seconds would cut them off.
+        # default of 10 seconds would cut them off. Runtime cleanup shares a 28-second total budget.
         stop_grace_period: 35s
         ports:
             - '${PORT:-43117}:${PORT:-43117}'
@@ -46,6 +46,7 @@ services:
             LOG_PATH: /var/cuttlely/logs
             CUTTLELY_DATA_DIR: /var/cuttlely
             CUTTLELY_HERMES_HOME: /var/cuttlely/hermes
+            CUTTLELY_HERMES_STOP_GRACE_SECONDS: ${CUTTLELY_HERMES_STOP_GRACE_SECONDS:-15}
             HERMES_HOME: /var/cuttlely/hermes
             CUTTLELY_ETL_DIR: /var/cuttlely/etl
             # Version history is on unless .env sets off (false, 0, and no also work). Blank leaves it on.

@@ -989,10 +989,21 @@ async def _execute_run(self, run: _RunLaunch, *, _api_server) -> None:
         if run_id in self._stopping_run_ids:
             _finish("cancelled")
             return
-        with self._profile_scope(run.request_profile):
-            agent = self._create_agent(
-                stream_delta_callback=_text_cb, tool_progress_callback=self._make_run_event_callback(run_id, loop),
-                interim_assistant_callback=_interim_cb, **run.agent_kwargs)
+        def _build_agent():
+            # MCP discovery can wait for this profile; keep health and stop requests responsive.
+            with self._profile_scope(run.request_profile):
+                return self._create_agent(
+                    stream_delta_callback=_text_cb, tool_progress_callback=self._make_run_event_callback(run_id, loop),
+                    interim_assistant_callback=_interim_cb, **run.agent_kwargs)
+
+        agent = await asyncio.to_thread(_build_agent)
+        # Shutdown or stop may have landed while the worker waited for discovery.
+        # The agent never ran: hand its checked-out memory manager back before finishing.
+        if run_id in self._shutdown_interrupted_run_ids or run_id in self._stopping_run_ids:
+            with suppress(Exception):
+                self._memory_sessions.checkin(agent)
+            _finish("interrupted" if run_id in self._shutdown_interrupted_run_ids else "cancelled")
+            return
         self._active_run_agents[run_id] = agent
         approval_notify = _make_approval_notify(self, run, _api_server=_api_server)
         result, usage, served_runtime = await _submit_api_worker(
