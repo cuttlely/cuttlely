@@ -33,6 +33,8 @@ test('chief bindings, fallbacks and boot tokens use the gateway without exposing
             class {
                 async init(data) {
                     return {
+                        // A node that normalizes its saved model name reports the resolved id.
+                        ...(nodeName === 'aliasChat' ? { modelName: `${data.inputs.modelName}-resolved` } : {}),
                         async invoke() {
                             calls.push({ provider: nodeName, model: data.inputs.modelName })
                             if (nodeName === 'unavailableChat') throw new Error('503 unavailable')
@@ -125,6 +127,23 @@ test('chief bindings, fallbacks and boot tokens use the gateway without exposing
             lines.includes(
                 '[harness-gateway] completion role=chief harness=chief-fallback profile=chief-fallback provider=backupChat model=backup-model'
             )
+        )
+        const alias = saveHarness({
+            name: 'chief-alias',
+            chief: { model: model('aliasChat', 'saved-alias') },
+            specialists: [{ name: 'reader', model: model('workerChat', 'worker-model') }]
+        })
+        compileProfile(alias)
+        const aliased = await request(readProfileEnv(alias.name).OPENAI_API_KEY, '/v1/chat/completions', {
+            messages: [{ role: 'user', content: 'Hello' }]
+        })
+        assert.equal(aliased.status, 200)
+        await aliased.json()
+        assert.ok(
+            lines.includes(
+                '[harness-gateway] completion role=chief harness=chief-alias profile=chief-alias provider=aliasChat model=saved-alias-resolved'
+            ),
+            'the log names the resolved upstream model, not the saved input'
         )
         const tried = compileTryProfile(fallback, '1234abcd')
         const tryEnv = readProfileEnv('try1234abcd')

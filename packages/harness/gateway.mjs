@@ -837,10 +837,11 @@ async function completeChat(req, res, meta) {
                         `[harness-gateway] completion role=${logField(meta.role)} harness=${logField(record.name)} profile=${logField(
                             meta.profileName
                         )} provider=${logField(resolved.nodeName)} model=${logField(
-                            binding.inputs?.modelName ||
-                                binding.inputs?.model ||
+                            resolved.modelId ||
                                 resolved.chat?.modelName ||
                                 resolved.chat?.model ||
+                                binding.inputs?.modelName ||
+                                binding.inputs?.model ||
                                 'unknown'
                         )}`
                     )
