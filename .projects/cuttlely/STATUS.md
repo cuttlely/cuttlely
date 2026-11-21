@@ -1,3 +1,11 @@
+## 1.7.13 boot health and supervisor hygiene (PR B)
+
+The agent runtime serves health checks while MCP tools connect in the background (patch 0013), with up to four profiles discovering at once. A run waits only for its own profile within the existing discovery wait (patch 0003), and a server that never answers drops only its own tools. Discovery logs name each profile and failed server, with tool counts and elapsed time. The per-server connect timeout, health grace and 135-second start deadline are unchanged. Test: scripts/hermes-background-mcp.test.mjs.
+
+Runtime restarts allow `CUTTLELY_HERMES_STOP_GRACE_SECONDS` (default 15) after SIGTERM before a forced exit, and every forced exit logs the pid, reason and grace used. On container stop, Node drains first and the runtime grace is capped by the time left in a 28-second budget, which fits Render's default 30-second window and the Compose allowance of 35 seconds.
+
+Try it profiles get the runtime's `profiles/.deleted/<name>` marker before removal, the existing file guard stays for the settle window, and leftovers are swept before each runtime start (capped at two seconds, nonfatal). A compile of the same name clears the marker. Supervisor tests pass temporary paths through the child environment instead of the shell command (code-scanning alert 1506).
+
 ## 1.7.12 release
 
 Release notes are dated `## [1.7.12] - 2026-11-21`. They include the roster MCP stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store start, resume, pause and cancel fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). Known limitation: direct chief calls on mixed-model harnesses still need a model binding, tracked for 1.7.13. Orchestrate and A2A outage responses stay as in 1.7.11 and remain tracked in #540.
