@@ -40,7 +40,8 @@ describe.each(['session', 'api_key'])('%s caller', (via) => {
             source: 'api',
             workspaceId: 'team-a',
             caller,
-            expectedChatflowId: undefined
+            expectedChatflowId: undefined,
+            signal: undefined
         })
         expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
         expect(startCanvasRun).not.toHaveBeenCalled()
