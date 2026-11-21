@@ -6,7 +6,8 @@ import path from 'node:path'
 import { api, check, flowFor, root, WS } from './lib.mjs'
 
 const etlStore = await import('../store.mjs')
-const { ACTIVE_STATUSES, getRun, insertRun, updateRun } = await import('../runs.mjs')
+const { ACTIVE_STATUSES, activeRunFor, getRun, insertRun, listEvents, runsWithStatus, updateRun } = await import('../runs.mjs')
+const { executeRun } = await import('../execute.mjs')
 const { blockRuns, isActive, unblockRuns } = await import('../runner.mjs')
 const { pipelineStats } = await import('../versions.mjs')
 
@@ -226,5 +227,133 @@ async function pausedRun(id) {
             stored === 'cancelled' &&
             !isActive(runId),
         detail
+    )
+}
+
+// A pause or cancel between the runner reading a queued run and executeRun writing 'running'. launch() puts the job in
+// the active set and then asks contextFor for the run's context, so a pause or cancel issued from contextFor takes the
+// active-job path ('pausing' or 'cancelling') before executeRun reads the run. The run must stop without starting.
+async function stopBeforeRunning(id, action) {
+    await api.waitForIdle()
+    await savePipeline(id)
+    let fired = 0
+    let stop = null
+    api.configureRunner({
+        contextFor: async (pipeline) => {
+            if (pipeline?.id === id && !stop) {
+                fired += 1
+                const run = await activeRunFor(id)
+                stop = outcome(action === 'pause' ? api.pauseRun(run.id) : api.cancelRun(run.id))
+            }
+            return { workspaceId: WS }
+        }
+    })
+    let started
+    try {
+        started = await api.startRun(id, { settings: SETTINGS })
+        await api.waitForIdle()
+    } finally {
+        api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    }
+    const stopped = await stop
+    const run = await getRun(started.id)
+    const events = (await listEvents(run.id)).map((event) => event.message)
+    const chunks = (await pipelineStats(id)).chunks
+    return {
+        fired,
+        stopped,
+        status: run.status,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        active: isActive(run.id),
+        chunks,
+        events
+    }
+}
+
+{
+    const result = await stopBeforeRunning('run-control-cancel-launch', 'cancel')
+    check(
+        'run control 10: a cancel after the runner reads a queued run and before it is running cancels it without starting it',
+        result.fired === 1 &&
+            result.stopped?.status === 200 &&
+            result.status === 'cancelled' &&
+            Boolean(result.finishedAt) &&
+            !result.startedAt &&
+            !result.active &&
+            result.chunks === 0 &&
+            !result.events.some((message) => /^Started /.test(message)) &&
+            result.events.includes('Cancelled. Nothing was deleted.'),
+        JSON.stringify(result)
+    )
+}
+
+{
+    const result = await stopBeforeRunning('run-control-pause-launch', 'pause')
+    check(
+        'run control 11: a pause after the runner reads a queued run and before it is running pauses it without starting it',
+        result.fired === 1 &&
+            result.stopped?.status === 200 &&
+            result.status === 'paused' &&
+            !result.startedAt &&
+            !result.active &&
+            result.chunks === 0 &&
+            !result.events.some((message) => /^Started /.test(message)) &&
+            result.events.includes('Paused at the last committed batch.'),
+        JSON.stringify(result)
+    )
+}
+
+// The same window before launch() puts the job in the active set: the runner has read the run as queued, a cancel or
+// pause with no job behind the run commits 'cancelled' or 'paused', and then executeRun is called for it the way
+// launch() calls it. Nothing marks that point between the runner's read and launch(), so the check runs the three steps
+// in that order itself, as the restart and duplicate-resume checks call executeRun directly.
+async function stopThenExecute(id, action) {
+    await api.waitForIdle()
+    const runId = await pausedRun(id).then(async (seeded) => {
+        await updateRun(seeded, { status: 'queued' })
+        return seeded
+    })
+    const read = (await runsWithStatus(['queued'])).some((run) => run.id === runId)
+    const stopped = await outcome(action === 'pause' ? api.pauseRun(runId) : api.cancelRun(runId))
+    const control = { stopRequested: null, abort: new AbortController() }
+    const executed = await outcome(executeRun(runId, { control, ctx: { workspaceId: WS } }))
+    const run = await getRun(runId)
+    const events = (await listEvents(runId)).map((event) => event.message)
+    const chunks = (await pipelineStats(id)).chunks
+    return { read, stopped, executed, status: run.status, startedAt: run.startedAt, active: isActive(runId), chunks, events }
+}
+
+{
+    const result = await stopThenExecute('run-control-cancel-read', 'cancel')
+    check(
+        'run control 12: a run cancelled after the runner read it as queued is not started by executeRun',
+        result.read &&
+            result.stopped.status === 200 &&
+            result.stopped.run === 'cancelled' &&
+            result.executed.status === 200 &&
+            result.status === 'cancelled' &&
+            !result.startedAt &&
+            !result.active &&
+            result.chunks === 0 &&
+            !result.events.some((message) => /^Started /.test(message)),
+        JSON.stringify(result)
+    )
+}
+
+{
+    const result = await stopThenExecute('run-control-pause-read', 'pause')
+    check(
+        'run control 13: a run paused after the runner read it as queued is not started by executeRun',
+        result.read &&
+            result.stopped.status === 200 &&
+            result.stopped.run === 'paused' &&
+            result.executed.status === 200 &&
+            result.status === 'paused' &&
+            !result.startedAt &&
+            !result.active &&
+            result.chunks === 0 &&
+            !result.events.some((message) => /^Started /.test(message)),
+        JSON.stringify(result)
     )
 }

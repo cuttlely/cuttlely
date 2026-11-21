@@ -84,8 +84,8 @@ class RunState {
         this.steps[name] = { ...this.steps[name], ...fields }
     }
 
-    event(level, step, message) {
-        return addEvent(this.run.id, level, step, message)
+    event(level, step, message, q) {
+        return addEvent(this.run.id, level, step, message, q)
     }
 
     sample() {
@@ -124,7 +124,7 @@ class RunState {
         })
     }
 
-    async persist(force = false) {
+    async persist(force = false, q) {
         const t = Date.now()
         if (!force && t - this.lastPersist < PERSIST_MS) return
         this.lastPersist = t
@@ -134,7 +134,7 @@ class RunState {
         const totals = this.ledger.totals()
         this.counters.rejected = totals.rejected.total
         this.counters.filtered = totals.filtered.total
-        await updateRun(this.run.id, { checkpoint: this.checkpoint, counters: this.counters, steps: this.steps })
+        await updateRun(this.run.id, { checkpoint: this.checkpoint, counters: this.counters, steps: this.steps }, q)
     }
 }
 
@@ -768,6 +768,28 @@ function parseFingerprint(text) {
     }
 }
 
+// The runner reads a run as queued before it launches it, and pause and cancel do not wait for the launch. Every write
+// before the run is running goes through claimQueued: it re-reads the status in the same transaction and writes only
+// while the run is still queued. A pause or cancel that reached the job first left 'pausing' or 'cancelling', and is
+// finished here the way a stopped run is; one that found no job left 'paused' or 'cancelled', which stays.
+async function claimQueued(runId, write) {
+    return etlStore.tx(async (t) => {
+        const current = await getRun(runId, t)
+        if (current?.status === 'queued') {
+            await write(t)
+            return true
+        }
+        if (current?.status === 'cancelling') {
+            await updateRun(runId, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
+            await addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.', t)
+        } else if (current?.status === 'pausing') {
+            await updateRun(runId, { status: 'paused' }, t)
+            await addEvent(runId, 'info', null, 'Paused at the last committed batch.', t)
+        }
+        return false
+    })
+}
+
 // The single execution seam. A later queue version calls this from a worker for a run id it dequeued.
 export async function executeRun(runId, { ctx = {}, control = { stopRequested: null } } = {}) {
     let run = await getRun(runId)
@@ -783,38 +805,47 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         const target = storeFingerprint(version.spec.store, pipeline.name)
         const earlier = (await etlStore.all('SELECT name FROM run_names WHERE run_id = ?', [run.id])).map((row) => row.name)
         if (earlier.some((name) => storeFingerprint(version.spec.store, name) !== target)) {
-            await etlStore.tx(async (t) => {
+            const claimed = await claimQueued(run.id, async (t) => {
                 await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
                 await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
+                await updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() }, t)
+                await addEvent(
+                    run.id,
+                    'info',
+                    'store',
+                    "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one.",
+                    t
+                )
             })
-            await updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() })
-            await addEvent(
-                run.id,
-                'info',
-                'store',
-                "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one."
-            )
             run = await getRun(run.id)
+            if (!claimed) return run
         }
     }
     const state = new RunState(run)
     const settings = run.settings
-    const fail = async (error) => {
-        await state.persist(true)
-        await updateRun(run.id, {
-            status: 'failed',
-            error: errorMessage(error),
-            summary: state.summary(),
-            finishedAt: new Date().toISOString()
-        })
-        await state.event('error', null, errorMessage(error))
+    const fail = async (error, q) => {
+        await state.persist(true, q)
+        await updateRun(
+            run.id,
+            {
+                status: 'failed',
+                error: errorMessage(error),
+                summary: state.summary(),
+                finishedAt: new Date().toISOString()
+            },
+            q
+        )
+        await state.event('error', null, errorMessage(error), q)
     }
     if (problems.length) {
-        await fail(new EtlError('bad_pipeline', problems.join(' ')))
+        await claimQueued(run.id, (t) => fail(new EtlError('bad_pipeline', problems.join(' ')), t))
         return getRun(run.id)
     }
     const spec = version.spec
-    await updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null })
+    const claimed = await claimQueued(run.id, (t) =>
+        updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null }, t)
+    )
+    if (!claimed) return getRun(run.id)
     await etlStore.run('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)', [
         run.id,
         pipeline.id,

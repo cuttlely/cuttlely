@@ -12,7 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
 -   A cancelled Dash Flows refresh no longer starts its source again when a tool retries the call with another argument format. [#531](https://github.com/cuttlely/cuttlely/issues/531).
--   With ETL database calls now asynchronous, two starts of one ETL pipeline at the same moment still create only one run, and a resume never brings back a run cancelled at the same moment. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./docs/how-to/etl.md) · [#535](https://github.com/cuttlely/cuttlely/pull/535).
+-   With ETL database calls now asynchronous, starting, resuming, pausing and cancelling ETL runs at the same moment does not leave a cancelled or paused run running or create a second run for one pipeline. A start during a pipeline delete returns HTTP 409 and a resume is refused, and a pause or cancel that reaches a finishing run returns HTTP 409 without overwriting its final status. [ETL](./docs/how-to/etl.md) · [#535](https://github.com/cuttlely/cuttlely/pull/535).
 
 ## [1.7.9] - 2026-11-17
 
