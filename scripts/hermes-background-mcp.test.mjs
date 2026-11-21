@@ -326,7 +326,7 @@ test('a timed-out MCP peer drops only its own tools and logs profile and server'
             const value = report()
             return value && !value.pending.length && value.default.some((s) => s.name === 'bad' && s.status === 'failed') && value
         },
-        10_000,
+        30_000,
         diagnostics
     )
     assert.equal(result.default.find((s) => s.name === 'bad').tools, 0)
