@@ -5,7 +5,7 @@ Subject: [PATCH] cuttlely: background-mcp-discovery
 
 Serve gateway health while MCP discovery runs across up to four profiles. Gate each API run on its own profile and cancel startup discovery on shutdown. Build /v1/runs agents in a worker under the run profile scope so the discovery wait keeps health and stop requests responsive; recheck shutdown and stop before starting the turn.
 ---
- gateway/cuttlely_mcp_startup.py      |  106 +++++++++++++++++++++++++++++++
+ gateway/cuttlely_mcp_startup.py      | 106 ++++++++++++++++++++++
  gateway/platforms/api_server_runs.py |  19 +++-
  gateway/run.py                       | 128 +++++++++++----------------
  3 files changed, 172 insertions(+), 81 deletions(-)
