@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.12] - 2026-11-21
+
 ### Fixed
 
 -   Roster now connects over the stdio framing the agent runtime (Hermes) uses: the roster tool server that gives a mixed-model harness chief its `run_specialist` tool answers newline-delimited JSON and still accepts Content-Length framing. It had spoken only Content-Length framing since 1.0, so it never connected; this was not a regression. Each start had spent about 60 seconds per mixed-model harness waiting for roster before giving up, so boot is now about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Routing was unaffected: harness runs from the app, the prediction API and flows are planned by the harness router, which runs specialists itself and never uses roster. Before this fix, though, the startup delay could stop runs from starting: with three or more mixed-model harnesses, the roster wait could pass the 135-second start deadline. Known limitation: direct chief calls on mixed-model harnesses still need a model binding. A compiled mixed-model chief profile has `provider: custom` with no base URL or credentials, so a direct request to it does not reach a model yet. This is tracked for 1.7.13.
@@ -1148,7 +1150,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...HEAD
+[1.7.12]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
