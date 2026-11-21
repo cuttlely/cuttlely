@@ -3,11 +3,12 @@ From: cuttlely vendor <vendor@cuttlely.invalid>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
 Subject: [PATCH] cuttlely: background-mcp-discovery
 
-Serve gateway health while MCP discovery runs across up to four profiles. Gate each API run on its own profile and cancel startup discovery on shutdown.
+Serve gateway health while MCP discovery runs across up to four profiles. Gate each API run on its own profile and cancel startup discovery on shutdown. Build /v1/runs agents in a worker under the run profile scope so the discovery wait keeps health and stop requests responsive; recheck shutdown and stop before starting the turn.
 ---
- gateway/cuttlely_mcp_startup.py |  95 ++++++++++++++++++++++++
- gateway/run.py                  | 128 +++++++++++++-------------------
- 2 files changed, 146 insertions(+), 77 deletions(-)
+ gateway/cuttlely_mcp_startup.py      |  95 ++++++++++++++++++++
+ gateway/platforms/api_server_runs.py |  19 +++-
+ gateway/run.py                       | 128 +++++++++++----------------
+ 3 files changed, 161 insertions(+), 81 deletions(-)
  create mode 100644 gateway/cuttlely_mcp_startup.py
 
 diff --git a/gateway/cuttlely_mcp_startup.py b/gateway/cuttlely_mcp_startup.py
@@ -111,6 +112,36 @@ index 0000000000000000000000000000000000000000..42747d2bddfe37c69e2c42790b015011
 +            event.set()
 +            if _pending.get(key) is event:
 +                _pending.pop(key, None)
+diff --git a/gateway/platforms/api_server_runs.py b/gateway/platforms/api_server_runs.py
+index 555b55f1e3323c6ca004fb3b6d8c1f4b745bf2ca..c8d8b6cc533ff9fd4cf00e158e7d5b09d2741233 100644
+--- a/gateway/platforms/api_server_runs.py
++++ b/gateway/platforms/api_server_runs.py
+@@ -989,10 +989,21 @@ async def _execute_run(self, run: _RunLaunch, *, _api_server) -> None:
+         if run_id in self._stopping_run_ids:
+             _finish("cancelled")
+             return
+-        with self._profile_scope(run.request_profile):
+-            agent = self._create_agent(
+-                stream_delta_callback=_text_cb, tool_progress_callback=self._make_run_event_callback(run_id, loop),
+-                interim_assistant_callback=_interim_cb, **run.agent_kwargs)
++        def _build_agent():
++            # MCP discovery can wait for this profile; keep health and stop requests responsive.
++            with self._profile_scope(run.request_profile):
++                return self._create_agent(
++                    stream_delta_callback=_text_cb, tool_progress_callback=self._make_run_event_callback(run_id, loop),
++                    interim_assistant_callback=_interim_cb, **run.agent_kwargs)
++
++        agent = await asyncio.to_thread(_build_agent)
++        # Shutdown or stop may have landed while the worker waited for discovery.
++        # The agent never ran: hand its checked-out memory manager back before finishing.
++        if run_id in self._shutdown_interrupted_run_ids or run_id in self._stopping_run_ids:
++            with suppress(Exception):
++                self._memory_sessions.checkin(agent)
++            _finish("interrupted" if run_id in self._shutdown_interrupted_run_ids else "cancelled")
++            return
+         self._active_run_agents[run_id] = agent
+         approval_notify = _make_approval_notify(self, run, _api_server=_api_server)
+         result, usage, served_runtime = await _submit_api_worker(
 diff --git a/gateway/run.py b/gateway/run.py
 index 620fe26bfe9730e85871f680e81bd8608dd4577f..324db7dd35ca33404495ed46a74fe4d03e6682a0 100644
 --- a/gateway/run.py

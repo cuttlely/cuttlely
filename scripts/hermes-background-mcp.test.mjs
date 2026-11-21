@@ -1,8 +1,10 @@
-// Real gateway boot with a stdio peer that never answers initialize. No model calls.
+// Real gateway boot with a stdio peer that never answers initialize. Model traffic stays on a local fake endpoint.
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
 import fs from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -157,8 +159,32 @@ root = Path(sys.argv[1])
 home = Path(os.environ["HERMES_HOME"])
 sys.path.insert(0, str(root / "hermes"))
 
+# Observe the real API discovery gate without replacing discovery or agent construction.
+import gateway.cuttlely_mcp_startup as startup
+from hermes_constants import hermes_home_key
+original_wait = startup.wait_for_gateway_mcp_discovery
+def report_gate(name, value):
+    tmp = home / (name + ".tmp")
+    tmp.write_text(json.dumps(value))
+    os.replace(tmp, home / (name + ".json"))
+
+def observed_wait():
+    if hermes_home_key() != hermes_home_key(home / "profiles" / "pending"):
+        return original_wait()
+    report_gate("run-wait", {
+        "pending": hermes_home_key() in startup._pending,
+        "off_loop": threading.current_thread() is not threading.main_thread()})
+    started = time.monotonic()
+    try:
+        return original_wait()
+    finally:
+        report_gate("run-wait-done", {"elapsed": time.monotonic() - started})
+startup.wait_for_gateway_mcp_discovery = observed_wait
+
 def monitor():
-    while "gateway.cuttlely_mcp_startup" not in sys.modules:
+    # The module is imported above for the run-gate probe, so wait until the runtime has
+    # started discovery (and finished its own imports) before importing from this thread.
+    while not startup._pending:
         time.sleep(0.05)
     from gateway.cuttlely_mcp_startup import _pending, wait_for_gateway_mcp_discovery
     from hermes_constants import hermes_home_key
@@ -205,17 +231,28 @@ async function boot(t, shortTimeout) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-background-mcp-'))
     const home = path.join(directory, 'hermes')
     fs.mkdirSync(path.join(home, 'profiles', 'ready'), { recursive: true })
+    fs.mkdirSync(path.join(home, 'profiles', 'pending'), { recursive: true })
+    const modelServer = http.createServer((_request, response) => {
+        response.writeHead(400, { 'Content-Type': 'application/json' })
+        response.end(JSON.stringify({ error: { message: 'Local test endpoint: no model', type: 'invalid_request_error' } }))
+    })
+    modelServer.listen(0, '127.0.0.1')
+    await once(modelServer, 'listening')
+    t.after(() => new Promise((resolve) => modelServer.close(resolve)))
     const server = path.join(directory, 'server.py')
     fs.writeFileSync(server, SERVER)
     const peer = (mode) => ({ command: PYTHON, args: [server, mode], ...(shortTimeout && mode === 'silent' ? { connect_timeout: 1 } : {}) })
     const config = {
         gateway: { multiplex_profiles: true },
+        model: { provider: 'custom', default: 'test-model', base_url: `http://127.0.0.1:${modelServer.address().port}/v1` },
+        platform_toolsets: { api_server: [] },
         model_catalog: { enabled: false },
         security: { tirith_enabled: false },
         ...(shortTimeout ? { mcp_single_query_discovery_timeout: 0.3 } : {}),
         mcp_servers: { bad: peer('silent'), good: peer('good') }
     }
     fs.writeFileSync(path.join(home, 'config.yaml'), JSON.stringify(config))
+    fs.writeFileSync(path.join(home, 'profiles', 'pending', 'config.yaml'), JSON.stringify(config))
     fs.writeFileSync(
         path.join(home, 'profiles', 'ready', 'config.yaml'),
         JSON.stringify({ ...config, mcp_servers: { other: peer('good') } })
@@ -227,6 +264,8 @@ async function boot(t, shortTimeout) {
     await new Promise((resolve) => socket.close(resolve))
     let output = ''
     const started = Date.now()
+    const apiKey = randomBytes(32).toString('hex')
+    fs.writeFileSync(path.join(home, 'profiles', 'pending', '.env'), `API_SERVER_KEY=${apiKey}\n`, { mode: 0o600 })
     const child = spawn(PYTHON, ['-u', '-c', DRIVER, ROOT], {
         cwd: ROOT,
         env: {
@@ -240,6 +279,7 @@ async function boot(t, shortTimeout) {
             HERMES_HOME: home,
             HERMES_RUNTIME_DIR: path.join(directory, 'runtime'),
             API_SERVER_PORT: String(port),
+            API_SERVER_KEY: apiKey,
             CUTTLELY_PRELOAD_HERMES: 'false',
             PYTHONDONTWRITEBYTECODE: '1'
         },
@@ -285,6 +325,9 @@ async function boot(t, shortTimeout) {
     }
     return {
         report,
+        home,
+        url: `http://127.0.0.1:${port}`,
+        apiKey,
         diagnostics: () => {
             let logs = ''
             for (const name of ['gateway.log', 'hermes.log']) {
@@ -303,7 +346,46 @@ test(
     'health serves before default-timeout discovery; a ready profile never waits for another profile',
     { skip: integrationSkip },
     async (t) => {
-        const { report, diagnostics } = await boot(t, false)
+        const { report, diagnostics, home, url, apiKey } = await boot(t, false)
+        const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+        const response = await fetch(`${url}/p/pending/v1/runs`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ input: 'Test pending discovery' }),
+            signal: AbortSignal.timeout(2000)
+        })
+        assert.equal(response.status, 202, diagnostics())
+        const { run_id: runId } = await response.json()
+        await waitFor(() => fs.existsSync(path.join(home, 'run-wait.json')), 5000, diagnostics)
+        const gate = JSON.parse(fs.readFileSync(path.join(home, 'run-wait.json'), 'utf8'))
+        assert.equal(gate.pending, true)
+        let polls = 0
+        await waitFor(
+            async () => {
+                const started = performance.now()
+                const health = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1000) })
+                assert.equal(health.status, 200)
+                assert.ok(performance.now() - started < 1000, diagnostics())
+                polls += 1
+                return fs.existsSync(path.join(home, 'run-wait-done.json'))
+            },
+            30_000,
+            diagnostics
+        )
+        assert.ok(polls > 10, `Only ${polls} health polls during discovery`)
+        assert.equal(gate.off_loop, true)
+        const completedGate = JSON.parse(fs.readFileSync(path.join(home, 'run-wait-done.json'), 'utf8'))
+        assert.ok(completedGate.elapsed >= 14 && completedGate.elapsed < 30, JSON.stringify(completedGate))
+        await waitFor(
+            async () => {
+                const status = await fetch(`${url}/p/pending/v1/runs/${runId}`, { headers, signal: AbortSignal.timeout(1000) })
+                assert.equal(status.status, 200)
+                return (await status.json()).status === 'failed'
+            },
+            5000,
+            diagnostics
+        )
+        t.diagnostic(`${polls} /health polls answered under 1 s during the pending profile's run`)
         const result = await waitFor(
             () => {
                 const value = report()
