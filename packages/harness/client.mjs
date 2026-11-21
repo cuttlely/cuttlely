@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { readProfileEnv } from './profile.mjs'
+import { hermesBaseUrl } from './paths.mjs'
 import { beginHermesStream } from './runtime/hermes-stream.mjs'
 import { capacityRetryDelayMs, isRejectedCapacityAdmission, specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
@@ -20,9 +21,7 @@ function runHeaders(harnessName, apiKey) {
     return { authorization: `Bearer ${apiKey}`, 'x-hermes-session-key': hermesCacheScope(harnessName) }
 }
 
-export function hermesBaseUrl() {
-    return process.env.HERMES_API_URL || 'http://127.0.0.1:8642'
-}
+export { hermesBaseUrl }
 
 export function assertLoopback(baseUrl) {
     let url

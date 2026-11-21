@@ -11,7 +11,7 @@ import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
@@ -2293,7 +2293,8 @@ function compileProfileFiles(record, options = {}) {
             CUTTLELY_ANALYST_BRIDGE: '1',
             CUTTLELY_HARNESS_RUN_TIMEOUT_MS: String(compiled.agentRunTimeoutMs),
             CUTTLELY_DATA_DIR: dataRoot(),
-            CUTTLELY_HERMES_HOME: hermesHome()
+            CUTTLELY_HERMES_HOME: hermesHome(),
+            HERMES_API_URL: hermesBaseUrl()
         }
     })
     for (const block of mcpBlocks) {

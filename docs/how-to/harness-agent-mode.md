@@ -37,4 +37,5 @@ The gateway logs the resolved provider node and model id for each completion att
 -   Agent mode is an API option in 1.7.13; there is no mode selector in the app.
 -   The chief chooses whether and how often to delegate. Router planning and answer handoff do not run in agent mode.
 -   Existing turn limits, runtime availability checks and specialist limits still apply. A timeout or failed runtime run is recorded as a failed harness run.
+-   Agent mode makes several model calls per turn (the chief's own calls plus each specialist's), so slower models can reach the existing harness turn budget (`CUTTLELY_HARNESS_TURN_BUDGET_MS`, default 45 seconds); raise it if agent runs time out.
 -   Call the Cuttlely runs API. The agent runtime remains private on loopback.

@@ -10,6 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Agent-mode chief roster calls follow a non-default runtime port.
 -   Chief profiles now bind to the gateway for single-model and mixed-model teams, including canvas try profiles, so direct chief calls reach the configured model without storing its credential in a profile. The gateway logs the resolved upstream provider node and model id for each completion attempt, including fallbacks, without keys or tokens.
 
 ## [1.7.12] - 2026-11-21
