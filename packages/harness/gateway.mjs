@@ -625,7 +625,8 @@ async function onRequest(req, res) {
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
             assertStillValid(meta)
-            availability.assertRuntimeAvailable()
+            // The runtime lists tools during startup while status is still `restarting`; refusing this deadlocks cold starts.
+            // Tool calls and chat completions still refuse until the runtime is available.
             const specs = await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
             assertStillValid(meta)
             sendJson(res, 200, { tools: specs })
