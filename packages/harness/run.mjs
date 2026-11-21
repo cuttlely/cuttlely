@@ -605,7 +605,13 @@ function noteUsage(context, reply) {
 function agentChiefResult(context, profileName, sessionId, started, input, text, failed = false) {
     const agents = (agentTurn(profileName, sessionId)?.steps || []).map((step) => {
         const specialist = context.roster.specialists.find((item) => item.name === step.name)
-        return { ...step, model: publicModelLabel(specialist?.model), tools: [], sources: [] }
+        return {
+            ...step,
+            ...(step.status === 'running' ? { status: 'cancelled', ms: Math.max(0, Date.now() - step.startedAt) } : {}),
+            model: publicModelLabel(specialist?.model),
+            tools: [],
+            sources: []
+        }
     })
     const timings = { routeMs: 0, specialistsMs: agents.reduce((sum, step) => sum + step.ms, 0), handoffMs: 0 }
     const report = predictionReport(context, timings)
@@ -651,9 +657,25 @@ async function runAgentChief(context, input) {
     beginAgentTurn(profileName, sessionId, context.chatId, context.turnId)
     context.workSignal?.addEventListener('abort', stop, { once: true })
     try {
+        const history = loadPrompt(context)
+        const fitted = fitChiefMessages({
+            system: '',
+            memory: context.memoryBlock,
+            history,
+            user: [String(input ?? ''), context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
+            budget: chiefContextTokens()
+        })
+        noteTruncated(context, fitted.truncated)
         const created = await createRun({
             ...request,
-            body: { input: String(input ?? ''), session_id: sessionId, provider: 'custom', model: profileName }
+            body: {
+                input: fitted.messages.at(-1).content,
+                conversation_history: fitted.messages.slice(1, -1),
+                ...(fitted.messages[0].content ? { instructions: fitted.messages[0].content } : {}),
+                session_id: sessionId,
+                provider: 'custom',
+                model: profileName
+            }
         })
         runId = created.run_id
         throwIfClient(context)
@@ -673,15 +695,16 @@ async function runAgentChief(context, input) {
         noteUsage(context, status)
         if (hermesRunFailed(status.status))
             throw new HarnessError('chief_failed', String(status.error || status.message || 'Chief run failed.'))
-        const text = typeof status.output === 'string' ? status.output : ''
+        const text = typeof status.output === 'string' ? maskWorkspacePaths(status.output) : ''
         if (!text.trim()) throw new HarnessError('empty_output', 'The chief returned an empty answer.')
         const result = agentChiefResult(context, profileName, sessionId, started, input, text)
         if (!context.replay) appendTurn(context.name, context.chatId, input, text, [], undefined, { scope: context.sessionScope })
         emit(context, 'final', result)
         return result
     } catch (error) {
-        context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', true))
         if (runId && !remoteFinished) stop()
+        await stopping
+        context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', true))
         throw error
     } finally {
         stream.flush()

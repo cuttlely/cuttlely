@@ -136,7 +136,8 @@ async function runSpecialist(args, signal) {
     const turn = agentTurn(harnessName, sessionId)
     if (sessionId && !turn) throw new Error('The agent turn is no longer active.')
     const body = rosterSpecialistBody(specialist, task, turn?.turnId, roster?.chief, turn?.chatId)
-    const step = { name, task, startedAt: Date.now() }
+    const step = { name, task, startedAt: Date.now(), status: 'running' }
+    const slot = turn ? recordAgentStep(harnessName, sessionId, step) : undefined
     const timeoutMs = agentRunTimeoutMs()
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0
@@ -185,20 +186,23 @@ async function runSpecialist(args, signal) {
         remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
         step.usage = status.usage
         if (hermesRunFailed(status.status)) {
+            step.status = ['cancelled', 'interrupted'].includes(status.status) ? 'cancelled' : 'failed'
             throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
         }
         const text = status.output || status.text || ''
         if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
+        step.status = 'completed'
         return text
     } catch (error) {
         step.error = error.message
+        step.status = signal.aborted || error.name === 'AbortError' || step.status === 'cancelled' ? 'cancelled' : 'failed'
         if (runId && !remoteFinished) stop()
         throw error
     } finally {
-        if (turn) recordAgentStep(harnessName, sessionId, step)
         signal.removeEventListener('abort', stop)
         if (signal.aborted) stop()
         await stopping
+        if (slot !== undefined) recordAgentStep(harnessName, sessionId, step, slot)
     }
 }
 

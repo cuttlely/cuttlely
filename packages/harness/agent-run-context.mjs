@@ -27,16 +27,22 @@ export function agentTurn(profileName, sessionId) {
     return row ? { chatId: row.chat_id, turnId: row.turn_id, steps: JSON.parse(row.steps_json) } : null
 }
 
-export function recordAgentStep(profileName, sessionId, step) {
-    immediate((db) => {
+// Return the stable journal slot so parallel delegations update their own admission record.
+export function recordAgentStep(profileName, sessionId, step, slot) {
+    return immediate((db) => {
         ensure(db)
         const turn = agentTurn(profileName, sessionId)
-        if (!turn || turn.steps.length >= 160) return
+        if (!turn) return
+        if (slot === undefined) {
+            if (turn.steps.length >= 160) return
+            slot = turn.steps.length
+        } else if (!Number.isInteger(slot) || slot < 0 || slot >= turn.steps.length) return
         const tokens = step.usage
-        turn.steps.push({
+        turn.steps[slot] = {
             name: step.name,
-            task: publicTask(step.task),
-            status: step.error ? 'failed' : 'completed',
+            task: publicTask(redactSecrets(step.task)),
+            status: step.status,
+            startedAt: step.startedAt,
             ms: Math.max(0, Date.now() - step.startedAt),
             ...(step.error ? { error: redactSecrets(step.error).slice(0, 1000) } : {}),
             ...(tokens
@@ -47,12 +53,13 @@ export function recordAgentStep(profileName, sessionId, step) {
                       }
                   }
                 : {})
-        })
+        }
         db.prepare('UPDATE agent_turns SET steps_json = ? WHERE session_id = ? AND profile_name = ?').run(
             JSON.stringify(turn.steps),
             sessionId,
             profileName
         )
+        return slot
     })
 }
 

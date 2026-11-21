@@ -26,6 +26,8 @@ Omit `mode`, or send `"mode": "router"`, to use router mode. Any other value ret
 
 The request waits for the chief's runtime run to finish, using the same completion wait as specialist runs. Cuttlely records one harness run with `mode: "agent"`; the chief's final text is its output, and specialist calls made through `run_specialist` are its steps. The chat and turn context follows those calls, so specialist workspace scope and nested flows use the admitted caller's context.
 
+A specialist call still running when the turn ends is recorded as cancelled. Reuse `chatId` for follow-ups: the chief receives the same recent turns and rolling memory as router mode, within the chief context budget. Failed turns do not enter that conversation history.
+
 ## Model binding
 
 Chief and specialist profiles send model completions to Cuttlely's loopback gateway. The gateway binds each profile token to its configured model node and credential, including any configured fallback. The profile holds only its scoped gateway token; it never holds the upstream credential. A request's model string does not select a different upstream model.
