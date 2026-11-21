@@ -7,6 +7,7 @@ import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
+import { agentTurn, recordAgentStep } from './agent-run-context.mjs'
 
 const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
@@ -130,7 +131,13 @@ async function runSpecialist(args, signal) {
     if (!name || !task) throw new Error('run_specialist needs a specialist name and a task.')
     const specialist = (roster?.specialists || []).find((item) => item.name === name)
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
-    const body = rosterSpecialistBody(specialist, task, undefined, roster?.chief)
+    // The runtime replaces this hidden argument with its own session id, even if the model supplied one.
+    const sessionId = args._cuttlelyScope
+    const turn = agentTurn(harnessName, sessionId)
+    if (sessionId && !turn) throw new Error('The agent turn is no longer active.')
+    const body = rosterSpecialistBody(specialist, task, turn?.turnId, roster?.chief, turn?.chatId)
+    const step = { name, task, startedAt: Date.now(), status: 'running' }
+    const slot = turn ? recordAgentStep(harnessName, sessionId, step) : undefined
     const timeoutMs = agentRunTimeoutMs()
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0
@@ -177,19 +184,25 @@ async function runSpecialist(args, signal) {
                       signal
                   })
         remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+        step.usage = status.usage
         if (hermesRunFailed(status.status)) {
+            step.status = ['cancelled', 'interrupted'].includes(status.status) ? 'cancelled' : 'failed'
             throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
         }
         const text = status.output || status.text || ''
         if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
+        step.status = 'completed'
         return text
     } catch (error) {
+        step.error = error.message
+        step.status = signal.aborted || error.name === 'AbortError' || step.status === 'cancelled' ? 'cancelled' : 'failed'
         if (runId && !remoteFinished) stop()
         throw error
     } finally {
         signal.removeEventListener('abort', stop)
         if (signal.aborted) stop()
         await stopping
+        if (slot !== undefined) recordAgentStep(harnessName, sessionId, step, slot)
     }
 }
 

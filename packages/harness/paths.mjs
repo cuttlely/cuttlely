@@ -20,6 +20,10 @@ export function hermesHome() {
     return process.env.CUTTLELY_HERMES_HOME || path.join(dataRoot(), 'hermes')
 }
 
+export function hermesBaseUrl() {
+    return process.env.HERMES_API_URL || 'http://127.0.0.1:8642'
+}
+
 export function profileDir(name) {
     return path.join(hermesHome(), 'profiles', name)
 }
