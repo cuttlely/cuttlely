@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.9)
+# Cuttlely FAQ (1.7.10)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.9?
+### What's new in 1.7.10?
+
+The Docker image, Compose files and Render Blueprint health checks now probe `/api/v1/ping/live`, so the UI and operator recovery stay reachable while the agent runtime recovers; strict readiness stays at `/api/v1/ping`. The runtime supervisor backs off, cools down and restarts the stack in place, agent calls answer `503 RUNTIME_UNAVAILABLE` with `Retry-After` while it is down, and a descriptor leak in repeated agent-team runs is fixed. Dash Flows can keep its data in the application Postgres database behind a default-off switch. Known issue: instances with several harness profiles can fail to start the runtime ([#542](https://github.com/cuttlely/cuttlely/issues/542)); stay on 1.7.9 until 1.7.11. No schema migration is added. [Health checks](./docs/how-to/reverse-proxy.md#health-checks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1710).
+
+### What changed in 1.7.9?
 
 A standalone Harness chatflow now uses its LangSmith Analytics settings without a Tool Agent wrapper. Imports drop edges whose inputs or outputs are gone, operator request failures show clear error messages, and the XML parser dependency includes a security fix. ETL scans yield to requests and interrupted repository files resume correctly. Empty local-password installations can create their first owner from host configuration; existing accounts remain unchanged. [ETL](./docs/how-to/etl.md) · [First owner](./docs/how-to/sign-in.md#from-host-configuration). Use matching 1.7.9 server and widget packages. No schema migration is added. [LangSmith tracing](./docs/reference/langsmith-tracing.md) · [Upgrade guide](./docs/upgrading.md).
 

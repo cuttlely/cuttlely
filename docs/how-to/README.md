@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.10
+
+-   **Point health checks at liveness.** The image, Compose and Render probe `/api/v1/ping/live`; keep strict `/api/v1/ping` for readiness. [Health checks](./reverse-proxy.md#health-checks).
+-   **Recover the agent runtime in place.** Backoff, cooldown and in-place stack restart, with `503 RUNTIME_UNAVAILABLE` and `Retry-After` while it is down. [Agent runtime recovery](./server-settings.md#agent-runtime-recovery).
+-   **Store Dash Flows on Postgres (preview).** Default-off `CUTTLELY_APP_DATABASE_STORES` switch. [Storage on Postgres](./dashflows.md#storage-on-postgres-preview).
+
 ## New in 1.7.9
 
 -   **Trace a single Harness node.** Use LangSmith Analytics without a Tool Agent wrapper. [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows).

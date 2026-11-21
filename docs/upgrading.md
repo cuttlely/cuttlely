@@ -4,6 +4,14 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.10
+
+Back up the application database, encryption key and settings first. Use matching 1.7.10 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.
+
+-   **Health check path (operators).** The Docker image `HEALTHCHECK`, the Compose files and the Render Blueprint `healthCheckPath` now probe `GET /api/v1/ping/live` instead of `/api/v1/ping`. If you run your own gateway, load balancer, orchestrator probe or a Render service created before this change, update its health check path to `/api/v1/ping/live` after upgrading. Keep `/api/v1/ping` for readiness monitoring. Plain `docker run` should use `--restart unless-stopped`. Details are in the containment section below.
+-   **Dash Flows on Postgres (preview).** `CUTTLELY_APP_DATABASE_STORES` stays off by default. [Storage on Postgres](./how-to/dashflows.md#storage-on-postgres-preview).
+-   **Known issue.** On instances with several harness profiles, the agent runtime can fail to start and restart in a loop (`x-cuttlely-hermes: restarting`). Raising `CUTTLELY_HERMES_HEALTH_GRACE` does not help. Stay on 1.7.9 until the fix in 1.7.11 ([#542](https://github.com/cuttlely/cuttlely/issues/542)).
+
 ## Agent runtime containment upgrade
 
 Back up the application database, encryption key and settings before upgrading. This containment change adds no schema migration and preserves default-Off access-key enforcement. It improves recovery and availability; the runtime descriptor-leak fix is separate.

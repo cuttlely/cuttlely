@@ -27,13 +27,15 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
+**1.7.10에서는 에이전트 런타임 복구 중에도 UI에 접속할 수 있습니다.** 이미지, Compose, Render 상태 검사는 이제 `/api/v1/ping/live`를 확인합니다. 사용자 지정 게이트웨이와 로드 밸런서 프로브도 업데이트하세요. 알려진 문제: harness 프로필이 많은 인스턴스에서는 런타임이 시작되지 않을 수 있습니다([#542](https://github.com/cuttlely/cuttlely/issues/542)). 1.7.11까지는 1.7.9를 사용하세요. [상태 검사](./docs/how-to/reverse-proxy.md#health-checks) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1710).
+
 **1.7.9에서는 Harness 노드만 있는 채팅 흐름을 LangSmith로 추적할 수 있습니다.** 채팅 흐름의 Analytics에서 LangSmith를 켜세요. Tool Agent로 감쌀 필요가 없습니다. [LangSmith 추적](./docs/reference/langsmith-tracing.md). ETL은 스캔 중에도 요청에 응답하며 중단된 저장소 파일을 재개합니다. 로컬 비밀번호 인증을 사용하는 새 설치에서는 호스트 설정으로 첫 소유자를 만들 수 있습니다. [ETL](./docs/how-to/etl.md) · [첫 소유자](./docs/how-to/sign-in.md#from-host-configuration).
 
 **1.7.7은 에이전트 팀 채팅 간에 취소가 영향을 주는 문제를 수정합니다.** 한 채팅을 중지해도 같은 전문 에이전트를 사용하는 다른 채팅은 계속 실행됩니다. [Harnesses](./docs/how-to/harnesses.md).
 
 **1.7.6은 가져온 에이전트 팀 검증과 로컬 사용자 관리를 개선합니다.** **Import & verify**가 저장된 쿼리의 날짜·기간·숫자 테스트 값을 안전하게 선택하며, 아직 게시하지 않은 harness도 첫 Publish 전에 시험할 수 있습니다. **User Management**에 비밀번호 재설정 링크, Disable/Reactivate, **View team access**가 추가되었습니다. 대기 중인 초대는 실제 상태로 표시되고, 다시 초대하지 않고 팀 역할을 바꿀 수 있습니다. [가져오기와 검증](./docs/how-to/import-verify.md) · [사용자와 팀 관리](./docs/how-to/users-without-authkit.md). [모델 비용 추정치](./docs/reference/model-list.md)에는 Together AI Kimi K3의 현재 표준 요금을 반영했습니다.
 
-최신 안정 버전은 **1.7.9**입니다. 이미지 `1.7.9`를 지정하거나 `cuttlely@1.7.9`를 설치하세요. [1.7.9 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.9) · [변경 기록](./CHANGELOG.md).
+최신 안정 버전은 **1.7.10**입니다. 이미지 `1.7.10`를 지정하거나 `cuttlely@1.7.10`를 설치하세요. [1.7.10 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.10) · [변경 기록](./CHANGELOG.md).
 
 **1.7.0은 보안 예외 릴리스입니다. 이전 버전에서 업그레이드하는 경우 작업이 필요합니다.** 데이터베이스, 암호화 키, 설정을 백업한 다음, 브라우저 관리에서 잠기지 않도록 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 읽으세요. 호스트 로그 일회용 코드로 하는 신청, `CUTTLELY_INSTANCE_OPERATOR`, 액세스 키 적용이 기본적으로 꺼져 있다는 점을 포함한 전체 체크리스트는 [업그레이드 주의사항](./docs/upgrading.md)("1.7.0 security-exception upgrade" 절)과 [변경 기록](./CHANGELOG.md)에 있습니다. 설정 코드는 첫 계정만 만들며, 호스트에서 로컬 로그인이 이미 켜져 있어야 합니다(Docker와 `npx cuttlely start`는 기본적으로 이를 켭니다). 이 코드로 서비스를 구성하거나 인스턴스 운영자를 지정할 수는 없습니다. [로그인](./docs/how-to/sign-in.md) · [처음 10분](#your-first-10-minutes).
 
