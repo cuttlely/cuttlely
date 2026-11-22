@@ -2,9 +2,13 @@ import fs from 'fs'
 import path from 'path'
 import { Request, Response, NextFunction } from 'express'
 import { getDatabaseHealth } from '../../startup/databaseHealth'
-import { BOOT_RETRY_AFTER_SECONDS, bootPassBlocksPing, PROFILES_COMPILING } from '../../services/harnesses/bootGate'
+import {
+    BOOT_RETRY_AFTER_SECONDS,
+    bootPassBlocksPing,
+    PROFILES_COMPILING,
+    unavailableHarnessNames
+} from '../../services/harnesses/bootGate'
 import { runtimeState } from '../../utils/runtimeAvailability'
-import { unavailableHarnessNames } from '../../services/harnesses'
 
 function pingDetails(body: string, dataDir: string | undefined): string {
     const state = runtimeState(dataDir)

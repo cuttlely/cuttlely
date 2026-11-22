@@ -27,7 +27,14 @@ import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
 import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
-import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
+import {
+    beginBootPass,
+    bootPassCapMs,
+    finishBootPass,
+    markBootIncomplete,
+    openBootAfterCap,
+    registerUnavailableHarnessNames
+} from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -467,6 +474,7 @@ function clearBootFailure(name: string) {
 export function unavailableHarnessNames(): string[] {
     return [...bootFailures.keys()].sort()
 }
+registerUnavailableHarnessNames(unavailableHarnessNames)
 
 /** A failed boot compile refuses a run with 503, not 500. */
 export function assertHarnessAvailable(name: string) {
