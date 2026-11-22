@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { readProfileEnv } from './profile.mjs'
-import { hermesBaseUrl } from './paths.mjs'
+import { hermesBaseUrl, hermesProfileId } from './paths.mjs'
 import { beginHermesStream } from './runtime/hermes-stream.mjs'
 import { capacityRetryDelayMs, isRejectedCapacityAdmission, specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
@@ -99,7 +99,7 @@ export async function createRun({
     if (!apiKey) {
         throw new HarnessError('missing_profile', `Harness "${harnessName}" has no profile API key. Compile the roster first.`)
     }
-    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs`
+    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs`
     const deadline = Date.now() + startWaitMs
     const capacityWaitMs = specialistCapacityWaitSeconds(capacityWaitSeconds) * 1000
     const capacityDeadline = capacityWaitMs > 0 ? Date.now() + Math.min(capacityWaitMs, timeoutMs > 0 ? timeoutMs : Infinity) : 0
@@ -170,7 +170,9 @@ export async function stopRun({ harnessName, runId, baseUrl = hermesBaseUrl(), f
     if (!runId) return true
     assertLoopback(baseUrl)
     const env = readProfileEnv(harnessName)
-    const runUrl = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs/${encodeURIComponent(runId)}`
+    const runUrl = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs/${encodeURIComponent(
+        runId
+    )}`
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
@@ -220,7 +222,7 @@ export async function waitForRun({
 } = {}) {
     assertLoopback(baseUrl)
     const env = readProfileEnv(harnessName)
-    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs/${encodeURIComponent(runId)}`
+    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(hermesProfileId(harnessName))}/v1/runs/${encodeURIComponent(runId)}`
     const headers = runHeaders(harnessName, env.API_SERVER_KEY)
     const started = Date.now()
     const deadline = timeoutMs > 0 ? started + timeoutMs : Infinity
