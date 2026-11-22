@@ -16,6 +16,7 @@ import {
     ANALYST_RULES_MAX_CHARS,
     ROUTING_SUMMARY_CHARS,
     assertHarnessName,
+    getHarness,
     listHarnessNames,
     joinedAnalystRules,
     routingSummaryText
@@ -1299,26 +1300,33 @@ function modelKey(model) {
     return ''
 }
 
-// The exact harness-parent owns the lowercase folder. Without a marker, a saved lowercase name wins;
-// otherwise only a unique legacy folder breaks a tie between capitalised names. Ambiguous names are refused.
+// A still-saved marker owner wins, then a unique legacy folder distinct from the lowercase target.
+// Otherwise the earliest saved createdAt owns it, with exact names in code-unit order breaking ties.
 function chiefProfileCollision(name) {
     const id = hermesProfileId(name)
-    const others = listHarnessNames().filter((other) => other !== name && hermesProfileId(other) === id)
-    if (!others.length) return
-    const owner = readMarker(path.join(profileDir(name), 'harness-parent'))
-    if (owner) return owner === name ? undefined : owner
-    if (name === id) return
-    if (others.includes(id)) return id
+    const names = listHarnessNames().filter((other) => hermesProfileId(other) === id)
+    if (!names.some((other) => other !== name)) return
+    let owner = readMarker(path.join(profileDir(name), 'harness-parent'))
+    if (names.includes(owner)) return owner === name ? undefined : owner
     const root = profilesRoot()
     const opened = openDirNoFollow(root, { quiet: true })
-    if (!opened) return others[0]
-    try {
-        const legacy = [name, ...others].filter((candidate) => lstatChild(opened.fd, root, candidate)?.isDirectory())
-        if (legacy.length === 1) return legacy[0] === name ? undefined : legacy[0]
-        return others[0]
-    } finally {
-        closeFds(opened.fds)
+    if (opened) {
+        try {
+            const legacy = names.filter((candidate) => candidate !== id && lstatChild(opened.fd, root, candidate)?.isDirectory())
+            if (legacy.length === 1) return legacy[0] === name ? undefined : legacy[0]
+        } finally {
+            closeFds(opened.fds)
+        }
     }
+    owner = names
+        .map((candidate) => getHarness(candidate))
+        .filter(Boolean)
+        .sort((a, b) => {
+            if (a.createdAt < b.createdAt) return -1
+            if (a.createdAt > b.createdAt) return 1
+            return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+        })[0]?.name
+    return owner === name ? undefined : owner
 }
 
 export function assertChiefProfileAvailable(name) {

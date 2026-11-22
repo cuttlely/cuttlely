@@ -20,6 +20,7 @@ const { stableStringify } = await import('./flow-graph.mjs')
 const { hermesProfileId, profileDir } = await import('./paths.mjs')
 const {
     adoptLegacyChiefProfile,
+    assertChiefProfileAvailable,
     compileProfile,
     compileProfileCached,
     compileTryProfile,
@@ -101,9 +102,10 @@ after(async () => {
 })
 
 const chief = { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } }
-const recordFor = (name) =>
+const recordFor = (name, createdAt) =>
     saveHarness({
         name,
+        createdAt,
         workspaceId: 'fixture-workspace',
         chief,
         specialists: [
@@ -173,6 +175,82 @@ function isolatedCase(label, check) {
     }
 }
 
+for (const [ownerName, contenderName] of [
+    ['Caps', 'caps'],
+    ['caps', 'Caps']
+])
+    test(
+        `the first saved ${ownerName} owns router sessions before compilation when ${contenderName} is saved later`,
+        isolatedCase(`uncompiled-${ownerName}`, async () => {
+            const owner = recordFor(ownerName, '2026-01-01T00:00:00.000Z')
+            const router = await run(owner.name, 'router', {
+                loadNode: async () =>
+                    class {
+                        async init() {
+                            return {
+                                invoke: async (messages) => ({
+                                    content: String(messages[0]?.content).includes('You route work')
+                                        ? JSON.stringify({ steps: [{ specialist: 'reader', task: 'Answer the fixture.' }] })
+                                        : 'Router answer.'
+                                })
+                            }
+                        }
+                    }
+            })
+            assert.equal(router.text, 'Router answer.')
+            closeSessions()
+            const target = profileDir(owner.name)
+            const sessions = path.join(target, 'sessions.sqlite')
+            const bytes = fs.readFileSync(sessions)
+            const inode = fs.statSync(sessions).ino
+            assert.ok(!fs.existsSync(path.join(target, 'harness-parent')))
+            assert.ok(!fs.existsSync(path.join(target, 'config.yaml')))
+            const contender = recordFor(contenderName, '2026-01-02T00:00:00.000Z')
+            const refused = collisionFor(contender.name, owner.name)
+            const before = snapshot(target)
+            assert.throws(() => compileProfile(contender), refused)
+            assert.throws(() => compileProfileCached(contender), refused)
+            assert.throws(() => ensureSession(contender.name, `fixture-${owner.name}`), refused)
+            assert.throws(() => readMessages(contender.name, `fixture-${owner.name}`), refused)
+            await assert.rejects(run(contender.name, 'router'), refused)
+            await assert.rejects(run(contender.name), refused)
+            assert.deepEqual(snapshot(target), before)
+            assert.equal(compileProfileCached(owner).dir, target)
+            assert.equal(fs.statSync(sessions).ino, inode)
+            assert.deepEqual(fs.readFileSync(sessions), bytes)
+            assert.deepEqual(
+                readMessages(owner.name, `fixture-${owner.name}`).map((message) => message.content),
+                ['Answer the fixture.', 'Router answer.']
+            )
+            assert.equal((await run(owner.name)).text, 'Chief answer.')
+        })
+    )
+
+for (const names of [
+    ['Caps', 'caps'],
+    ['caps', 'Caps']
+])
+    test(
+        `equal createdAt uses code-unit name order with ${names.join(' then ')} saved`,
+        isolatedCase(`tied-${names[0]}`, () => {
+            const records = names.map((name) => recordFor(name, '2026-01-01T00:00:00.000Z'))
+            const refusedLower = collisionFor('caps', 'Caps')
+            assertChiefProfileAvailable('Caps')
+            assert.throws(() => compileProfile(records.find((record) => record.name === 'caps')), refusedLower)
+            const target = profileDir('Caps')
+            fs.mkdirSync(target, { recursive: true })
+            // A marker for a deleted harness does not own the folder.
+            fs.writeFileSync(path.join(target, 'harness-parent'), 'CAPS\n')
+            assertChiefProfileAvailable('Caps')
+            assert.throws(() => ensureSession('caps', 'tied'), refusedLower)
+            // A still-saved exact marker outranks both the tie and a unique legacy folder.
+            fs.mkdirSync(path.join(path.dirname(target), 'Caps'))
+            fs.writeFileSync(path.join(target, 'harness-parent'), 'caps\n')
+            assertChiefProfileAvailable('caps')
+            assert.throws(() => ensureSession('Caps', 'tied'), collisionFor('Caps', 'caps'))
+        })
+    )
+
 test('Caps cannot compile or run over caps; the existing chief, specialists, tokens and memory stay intact', async () => {
     const lower = recordFor('caps')
     // Compile as normal run admission does, retaining the compiled existing harness for later agent calls.
@@ -237,10 +315,13 @@ for (const order of ['legacy-first', 'owner-first'])
     test(
         `disk reload ignores the legacy Caps chief token with ${order} creation`,
         isolatedCase(`legacy-token-${order}`, async () => {
-            let owner = recordFor('caps')
+            let owner = recordFor('caps', '2026-01-01T00:00:00.000Z')
             const contender = recordFor('Caps')
             const legacy = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', contender.name)
             if (order === 'legacy-first') fs.mkdirSync(legacy, { recursive: true })
+            // An exact saved marker establishes ownership even when a competing legacy folder exists.
+            fs.mkdirSync(profileDir(owner.name), { recursive: true })
+            fs.writeFileSync(path.join(profileDir(owner.name), 'harness-parent'), `${owner.name}\n`)
             const compiled = compileProfile(owner)
             if (order === 'owner-first') fs.mkdirSync(legacy)
             const stale = crypto.randomBytes(32).toString('base64url')
@@ -409,7 +490,7 @@ test('compile migrates a legacy chief before preflight and keeps an all-lowercas
     assert.equal(fs.statSync(folder).ino, before)
 })
 
-test('migration skips symlinks, non-directories, existing targets and saved-name collisions', () => {
+test('migration skips symlinks, non-directories and existing targets, but adopts a unique legacy collision owner', () => {
     const outside = path.join(dir, 'outside')
     fs.mkdirSync(outside)
     fs.writeFileSync(path.join(outside, 'kept.txt'), 'outside')
@@ -426,11 +507,11 @@ test('migration skips symlinks, non-directories, existing targets and saved-name
     assert.equal(fs.readFileSync(path.join(profilesRoot, 'ExistingTarget', 'kept.txt'), 'utf8'), 'source')
     recordFor('Collision')
     recordFor('collision')
-    // Remove the target so the saved-name collision is the guard preventing a move.
+    // With no target, the unique legacy folder owns the chief despite a saved lowercase contender.
     fs.rmdirSync(profileDir('Collision'))
-    assert.equal(adoptLegacyChiefProfile('Collision'), false)
-    assert.ok(fs.existsSync(path.join(profilesRoot, 'Collision')))
-    assert.ok(!fs.existsSync(profileDir('Collision')))
+    assert.equal(adoptLegacyChiefProfile('Collision'), true)
+    assert.ok(!fs.existsSync(path.join(profilesRoot, 'Collision')))
+    assert.ok(fs.existsSync(profileDir('Collision')))
 })
 
 test('opening a published router session migrates its existing database before any compile', () => {
@@ -497,9 +578,9 @@ test(
 )
 
 test(
-    'an unmarked legacy TigerMom stays in place when the saved lowercase name wins',
+    'a unique unmarked legacy TigerMom owns the chief even over an older saved lowercase name',
     isolatedCase('legacy-collision', async () => {
-        const legacyRecord = recordFor('TigerMom')
+        const legacyRecord = recordFor('TigerMom', '2026-01-02T00:00:00.000Z')
         appendTurn(legacyRecord.name, 'legacy-chat', 'Legacy question', 'Legacy answer')
         closeSessions()
         const target = profileDir(legacyRecord.name)
@@ -508,41 +589,44 @@ test(
         fs.writeFileSync(path.join(legacy, 'kept.txt'), 'Legacy data')
         const before = snapshot(legacy)
         const inode = fs.statSync(legacy).ino
-        const lower = recordFor('tigermom')
-        const refused = collisionFor(legacyRecord.name, lower.name)
-        assert.equal(adoptLegacyChiefProfile(legacyRecord.name), false)
-        assert.throws(() => compileProfile(legacyRecord), refused)
-        assert.throws(() => ensureSession(legacyRecord.name, 'legacy-chat'), refused)
-        assert.throws(() => readMessages(legacyRecord.name, 'legacy-chat'), refused)
-        await assert.rejects(run(legacyRecord.name), refused)
-        await assert.rejects(run(legacyRecord.name, 'router'), refused)
+        const lower = recordFor('tigermom', '2026-01-01T00:00:00.000Z')
+        const refused = collisionFor(lower.name, legacyRecord.name)
+        assert.equal(adoptLegacyChiefProfile(lower.name), false)
+        assert.throws(() => compileProfile(lower), refused)
+        assert.throws(() => ensureSession(lower.name, 'legacy-chat'), refused)
+        assert.throws(() => readMessages(lower.name, 'legacy-chat'), refused)
+        await assert.rejects(run(lower.name), refused)
+        await assert.rejects(run(lower.name, 'router'), refused)
         assert.deepEqual(
-            boot([legacyRecord, lower]).map((row) => [row.name, row.status]),
-            [['TigerMom', 'failed']]
+            boot([lower]).map((row) => [row.name, row.status]),
+            [['tigermom', 'failed']]
         )
-        assert.ok(!fs.existsSync(target), 'boot does not move the refused legacy chief or compile an absent owner')
-        assert.equal(compileProfile(lower).dir, target)
-        assert.equal(fs.readFileSync(path.join(target, 'harness-parent'), 'utf8').trim(), lower.name)
-        assert.ok(!fs.existsSync(path.join(target, 'kept.txt')))
-        assert.deepEqual(readMessages(lower.name, 'legacy-chat'), [])
-        ensureSession(lower.name, 'new-chat')
-        assert.throws(() => ensureSession(legacyRecord.name, 'new-chat'), refused)
-        assert.equal(adoptLegacyChiefProfile(legacyRecord.name), false)
+        assert.ok(!fs.existsSync(target), 'refusing the contender does not move the legacy chief')
         assert.equal(fs.statSync(legacy).ino, inode)
         assert.deepEqual(snapshot(legacy), before)
+        assert.equal(adoptLegacyChiefProfile(legacyRecord.name), true)
+        assert.equal(fs.statSync(target).ino, inode)
+        assert.equal(compileProfile(legacyRecord).dir, target)
+        assert.equal(fs.readFileSync(path.join(target, 'harness-parent'), 'utf8').trim(), legacyRecord.name)
+        assert.equal(fs.readFileSync(path.join(target, 'kept.txt'), 'utf8'), 'Legacy data')
+        assert.deepEqual(
+            readMessages(legacyRecord.name, 'legacy-chat').map((message) => message.content),
+            ['Legacy question', 'Legacy answer']
+        )
+        assert.throws(() => ensureSession(lower.name, 'new-chat'), refused)
+        assert.equal((await run(legacyRecord.name)).text, 'Chief answer.')
     })
 )
 
 test(
-    'capitalised collisions need a unique legacy folder until an exact marker owns the chief',
+    'capitalised collisions use saved age with zero or multiple legacy folders, then a unique legacy owner',
     isolatedCase('capitalised-collision', () => {
-        const first = recordFor('TigerMom')
-        const second = recordFor('Tigermom')
+        const first = recordFor('TigerMom', '2026-01-01T00:00:00.000Z')
+        const second = recordFor('Tigermom', '2026-01-02T00:00:00.000Z')
         const refusedFirst = collisionFor(first.name, second.name)
         const refusedSecond = collisionFor(second.name, first.name)
-        assert.throws(() => compileProfile(first), refusedFirst)
+        assertChiefProfileAvailable(first.name)
         assert.throws(() => compileProfile(second), refusedSecond)
-        assert.throws(() => ensureSession(first.name, 'ambiguous'), refusedFirst)
         assert.throws(() => ensureSession(second.name, 'ambiguous'), refusedSecond)
         const target = profileDir(first.name)
         const legacy = path.join(path.dirname(target), first.name)
@@ -551,20 +635,19 @@ test(
         fs.mkdirSync(otherLegacy)
         fs.writeFileSync(path.join(legacy, 'kept.txt'), 'First legacy data')
         fs.writeFileSync(path.join(otherLegacy, 'kept.txt'), 'Second legacy data')
+        assert.equal(adoptLegacyChiefProfile(second.name), false)
+        assertChiefProfileAvailable(first.name)
+        assert.throws(() => compileProfile(second), refusedSecond)
+        fs.rmSync(legacy, { recursive: true })
+        const inode = fs.statSync(otherLegacy).ino
         assert.equal(adoptLegacyChiefProfile(first.name), false)
-        assert.equal(adoptLegacyChiefProfile(second.name), false)
         assert.throws(() => compileProfile(first), refusedFirst)
-        assert.throws(() => compileProfile(second), refusedSecond)
-        fs.rmSync(otherLegacy, { recursive: true })
-        const inode = fs.statSync(legacy).ino
-        assert.equal(adoptLegacyChiefProfile(second.name), false)
-        assert.throws(() => compileProfile(second), refusedSecond)
-        assert.equal(adoptLegacyChiefProfile(first.name), true)
+        assert.equal(adoptLegacyChiefProfile(second.name), true)
         assert.equal(fs.statSync(target).ino, inode)
-        assert.equal(compileProfile(first).dir, target)
-        assert.equal(fs.readFileSync(path.join(target, 'kept.txt'), 'utf8'), 'First legacy data')
-        assert.throws(() => compileProfile(second), refusedSecond)
-        assert.equal(compileProfileCached(first).dir, target)
+        assert.equal(compileProfile(second).dir, target)
+        assert.equal(fs.readFileSync(path.join(target, 'kept.txt'), 'utf8'), 'Second legacy data')
+        assert.throws(() => compileProfile(first), refusedFirst)
+        assert.equal(compileProfileCached(second).dir, target)
     })
 )
 
