@@ -4,6 +4,7 @@ import * as Server from '../index'
 import * as DataSource from '../DataSource'
 import logger from '../utils/logger'
 import { RESTART_EXIT_CODE, SETTINGS_FAILED_EXIT_CODE, setRestartHandler } from '../settings/restart'
+import { startApplyWhenIdle } from '../settings/applyWhenIdle'
 import { StartOutcome, finishStart } from '../settings/safeboot'
 import { logUnsupportedFlowiseUpgrade } from '../startup/flowiseUpgradeGuard'
 import { BaseCommand, startState } from './base'
@@ -52,6 +53,7 @@ export default class Start extends BaseCommand {
                 process.exit(RESTART_EXIT_CODE)
             }
         })
+        if (ready) startApplyWhenIdle(process.env, startState)
     }
 
     async catch(error: Error) {

@@ -8,7 +8,8 @@ import { runtimeNumber } from './runtime'
 
 // Case-insensitive, as Express routing is. POST .../runs/async is a harness run too.
 const HARNESS_RUN_PATH = /^\/api\/v1\/harnesses\/[^/]+\/runs(\/async)?\/?$/i
-const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/i, /^\/api\/v1\/internal-prediction(\/|$)/i, HARNESS_RUN_PATH]
+const ETL_RUN_PATH = /^\/api\/v1\/etl\/(pipelines\/[^/]+\/(runs|preview)|runs\/[^/]+\/resume)\/?$/i
+const RUN_PATHS = [ETL_RUN_PATH, /^\/api\/v1\/prediction(\/|$)/i, /^\/api\/v1\/internal-prediction(\/|$)/i, HARNESS_RUN_PATH]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
 export const DEFAULT_DRAIN_TIMEOUT_MS = 25000
@@ -20,6 +21,7 @@ let inProgress = 0
 let backgroundRuns = 0
 let draining = false
 let shuttingDown = false
+let drainNotified = false
 // Each open run, and whether it is a harness run (its stream error event carries { message }).
 const openRuns = new Map<Response, boolean>()
 
@@ -137,10 +139,11 @@ export function onDrainStart(listener: () => void): () => void {
  * Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running.
  * New runs are refused from the call itself, before the first await, even when nothing is in progress.
  */
-export async function drainRuns(limitMs: number, pollMs = 250): Promise<number> {
-    const starting = !draining
+export async function drainRuns(limitMs: number, pollMs = 250, options: { deferListeners?: boolean } = {}): Promise<number> {
     draining = true
-    if (starting) {
+    // Idle application reserves admission first, then confirms there is no work before notifying schedulers.
+    if (!options.deferListeners && !drainNotified) {
+        drainNotified = true
         for (const listener of [...drainListeners]) {
             try {
                 listener()
@@ -152,6 +155,11 @@ export async function drainRuns(limitMs: number, pollMs = 250): Promise<number> 
     const until = Date.now() + limitMs
     while (inProgress > 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, pollMs))
     return inProgress
+}
+
+/** Cancels only an unconfirmed idle drain. Schedulers have not stopped and work has not been interrupted. */
+export function cancelIdleDrain(): void {
+    if (!shuttingDown && !drainNotified) draining = false
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -230,6 +238,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
 /** Tests only. */
 export function resetRuns(): void {
     drainListeners.clear()
+    drainNotified = false
     inProgress = 0
     backgroundRuns = 0
     draining = false

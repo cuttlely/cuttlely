@@ -95,6 +95,26 @@ it('does not start scheduled work while draining', async () => {
     await tickDashflows()
     expect(store.due).not.toHaveBeenCalled()
 })
+it('rechecks draining after scheduled owner access and leaves the refresh due', async () => {
+    store.due.mockReturnValueOnce([{ id: 'dashboard', workspace: 'team-a', owner: 'owner' }] as never[])
+    access.mockImplementationOnce(async () => {
+        draining.mockReturnValue(true)
+        return { owner: false, permissions: ['chatflows:update'] }
+    })
+    await tickDashflows()
+    expect(store.claim).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalled()
+})
+it('rechecks draining after a manual claim before starting a background refresh', async () => {
+    store.claim.mockImplementationOnce(() => {
+        draining.mockReturnValue(true)
+        return claim
+    })
+    await expect(startDashboardRefresh('dashboard', 'team-a')).rejects.toMatchObject({ statusCode: 503 })
+    expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', claim.token)
+    expect(track).not.toHaveBeenCalled()
+    expect(materialize).not.toHaveBeenCalled()
+})
 it('does no scheduled work while Dashflows is off', async () => {
     process.env.CUTTLELY_DASH_FLOWS = '0'
     await tickDashflows()

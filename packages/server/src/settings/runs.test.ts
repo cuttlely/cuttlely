@@ -42,6 +42,10 @@ describe('runs in progress', () => {
         expect(isRunRequest('POST', '/api/v1/harnesses/bakery/runs/async')).toBe(true)
         expect(isRunRequest('GET', '/api/v1/harnesses/bakery/runs')).toBe(false)
         expect(isRunRequest('POST', '/api/v1/server-settings')).toBe(false)
+        expect(isRunRequest('POST', '/api/v1/etl/pipelines/example/runs')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1/etl/pipelines/example/preview')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1/etl/runs/example/resume')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1/etl/runs/example/cancel')).toBe(false)
     })
 
     it('turns away a run sent with a doubled slash or in mixed case while a restart drains', async () => {

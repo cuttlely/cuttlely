@@ -49,10 +49,24 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                 />
             )}
             <Box sx={{ minWidth: 0 }}>
+                {setting.pendingBlocked && (
+                    <Alert severity='warning'>
+                        The saved limits are still pending after an idle application attempt. Restart manually.
+                    </Alert>
+                )}
                 <Stack direction='row' alignItems='center' gap={1} flexWrap='wrap'>
                     <Typography component='label' htmlFor={`field-${setting.key}`} sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                         {setting.label}
                     </Typography>
+                    {setting.pending && (
+                        <Chip
+                            size='small'
+                            variant='outlined'
+                            color='warning'
+                            label={setting.pending === 'idle' ? 'Pending: applies when idle' : 'Pending: applies at the next restart'}
+                            sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
+                        />
+                    )}
                     {limitedByLabel(setting) && (
                         <Chip
                             size='small'
@@ -88,7 +102,7 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                             />
                         </Tooltip>
                     )}
-                    {!edited && setting.changed && (
+                    {!edited && setting.changed && !setting.pending && (
                         <Tooltip title={`Saved. The server is still running with ${describeValue(setting, setting.running)}.`}>
                             <Chip
                                 size='small'
@@ -510,6 +524,8 @@ const settingShape = PropTypes.shape({
     integer: PropTypes.bool,
     placeholder: PropTypes.string,
     secret: PropTypes.object,
+    pending: PropTypes.oneOf(['idle', 'restart']),
+    pendingBlocked: PropTypes.bool,
     zeroLabel: PropTypes.string,
     warnings: PropTypes.shape({
         zero: PropTypes.string,

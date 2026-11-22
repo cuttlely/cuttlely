@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
+import { isDraining, isShuttingDown } from '../../settings/runs'
 import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
@@ -1570,6 +1571,7 @@ const startBackgroundRun = async (
         expectedChatflowId?: string
     }
 ) => {
+    if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting to apply new settings. Try again in a minute.')
     // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
     // drain that begins during the awaits below, instead of the drain seeing nothing in progress.
     let release = () => {}
