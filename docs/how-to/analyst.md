@@ -132,7 +132,9 @@ The account lives in the application database. After you point Cuttlely at Postg
 
 The first time the analyst tool starts for a signed-in workspace, Cuttlely creates schema `analyst_<tag>` and login `analyst_reader_<tag>` in the application database. The login can sign in. It is not a superuser, and it cannot create roles or databases. Its `search_path` is that schema. Its `statement_timeout` is the query timeout (`15s` unless you change it). A store from before workspaces, schema `analyst` and login `analyst_reader`, stays with the first workspace that uses it. [Workspaces](#workspaces). Cuttlely also sets both on every analyst connection, so they hold even if the analyst changes its own login's defaults. It can create and change tables in `analyst_<tag>`, and it can make TEMP tables, which last for one harness turn. It cannot read application tables. `<tag>` is 10 hex characters derived from the workspace id.
 
-The role password is random. It is stored in `analyst-role-<tag>.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. The original untagged store uses `analyst-role.enc` instead, and its rows stay in schema `analyst`. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst_<tag>` stay.
+The role password is random and encrypted with the credential key in the application database's private `cuttlely_analyst_admin.role_secret` table (`public.role_secret` only if creating the private schema is refused). Grant the application database user CREATE on the database (`GRANT CREATE ON DATABASE`), or set `CUTTLELY_POSTGRES_URL` to a separate database. CREATE on schema `public` works instead only if that user also owns the Analyst schema (`analyst_<tag>`) or holds USAGE and CREATE on it WITH GRANT OPTION. Analyst roles cannot read that table. Restarts and extra instances reuse the stored password. Existing `analyst-role-<tag>.enc` and legacy `analyst-role.enc` files under `SECRETKEY_PATH` are imported unchanged and left untouched; no new `.enc` files are written. The legacy workspace mapping is kept in the database too. The password is not an environment variable and is not written to the server log. Rows already in `analyst_<tag>` stay. Read the [one-time upgrade behavior](../upgrading.md#upgrading-to-1713) before deploying this change.
+
+On Postgres with `CUTTLELY_SECRETKEY_OVERWRITE` set, `SECRETKEY_PATH` no longer needs to persist for Analyst; the key itself must still be kept safe.
 
 ![psql on the cuttlely database. \dn analyst* shows one schema, analyst_ and a short hash, owned by the cuttlely login. The role list has one matching analyst_reader_ role, which is not a superuser and cannot create roles, with statement_timeout=15s and search_path set to that schema.](../images/analyst/postgres-analyst-role.png)
 
@@ -144,10 +146,10 @@ You should see login `analyst_reader_<tag>` and search path `analyst_<tag>`. The
 
 Each workspace has its own analyst store. Tables one workspace's analyst makes are not visible to another workspace's analyst.
 
-| Store    | Per workspace                                                                                                                                                          |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite   | `analyst-<tag>.db` beside `database.sqlite`. `<tag>` is 10 hex characters derived from the workspace id.                                                               |
-| Postgres | Login `analyst_reader_<tag>` and schema `analyst_<tag>`, with the same limits as `analyst_reader`. Its password is in `analyst-role-<tag>.enc` under `SECRETKEY_PATH`. |
+| Store    | Per workspace                                                                                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite   | `analyst-<tag>.db` beside `database.sqlite`. `<tag>` is 10 hex characters derived from the workspace id.                                                  |
+| Postgres | Login `analyst_reader_<tag>` and schema `analyst_<tag>`, with the same limits as `analyst_reader`. Its encrypted password is in the application database. |
 
 A store made before workspaces had their own, `analyst.db` or login `analyst_reader` with schema `analyst`, stays with the first workspace whose analyst runs. Cuttlely writes that workspace's tag into `analyst.db.workspace`, or into the stored Postgres secret. Every other workspace starts with an empty store of its own. A call that names no workspace uses that original store.
 
@@ -665,7 +667,7 @@ Two other stops use the same fallback, a separate URL, and do not use the applic
 
 > Analyst mode could not read the stored role secret. The credential encryption key may have changed. Set CUTTLELY_POSTGRES_URL to a separate database instead of using the application login.
 
-The second one is `analyst-role.enc` unreadable, or the credential key no longer decrypts it. A new key does not recover the old role password.
+The second one means the stored role secret is unreadable, or the credential key no longer decrypts it. A new key does not recover the old role password, and Analyst does not reset it automatically.
 
 ## Passwords in URLs
 
