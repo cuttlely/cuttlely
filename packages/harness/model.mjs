@@ -1,3 +1,4 @@
+import { modelCallTimeoutMs } from './budget.mjs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
@@ -384,7 +385,7 @@ export async function invokeChat(
     resolved,
     { messages, tools, toolChoice, temperature, maxTokens, stop, json, signal, timeoutMs, onDelta, callbacks } = {}
 ) {
-    const limit = Math.min(timeoutMs == null ? 120000 : timeoutMs, 120000)
+    const limit = Math.min(timeoutMs == null ? modelCallTimeoutMs() : timeoutMs, modelCallTimeoutMs())
     const prepared = json ? withJsonInstruction(messages) : messages || []
     try {
         const chat = resolved?.chat

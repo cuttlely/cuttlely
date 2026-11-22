@@ -537,6 +537,25 @@ export const SETTINGS: SettingDef[] = [
 
     // Agent runtime
     {
+        key: 'CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Model call time limit',
+        help: 'How long one model call may take. A shorter turn or agent run time limit still applies. Applies on the next call.',
+        type: 'number',
+        integer: true,
+        unit: 'ms-as-seconds',
+        min: 1,
+        max: 3600,
+        defaultLabel: '2 minutes',
+        defaultValue: '120000',
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
+        risk: 'medium'
+    },
+    {
         key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
         section: 'runtime',
         group: 'Limits',
@@ -618,6 +637,7 @@ export const SETTINGS: SettingDef[] = [
         limit: true,
         panelFirst: true,
         applies: 'live',
+        runtime: true,
         unit: 'ms-as-seconds',
         min: 0,
         max: 3600,
@@ -791,6 +811,7 @@ export const SETTINGS: SettingDef[] = [
         limit: true,
         panelFirst: true,
         applies: 'live',
+        runtime: true,
         unit: 'ms-as-seconds',
         min: 1,
         max: 120,

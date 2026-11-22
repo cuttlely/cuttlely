@@ -23,3 +23,13 @@ function normalizeBudget(value) {
     if (!Number.isFinite(n) || n < 0) return DEFAULT_TURN_BUDGET_MS
     return Math.floor(n)
 }
+
+// Separate from the turn and specialist deadlines. Read again for each model call.
+export const DEFAULT_MODEL_CALL_TIMEOUT_MS = 120000
+
+export function modelCallTimeoutMs(env = process.env) {
+    const raw = env.CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS
+    if (raw == null || String(raw).trim() === '') return DEFAULT_MODEL_CALL_TIMEOUT_MS
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 1000 && n <= 3600000 ? n : DEFAULT_MODEL_CALL_TIMEOUT_MS
+}
