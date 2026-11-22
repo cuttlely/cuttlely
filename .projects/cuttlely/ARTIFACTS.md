@@ -7,7 +7,7 @@
 -   `packages/etl/store.mjs`: async `all`, `get`, `run`, `exec`, `tx` and `withPipelineLock` on the one SQLite connection.
 -   `packages/etl/runner.mjs` and `packages/etl/runs.mjs`: `resumeUnlocked` (runner) does its eligibility read, checks, `queued` write and resume event in one `tx`; `activeRunFor` (runs) accepts an optional handle.
 -   `packages/etl/execute.mjs`: `claimQueued` makes every write before a run starts (the name-change reset, the bad pipeline failure and the `running` write) conditional on the stored status still being `queued`, in one `tx`. A run that is no longer queued starts no work; `cancelling` settles to `cancelled` and `pausing` to `paused`.
--   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, start, resume and delete of one pipeline never interleaving, run-control checks 8 and 9 for a cancel during or before resume, and 10 to 13 for a cancel or pause after the runner reads a queued run and before it is `running`. Included in `pnpm etl:check`.
+-   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, start, resume and delete of one pipeline never interleaving, run-control checks 8 and 9 for a cancel during or before resume, 10 to 13 for a cancel or pause after the runner reads a queued run and before it is `running`, RC-R1 to RC-R4 for restart recovery and RC-L1 to RC-L4 for launch failure. Included in `pnpm etl:check`.
 -   `CHANGELOG.md` under `## [Unreleased]`: the ETL start, resume, pause and cancel fixes and the 409 conflict responses.
 
 ## 1.7.11 release
