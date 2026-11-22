@@ -42,6 +42,12 @@ const requiredChat = {
 }
 
 describe('missing required model credential', () => {
+    it.each(['AccessKey', 'accesskey', 'ACCESSKEY', 'qianfanAccessKey'])('recognizes %s as an input secret', (key) => {
+        expect(inputsProvideModelSecret({ inputs: { [key]: 'sample-access-value' } })).toBe(true)
+        expect(() => assertRequiredModelCredential(requiredChat, { inputs: { [key]: 'sample-access-value' } })).not.toThrow()
+        expect(inputsProvideModelSecret({ inputs: { [key]: '  ' } })).toBe(false)
+    })
+
     it('names the card and uses 422', () => {
         expect(missingModelCredentialMessage('OpenAI')).toBe('Pick a credential on the OpenAI node.')
         expect(() => assertRequiredModelCredential(requiredChat, { label: 'Support desk model' })).toThrow(MissingModelCredentialError)

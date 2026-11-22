@@ -21,6 +21,7 @@ import { Workspace } from '../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { AppError } from '../errors/appError'
+import { fromQueueFailure } from '../errors/utils'
 import {
     buildFlow,
     constructGraphs,
@@ -298,7 +299,7 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
             logger.debug(`[server]: [${orgId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
