@@ -95,7 +95,7 @@ Each editable limit shows the existing source chip: **Saved here**, **Host**, or
 | Tool call time limit                    | `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS`        | Not set: the agent runtime waits 300 seconds for a tool, the bridge 130 seconds | 1       | 3660    | Restart |
 | Agent run time                          | `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`         | 4 minutes                                                                       | 0       | 3600    | Restart |
 | Turn time limit                         | `CUTTLELY_HARNESS_TURN_BUDGET_MS`         | 45 seconds                                                                      | 0       | 3600    | Live    |
-| Query timeout                           | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`   | 15 seconds                                                                      | 1       | 120     | Live    |
+| Query timeout                           | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`   | 15 seconds                                                                      | 1       | 3600    | Live    |
 | Health check timeout                    | `CUTTLELY_HERMES_HEALTH_TIMEOUT`          | 2 seconds                                                                       | 1       | 30      | Restart |
 | Grace period after a start              | `CUTTLELY_HERMES_HEALTH_GRACE`            | 60 seconds                                                                      | 0       | 3600    | Restart |
 | Misses before a restart                 | `CUTTLELY_HERMES_HEALTH_FAILS`            | 3                                                                               | 1       | 100     | Restart |
@@ -124,7 +124,7 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 ## Long-running queries and tasks
 
-Set these environment variables on the host and restart Cuttlely. Admin Server Settings fields for these limits are coming in the same release; use the env vars for the extended limits today.
+Set these limits in **Admin**, **Server settings** (see [Time limits and caps](#time-limits-and-caps)), or as environment variables on the host. A saved value comes first, then the host variable, then the default.
 
 | Variable                                | Default         | Host range and behavior                                                                                                                                                          |
 | --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

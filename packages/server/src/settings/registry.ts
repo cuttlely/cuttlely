@@ -903,7 +903,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'analyst',
         group: 'Limits',
         label: 'Query timeout',
-        help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds. Applies to the next query.',
+        help: 'How long one analyst statement may run before it stops, up to 1 hour. A node can ask for less time, never more. Applies to the next query.',
         type: 'number',
         integer: true,
         limit: true,
@@ -912,7 +912,7 @@ export const SETTINGS: SettingDef[] = [
         runtime: true,
         unit: 'ms-as-seconds',
         min: 1,
-        max: 120,
+        max: 3600,
         defaultLabel: '15 seconds',
         defaultValue: '15000',
         risk: 'medium'
