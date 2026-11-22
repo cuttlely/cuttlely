@@ -1,3 +1,7 @@
+## Missing model credential answers 422 everywhere (#239, 1.7.13)
+
+Agentflow prediction, document-store upserts, and `MODE=queue` prediction and upsert now return HTTP 422 with `Pick a credential on the <card> node.` when a required model credential is missing, the same as chatflow prediction and default-mode upsert. `buildAgentflow` rethrows a missing-credential or 4xx error with its class and status kept. Document-store upsert paths and error middleware surface `MissingModelCredentialError` as a 422 AppError. One `fromQueueFailure` helper at every `waitUntilFinished` site restores that 422 only when the failed reason exactly matches the credential card message; every other queue failure is rethrown unchanged. A test pins that `INPUT_SECRET_KEY` matches `AccessKey` (including `qianfanAccessKey`). Docs for the missing-credential error now mention agentflows and document stores.
+
 ## Orchestrate and A2A runtime admission (#540, 1.7.13)
 
 The working-tree fix for [#540](https://github.com/cuttlely/cuttlely/issues/540) checks runtime availability after keyed-flow validation and before charging Orchestrate completions and A2A `message/send` and `message/stream`. Runtime states `down`, `restarting`, `cooldown` and `exhausted` return HTTP 503 with `RUNTIME_UNAVAILABLE` and `Retry-After` in each protocol's JSON error envelope before a stream starts. A2A discovery and task reads remain available. Runtime failures after admission retain the existing in-protocol behavior.

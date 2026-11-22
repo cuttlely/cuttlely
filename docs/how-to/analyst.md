@@ -41,6 +41,8 @@ Open **Credentials**, choose **OpenAI API**, and paste a real key into **OpenAI 
 
 The harness uses that credential. You do not have to unset `OPENAI_API_KEY` in the server environment. Cuttlely passes the credential key into the chat model. If the OpenAI node has no credential, the run stops and does not read `OPENAI_API_KEY` from the environment. A key left in the environment does not fill in a missing credential.
 
+A required model credential that is not selected returns HTTP 422 with `Pick a credential on the <card> node.` This applies to chatflow and agentflow predictions, vector upserts and document-store upserts, including `MODE=queue`. Select a credential on the named card and try again.
+
 ### Harness
 
 Open **Templates** and start **Chief of Staff Harness**.

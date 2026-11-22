@@ -1,9 +1,17 @@
-import express from 'express'
-import multer from 'multer'
-import request from 'supertest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'credential-errors-'))
+const storageEnv = ['HOME', 'DATABASE_PATH', 'CUTTLELY_DATA_DIR', 'HERMES_HOME'] as const
+const savedEnv = Object.fromEntries(storageEnv.map((name) => [name, process.env[name]]))
+for (const name of storageEnv) process.env[name] = dataDir
+
+import express from 'express'
+import multer from 'multer'
+import request from 'supertest'
+import { MissingModelCredentialError, missingModelCredentialMessage } from '@cuttlely/components'
+import { fromQueueFailure } from '../../errors/utils'
 import errorHandlerMiddleware from './index'
 import { toPredictionError } from '../../utils/predictionErrors'
 
@@ -11,6 +19,63 @@ jest.mock('@cuttlely/components', () => {
     const actual = jest.requireActual('@cuttlely/components')
     const nodeFs = jest.requireActual('fs')
     return { ...actual, removeSpecificFileFromUpload: jest.fn(async (file: string) => nodeFs.promises.unlink(file)) }
+})
+
+afterAll(() => {
+    for (const name of storageEnv) {
+        if (savedEnv[name] === undefined) delete process.env[name]
+        else process.env[name] = savedEnv[name]
+    }
+    fs.rmSync(dataDir, { recursive: true, force: true })
+})
+
+describe('queue credential failures', () => {
+    it.each(['Bakery embeddings', 'Model (west) [1].*', 'chat model', 'Bakery\nmodel'])(
+        'restores the class and 422 for the exact message naming %s',
+        async (label) => {
+            const failedReason = missingModelCredentialMessage(label)
+            await expect(Promise.reject(new Error(failedReason)).catch(fromQueueFailure)).rejects.toBeInstanceOf(
+                MissingModelCredentialError
+            )
+            await expect(Promise.reject(new Error(failedReason)).catch(fromQueueFailure)).rejects.toMatchObject({
+                statusCode: 422,
+                message: failedReason
+            })
+        }
+    )
+
+    it.each([
+        'Vector service unavailable',
+        'Error: Pick a credential on the Bakery model node.',
+        'Pick a credential on the Bakery model node. Please retry.',
+        'Pick a credential on the Bakery model node.\n',
+        'Pick a credential on the  Bakery model node.',
+        'Pick a credential on the Bakery model  node.',
+        'Pick a credential on the  node.',
+        'pick a credential on the Bakery model node.'
+    ])('rethrows other reasons untouched: %s', async (reason) => {
+        const failure = new Error(reason)
+        await expect(Promise.reject(failure).catch(fromQueueFailure)).rejects.toBe(failure)
+    })
+
+    it.each([undefined, null, 'Pick a credential on the Bakery model node.', { reason: 'worker failed' }])(
+        'rethrows non-error failures untouched: %s',
+        async (failure) => {
+            await expect(Promise.reject(failure).catch(fromQueueFailure)).rejects.toBe(failure)
+        }
+    )
+})
+
+describe('a missing model credential', () => {
+    it('answers 422 with the card message for a component error', async () => {
+        const app = express()
+        app.post('/run', (_req, _res, next) => next(new MissingModelCredentialError('Bakery model')))
+        app.use(errorHandlerMiddleware)
+
+        const res = await request(app).post('/run')
+        expect(res.status).toBe(422)
+        expect(res.body).toMatchObject({ statusCode: 422, success: false, message: missingModelCredentialMessage('Bakery model') })
+    })
 })
 
 describe('upload size errors', () => {

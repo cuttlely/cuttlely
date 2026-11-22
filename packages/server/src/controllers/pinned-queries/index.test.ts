@@ -5,6 +5,7 @@ import request from 'supertest'
 jest.mock(
     '@cuttlely/components',
     () => ({
+        MissingModelCredentialError: class extends Error {},
         StorageProviderFactory: {
             getProvider: () => ({
                 getLoggerTransports: () => []

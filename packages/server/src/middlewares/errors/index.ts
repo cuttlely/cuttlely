@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
-import { removeSpecificFileFromUpload } from '@cuttlely/components'
+import { MissingModelCredentialError, removeSpecificFileFromUpload } from '@cuttlely/components'
 
 // Name and code, not instanceof: the storage package and the server can each load their own multer.
 const isMulterFileTooLarge = (err: unknown): boolean => {
@@ -11,6 +11,9 @@ const isMulterFileTooLarge = (err: unknown): boolean => {
 }
 
 const asClientError = (err: AppError): AppError => {
+    if (err instanceof MissingModelCredentialError) {
+        return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, err.message)
+    }
     if (isMulterFileTooLarge(err)) {
         return new AppError(StatusCodes.BAD_REQUEST, 'File is too large to upload. The limit is 25 MB.')
     }

@@ -1,3 +1,5 @@
+import { MissingModelCredentialError, missingModelCredentialMessage } from '@cuttlely/components'
+
 type ErrorWithMessage = {
     message: string
 }
@@ -22,4 +24,17 @@ const toErrorWithMessage = (maybeError: unknown): ErrorWithMessage => {
 
 export const getErrorMessage = (error: unknown) => {
     return toErrorWithMessage(error).message
+}
+
+/** BullMQ rejects waitUntilFinished with only the worker's failedReason, losing the error class and status. */
+export const fromQueueFailure = (error: unknown): never => {
+    if (error instanceof Error) {
+        const prefix = 'Pick a credential on the '
+        const suffix = ' node.'
+        if (error.message.startsWith(prefix) && error.message.endsWith(suffix)) {
+            const label = error.message.slice(prefix.length, -suffix.length)
+            if (error.message === missingModelCredentialMessage(label)) throw new MissingModelCredentialError(label)
+        }
+    }
+    throw error
 }
