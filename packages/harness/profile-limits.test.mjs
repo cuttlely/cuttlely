@@ -55,6 +55,9 @@ test('stream limit refreshes compiled YAML and cache; older profiles stay curren
     const yaml = fs.readFileSync(yamlFile, 'utf8')
     assert.match(yaml, /stale_timeout_seconds: 45\n/)
     assert.equal(profileOutdated(record), false)
+    assert.equal('streamStaleSeconds' in read(), false)
+    assert.equal('terminalTimeoutSeconds' in read(), false)
+    assert.equal('codeTimeoutSeconds' in read(), false)
     const legacy = read()
     delete legacy.streamStaleSeconds
     fs.writeFileSync(file, JSON.stringify(legacy))

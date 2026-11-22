@@ -2507,7 +2507,8 @@ function compileProfileFiles(record, options = {}) {
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
-        streamStaleSeconds: streamStaleSeconds(),
+        // Left out at the default so a profile compiled with nothing saved matches earlier builds byte for byte.
+        streamStaleSeconds: streamStaleSeconds() === 45 ? undefined : streamStaleSeconds(),
         terminalTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT'),
         codeTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT'),
         harnessToolTimeoutMs: harnessToolTimeoutMs(),
