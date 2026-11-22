@@ -2,6 +2,8 @@
 
 ## Current release work
 
+Admin time limits and caps are prepared on the existing settings registry for 1.7.13. Integrate the separately prepared tool-call and health-timeout readers and Analyst maximum increase, then run the full verification gate on the combined tree. Apply-when-idle remains later work; current restart saves only report pending changes.
+
 #536 leftover work: retiring a multiplexed profile closes that profile's log files and MCP stderr handles (Hermes patch 0014), scoped so a still-served sibling keeps working. Reconcile uses the same path. Issue #536 stays open until this change merges.
 
 Also in this change: MCP discovery start and end lines are written to stderr as well as the runtime log files, so they appear in container and hosted logs (patch 0013 regenerated).

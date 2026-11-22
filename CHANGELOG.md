@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Every time limit and cap can now be set in Admin, Server settings; a saved value comes first, then the host variable, then the default.
+
 -   Release preparation checks current release notices and image/widget pins against the root package version in both full and fast verification, reporting stale versions and missing spots with file and line diagnostics.
 -   The harness runs API accepts `"mode": "agent"` to run the chief on the agent runtime and delegate through `run_specialist`, with the existing authentication, permissions and rate limits. One harness run records the chief's final answer and its specialist steps. Router mode remains the default. [Run a harness in agent mode](./docs/how-to/harness-agent-mode.md).
 

@@ -523,3 +523,7 @@ With `CUTTLELY_APP_DATABASE_STORES` set to `1` or `true` on a Postgres host, Das
 ## D126. The ETL data layer goes through one async store seam
 
 Every ETL module in `packages/etl` reaches SQLite through `packages/etl/store.mjs`. The store offers async `all`, `get`, `run`, `exec` and `tx` on the one existing connection, and an in-process lock holds a transaction for its whole body. SQL text is unchanged. `packages/etl/db.mjs` no longer exports `tx`; its `db` and `stmt` exports are for the SQLite backend and check seeding only. Why: one connection, so an await inside a transaction would let other statements in; this is the seam a Postgres backend will plug into.
+
+## D127. Saved agent team limits take precedence and declare when they apply
+
+Time limits and runtime caps marked `limit` use the existing settings registry and saved-admin > original-host > default precedence. They are also `panelFirst`, stay editable over a host value, and declare `applies: live` or `restart`. The original numeric host record is kept separately because live saves update the process environment. Nothing saved preserves the existing defaults and generated configuration. Restart saves report pending changes through the existing banner and do not terminate work. Code-only caps are fixed display fields that cannot be saved. Existing operator authorization, validation and audit history remain the only save path; invite/mail behavior stays on its existing reader.

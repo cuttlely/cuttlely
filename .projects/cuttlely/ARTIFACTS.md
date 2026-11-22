@@ -1,3 +1,11 @@
+## Admin time limits and caps
+
+-   `docs/how-to/server-settings.md#time-limits-and-caps` lists the editable and fixed fields; `docs/reference/startup-options.md` is generated from `settings/startupOptions.ts`.
+-   `packages/server/src/settings/limits.test.ts` covers precedence, original-host recovery, live changes, pending restart changes, validation, history, authorization refusal and fixed fields.
+-   `packages/ui/src/views/serversettings/SettingField.test.js` covers the fixed text display, unset optional number and source chips.
+-   `packages/harness/model-timeout.test.mjs` and `profile-limits.test.mjs` cover the model deadline, unchanged default YAML and profile/cache refresh. They are included in harness checks and verification.
+-   `scripts/hermes-terminal-limits.test.mjs` exercises shell exports, the Python launcher helper and actual multiplex terminal policy without booting the runtime; it is on the runtime-source test allowlist and in verification.
+
 ## 1.7.12 release
 
 -   `CHANGELOG.md` and the four product manifests (`package.json`, `packages/server/package.json`, `packages/cli/package.json`, `packages/chat-widget/package.json`): dated 1.7.12 notes and version bumps for the roster stdio-framing fix in #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store start/resume/pause/cancel fixes in #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`).
