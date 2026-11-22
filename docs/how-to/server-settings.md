@@ -100,7 +100,7 @@ Without a supervisor or an available restart handler, the chip says **Pending: a
 | Agent run time                          | `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`         | 4 minutes                                                                       | 0       | 3600    | Restart |
 | Chat lock lease                         | `CUTTLELY_HARNESS_LOCK_MS`                | Turn time limit plus 5 seconds, or 2 minutes when the turn time limit is off    | 0       | 86400   | Live    |
 | Turn time limit                         | `CUTTLELY_HARNESS_TURN_BUDGET_MS`         | 45 seconds                                                                      | 0       | 3600    | Live    |
-| Query timeout                           | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`   | 15 seconds                                                                      | 1       | 120     | Live    |
+| Query timeout                           | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`   | 15 seconds                                                                      | 1       | 3600    | Live    |
 | Health check timeout                    | `CUTTLELY_HERMES_HEALTH_TIMEOUT`          | 2 seconds                                                                       | 1       | 30      | Restart |
 | Grace period after a start              | `CUTTLELY_HERMES_HEALTH_GRACE`            | 60 seconds                                                                      | 0       | 3600    | Restart |
 | Misses before a restart                 | `CUTTLELY_HERMES_HEALTH_FAILS`            | 3                                                                               | 1       | 100     | Restart |
@@ -112,12 +112,12 @@ Ranges are in seconds except **Misses before a restart**, which counts failed ch
 
 Shell commands longer than the foreground maximum move to the background. The agent runtime per-tool deadline still applies to shell and code runs. Increasing the code-run timeout does not increase the fixed tool-call response wait below.
 
-| Fixed field                                                          | Value       | Note                                                                                                                     |
-| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Code tool-call response wait (`CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT`) | 300 seconds | Fixed in this version.                                                                                                   |
-| HTTP MCP data wait (`CUTTLELY_FIXED_HERMES_MCP_HTTP_READ`)           | 300 seconds | Fixed in this version. HTTP MCP tools that run longer must send progress at least every 300 s, or run as a pipeline job. |
+| Fixed field                                                          | Value       | Note                                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Code tool-call response wait (`CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT`) | 300 seconds | Fixed in this version.                                                                                                                                                                      |
+| HTTP MCP data wait (`CUTTLELY_FIXED_HERMES_MCP_HTTP_READ`)           | 300 seconds | Fixed in this version. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. |
 
-Fixed fields are read-only text. Their keys identify the display rows; no environment variable is read for them. They cannot be saved or exported as settings. The code tool-call response wait covers both its socket wait and response deadline. The HTTP MCP data wait covers SSE silence and Streamable HTTP reads. HTTP MCP tools that run longer must send progress at least every 300 s, or run as a pipeline job. A tool call time limit of 3660 seconds does not lift it: an HTTP MCP tool that stays silent for about 300 seconds still fails with a timeout. Stdio MCP tools, such as the Analyst and the specialist bridge, are not affected.
+Fixed fields are read-only text. Their keys identify the display rows; no environment variable is read for them. They cannot be saved or exported as settings. The code tool-call response wait covers both its socket wait and response deadline. The HTTP MCP data wait covers SSE silence and Streamable HTTP reads. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. A tool call time limit of 3660 seconds does not lift it: an HTTP MCP tool that stays silent for about 300 seconds still fails with a timeout. Stdio MCP tools, such as the Analyst and the specialist bridge, are not affected.
 
 Other product limits, including publish checks and sign-in limits, keep the precedence described in their sections below.
 
@@ -128,6 +128,33 @@ Under **Agent runtime** > **Limits**, **Agent run time** controls how long Cuttl
 The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use milliseconds: `300000` for five minutes, `0` for unlimited, and `240000` for the default. Its range is 0 to 3600000 milliseconds. Nested specialist tasks use this same setting; their previous separate 90-second wait is replaced by the four-minute default. They have no additional five-minute MCP wrapper limit.
 
 **Turn time limit** separately bounds the whole team turn and defaults to 45 seconds. A shorter turn limit still stops unfinished work, so raise it too when a turn needs longer, or set it to `0` to turn that limit off. Unlimited agent run time still permits cancellation and does not remove model, provider, other MCP tool, SQL query, or HTTP request limits. [How long a turn should take](./harnesses.md#how-long-a-turn-should-take) explains the whole-turn budget.
+
+## Long-running queries and tasks
+
+Set these limits in **Admin**, **Server settings** (see [Time limits and caps](#time-limits-and-caps)), or as environment variables on the host. A saved value comes first, then the host variable, then the default.
+
+| Variable                                | Default         | Host range and behavior                                                                                                                                                          |
+| --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15000 ms (15 s) | Up to 3600000 ms (1 hour). Positive values below 1000 become 1000; invalid values and values above the maximum use 15000 and warn once.                                          |
+| `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`       | 240000 ms       | Up to 3600000 ms; `0` means no deadline.                                                                                                                                         |
+| `CUTTLELY_HARNESS_TURN_BUDGET_MS`       | 45000 ms        | `0` turns the whole-turn budget off.                                                                                                                                             |
+| `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS`      | Unset           | Positive integer from 1 to 3660000 ms; seconds are rounded up. Unset, blank, invalid or out-of-range values keep the 300 s MCP default and 420 s agent-runtime per-tool default. |
+| `CUTTLELY_HERMES_HEALTH_TIMEOUT`        | 2 s             | 1–30 s for the agent-runtime health probe wait; invalid or out-of-range values use 2 s with a warning.                                                                           |
+
+For example, to allow a query longer than 300 seconds:
+
+```bash
+CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS=360000
+CUTTLELY_HARNESS_RUN_TIMEOUT_MS=3600000
+CUTTLELY_HARNESS_TURN_BUDGET_MS=0
+CUTTLELY_HARNESS_TOOL_TIMEOUT_MS=3660000
+```
+
+A 300-second query needs every limit around it to be larger than 300 seconds. With the tool setting above, specialist MCP servers wait 3660 s, the stdio bridge waits 3720 s, and both Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) are 3720 s. The bridge and deadlines follow the tool setting with a 60 s margin. The roster MCP server always has an unlimited MCP wait; the agent run and whole-turn limits still apply. When the tool setting is unset, the bridge keeps its existing 130 s wait.
+
+This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings.
+
+Set any proxy or load-balancer idle timeout to at least 3720 s for harness streams with this example. [Proxy stream timeouts](./reverse-proxy.md#how-long-a-stream-can-stay-quiet) explains the separate limits for streams and reusable connections.
 
 ## Maximum concurrent agent runs
 
@@ -164,12 +191,12 @@ Use `/api/v1/ping/live` for gateway and container liveness, and `/api/v1/ping` s
 
 ## Analyst limits
 
-**Analyst** also sets how much one query may return and how long it may run. The row cap applies the next time the server starts. The query timeout applies to the next query. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.
+**Analyst** also sets how much one query may return and how long it may run. The row cap applies the next time the server starts. The query timeout applies to the next query and can be up to 3600 seconds (1 hour). A host row cap above the maximum is treated as the maximum. A host query timeout above 3600000 milliseconds uses the 15-second default and logs a warning once. A positive query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number uses the default and logs a warning once.
 
-| Setting           | Variable                                | Default    | Range            |
-| ----------------- | --------------------------------------- | ---------- | ---------------- |
-| **Row cap**       | `CUTTLELY_ANALYST_ROW_CAP`              | 100 rows   | 1 to 1000 rows   |
-| **Query timeout** | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15 seconds | 1 to 120 seconds |
+| Setting           | Variable                                | Default    | Host range        |
+| ----------------- | --------------------------------------- | ---------- | ----------------- |
+| **Row cap**       | `CUTTLELY_ANALYST_ROW_CAP`              | 100 rows   | 1 to 1000 rows    |
+| **Query timeout** | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15 seconds | 1 to 3600 seconds |
 
 The row cap is the page size. A lower cap puts fewer rows into the specialist's prompt and into the handoff Harness Prime reads, so the turn uses less context. Say `show more` for the next page. The rows stay in the database.
 

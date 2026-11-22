@@ -687,10 +687,12 @@ describe('analyst sqlite storage', () => {
     it('caps the timeout at 15 seconds unless the server setting raises it, and never past the hard maximum', () => {
         const none = {}
         assert.equal(ANALYST_STATEMENT_TIMEOUT_MS, 15000)
-        assert.equal(ANALYST_STATEMENT_TIMEOUT_MAX_MS, 120000)
+        assert.equal(ANALYST_STATEMENT_TIMEOUT_MAX_MS, 3600000)
+        assert.equal(ANALYST_PG_QUERY_BACKSTOP_MS, 3605000)
         assert.equal(analystStatementTimeoutSetting(15000), '15s')
         assert.equal(analystStatementTimeoutSetting(250), '250ms')
         assert.equal(analystConfiguredTimeoutMs(none), 15000)
+        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '   ' }), 15000)
         assert.equal(analystStatementTimeoutMs(undefined, none), 15000)
         assert.equal(analystStatementTimeoutMs(0, none), 15000)
         assert.equal(analystStatementTimeoutMs('abc', none), 15000)
@@ -702,11 +704,20 @@ describe('analyst sqlite storage', () => {
         assert.equal(analystStatementTimeoutMs(undefined, raised), 60000)
         assert.equal(analystStatementTimeoutMs(500, raised), 500)
         assert.equal(analystStatementTimeoutMs(90000, raised), 60000)
+        for (const value of ['360000', '3600000']) {
+            const env = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: value }
+            assert.equal(analystConfiguredTimeoutMs(env), Number(value))
+            assert.equal(analystStatementTimeoutMs(undefined, env), Number(value))
+            assert.equal(analystStatementTimeoutMs(Number(value), env), Number(value))
+        }
         const over = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999999999' }
-        assert.equal(analystConfiguredTimeoutMs(over), ANALYST_STATEMENT_TIMEOUT_MAX_MS)
-        assert.equal(analystStatementTimeoutMs(undefined, over), ANALYST_STATEMENT_TIMEOUT_MAX_MS)
-        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '0' }), 15000)
-        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: 'nope' }), 15000)
+        assert.equal(analystConfiguredTimeoutMs(over), 15000)
+        assert.equal(analystStatementTimeoutMs(undefined, over), 15000)
+        for (const value of ['3600001', '0', '-1', 'nope', 'Infinity']) {
+            const env = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: value }
+            assert.equal(analystConfiguredTimeoutMs(env), 15000)
+            assert.equal(analystStatementTimeoutMs(undefined, env), 15000)
+        }
         assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
         assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999' }), 1000)
     })
@@ -725,6 +736,11 @@ describe('analyst sqlite storage', () => {
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '0' }), 15000)
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '-8' }), 15000)
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: 'abc' }), 15000)
+            for (const value of ['3600001', '999999999']) {
+                const env = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: value }
+                assert.equal(analystConfiguredTimeoutMs(env), 15000)
+                assert.equal(analystConfiguredTimeoutMs(env), 15000)
+            }
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
             assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999' }), 1000)
@@ -738,11 +754,49 @@ describe('analyst sqlite storage', () => {
         assert.equal(warnings.filter((message) => message.includes('row cap') && message.includes('"nope"')).length, 1)
         assert.equal(warnings.filter((message) => message.includes('query timeout') && message.includes('"0"')).length, 1)
         assert.equal(warnings.filter((message) => message.includes('query timeout') && message.includes('"1"')).length, 1)
+        for (const value of ['3600001', '999999999']) {
+            const matching = warnings.filter((message) => message.includes('query timeout') && message.includes(`"${value}"`))
+            assert.equal(matching.length, 1)
+            assert.match(matching[0], /is not used\. The default of 15000 ms applies\./)
+        }
         assert.equal(
             warnings.some((message) => message.includes('below 1 second')),
             true
         )
         assert.equal(warnings.filter((message) => message.includes('""')).length, 0)
+    })
+
+    it('applies six-minute and one-hour host limits to Postgres statements', async () => {
+        const statements = []
+        setAnalystPgClientForTests(() => ({
+            connect: async () => {},
+            end: async () => {},
+            query: async (sql) => {
+                const text = typeof sql === 'string' ? sql : String(sql?.text || '')
+                if (text.startsWith('SET statement_timeout = ')) statements.push(text)
+                if (/analyst_n/i.test(text)) return { rows: [{ analyst_n: 1 }], command: 'SELECT' }
+                return { rows: [{ ok: 1 }], command: 'SELECT', rowCount: 1 }
+            }
+        }))
+        const store = { host: '127.0.0.1', port: 5432, database: 'analyst_demo', user: 'analyst_reader', schema: 'analyst' }
+        const scope = 'long-query-timeouts'
+        try {
+            for (const value of ['360000', '3600000']) {
+                const env = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: value }
+                const limits = analystCallLimits({}, env)
+                await queryPostgres(
+                    store,
+                    'SELECT 1',
+                    { paging: { scope, page: 1, rowCap: 100, statement: 'SELECT 1' } },
+                    limits.timeoutMs,
+                    env
+                )
+            }
+            assert.deepEqual(statements, ['SET statement_timeout = 360000', 'SET statement_timeout = 3600000'])
+        } finally {
+            await endAnalystRun(scope)
+            resetAnalystStoreForTests()
+        }
     })
 
     it('keeps a reused Postgres session past the first call timeout', async () => {

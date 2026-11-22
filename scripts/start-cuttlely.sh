@@ -230,6 +230,11 @@ configure_hermes_supervisor() {
         echo "CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS exceeds the 3600s cap. Using 3600." >&2
         CUTTLELY_HERMES_EXHAUSTED_COOLDOWN_SECONDS=3600
     fi
+    hermes_number CUTTLELY_HERMES_HEALTH_TIMEOUT 2
+    if awk -v n="$CUTTLELY_HERMES_HEALTH_TIMEOUT" 'BEGIN { exit !(n < 1 || n > 30) }'; then
+        echo "CUTTLELY_HERMES_HEALTH_TIMEOUT must be between 1 and 30 seconds. Using 2." >&2
+        CUTTLELY_HERMES_HEALTH_TIMEOUT=2
+    fi
     hermes_number CUTTLELY_HERMES_HEALTH_GRACE 60
     hermes_number CUTTLELY_HERMES_HEALTH_FAILS 3 integer
     hermes_number CUTTLELY_HERMES_HEALTH_WINDOW 15
@@ -278,7 +283,7 @@ hermes_answers_health() {
     "$NODE_BIN" -e '
         const http = require("http")
         const port = process.env.API_SERVER_PORT || "8642"
-        const req = http.get({ host: "127.0.0.1", port, path: "/health", timeout: 2000 }, (res) => {
+        const req = http.get({ host: "127.0.0.1", port, path: "/health", timeout: Number(process.argv[1]) * 1000 }, (res) => {
             res.resume()
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
@@ -287,7 +292,7 @@ hermes_answers_health() {
         req.on("socket", (socket) => socket.on("connect", () => (connected = true)))
         req.on("timeout", () => { req.destroy(); process.exit(connected ? 2 : 1) })
         req.on("error", () => process.exit(1))
-    '
+    ' "$CUTTLELY_HERMES_HEALTH_TIMEOUT"
 }
 # Docker and Render start this script (Dockerfile CMD, scripts/render-entrypoint.sh).
 # Hermes lists MCP tools at boot, so it starts only after the harness gateway answers.

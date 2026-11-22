@@ -1,5 +1,6 @@
 // Applies the admin settings file to the environment at start, before any other server module reads it.
-// Saved limits override the host; other startup settings keep host precedence. When the start script already applied the file (CUTTLELY_SETTINGS_APPLIED=1), only the record is kept.
+// Saved limits override the host; other startup settings keep host precedence.
+// When the start script already applied ordinary settings (CUTTLELY_SETTINGS_APPLIED=1), only their record is kept.
 import { applyLimitSettings, recordHostLimits, resolveLimits } from './limits'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, hostSetKeys, fileValuesToApply, isBlank } from './resolve'
 import fs from 'fs'
