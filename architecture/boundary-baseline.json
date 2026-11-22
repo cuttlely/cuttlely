@@ -4545,6 +4545,10 @@
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
         },
         {
+            "path": "packages/server/src/utils/missingModelCredential.realNode.test.ts",
+            "reason": "The real-node missing-credential test stays next to the prediction path it exercises."
+        },
+        {
             "path": "packages/server/src/utils/nestedFlowCall.test.ts",
             "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
         },
