@@ -197,7 +197,7 @@ function notifySettingsWrite(dir: string): void {
     for (const listener of settingsWriteListeners) listener(dir)
 }
 
-/** Called after server.json is saved. Each listener drops its cached read. */
+/** Called after server.json is saved or removed. Listeners refresh their settings. */
 export function onSettingsFileWritten(listener: (dir: string) => void): void {
     settingsWriteListeners.add(listener)
 }
