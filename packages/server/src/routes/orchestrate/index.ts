@@ -5,6 +5,7 @@ import orchestrateController from '../../controllers/orchestrate'
 import predictionsController from '../../controllers/predictions'
 import { AppError } from '../../errors/appError'
 import { authorizeFlowAccess } from '../../utils/authorizeFlowAccess'
+import { assertFlowRuntimeAvailable, isRuntimeUnavailableError } from '../../utils/runtimeAvailability'
 import {
     ExternalAgentError,
     externalAgentAuth,
@@ -89,13 +90,16 @@ export const orchestrateErrorHandler = (err: unknown, _req: Request, res: Respon
         res.end()
         return
     }
+    if (isRuntimeUnavailableError(err)) {
+        if (err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds))
+        sendExternalAgentError(res, new ExternalAgentError(err.statusCode, err.code, 'server_error', err.message))
+        return
+    }
     if (err instanceof ExternalAgentError) {
         sendExternalAgentError(res, err)
         return
     }
     if (err instanceof AppError) {
-        // The agent runtime is down: the caller may retry, so say when.
-        if (err.code === 'RUNTIME_UNAVAILABLE' && err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds))
         sendExternalAgentError(res, mapAppError(err))
         return
     }
@@ -117,7 +121,10 @@ router.post(
             getChatflowId: (req) => req.params.id,
             keyOnly: true,
             checkOrigin: true,
-            beforeAdmission: (_req, flow) => assertExternalFlowKeyed(flow)
+            beforeAdmission: (_req, flow) => {
+                assertExternalFlowKeyed(flow)
+                assertFlowRuntimeAvailable(flow)
+            }
         })
     ),
     wrap(refuseKeylessFlow),
