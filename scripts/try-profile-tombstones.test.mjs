@@ -18,6 +18,7 @@ const { compileProfile, compileTryProfile, discardTryProfile, markProfileDeleted
     '../packages/harness/profile.mjs'
 )
 const { saveHarness } = await import('../packages/harness/store.mjs')
+const { hermesProfileId } = await import('../packages/harness/paths.mjs')
 const { endLiveTry, noteLiveTry } = await import('../packages/harness/try-live.mjs')
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
@@ -198,9 +199,14 @@ test('a legacy child name that cannot be tombstoned still gets removed without s
 
 test('clearing a deletion marker preserves supported mixed-case harness names', () => {
     const record = { name: 'MarkerTeam', chief: { model: { nodeName: 'unused' } }, specialists: [] }
-    markProfileDeleted(record.name)
-    assertDeleted(record.name)
+    const id = hermesProfileId(record.name)
+    assert.equal(id, 'markerteam')
     compileProfile(record)
+    markProfileDeleted(id)
+    assertDeleted(id)
     assert.equal(fs.existsSync(path.join(profiles, '.deleted', record.name)), false)
-    assert.ok(fs.statSync(path.join(profiles, record.name, 'config.yaml')).isFile())
+    compileProfile(record)
+    assert.equal(fs.existsSync(path.join(profiles, '.deleted', id)), false)
+    assert.equal(fs.existsSync(path.join(profiles, '.deleted', record.name)), false)
+    assert.ok(fs.statSync(path.join(profiles, 'markerteam', 'config.yaml')).isFile())
 })

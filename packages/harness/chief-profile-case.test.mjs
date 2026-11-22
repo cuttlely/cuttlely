@@ -24,6 +24,7 @@ const {
     compileProfileCached,
     compileTryProfile,
     discardTryProfile,
+    markProfileDeleted,
     PROFILE_COMPILER_VERSION,
     profileDestinationConflicts,
     profileOutdated,
@@ -72,7 +73,12 @@ before(async () => {
         calls.push({ url: req.url, method: req.method })
         const id = decodeURIComponent((req.url.match(/^\/p\/([^/]+)\//) || [])[1] || '')
         res.setHeader('content-type', 'application/json')
-        if (id === 'default' || !HERMES_PROFILE_ID.test(id) || !fs.existsSync(path.join(profileDir(id), 'config.yaml'))) {
+        if (
+            id === 'default' ||
+            !HERMES_PROFILE_ID.test(id) ||
+            fs.existsSync(path.join(path.dirname(profileDir(id)), '.deleted', id)) ||
+            !fs.existsSync(path.join(profileDir(id), 'config.yaml'))
+        ) {
             res.writeHead(404).end(JSON.stringify({ error: 'Unknown or unconfigured profile' }))
         } else if (req.headers.authorization !== `Bearer ${readProfileEnv(id).API_SERVER_KEY}`) {
             res.writeHead(401).end(JSON.stringify({ error: 'Unauthorized' }))
@@ -559,6 +565,53 @@ test(
         assert.equal(fs.readFileSync(path.join(target, 'kept.txt'), 'utf8'), 'First legacy data')
         assert.throws(() => compileProfile(second), refusedSecond)
         assert.equal(compileProfileCached(first).dir, target)
+    })
+)
+
+test(
+    'TigerMom can run in agent mode after deletion tombstones its lowercase chief and it is saved and compiled again',
+    isolatedCase('recreated-chief', async () => {
+        const record = recordFor('TigerMom')
+        const compiled = compileProfile(record)
+        const root = path.dirname(compiled.dir)
+        const id = hermesProfileId(record.name)
+        const marker = path.join(root, '.deleted', id)
+        const rawMarker = path.join(root, '.deleted', record.name)
+        assert.equal(id, 'tigermom')
+        assert.equal((await run(record.name)).text, 'Chief answer.')
+        const stopped = []
+        const previous = { ...cleanupHooks }
+        Object.assign(cleanupHooks, {
+            log() {},
+            close: async (entry) => {
+                // The real runtime writes this persistent marker when it stops serving a profile.
+                markProfileDeleted(entry)
+                stopped.push(entry)
+                return true
+            }
+        })
+        try {
+            const deleted = await deleteHarnessAndProfiles(record.name)
+            assert.deepEqual(new Set(deleted.removed), new Set([id, ...compiled.roster.specialists.map((item) => item.profileName)]))
+            assert.ok(stopped.includes(id))
+            assert.ok(!stopped.includes(record.name))
+            assert.equal(fs.readFileSync(marker, 'utf8'), 'deleted\n')
+            assert.ok(!fs.existsSync(rawMarker))
+            assert.ok(!fs.existsSync(compiled.dir))
+            const fresh = compileProfile(recordFor(record.name))
+            assert.equal(fresh.dir, compiled.dir)
+            assert.ok(!fs.existsSync(marker))
+            assert.ok(!fs.existsSync(rawMarker))
+            assert.ok(fs.statSync(path.join(fresh.dir, 'config.yaml')).isFile())
+            calls.length = 0
+            assert.equal((await run(record.name)).text, 'Chief answer.')
+            assert.deepEqual(
+                calls.filter((call) => call.method === 'POST').map((call) => call.url),
+                ['/p/tigermom/v1/runs']
+            )
+        } finally {
+            Object.assign(cleanupHooks, previous)
+        }
     })
 )
 

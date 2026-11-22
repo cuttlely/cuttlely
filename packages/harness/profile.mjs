@@ -871,6 +871,7 @@ export function removeContainedTree(absDir) {
 }
 
 // Hermes keeps deletion markers outside profile trees so late runtime writes cannot revive them.
+// Marker names are the exact profile folder entries, not saved harness names.
 export function markProfileDeleted(name) {
     if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) {
         throw new HarnessError('bad_name', 'Invalid runtime profile name.')
@@ -2441,7 +2442,7 @@ function compileProfileFiles(record, options = {}) {
         CUTTLELY_GATEWAY_ROLE: 'chief',
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
-    clearProfileDeleted(profileName)
+    clearProfileDeleted(hermesProfileId(profileName))
     // Written last: a compile that stopped partway has no version, so the next boot compiles it again.
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
     return { dir, roster: compiled, apiServerKey }
