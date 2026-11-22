@@ -5,12 +5,13 @@ import { applyAdminSettings } from './apply'
 import { accountLinkSnapshot } from './accountLinks'
 import { runSettingsCli } from './cli'
 import { startRecords } from './env-cli'
-import { readHistory } from './history'
+import { describeChanges, readHistory } from './history'
 import { HOST_LIMITS_VAR, resolveLimits } from './limits'
-import { settingFor } from './registry'
+import { SETTINGS, settingFor } from './registry'
+import { checkValue } from './validate'
 import { runtimeSnapshot } from './runtime'
 import { ServiceDeps, SettingsError, getView, saveChanges } from './service'
-import { writeSettingsFile } from './store'
+import { readSettingsFile, writeSettingsFile } from './store'
 
 const KEY = 'test-key-not-a-real-secret-0123456789abcdef'
 const LIVE = 'CUTTLELY_HARNESS_TURN_BUDGET_MS'
@@ -169,6 +170,47 @@ describe('admin time limits', () => {
         expect(records).toContain(`${health}=30`)
         const cleared = await saveChanges(service, { values: { [tool]: '' } }, 'operator')
         expect(row(cleared, tool)).toMatchObject({ effective: '', source: 'default', changed: false })
+    })
+
+    it('keeps fixed caps outside env, saved settings, exports, and history', async () => {
+        const fixed = 'CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT'
+        const f = fixture({ [fixed]: '999' })
+        writeSettingsFile(f.dir, { [fixed]: '800' }, { key: KEY })
+        expect(readSettingsFile(f.dir, KEY).values[fixed]).toBeUndefined()
+        // A hand-edited settings file is ignored too.
+        fs.writeFileSync(path.join(f.dir, 'server.json'), JSON.stringify({ version: 1, values: { [fixed]: '700' } }))
+        const service = f.start()
+        expect(f.env[fixed]).toBe('999')
+        expect(row(await getView(service), fixed)).toMatchObject({
+            fixed: true,
+            value: '300',
+            effective: '300',
+            source: 'default',
+            locked: true,
+            changed: false
+        })
+        await expect(saveChanges(service, { values: { [fixed]: '600' } }, 'operator')).rejects.toMatchObject({
+            status: 400,
+            code: 'READ_ONLY'
+        })
+        expect(resolveLimits(f.env, { [fixed]: '600' }).has(fixed)).toBe(false)
+        expect(describeChanges({}, { [fixed]: '600' })).toEqual([])
+        expect(startRecords(f.env, null, () => undefined).some((line) => line.startsWith(`${fixed}=`))).toBe(false)
+        expect(readHistory(f.dir)).toEqual([])
+    })
+
+    it('validates every limit entry against its displayed bounds and accepts clearing', () => {
+        for (const setting of SETTINGS.filter((entry) => entry.limit)) {
+            expect(setting.panelFirst).toBe(true)
+            expect(['live', 'restart']).toContain(setting.applies)
+            const scale = setting.unit === 'ms-as-seconds' ? 1000 : 1
+            expect(checkValue(setting, String(setting.min! * scale)).ok).toBe(true)
+            expect(checkValue(setting, String(setting.max! * scale)).ok).toBe(true)
+            expect(checkValue(setting, String((setting.min! - 1) * scale))).toMatchObject({ ok: false, code: 'OUT_OF_RANGE' })
+            expect(checkValue(setting, String((setting.max! + 1) * scale))).toMatchObject({ ok: false, code: 'OUT_OF_RANGE' })
+            expect(checkValue(setting, '1000.5')).toMatchObject({ ok: false, code: 'INVALID' })
+            expect(checkValue(setting, '')).toEqual({ ok: true, value: '' })
+        }
     })
 
     it('keeps limit keys outside invite/mail and runtime snapshots', () => {

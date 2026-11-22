@@ -628,6 +628,32 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Code tool-call response wait',
+        help: 'How long code execution waits for a tool-call response. Fixed in this version.',
+        type: 'number',
+        unit: 'seconds',
+        defaultLabel: '300 seconds',
+        defaultValue: '300',
+        fixed: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_FIXED_HERMES_MCP_HTTP_READ',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'HTTP MCP data wait',
+        help: 'How long an HTTP-connected MCP server may stay silent. Fixed in this version.',
+        type: 'number',
+        unit: 'seconds',
+        defaultLabel: '300 seconds',
+        defaultValue: '300',
+        fixed: true,
+        risk: 'low'
+    },
+    {
         key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
         section: 'runtime',
         group: 'Limits',
@@ -2415,7 +2441,7 @@ export function readOnlyDef(key: string): ReadOnlyDef | undefined {
 }
 
 export function isReadOnly(key: string): boolean {
-    return READ_ONLY_BY_KEY.has(key)
+    return READ_ONLY_BY_KEY.has(key) || settingFor(key)?.fixed === true
 }
 
 const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]))

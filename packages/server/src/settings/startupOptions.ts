@@ -21,6 +21,7 @@ function hidden(setting: SettingDef): boolean {
 }
 
 function whereOf(setting: SettingDef): string {
+    if (setting.fixed) return 'Fixed in this version'
     if (setting.envOnly) return HOST_ONLY
     if (setting.panelFirst || setting.key === 'CUTTLELY_HISTORY_KEEP') return 'Server settings, then the host'
     return HOST_OR_PANEL
@@ -53,7 +54,7 @@ export function startupOptionRows(): StartupOptionRow[] {
         range: rangeOf(setting),
         unit: unitOf(setting),
         where: whereOf(setting),
-        restart: (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
+        restart: !setting.fixed && (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
     }))
     const editableKeys = new Set(SETTINGS.map((setting) => setting.key))
     const hostOnly = READ_ONLY_SETTINGS.filter((setting) => !editableKeys.has(setting.key)).map((setting) => ({

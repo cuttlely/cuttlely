@@ -20,7 +20,7 @@ import { IconCheck, IconCopy, IconLock } from '@tabler/icons-react'
 
 import { describeValue, envExport, limitedByLabel, matchesQuery } from './model'
 
-const SOURCE_LABELS = { host: 'Host', file: 'Saved here', panel: 'Saved here', default: 'Default' }
+export const SOURCE_LABELS = { host: 'Host', file: 'Saved here', panel: 'Saved here', default: 'Default' }
 
 // Every setting in one table, where each value comes from, and what is kept out of the browser and why.
 const AllSettingsPanel = ({ settings, sections, keptOut, query, onOpen }) => {
@@ -96,7 +96,10 @@ const AllSettingsPanel = ({ settings, sections, keptOut, query, onOpen }) => {
                                     <Chip
                                         size='small'
                                         icon={setting.locked ? <IconLock size={12} /> : undefined}
-                                        label={limitedByLabel(setting) || (SOURCE_LABELS[setting.source] ?? setting.source)}
+                                        label={
+                                            limitedByLabel(setting) ||
+                                            (setting.fixed ? 'Fixed' : SOURCE_LABELS[setting.source] ?? setting.source)
+                                        }
                                         variant={setting.source === 'default' ? 'outlined' : 'filled'}
                                         color={setting.source === 'file' || setting.source === 'panel' ? 'primary' : 'default'}
                                         sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}

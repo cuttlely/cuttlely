@@ -122,6 +122,7 @@ export function readSettingsFile(dir: string, key: string | null, file = SETTING
             )
             continue
         }
+        if (setting.fixed) continue
         if (setting.type === 'secret') {
             if (!stored || typeof stored !== 'object' || typeof stored.secret !== 'string') {
                 result.problems.push(`${name} is a secret but was not stored encrypted, so it was ignored.`)
@@ -157,11 +158,12 @@ export function writeSettingsFile(
     const stored: Record<string, StoredValue> = {}
     // Stored entries kept exactly as they are, such as secrets this key cannot read and nobody changed.
     for (const [name, value] of Object.entries(options.preserve ?? {})) {
-        if (settingFor(name) && !Object.prototype.hasOwnProperty.call(values, name)) stored[name] = value
+        if (settingFor(name) && !settingFor(name)?.fixed && !Object.prototype.hasOwnProperty.call(values, name)) stored[name] = value
     }
     for (const name of Object.keys(values).sort()) {
         const setting = settingFor(name)
         if (!setting) throw new Error(`${name} is not a setting this Cuttlely knows.`)
+        if (setting.fixed) continue
         const value = values[name]
         if (isBlank(value)) continue
         stored[name] = setting.type === 'secret' ? { secret: encryptSecret(value, options.key) } : value

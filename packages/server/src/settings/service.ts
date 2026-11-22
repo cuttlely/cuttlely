@@ -174,7 +174,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
     const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => {
         const setting = settingFor(key)
-        return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
+        return !setting?.fixed && !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
     })
     const limits = limitSnapshot(env)
     const startLimits = resolveLimits(env, state.ignored ? {} : state.atStart)
@@ -208,7 +208,14 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.effective = effectiveValue(row)
             view.running = atStartResolved[index].value
         }
-        if (setting.envOnly) {
+        if (setting.fixed) {
+            view.source = 'default'
+            view.locked = true
+            view.changed = false
+            view.value = setting.defaultValue ?? ''
+            view.effective = view.value
+            view.running = view.value
+        } else if (setting.envOnly) {
             const set = !isBlank(env[setting.key])
             view.source = set ? 'host' : 'default'
             view.locked = true

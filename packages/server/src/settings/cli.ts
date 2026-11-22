@@ -58,7 +58,10 @@ function listSettings(env: Env, all: boolean): CliResult {
         const savedFirst = limits.get(row.key) ?? account.get(row.key)
         let value = row.value
         let source: string
-        if (row.key === ACCESS_ROLLOUT_KEY) {
+        if (setting?.fixed) {
+            value = `${setting.defaultLabel}. Fixed in this version.`
+            source = 'fixed'
+        } else if (row.key === ACCESS_ROLLOUT_KEY) {
             const rollout = rolloutState(env, read.values)
             value = rollout.value
             source = rollout.source

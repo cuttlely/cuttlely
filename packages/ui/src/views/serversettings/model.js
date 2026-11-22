@@ -95,7 +95,7 @@ export function cleanDrafts(settings, drafts) {
     const out = {}
     for (const [key, value] of Object.entries(drafts)) {
         const setting = byKey.get(key)
-        if (!setting || setting.locked) continue
+        if (!setting || setting.locked || setting.fixed) continue
         if (setting.type === 'secret') {
             if (value === '' && !setting.secret?.set) continue
             out[key] = value
@@ -366,7 +366,7 @@ function envQuote(value) {
  * included; each saved one is listed as a comment so it can be added by hand.
  */
 export function envExport(settings) {
-    const saved = (settings ?? []).filter((setting) => setting.source === 'file' || setting.source === 'panel')
+    const saved = (settings ?? []).filter((setting) => !setting.fixed && (setting.source === 'file' || setting.source === 'panel'))
     const lines = ['# Cuttlely server settings saved in Server settings. Secrets are left out.']
     for (const setting of saved) {
         if (setting.type === 'secret') lines.push(`# ${setting.key}=  (secret, set in Server settings; add it yourself)`)
