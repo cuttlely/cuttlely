@@ -5,6 +5,8 @@
 // A runtime limit with a bad host value uses the saved value, then the default.
 // Access-key rollout is stricter: an invalid nonempty host mode retains 503; invalid saved modes resolve off.
 // Invite and mail settings marked panelFirst are the exception: a saved value overrides the host.
+// A limit is panelFirst: saved value, then the host, then the default. applies says live or restart.
+// A fixed entry is display-only: no environment value is read and it cannot be saved.
 // SMTP_PASSWORD is envOnly: the page shows whether it is set and never stores it.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
 // READ_ONLY_SETTINGS is the exact env-only list whose status the API may report.
@@ -71,6 +73,12 @@ export interface SettingDef {
     runtime?: boolean
     /** A saved value overrides the host. Read on each use. The field stays editable. */
     panelFirst?: boolean
+    /** A time limit or cap: saved value, then the host, then the default. Also panelFirst. */
+    limit?: boolean
+    /** How a saved limit takes effect. Live on the next use, or at the next restart. */
+    applies?: 'live' | 'restart'
+    /** Display only. Fixed in this version; no environment variable is read. */
+    fixed?: true
     /** Read from the environment only. The page shows set or not set and cannot save it. */
     envOnly?: boolean
     /** Plain text that must be one email address. */
@@ -535,6 +543,9 @@ export const SETTINGS: SettingDef[] = [
         label: 'Agent run time',
         help: 'How long to wait for one specialist run, including a nested specialist task. 0 means unlimited. A shorter turn time limit still applies. Restart to apply.',
         type: 'number',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         integer: true,
         unit: 'ms-as-seconds',
         min: 0,
@@ -586,6 +597,10 @@ export const SETTINGS: SettingDef[] = [
         label: 'Turn time limit',
         help: 'How long one agent team turn may run before unfinished specialists stop.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
         unit: 'ms-as-seconds',
         min: 0,
         max: 3600,
@@ -755,6 +770,10 @@ export const SETTINGS: SettingDef[] = [
         label: 'Query timeout',
         help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
         unit: 'ms-as-seconds',
         min: 1,
         max: 120,
@@ -1876,8 +1895,12 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Grace period after a start',
-        help: 'Missed health checks in this window do not count.',
+        help: 'Missed health checks in this window do not count. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         unit: 'seconds',
         min: 0,
         max: 3600,
@@ -1890,8 +1913,12 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Misses before a restart',
-        help: 'Health checks in a row that must fail before a restart.',
+        help: 'Health checks in a row that must fail before a restart. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         min: 1,
         max: 100,
         defaultLabel: '3',
@@ -1903,8 +1930,12 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Continuous misses before a restart',
-        help: 'Seconds of failed checks before a restart. 0 restarts on the miss count alone.',
+        help: 'Seconds of failed checks before a restart. 0 restarts on the miss count alone. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         unit: 'seconds',
         min: 0,
         max: 3600,

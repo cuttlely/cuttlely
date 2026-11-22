@@ -6,6 +6,7 @@ import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollo
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
+import { limitSnapshot } from './limits'
 import { accountLinkSnapshot } from './accountLinks'
 import { SettingsBusyError, withSettingsLockSync } from './lock'
 import { SETTINGS, settingFor } from './registry'
@@ -26,6 +27,7 @@ const NEXT_START = 'It applies the next time Cuttlely starts.'
 
 function appliesLater(name: string): string {
     if (name === ACCESS_ROLLOUT_KEY) return 'It applies on the next request.'
+    if (settingFor(name)?.applies === 'live') return 'It applies the next time that limit is used.'
     if (settingFor(name)?.runtime) return 'It applies the next time that limit is used.'
     return NEXT_START
 }
@@ -37,12 +39,13 @@ function listSettings(env: Env, all: boolean): CliResult {
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
     const account = accountLinkSnapshot(env)
+    const limits = limitSnapshot(env)
     const lines = [`Settings file: ${path.join(dir, SETTINGS_FILE)}${read.exists ? '' : ' (none yet)'}`]
     const shown = rows.filter((row) => {
         if (all || read.unreadable.includes(row.key)) return true
         const setting = settingFor(row.key)
         if (setting?.envOnly) return !isBlank(env[row.key])
-        const resolved = live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
+        const resolved = limits.get(row.key) ?? live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
         // A host or saved value that does not resolve still belongs on the list, with the value in effect.
         if (resolved) return resolved.source !== 'default' || row.source !== 'default'
         return row.source !== 'default'
@@ -52,7 +55,7 @@ function listSettings(env: Env, all: boolean): CliResult {
         const setting = settingFor(row.key)
         const resolved = live.get(row.key)
         const flag = flags.get(row.key)
-        const savedFirst = account.get(row.key)
+        const savedFirst = limits.get(row.key) ?? account.get(row.key)
         let value = row.value
         let source: string
         if (row.key === ACCESS_ROLLOUT_KEY) {

@@ -18,6 +18,7 @@ import { SettingsBusyError, withSettingsLock } from './lock'
 import { listReadOnlyStatus } from './readOnly'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { limitSnapshot, resolveLimits } from './limits'
 import { accountLinkSnapshot } from './accountLinks'
 import { flagSnapshot, invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
@@ -175,6 +176,17 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
         const setting = settingFor(key)
         return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
     })
+    const limits = limitSnapshot(env)
+    const startLimits = resolveLimits(env, state.ignored ? {} : state.atStart)
+    for (const setting of SETTINGS) {
+        if (
+            setting.limit &&
+            setting.applies === 'restart' &&
+            limits.get(setting.key)?.value !== (state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value)
+        )
+            changed.push(setting.key)
+    }
+    changed.sort()
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
@@ -207,6 +219,15 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             delete view.boundedBy
             delete view.range
             view.secret = { set, unreadable: false }
+        } else if (setting.limit) {
+            const picked = limits.get(setting.key)!
+            view.source = picked.source
+            view.locked = false
+            view.changed = changed.includes(setting.key)
+            view.value = picked.source === 'default' ? '' : picked.value
+            view.effective = picked.value
+            view.running = state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value
+            if (setting.min !== undefined && setting.max !== undefined) view.range = { min: setting.min, max: setting.max }
         } else if (setting.panelFirst) {
             const picked = accountLinkSnapshot(env).get(setting.key)
             if (picked) {

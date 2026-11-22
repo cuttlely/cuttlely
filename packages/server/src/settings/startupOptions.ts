@@ -53,7 +53,7 @@ export function startupOptionRows(): StartupOptionRow[] {
         range: rangeOf(setting),
         unit: unitOf(setting),
         where: whereOf(setting),
-        restart: setting.runtime ? ('No' as const) : ('Yes' as const)
+        restart: (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
     }))
     const editableKeys = new Set(SETTINGS.map((setting) => setting.key))
     const hostOnly = READ_ONLY_SETTINGS.filter((setting) => !editableKeys.has(setting.key)).map((setting) => ({

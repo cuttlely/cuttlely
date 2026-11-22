@@ -189,14 +189,14 @@ export function readStoredValues(dir: string, file = SETTINGS_FILE): Record<stri
     }
 }
 
-const settingsWriteListeners = new Set<() => void>()
+const settingsWriteListeners = new Set<(dir: string) => void>()
 
-function notifySettingsWrite(): void {
-    for (const listener of settingsWriteListeners) listener()
+function notifySettingsWrite(dir: string): void {
+    for (const listener of settingsWriteListeners) listener(dir)
 }
 
 /** Called after server.json is saved. Each listener drops its cached read. */
-export function onSettingsFileWritten(listener: () => void): void {
+export function onSettingsFileWritten(listener: (dir: string) => void): void {
     settingsWriteListeners.add(listener)
 }
 
@@ -211,7 +211,7 @@ export function writeFileAtomic(dir: string, file: string, text: string): void {
     } catch {
         // some volumes do not keep permissions
     }
-    if (file === SETTINGS_FILE) notifySettingsWrite()
+    if (file === SETTINGS_FILE) notifySettingsWrite(dir)
 }
 
 /** Copies the current file to the last-good copy, byte for byte. */

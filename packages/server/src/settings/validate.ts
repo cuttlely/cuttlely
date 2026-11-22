@@ -112,6 +112,7 @@ function runtimeInteger(setting: SettingDef, value: string): Checked {
 }
 
 export function checkValue(setting: SettingDef, input: unknown): Checked {
+    if (setting.fixed) return { ok: false, code: 'READ_ONLY', error: 'This setting cannot be changed.' }
     if (input === null || input === undefined) return { ok: true, value: '' }
     if (typeof input === 'boolean' && setting.type === 'switch') input = input ? setting.on ?? 'true' : setting.off ?? 'false'
     if (typeof input === 'number') {
@@ -143,6 +144,27 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
             return { ok: false, error: `${setting.label}: choose one of the options.` }
         }
         case 'number': {
+            if (setting.limit) {
+                const shown = setting.unit === 'ms-as-seconds' ? Number(value) / 1000 : Number(value)
+                const valid = /^-?\d+(\.\d+)?$/.test(value) && Number.isFinite(shown)
+                if (!valid || (setting.integer && !Number.isSafeInteger(Number(value))))
+                    return {
+                        ok: false,
+                        code: 'INVALID',
+                        error: `${setting.label}: enter a whole number.`,
+                        min: setting.min,
+                        max: setting.max
+                    }
+                if ((setting.min !== undefined && shown < setting.min) || (setting.max !== undefined && shown > setting.max))
+                    return {
+                        ok: false,
+                        code: 'OUT_OF_RANGE',
+                        error: `${setting.label}: the value must be from ${setting.min} to ${setting.max}.`,
+                        min: setting.min,
+                        max: setting.max
+                    }
+                return { ok: true, value }
+            }
             if (setting.runtime) return runtimeInteger(setting, value)
             if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
             const raw = Number(value)
