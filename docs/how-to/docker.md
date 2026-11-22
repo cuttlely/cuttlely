@@ -72,7 +72,7 @@ The image and the main-server Compose probes use a 15-second interval, 5-second 
 
 -   **Render:** set **Health Check Path** to `/api/v1/ping/live`, as in `render.yaml`; check strict readiness separately before agent traffic. [Render guide](./render.md).
 -   **Docker Compose:** `docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping/live`; the supplied main-server services retain `restart: unless-stopped` or `always`.
--   **Plain Docker:** `docker run -d -p 43117:43117 -v cuttlely-data:/var/cuttlely 'ghcr.io/cuttlely/cuttlely:<version>'`; the image contains the probe and recovery loop, which work without a restart policy.
+-   **Plain Docker:** `docker run -d --restart unless-stopped -p 43117:43117 -v cuttlely-data:/var/cuttlely 'ghcr.io/cuttlely/cuttlely:<version>'`. Plain `docker run` should use `--restart unless-stopped`. The image's recovery loop restarts the agent runtime in place without exiting the container; the restart policy covers the container process if it exits.
 -   **VM behind nginx/Caddy:** probe `http://127.0.0.1:43117/api/v1/ping/live` for service restart decisions with a failure budget of at least a few minutes (the image uses 15 s × 20); use strict `/api/v1/ping` for agent routing while keeping UI/recovery traffic available. [Reverse proxy guide](./reverse-proxy.md).
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.

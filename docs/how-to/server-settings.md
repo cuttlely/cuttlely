@@ -108,7 +108,7 @@ CUTTLELY_HARNESS_TOOL_TIMEOUT_MS=3660000
 
 A 300-second query needs every limit around it to be larger than 300 seconds. With the tool setting above, specialist MCP servers wait 3660 s, the stdio bridge waits 3720 s, and both Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) are 3720 s. The bridge and deadlines follow the tool setting with a 60 s margin. The roster MCP server always has an unlimited MCP wait; the agent run and whole-turn limits still apply. When the tool setting is unset, the bridge keeps its existing 130 s wait.
 
-This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s; for those, a pipeline job is the supported route. HTTP-connected MCP servers also have a fixed 300-second wait for data inside the agent runtime. That wait only fires when no data arrives for 300 seconds.
+This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. Long HTTP MCP tools must send progress at least every 300 s or run as a pipeline job: the agent runtime has a fixed 300-second wait for data on HTTP-connected MCP servers, and that wait fires when no data arrives for 300 seconds.
 
 Set any proxy or load-balancer idle timeout to at least 3720 s for harness streams with this example. [Proxy stream timeouts](./reverse-proxy.md#how-long-a-stream-can-stay-quiet) explains the separate limits for streams and reusable connections.
 
