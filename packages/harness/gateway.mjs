@@ -33,6 +33,7 @@ import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
+import { TRY_BRIDGE_SWEEP_MS, sweepOrphanTryBridges } from './try-bridges.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
 import { serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
@@ -365,9 +366,25 @@ function savedHarnessState(name) {
 function abandonedTryHome(home) {
     if (!TRY_HOME.test(home || '')) return false
     if (savedHarnessState(home) !== 'absent') return false
-    if (!tryMarkerMatches(home)) return false
+    if (!tryMarkerMatches(home) && !leftoverShell(home)) return false
     if (tryLockIsLive(home)) return false
     return true
+}
+
+// A try folder the runtime recreated after teardown (an empty folder, or only logs/ and a lock): no marker, no
+// config and no roster, so nothing in it can be served. A fresh one can be a try that is still being set up, so
+// only one untouched for 10 minutes counts.
+const LEFTOVER_SHELL_AGE_MS = 10 * 60 * 1000
+
+function leftoverShell(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    const names = listDirNoFollow(dir)
+    if (!names || !names.every((name) => ['logs', 'try.lock'].includes(name))) return false
+    try {
+        return Date.now() - fs.lstatSync(dir).mtimeMs >= LEFTOVER_SHELL_AGE_MS
+    } catch {
+        return false
+    }
 }
 
 // A specialist or fitted profile follows its try home. It is also a leftover when that home's
@@ -386,6 +403,7 @@ function abandonedTryEntry(entry, parentMarker) {
     if (home && entry === home) return abandonedTryHome(home)
     if (home) return abandonedChild(home)
     if (!TRYX_HOME.test(entry)) return false
+    if (!parentMarker && leftoverShell(entry)) return true
     return abandonedChild(parentMarker)
 }
 
@@ -503,6 +521,39 @@ function issuedForSavedRecord(name, created) {
         }
     }
     return false
+}
+
+let trySweepTimer = null
+let trySweeping = false
+
+// In the server process: on a timer, remove abandoned try folders and stop try MCP bridges that outlived their
+// profile or their runtime (see try-bridges.mjs). A live try keeps its folder and bridges. Calling it again does nothing.
+export function startTrySweeper({ intervalMs = TRY_BRIDGE_SWEEP_MS } = {}) {
+    if (trySweepTimer || process.platform !== 'linux') return
+    trySweepTimer = setInterval(async () => {
+        if (trySweeping) return
+        trySweeping = true
+        try {
+            sweepAbandonedTryProfiles()
+            const { stopped, left } = await sweepOrphanTryBridges()
+            if (stopped.length)
+                console.warn(
+                    `[harness] stopped ${stopped.length} orphaned try MCP bridge process(es)${
+                        left.length ? `; ${left.length} still running` : ''
+                    }`
+                )
+        } catch (error) {
+            console.warn(`[harness] try sweep failed: ${error?.message || error}`)
+        } finally {
+            trySweeping = false
+        }
+    }, intervalMs)
+    trySweepTimer.unref?.()
+}
+
+export function stopTrySweeper() {
+    if (trySweepTimer) clearInterval(trySweepTimer)
+    trySweepTimer = null
 }
 
 // A process start loads tokens only after abandoned tries are gone.

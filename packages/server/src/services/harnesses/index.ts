@@ -678,6 +678,8 @@ function configureRuntime(): Promise<void> {
                 // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
                 await recompileBeforeHermes(gateway)
+                // Removes abandoned try folders and stops try MCP bridges that outlived their profile or runtime.
+                gateway.startTrySweeper?.()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')
                 await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {

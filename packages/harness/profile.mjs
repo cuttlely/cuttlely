@@ -10,6 +10,7 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
+import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, hermesProfileId, profileDir } from './paths.mjs'
 import {
@@ -1227,6 +1228,12 @@ function mcpServerBlocks(record) {
     return blocks
 }
 
+// Every MCP server of a try profile carries its profile folder, so teardown and the sweep (try-bridges.mjs) find
+// the processes the runtime started for it. Published profiles are not marked.
+function markTryBlocks(blocks, dir) {
+    for (const block of blocks) block.env = { ...(block.env || {}), [TRY_PROFILE_DIR_ENV]: path.resolve(dir) }
+}
+
 function isSpecialistBridge(block) {
     return block.args?.[0] === path.join(repoRoot(), 'packages', 'harness', 'mcp-bridge.mjs')
 }
@@ -1973,6 +1980,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
             CUTTLELY_HARNESS_PROFILE_ENV: path.resolve(profileEnvPath(specialist.profileName))
         }
     }
+    if (tryProfile) markTryBlocks(blocks, dir)
     const yaml = []
     yaml.push('agent:')
     yaml.push('  max_turns: 40')
@@ -2504,6 +2512,7 @@ function compileProfileFiles(record, options = {}) {
         if (block.name === 'roster') continue
         disabled.push(block.name)
     }
+    if (tryProfile) markTryBlocks(mcpBlocks, dir)
 
     const yaml = []
     yaml.push('agent:')
@@ -2867,6 +2876,7 @@ async function closeTryRuntime(names) {
 // so removal retries until those directories stay gone. A directory that is still there is logged once.
 export async function discardTryProfile(tryId) {
     const scope = tryProfileName(tryId)
+    let bridgesStopped = false
     try {
         const names = tryProfileNames(scope)
         const owned = names.length ? names : [scope]
@@ -2878,6 +2888,9 @@ export async function discardTryProfile(tryId) {
             }
         }
         await closeTryRuntime(owned)
+        // The runtime close can leave a try's MCP bridges running. Stop them (and their process groups) before
+        // any folder goes, so none keeps running from a deleted folder.
+        bridgesStopped = await stopTryBridgesFor(scope, owned)
         forgetTryTokens(scope)
         for (const entry of owned) removeOneTryDir(entry)
         if (typeof tryRuntime.afterFirstRemoval === 'function') {
@@ -2891,9 +2904,21 @@ export async function discardTryProfile(tryId) {
         const left = await retryBusyTryDirectories(scope)
         warnTryDirectoriesLeft(left)
     } finally {
+        // An error above still stops this try's bridges.
+        if (!bridgesStopped) await stopTryBridgesFor(scope, [scope])
         compiledProfiles.delete(scope)
         endLiveTry(scope)
     }
+}
+
+async function stopTryBridgesFor(scope, names) {
+    try {
+        const { left } = await stopTryProfileBridges([scope, ...names, ...tryScopeEntries(scope)])
+        if (left.length) console.warn(`[harness] try ${scope}: ${left.length} MCP bridge process(es) still running after stop`)
+    } catch (error) {
+        console.warn(`[harness] try ${scope}: MCP bridge stop failed: ${error?.message || error}`)
+    }
+    return true
 }
 
 export { noteLiveTry }
