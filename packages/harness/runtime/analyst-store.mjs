@@ -381,6 +381,8 @@ const ISOLATION_ERROR =
     'Analyst mode could not isolate the analyst role from application tables. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.'
 const SECRET_ERROR =
     'Analyst mode could not read the stored role secret. The credential encryption key may have changed. Set CUTTLELY_POSTGRES_URL to a separate database instead of using the application login.'
+const SECRET_GRANT_ERROR =
+    'Analyst mode could not store its role password: the application database user may not create schemas in this database or tables in schema public. Grant it CREATE on the database, or CREATE on schema public, or set CUTTLELY_POSTGRES_URL to a separate database.'
 const APP_SQLITE_ERROR = 'Analyst mode refused to open the application SQLite file.'
 
 const ready = new Map()
@@ -734,13 +736,20 @@ async function roleSecretTable(client) {
     }
     if (schema === SECRET_SCHEMA) await client.query(`REVOKE ALL ON SCHEMA ${quoteIdent(schema)} FROM PUBLIC`)
     const table = `${quoteIdent(schema)}.role_secret`
-    await client.query(`CREATE TABLE IF NOT EXISTS ${table} (
-        role text PRIMARY KEY,
-        workspace_tag text NULL,
-        ciphertext text NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
-    )`)
+    try {
+        await client.query(`CREATE TABLE IF NOT EXISTS ${table} (
+            role text PRIMARY KEY,
+            workspace_tag text NULL,
+            ciphertext text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )`)
+    } catch (error) {
+        // PostgreSQL 15+ no longer lets every login create tables in public. With neither schema writable,
+        // name the grants instead of surfacing a bare "permission denied for schema public".
+        if (schema !== 'public' || error.code !== '42501') throw error
+        throw Object.assign(new Error(SECRET_GRANT_ERROR), { code: '42501' })
+    }
     await client.query(`REVOKE ALL ON TABLE ${table} FROM PUBLIC`)
     return table
 }
@@ -1015,7 +1024,14 @@ async function provisionPostgres(env, workspace = '', existingOnly = false) {
             throw error
         }
     } catch (error) {
-        if (error.message === CREATEROLE_ERROR || error.message === ISOLATION_ERROR || error.message === SECRET_ERROR) throw error
+        if (
+            error.message === CREATEROLE_ERROR ||
+            error.message === ISOLATION_ERROR ||
+            error.message === SECRET_ERROR ||
+            error.message === SECRET_GRANT_ERROR
+        ) {
+            throw error
+        }
         throw scrub(error, [password, config.password])
     } finally {
         await client.end().catch(() => {})

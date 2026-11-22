@@ -854,6 +854,60 @@ describe('analyst: role secrets survive independent Postgres instances', () => {
         await f.connect(third)
     })
 
+    it('names the missing grants when neither the private schema nor public can hold the secret', async (t) => {
+        const f = await fixture(t)
+        if (!f) return
+        const a = await f.instance()
+        const workspace = `zz-test-nogrant-${f.database}`
+        const role = `analyst_reader_${a.runtime.analystWorkspaceTag(workspace)}`
+        f.roles.add(role)
+        const admin = ident(adminConfig().user)
+        // No fixture grant: undo the shared fixture's public ownership. PostgreSQL 15+ leaves public owned by
+        // pg_database_owner with CREATE for the owner only; earlier versions get the same rights explicitly.
+        const modern = Number((await f.owner.query('SHOW server_version_num')).rows[0].server_version_num) >= 150000
+        await f.owner.query(`ALTER DATABASE ${ident(f.database)} OWNER TO ${admin};
+            ALTER SCHEMA public OWNER TO ${modern ? 'pg_database_owner' : admin};
+            REVOKE CREATE ON SCHEMA public FROM PUBLIC, ${ident(f.appRole)};
+            REVOKE CREATE ON DATABASE ${ident(f.database)} FROM PUBLIC, ${ident(f.appRole)};
+            GRANT CONNECT, TEMPORARY ON DATABASE ${ident(f.database)} TO ${ident(f.appRole)}`)
+        const rights = (
+            await f.owner.query(
+                `SELECT has_database_privilege($1, current_database(), 'CREATE') AS db,
+                    has_schema_privilege($1, 'public', 'CREATE') AS pub,
+                    pg_get_userbyid(d.datdba) = $1 AS owns
+                 FROM pg_database d WHERE d.datname = current_database()`,
+                [f.appRole]
+            )
+        ).rows[0]
+        assert.deepEqual(rights, { db: false, pub: false, owns: false }, 'the app login can create neither schema')
+        if (modern) {
+            const owner = (await f.owner.query("SELECT pg_get_userbyid(nspowner) AS o FROM pg_namespace WHERE nspname = 'public'")).rows[0]
+            assert.equal(owner.o, 'pg_database_owner')
+        }
+        const refused = (error) => {
+            assert.equal(error.code, '42501')
+            assert.match(error.message, /CREATE on the database/)
+            assert.match(error.message, /CREATE on schema public/)
+            assert.match(error.message, /CUTTLELY_POSTGRES_URL/)
+            assert.doesNotMatch(error.message, /^permission denied/)
+            assert.ok(!error.message.includes(f.appPassword), 'the error carries no password')
+            assert.doesNotMatch(error.message, /postgres(ql)?:\/\//, 'the error carries no connection string')
+            return true
+        }
+        await assert.rejects(a.runtime.ensureAnalystStore(a.env, { workspace }), refused)
+        await assert.rejects(a.runtime.queryAnalyst('SELECT 1', { env: a.env, workspace }), refused)
+        const left = (
+            await f.owner.query(
+                `SELECT to_regclass('public.role_secret') AS fallback, to_regnamespace('cuttlely_analyst_admin') AS own,
+                    (SELECT count(*)::int FROM pg_roles WHERE rolname = $1) AS roles`,
+                [role]
+            )
+        ).rows[0]
+        assert.deepEqual(left, { fallback: null, own: null, roles: 0 }, 'the refused provisioning leaves no table, schema or role')
+        const files = fs.readdirSync(a.env.SECRETKEY_PATH).filter((name) => name.endsWith('.enc'))
+        assert.deepEqual(files, [], 'no .enc file is written')
+    })
+
     it('leaves SQLite and URL queries outside role-secret provisioning', async (t) => {
         const f = await fixture(t)
         if (!f) return
