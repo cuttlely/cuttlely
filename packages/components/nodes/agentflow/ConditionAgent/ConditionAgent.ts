@@ -5,7 +5,7 @@ import { getPastChatHistoryImageMessages, getUniqueImageMessages, processMessage
 import { CONDITION_AGENT_SYSTEM_PROMPT, DEFAULT_SUMMARIZER_TEMPLATE } from '../prompt'
 import { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { findBestScenarioIndex } from './matchScenario'
-import { extractResponseContent } from '../../../src/utils'
+import { extractResponseContent, rethrowIfModelClientError } from '../../../src/utils'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
 import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
@@ -513,7 +513,10 @@ class ConditionAgent_Agentflow implements INode {
             if (error instanceof Error && error.message === 'Aborted') {
                 throw error
             }
-            throw new Error(`Error in Condition Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            rethrowIfModelClientError(error)
+            throw Object.assign(new Error(`Error in Condition Agent node: ${error instanceof Error ? error.message : String(error)}`), {
+                cause: error
+            })
         }
     }
 

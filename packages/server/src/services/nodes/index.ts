@@ -2,7 +2,7 @@ import { ClientType, INode, INodeOptionsValue } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { omit } from 'lodash'
 import { AppError } from '../../errors/appError'
-import { getErrorMessage } from '../../errors/utils'
+import { fromQueueFailure, getErrorMessage } from '../../errors/utils'
 import { INodeData, MODE } from '../../Interface'
 import { databaseEntities } from '../../utils'
 import { OMIT_QUEUE_JOB_DATA } from '../../utils/constants'
@@ -137,7 +137,7 @@ const executeCustomFunction = async (requestBody: any, workspaceId?: string, org
         logger.debug(`[server]: Execute Custom Function Job added to queue by ${orgId}: ${job.id}`)
 
         const queueEvents = predictionQueue.getQueueEvents()
-        const result = await job.waitUntilFinished(queueEvents)
+        const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
         if (!result) {
             throw new Error('Failed to execute custom function')
         }

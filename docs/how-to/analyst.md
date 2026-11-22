@@ -41,6 +41,8 @@ Open **Credentials**, choose **OpenAI API**, and paste a real key into **OpenAI 
 
 The harness uses that credential. You do not have to unset `OPENAI_API_KEY` in the server environment. Cuttlely passes the credential key into the chat model. If the OpenAI node has no credential, the run stops and does not read `OPENAI_API_KEY` from the environment. A key left in the environment does not fill in a missing credential.
 
+When a required model credential is not selected, chatflow predictions, vector upserts and document-store upserts return HTTP 422 with `Pick a credential on the <card> node.`, including in `MODE=queue`. In both default and queue modes, agentflow predictions return 422 for a missing credential, except inside an Iteration node, which keeps running and shows the error in that item's result. Remote Chatflow Tool and Agent as Tool calls, and remote V1 Execute Flow calls, can still consume a child prediction's HTTP error as a tool result instead of propagating it. If a chatflow or agentflow prediction is already streaming, the HTTP response stays 200 and the same 422 status and message arrive in the stream's error event. Select a credential on the named card and try again.
+
 ### Harness
 
 Open **Templates** and start **Chief of Staff Harness**.
