@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { dataRoot } from './paths.mjs'
+import { harnessToolTimeoutMs } from './budget.mjs'
 import { createMcpStdio } from './mcp-stdio.mjs'
 import { noteAnalystToolCount } from './runtime/analyst-mcp-status.mjs'
 
@@ -116,6 +117,11 @@ function postGateway(requestPath, body) {
     return postGatewayAttempt(requestPath, body, false)
 }
 
+export function bridgeWaitMs(env = process.env) {
+    const ms = harnessToolTimeoutMs(env)
+    return ms === undefined ? 130000 : Math.ceil(ms / 1000) * 1000 + 60000
+}
+
 function postGatewayAttempt(requestPath, body, refreshed) {
     const { url, token } = gatewayTarget(requestPath)
     const payload = JSON.stringify(body)
@@ -131,7 +137,7 @@ function postGatewayAttempt(requestPath, body, refreshed) {
                     'content-length': Buffer.byteLength(payload),
                     authorization: `Bearer ${token}`
                 },
-                timeout: 130000
+                timeout: bridgeWaitMs()
             },
             (res) => {
                 const chunks = []
