@@ -1333,6 +1333,88 @@ export function assertChiefProfileAvailable(name) {
     }
 }
 
+// Stale lowercase chiefs are parked here, outside profiles/, so the runtime never serves them and nothing deletes them.
+export const STALE_CHIEFS_DIR = '.cuttlely-stale-chiefs'
+
+// Exact store entries, read from the store directory so a case-insensitive disk cannot make "acme-agentic.json" match
+// "Acme-Agentic.json". A record staged for deletion still counts as saved. null when the store cannot be listed.
+function storeEntries() {
+    try {
+        return new Set(fs.readdirSync(harnessStoreDir()))
+    } catch {
+        return null
+    }
+}
+
+// The owner of the lowercase chief folder of a capitalised harness, when that owner is another spelling of the same
+// id with no saved record (for example "acme-agentic", deleted before #285 removed profile folders on delete). Such a
+// folder is not this harness's and not a live harness's; it blocks the adoption below. '' when the folder is missing,
+// a link, a try, has no harness markers, has markers that disagree, or its owner is still saved.
+export function staleChiefOwner(name) {
+    const id = hermesProfileId(name)
+    if (typeof name !== 'string' || id === name) return ''
+    const dir = profileDir(name)
+    const st = lstatNoFollow(dir)
+    if (!st || st.isSymbolicLink() || !st.isDirectory()) return ''
+    if (lstatNoFollow(path.join(dir, 'harness-try'))) return ''
+    const parent = readMarker(path.join(dir, 'harness-parent'))
+    const roster = onDiskRoster(dir)?.name
+    const rosterName = typeof roster === 'string' ? roster : ''
+    if (parent && rosterName && parent !== rosterName) return ''
+    const owner = parent || rosterName
+    if (!owner || owner === name || hermesProfileId(owner) !== id) return ''
+    // Only against a readable store that has this harness saved and has no record of the owner. A missing or other
+    // data directory therefore never parks anything.
+    const entries = storeEntries()
+    if (!entries || !entries.has(`${name}.json`)) return ''
+    if (entries.has(`${owner}.json`) || entries.has(`${owner}.json.deleting`)) return ''
+    return owner
+}
+
+// Moves a stale lowercase chief out of profiles/ with an owner note beside it. Nothing is deleted. Throws on failure,
+// which leaves the folder where it was (the compile then refuses with name_taken, as before).
+function parkStaleChief(name, owner) {
+    const id = hermesProfileId(name)
+    const home = hermesHome()
+    const parkRoot = path.join(home, STALE_CHIEFS_DIR)
+    const homeReal = fs.realpathSync(home)
+    const lstatPark = () => {
+        try {
+            return fs.lstatSync(parkRoot)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return null
+            throw error
+        }
+    }
+    let st = lstatPark()
+    if (!st) {
+        try {
+            fs.mkdirSync(parkRoot, { mode: 0o700 })
+        } catch (error) {
+            if (error?.code !== 'EEXIST') throw error
+        }
+        st = lstatPark()
+    }
+    if (!st || st.isSymbolicLink() || !st.isDirectory() || fs.realpathSync(parkRoot) !== path.join(homeReal, STALE_CHIEFS_DIR)) {
+        throw new HarnessError('profile_link', `stale chief park folder is not a plain folder: ${parkRoot}`)
+    }
+    const parked = `${id}-${crypto.randomBytes(6).toString('hex')}`
+    // The note is written first, so a crash between the two steps leaves a note and the folder still in place.
+    fs.writeFileSync(path.join(parkRoot, `${parked}.owner`), `${owner}\n`, { flag: 'wx', mode: 0o600 })
+    const root = profilesRoot()
+    const opened = openDirNoFollow(root, { quiet: true })
+    if (!opened) throw new HarnessError('profile_link', `profiles folder is a link: ${root}`)
+    try {
+        fs.renameSync(childPath(opened.fd, root, id), path.join(parkRoot, parked))
+    } finally {
+        closeFds(opened.fds)
+    }
+    console.warn(
+        `[harness] parked profiles/${id} of deleted harness "${owner}" at ${STALE_CHIEFS_DIR}/${parked} so harness "${name}" can use its runtime profile`
+    )
+    return parked
+}
+
 // Upgrade only the chief directory. Path getters never move data, and specialist ids keep their existing spelling.
 export function adoptLegacyChiefProfile(name) {
     assertHarnessName(name)
@@ -1341,6 +1423,8 @@ export function adoptLegacyChiefProfile(name) {
     let opened
     try {
         if (chiefProfileCollision(name)) return false
+        const stale = staleChiefOwner(name)
+        if (stale) parkStaleChief(name, stale)
         const root = profilesRoot()
         opened = openDirNoFollow(root, { quiet: true })
         if (!opened) return false
@@ -1982,7 +2066,9 @@ function markerText(file) {
 // Profile directories this harness would compile into that another harness already has: its home holding another
 // harness's specialist, or a specialist name (joined with "--") holding another harness's home or specialist.
 // Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
-export function profileDestinationConflicts(record, profileName = record?.name) {
+// staleHomeParks: a pre-save check may pass over a stale lowercase chief that the compile will move aside. The compile
+// itself passes false, so a move that failed (the folder is still there) refuses with name_taken and writes nothing.
+export function profileDestinationConflicts(record, profileName = record?.name, { staleHomeParks = true } = {}) {
     const home = String(profileName || '')
     const homeId = hermesProfileId(home)
     // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
@@ -1990,7 +2076,13 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
     const homeRoster = onDiskRoster(homeDir)?.name
-    if (((homeParent && homeParent !== home) || (homeRoster && homeRoster !== home)) && !conflicts.includes(homeId)) conflicts.push(homeId)
+    // A stale lowercase chief of a deleted spelling is moved aside by the compile that follows, so a pre-save check skips it.
+    if (
+        ((homeParent && homeParent !== home) || (homeRoster && homeRoster !== home)) &&
+        !conflicts.includes(homeId) &&
+        !(staleHomeParks && staleChiefOwner(home))
+    )
+        conflicts.push(homeId)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
     const normalized = {
         ...record,
@@ -2330,7 +2422,8 @@ function compileProfileFiles(record, options = {}) {
         )
     }
     if (!tryProfile) {
-        const taken = profileDestinationConflicts(record, profileName)
+        // Adoption above already moved a stale chief aside; if that failed, its folder is still a conflict.
+        const taken = profileDestinationConflicts(record, profileName, { staleHomeParks: false })
         if (taken.length) {
             throw new HarnessError(
                 'name_taken',
@@ -2947,9 +3040,14 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
         if (!record?.name) continue
+        // A stale lowercase chief of a deleted spelling is parked by the adoption below. The harness then compiles
+        // here, before the runtime starts, even when it had no capitalised folder to adopt.
+        let parkedStale = false
         try {
             assertChiefProfileAvailable(record.name)
+            parkedStale = Boolean(staleChiefOwner(record.name))
             adoptLegacyChiefProfile(record.name)
+            if (parkedStale && staleChiefOwner(record.name)) parkedStale = false
         } catch (error) {
             results.push({ name: record.name, status: 'failed', error: error.message })
             continue
@@ -2969,7 +3067,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
         }
         let outdated
         try {
-            outdated = profileOutdated(record)
+            outdated = parkedStale || profileOutdated(record)
         } catch (error) {
             results.push({ name: record.name, status: 'failed', error: error.message })
             continue
