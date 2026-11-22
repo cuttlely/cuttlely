@@ -40,7 +40,7 @@ test(
         try {
             const result = spawnSync(python, [probe, runtime], {
                 encoding: 'utf8',
-                timeout: 60_000,
+                timeout: 90_000,
                 env: {
                     ...process.env,
                     PYTHONDONTWRITEBYTECODE: '1',
@@ -73,10 +73,14 @@ test(
             assert.equal(out.safety.no_bare_shutdown, true)
             assert.equal(out.safety.no_scope_none, true)
             assert.equal(out.safety.calls_reregister_adopters, true)
+            assert.equal(out.safety.offloads_mcp_teardown, true)
             assert.equal(out.share.owner_server_gone, true)
             assert.equal(out.share.adopter_reconnected, true)
             assert.equal(out.share.orphans_cleared, true)
             assert.equal(out.share.independent_sibling_still, true)
+            assert.ok(out.health.responses_during_unserve >= 1, JSON.stringify(out.health))
+            assert.equal(out.health.failures, 0, JSON.stringify(out.health))
+            assert.equal(out.health.health_answered_during_slow_shutdown, true, JSON.stringify(out.health))
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }

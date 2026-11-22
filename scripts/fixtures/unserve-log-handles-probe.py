@@ -21,6 +21,8 @@ import gateway.run as gateway_run
 from tools.mcp_tool_config import _get_mcp_stderr_log, _mcp_stderr_log_fh
 import tools.mcp_tool as mcp_tool
 from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+import tools.mcp_tool_lifecycle as mcp_lifecycle
+from aiohttp import web, ClientSession, ClientTimeout
 
 CYCLES = 8
 LOG_NAMES = ("agent.log", "gateway.log", "mcp-stderr.log")
@@ -199,6 +201,87 @@ async def unserve_via_reconcile(runner: Runner, name: str) -> Path:
     return home
 
 
+
+# Supervisor /health requests time out after 2s (scripts/start-cuttlely.sh).
+HEALTH_TIMEOUT_SECS = 2.0
+SLOW_SHUTDOWN_SECS = 3.0
+
+
+async def health_during_slow_unserve(runner: Runner, root: Path) -> dict:
+    """Prove /health still answers while a blocking MCP shutdown runs on unserve."""
+    name = "healthvictim"
+    home = root / "profiles" / name
+    serve_profile(runner, name, home)
+
+    orig = mcp_lifecycle.shutdown_mcp_servers
+    entered = threading.Event()
+
+    def slow_shutdown(*, scope=None, names=None, timeout=15.0):
+        entered.set()
+        time.sleep(SLOW_SHUTDOWN_SECS)
+        return orig(scope=scope, names=names, timeout=timeout)
+
+    mcp_lifecycle.shutdown_mcp_servers = slow_shutdown
+    app = web.Application()
+
+    async def handle_health(_request):
+        return web.Response(text="ok")
+
+    app.router.add_get("/health", handle_health)
+    site_runner = web.AppRunner(app)
+    await site_runner.setup()
+    site = web.TCPSite(site_runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    hits = []
+    task = asyncio.create_task(unserve(runner, name))
+    try:
+        deadline = time.monotonic() + 2.0
+        while not entered.is_set() and not task.done() and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        if not entered.is_set():
+            raise RuntimeError("slow shutdown never started")
+        timeout = ClientTimeout(total=HEALTH_TIMEOUT_SECS)
+        async with ClientSession(timeout=timeout) as session:
+            # Poll until unserve finishes, or just past the blocking sleep.
+            poll_until = time.monotonic() + SLOW_SHUTDOWN_SECS + 1.0
+            while time.monotonic() < poll_until:
+                t0 = time.monotonic()
+                during = not task.done()
+                try:
+                    async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+                        hits.append({
+                            "ok": resp.status == 200,
+                            "ms": (time.monotonic() - t0) * 1000,
+                            "during_unserve": during,
+                        })
+                except Exception as exc:
+                    hits.append({
+                        "ok": False,
+                        "error": type(exc).__name__,
+                        "ms": (time.monotonic() - t0) * 1000,
+                        "during_unserve": during,
+                    })
+                if task.done() and hits:
+                    break
+                await asyncio.sleep(0.05)
+        await task
+    finally:
+        mcp_lifecycle.shutdown_mcp_servers = orig
+        await site_runner.cleanup()
+        close_and_remove(home)
+
+    during_ok = [h for h in hits if h.get("ok") and h.get("during_unserve")]
+    failures = [h for h in hits if not h.get("ok")]
+    max_ok_ms = max((h["ms"] for h in during_ok), default=9999.0)
+    return {
+        "responses_during_unserve": len(during_ok),
+        "failures": len(failures),
+        "max_ok_ms": round(max_ok_ms, 1),
+        "health_answered_during_slow_shutdown": len(during_ok) >= 1 and not failures and max_ok_ms < HEALTH_TIMEOUT_SECS * 1000,
+    }
+
+
 def close_and_remove(home: Path) -> None:
     drain()
     shutil.rmtree(home, ignore_errors=True)
@@ -331,6 +414,8 @@ async def main() -> None:
         "independent_sibling_still": server_present("sibling-server", sibling) and not sibling_server.closed,
     }
 
+    health = await health_during_slow_unserve(runner, root)
+
     # Safety: a scoped shutdown must not be callable as a wildcard from this path.
     # Re-read the production source and confirm the call site always passes scope=.
     source = Path(sys.argv[1], "gateway/run_profile_reconcile.py").read_text(encoding="utf-8")
@@ -344,6 +429,7 @@ async def main() -> None:
         "no_bare_shutdown": all("shutdown_mcp_servers()" not in line for line in calls),
         "no_scope_none": all("scope=None" not in line for line in calls),
         "calls_reregister_adopters": "_reregister_orphaned_adopters()" in body,
+        "offloads_mcp_teardown": "run_in_executor" in body and "copy_context().run" in body,
     }
 
     final = log_targets(root)
@@ -358,6 +444,7 @@ async def main() -> None:
                 "sibling": sibling_alive,
                 "reconcile": reconcile,
                 "share": share,
+                "health": health,
                 "safety": safety,
             }
         )
