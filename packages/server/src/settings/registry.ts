@@ -537,6 +537,23 @@ export const SETTINGS: SettingDef[] = [
 
     // Agent runtime
     {
+        key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Tool call time limit',
+        help: 'Sets the bridge wait to this value and the agent runtime per-tool limit to this value plus 60 seconds. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'ms-as-seconds',
+        min: 1,
+        max: 3660,
+        defaultLabel: 'Not set: the agent runtime waits 300 seconds for a tool, the bridge 130 seconds',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
         key: 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS',
         section: 'runtime',
         group: 'Limits',
@@ -1888,6 +1905,24 @@ export const SETTINGS: SettingDef[] = [
         max: 100,
         defaultLabel: '5',
         defaultValue: '5',
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_HERMES_HEALTH_TIMEOUT',
+        section: 'advanced',
+        group: 'Agent runtime health',
+        label: 'Health check timeout',
+        help: 'Seconds to wait for one agent runtime health check. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 1,
+        max: 30,
+        defaultLabel: '2 seconds',
+        defaultValue: '2',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         risk: 'low'
     },
     {

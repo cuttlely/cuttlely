@@ -154,6 +154,23 @@ describe('admin time limits', () => {
         expect(startRecords(fixture().env, null, () => undefined).some((line) => line.startsWith(`${RESTART}=`))).toBe(false)
     })
 
+    it('exposes release-prep bounds and exports a saved tool wait without inventing an unset default', async () => {
+        const tool = 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS'
+        const health = 'CUTTLELY_HERMES_HEALTH_TIMEOUT'
+        expect(settingFor(tool)).toMatchObject({ min: 1, max: 3660, integer: true, unit: 'ms-as-seconds', applies: 'restart' })
+        expect(settingFor(tool)?.defaultValue).toBeUndefined()
+        expect(settingFor(health)).toMatchObject({ min: 1, max: 30, defaultValue: '2', applies: 'restart' })
+        const f = fixture()
+        const service = f.start()
+        expect(row(await getView(service), tool)).toMatchObject({ value: '', effective: '', source: 'default', running: '' })
+        await saveChanges(service, { values: { [tool]: '3660000', [health]: '30' } }, 'operator')
+        const records = startRecords(f.env, null, () => undefined)
+        expect(records).toContain(`${tool}=3660000`)
+        expect(records).toContain(`${health}=30`)
+        const cleared = await saveChanges(service, { values: { [tool]: '' } }, 'operator')
+        expect(row(cleared, tool)).toMatchObject({ effective: '', source: 'default', changed: false })
+    })
+
     it('keeps limit keys outside invite/mail and runtime snapshots', () => {
         const f = fixture()
         const account = accountLinkSnapshot(f.env)
