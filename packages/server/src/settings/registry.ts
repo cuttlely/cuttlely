@@ -645,7 +645,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'runtime',
         group: 'Limits',
         label: 'HTTP MCP data wait',
-        help: 'How long an HTTP-connected MCP server may stay silent. Fixed in this version. HTTP MCP tools that run longer must send progress at least every 300 s, or run as a pipeline job. A higher tool call time limit does not lift this wait.',
+        help: 'How long an HTTP-connected MCP server may stay silent. Fixed in this version. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. A higher tool call time limit does not lift this wait.',
         type: 'number',
         unit: 'seconds',
         defaultLabel: '300 seconds',
