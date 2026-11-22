@@ -1342,6 +1342,12 @@ const assertRunRequest = async (
     if (mode === 'agent' && body.images != null && (!Array.isArray(body.images) || body.images.length > 0)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'mode "agent" does not accept images yet; use router mode')
     }
+    if (mode === 'agent' && name.toLowerCase() === 'default') {
+        throw new AppError(
+            StatusCodes.BAD_REQUEST,
+            `Harness "${name}" cannot run in agent mode: the runtime reserves the profile name "default". Rename the harness to use agent mode.`
+        )
+    }
     if (
         caller?.via === 'api_key' &&
         caller.harnessIds !== undefined &&

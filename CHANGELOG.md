@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Agent mode now reaches the chief of a harness whose name has capitals; the chief’s runtime profile id is the lowercase name, an existing chief folder is renamed once on upgrade so router sessions and memory are kept, and a second name differing only in letter case is refused at compile with a clear error while the harness that already owns the profile keeps working.
 -   Harness runs: a client disconnect on a synchronous `POST /api/v1/harnesses/:name/runs` request now cancels the run (it already did for streamed requests), so an abandoned agent-mode request stops the chief and records `cancelled`.
 -   Documentation removes the superseded 1.7.12 direct-chief limitation and corrects the Chinese translations of stdio framing.
 -   Agent-mode follow-ups now give the chief the chat's bounded conversation history. Timeout and abort history retains in-flight specialist calls, recording unfinished calls as cancelled.
