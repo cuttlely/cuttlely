@@ -118,6 +118,15 @@ export function acquireTurn(name, chatId) {
     return { key, owner }
 }
 
+// One owner-scoped write: an old worker cannot renew a replacement worker's lease.
+export function renewTurn(held) {
+    const ttl = lockTtlMs()
+    if (ttl === 0 || !held?.key || !held?.owner) return
+    database()
+        .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ?')
+        .run(Date.now() + ttl, held.key, held.owner)
+}
+
 export function releaseTurn(held) {
     if (!held?.key || !held?.owner) return
     database().prepare('DELETE FROM turns WHERE session_key = ? AND owner = ?').run(held.key, held.owner)
