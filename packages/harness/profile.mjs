@@ -37,7 +37,12 @@ export const PLAYBOOK_TOOLSET = 'skills_read'
 export const PLAYBOOK_DIR = 'harness-playbooks'
 export const SPECIALIST_PLAYBOOKS =
     'Your playbooks are listed under skills. Before you answer, load each playbook whose description fits the question with skill_view, and follow it.'
-const SPECIALIST_STALE_SECONDS = 45
+export function streamStaleSeconds(env = process.env) {
+    const raw = env.CUTTLELY_HERMES_STREAM_STALE_SECONDS
+    if (raw == null || String(raw).trim() === '') return 45
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 5 && n <= 3600 ? n : 45
+}
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const PROFILE_MAX = 64
 const PROFILE_HASH = 8
@@ -1558,7 +1563,7 @@ function pushModel(yaml, defaultName, baseUrl, quoted = false) {
 function pushProviders(yaml) {
     yaml.push('providers:')
     yaml.push('  custom:')
-    yaml.push(`    stale_timeout_seconds: ${SPECIALIST_STALE_SECONDS}`)
+    yaml.push(`    stale_timeout_seconds: ${streamStaleSeconds()}`)
 }
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
@@ -2469,6 +2474,7 @@ function compileProfileFiles(record, options = {}) {
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
+        streamStaleSeconds: streamStaleSeconds(),
         defaultEvidenceBytes: defaultEvidenceBytes()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
@@ -2964,6 +2970,8 @@ export function profileOutdated(record) {
     // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
     if (roster?.defaultEvidenceBytes !== defaultEvidenceBytes()) return true
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
+    // Older compiled profiles already use 45 seconds. Keep them current at that default.
+    if ((roster?.streamStaleSeconds ?? 45) !== streamStaleSeconds()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
         // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
@@ -3345,7 +3353,7 @@ function recheckCached(compiled) {
 export function compileProfileCached(record, options = {}) {
     assertChiefProfileAvailable(record.name)
     const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
-    const key = [hermesHome(), agentRunTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
+    const key = [hermesHome(), agentRunTimeoutMs(), streamStaleSeconds(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

@@ -556,6 +556,24 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'CUTTLELY_HERMES_STREAM_STALE_SECONDS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Silent model stream limit',
+        help: 'How long a model stream may stay silent before the agent runtime stops waiting. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 5,
+        max: 3600,
+        defaultLabel: '45 seconds',
+        defaultValue: '45',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
         key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
         section: 'runtime',
         group: 'Limits',
