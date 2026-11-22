@@ -271,6 +271,12 @@ async function runHarnessBody(args = {}) {
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
+    if (args.mode === 'agent' && String(args.name).toLowerCase() === 'default') {
+        throw new HarnessError(
+            'bad_name',
+            `Harness "${args.name}" cannot run in agent mode: the runtime reserves the profile name "default". Rename the harness to use agent mode.`
+        )
+    }
     assertRuntimeAvailable()
     // A publish-check replay keeps no run history. The try profile is still removed below.
     const replay = args.replay === true

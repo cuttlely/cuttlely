@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { HarnessError } from './errors.mjs'
 import { dataRoot, profileDir } from './paths.mjs'
+import { adoptLegacyChiefProfile, assertChiefProfileAvailable } from './profile.mjs'
 
 // Unpublished canvas sessions are not runtime profiles. The scope keeps equal
 // names in different canvases or teams from sharing draft conversation state.
@@ -54,6 +55,8 @@ function dbPath(harnessName, scope, create) {
         }
         return file
     }
+    assertChiefProfileAvailable(harnessName)
+    adoptLegacyChiefProfile(harnessName)
     return path.join(profileDir(harnessName), 'sessions.sqlite')
 }
 

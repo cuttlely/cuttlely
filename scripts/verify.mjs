@@ -69,6 +69,7 @@ export const STEPS = [
             path.join(ROOT, 'packages', 'harness', 'mcp-stdio.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'roster-mcp.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'agent-mode.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'chief-profile-case.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'queue-cancellation.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'gateway-chief.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),

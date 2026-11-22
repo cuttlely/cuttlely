@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Agent mode now reaches the chief of a harness whose name has capitals; the chief’s runtime profile id is the lowercase name, an existing chief folder is renamed once on upgrade so router sessions and memory are kept, and a second name differing only in letter case is refused at compile with a clear error while the harness that already owns the profile keeps working.
 -   Harness runs: a client disconnect on a synchronous `POST /api/v1/harnesses/:name/runs` request now cancels the run (it already did for streamed requests), so an abandoned agent-mode request stops the chief and records `cancelled`.
 -   Documentation removes the superseded 1.7.12 direct-chief limitation and corrects the Chinese translations of stdio framing.
 -   Agent-mode follow-ups now give the chief the chat's bounded conversation history. Timeout and abort history retains in-flight specialist calls, recording unfinished calls as cancelled.
@@ -21,7 +22,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A completed runtime shutdown now records a clean exit, so the next start does not falsely warn that it exited UNCLEANLY. The launcher now records the exit after shutdown returns, keeping its existing startup path and stop exit status. Runtime shutdown also allows up to 15 seconds after its stop signal before forcing the process to exit. Container shutdown caps this grace by the time left in a 28-second budget shared with application draining, with at least 2 seconds (or the configured grace if lower). `CUTTLELY_HERMES_STOP_GRACE_SECONDS` changes that wait, and every forced exit records the process, reason and wait used. [Runtime recovery](./docs/how-to/server-settings.md#agent-runtime-recovery).
 -   Temporary Try it profiles are marked deleted before cleanup so concurrent runtime scans skip them. Leftovers are swept before each runtime start, and recompiling the same profile name clears its deletion marker.
 -   Orchestrate and A2A check the runtime before charging and answer 503 `RUNTIME_UNAVAILABLE` with `Retry-After` ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
+-   Analyst on Postgres keeps each role's encrypted password and legacy workspace mapping in the application database, so restarts and extra instances reuse the same password. Existing `.enc` files are imported without changing the password and left untouched. [#526](https://github.com/cuttlely/cuttlely/issues/526).
+-   Analyst on Postgres names the missing grant when the application database user can create neither its private schema nor a table in `public` (PostgreSQL 15+ when that user does not own the database): grant CREATE on the database (`GRANT CREATE ON DATABASE`) or set `CUTTLELY_POSTGRES_URL` to a separate database. CREATE on schema `public` works instead only if that user also owns the Analyst schema (`analyst_<tag>`) or holds USAGE and CREATE on it WITH GRANT OPTION. The error keeps SQLSTATE `42501` and writes nothing.
 -   A pause or cancel that lands while ETL restart recovery runs after a server start is no longer overwritten, and an ETL run that fails to start after a pause or cancel ends paused or cancelled instead of failed. [#539](https://github.com/cuttlely/cuttlely/issues/539).
+
+### Upgrade notes / breaking changes
+
+-   **One-time Analyst upgrade on ephemeral or unshared disks:** when the new instance has no `.enc` file to import, it sets a new Analyst role password once. While the old instance is still running, its Analyst queries fail authentication (`28P01`) until it exits. Only Analyst is affected; other features and stored credentials are not. This happens once per environment; after that, every restart and every extra instance reads the same password from the database. Stop the old instance before starting the new one to avoid it. Installs whose new instance sees the same `SECRETKEY_PATH` (single host, persistent volume) import the existing file and are not affected. [Upgrade guide](./docs/upgrading.md#upgrading-to-1713).
 
 ### Maintenance
 

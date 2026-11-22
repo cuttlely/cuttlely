@@ -1772,8 +1772,14 @@ describe('analyst postgres role', () => {
 
             await provisionAnalyst(env)
             const secretFile = path.join(dir, 'analyst-role.enc')
-            const secretBytes = fs.readFileSync(secretFile)
-            assert.equal((fs.statSync(secretFile).mode & 0o777) === 0o600, true)
+            assert.equal(fs.existsSync(secretFile), false)
+            const secretClient = new Client({ ...adminConfig(), database: dbName })
+            await secretClient.connect()
+            const secretRows = await secretClient.query('SELECT ciphertext FROM cuttlely_analyst_admin.role_secret WHERE role = $1', [
+                ANALYST_ROLE
+            ])
+            await secretClient.end()
+            const secretBytes = Buffer.from(secretRows.rows[0].ciphertext)
             const stored = JSON.parse(CryptoJS.AES.decrypt(secretBytes.toString('utf8'), key).toString(CryptoJS.enc.Utf8))
             assert.equal(stored.role, ANALYST_ROLE)
             assert.equal(secretBytes.includes(stored.password), false)
@@ -1923,8 +1929,15 @@ describe('analyst postgres role', () => {
 
             resetAnalystStoreForTests()
             await provisionAnalyst(env)
-            assert.deepEqual(fs.readFileSync(secretFile), secretBytes)
-            const storedAgain = JSON.parse(CryptoJS.AES.decrypt(fs.readFileSync(secretFile, 'utf8'), key).toString(CryptoJS.enc.Utf8))
+            assert.equal(fs.existsSync(secretFile), false)
+            const reread = new Client({ ...adminConfig(), database: dbName })
+            await reread.connect()
+            const secretAgain = await reread.query('SELECT ciphertext FROM cuttlely_analyst_admin.role_secret WHERE role = $1', [
+                ANALYST_ROLE
+            ])
+            await reread.end()
+            assert.equal(secretAgain.rows[0].ciphertext, secretBytes.toString('utf8'))
+            const storedAgain = JSON.parse(CryptoJS.AES.decrypt(secretAgain.rows[0].ciphertext, key).toString(CryptoJS.enc.Utf8))
             assert.equal(digest(storedAgain.password), passwordHash)
             const still = await queryAnalyst('SELECT count(*)::int AS n FROM notes', { env })
             assert.equal(still.rows[0].n, 1)
@@ -1966,7 +1979,7 @@ describe('analyst postgres role', () => {
                     return true
                 })
             }
-            assert.equal(fs.existsSync(path.join(dir, `analyst-role-${pgTagB}.enc`)), true)
+            assert.equal(fs.existsSync(path.join(dir, `analyst-role-${pgTagB}.enc`)), false)
         } finally {
             resetAnalystStoreForTests()
             await admin.query(`DROP DATABASE IF EXISTS ${ident(dbName)} WITH (FORCE)`).catch(() => {})
