@@ -40,7 +40,8 @@ import {
     convertMultiOptionsToStringArray,
     processTemplateVariables,
     configureStructuredOutput,
-    extractResponseContent
+    extractResponseContent,
+    rethrowIfModelClientError
 } from '../../../src/utils'
 import { sanitizeFileName } from '../../../src/validator'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
@@ -1697,7 +1698,10 @@ class Agent_Agentflow implements INode {
             if (error instanceof Error && error.message === 'Aborted') {
                 throw error
             }
-            const wrapped = new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            rethrowIfModelClientError(error)
+            const wrapped = Object.assign(new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`), {
+                cause: error
+            })
             const trace = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
             if (trace.usedTools) (wrapped as Error & { usedTools?: IUsedTool[] }).usedTools = trace.usedTools
             if (trace.usageMetadata !== undefined) (wrapped as Error & { usageMetadata?: unknown }).usageMetadata = trace.usageMetadata

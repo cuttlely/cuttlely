@@ -11,7 +11,7 @@ import express from 'express'
 import multer from 'multer'
 import request from 'supertest'
 import { MissingModelCredentialError, missingModelCredentialMessage } from '@cuttlely/components'
-import { fromQueueFailure } from '../../errors/utils'
+import { fromQueueFailure, findMissingModelCredentialError, MISSING_CREDENTIAL_CAUSE_DEPTH } from '../../errors/utils'
 import errorHandlerMiddleware from './index'
 import { toPredictionError } from '../../utils/predictionErrors'
 
@@ -148,5 +148,111 @@ describe('a request refused because the agent runtime is down', () => {
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }
+    })
+})
+
+describe('cause-chain backup for a wrapped missing credential', () => {
+    const card = missingModelCredentialMessage('Bakery model')
+
+    it('answers 422 with the inner credential message, not the wrapper text', async () => {
+        const inner = new MissingModelCredentialError('Bakery model')
+        const wrapped = Object.assign(new Error(`Error in LLM node: ${inner.message}`), { cause: inner })
+        const app = express()
+        app.post('/run', (_req, _res, next) => next(wrapped))
+        app.use(errorHandlerMiddleware)
+
+        const res = await request(app).post('/run')
+        expect(res.status).toBe(422)
+        expect(res.body).toMatchObject({ statusCode: 422, success: false, message: card })
+        expect(res.body.message).not.toContain('Error in LLM node')
+    })
+
+    it('answers 422 when the credential error is found by 422 status and exact card message', async () => {
+        const inner = Object.assign(new Error(card), { statusCode: 422 })
+        const wrapped = Object.assign(new Error('Error in Agent node: hidden'), { cause: inner })
+        const app = express()
+        app.post('/run', (_req, _res, next) => next(wrapped))
+        app.use(errorHandlerMiddleware)
+
+        const res = await request(app).post('/run')
+        expect(res.status).toBe(422)
+        expect(res.body.message).toBe(card)
+        expect(res.body.message).not.toContain('hidden')
+    })
+
+    it('keeps a wrapped non-credential failure at 500 and does not surface a nested error message', async () => {
+        const nested = Object.assign(new Error('internal provider dump'), { statusCode: 500 })
+        const wrapped = Object.assign(new Error('Error in LLM node: Unexpected model failure'), { cause: nested })
+        const app = express()
+        app.post('/run', (_req, _res, next) => next(wrapped))
+        app.use(errorHandlerMiddleware)
+
+        const res = await request(app).post('/run')
+        expect(res.status).toBe(500)
+        expect(res.body.message).toBe('Error in LLM node: Unexpected model failure')
+        expect(res.body.message).not.toContain('internal provider dump')
+    })
+
+    it('finds a credential error eight causes down and not a ninth', () => {
+        const inner = new MissingModelCredentialError('Bakery model')
+        let chain: Error = inner
+        for (let i = 0; i < MISSING_CREDENTIAL_CAUSE_DEPTH; i++) {
+            chain = Object.assign(new Error(`wrapper-${i}`), { cause: chain })
+        }
+        const found = findMissingModelCredentialError(chain)
+        expect(found).toBeInstanceOf(MissingModelCredentialError)
+        expect(found?.message).toBe(card)
+
+        const tooDeep = Object.assign(new Error('wrapper-extra'), { cause: chain })
+        expect(findMissingModelCredentialError(tooDeep)).toBeUndefined()
+    })
+
+    it('restores the class from a wrapper in fromQueueFailure using the inner message only', async () => {
+        const inner = new MissingModelCredentialError('Bakery model')
+        const wrapped = Object.assign(new Error(`Error in LLM node: ${inner.message}`), { cause: inner })
+        await expect(Promise.reject(wrapped).catch(fromQueueFailure)).rejects.toMatchObject({
+            statusCode: 422,
+            message: card
+        })
+        await expect(Promise.reject(wrapped).catch(fromQueueFailure)).rejects.toBeInstanceOf(MissingModelCredentialError)
+    })
+
+    it('rethrows a wrapped non-credential queue failure unchanged', async () => {
+        const nested = new Error('worker stack')
+        const wrapped = Object.assign(new Error('Queue worker connection failed'), { cause: nested })
+        await expect(Promise.reject(wrapped).catch(fromQueueFailure)).rejects.toBe(wrapped)
+    })
+})
+
+describe('waitUntilFinished sites route failures through fromQueueFailure', () => {
+    const files = [
+        'src/utils/buildChatflow.ts',
+        'src/utils/upsertVector.ts',
+        'src/services/nodes/index.ts',
+        'src/services/documentstore/index.ts'
+    ]
+
+    it('pairs every waitUntilFinished call with .catch(fromQueueFailure)', () => {
+        const root = path.join(__dirname, '../../..')
+        let total = 0
+        for (const rel of files) {
+            const src = fs.readFileSync(path.join(root, rel), 'utf8')
+            const mentions = src.match(/waitUntilFinished/g) || []
+            const hooked = src.match(/\.waitUntilFinished\([^)]*\)\s*\.catch\(fromQueueFailure\)/g) || []
+            // also allow a newline between the call and .catch
+            const hookedNl = src.match(/\.waitUntilFinished\([^)]*\)\s*\n\s*\.catch\(fromQueueFailure\)/g) || []
+            const hookedCount = Math.max(
+                hooked.length,
+                hookedNl.length,
+                (src.match(/waitUntilFinished\([^;]*?\)\s*\.catch\(fromQueueFailure\)/gs) || []).length
+            )
+            expect({ file: rel, mentions: mentions.length, hooked: hookedCount }).toEqual({
+                file: rel,
+                mentions: mentions.length,
+                hooked: mentions.length
+            })
+            total += mentions.length
+        }
+        expect(total).toBe(8)
     })
 })
