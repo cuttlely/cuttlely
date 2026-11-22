@@ -7,6 +7,7 @@ import {
     getFileFromUpload,
     ICommonObject,
     IDocument,
+    MissingModelCredentialError,
     normalizeDocumentMime,
     resolveFileInputField,
     removeFilesFromStorage,
@@ -45,7 +46,7 @@ import { DocumentStoreFileChunk } from '../../database/entities/DocumentStoreFil
 import { UpsertHistory } from '../../database/entities/UpsertHistory'
 import { getWorkspaceSearchOptions } from '../../identity/workspaceScope'
 import { AppError } from '../../errors/appError'
-import { getErrorMessage } from '../../errors/utils'
+import { fromQueueFailure, getErrorMessage } from '../../errors/utils'
 import { validateFileMimeTypeAndExtensionMatch } from '../../utils/fileValidation'
 import { databaseEntities, getAppVersion, saveUpsertFlowData } from '../../utils'
 import { DOCUMENT_STORE_BASE_FOLDER, INPUT_PARAMS_TYPE, OMIT_QUEUE_JOB_DATA } from '../../utils/constants'
@@ -604,6 +605,7 @@ const _splitIntoChunks = async (
         let docs: IDocument[] = await docNodeInstance.init(nodeData, '', options)
         return docs
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: documentStoreServices.splitIntoChunks - ${getErrorMessage(error)}`)
     }
 }
@@ -698,7 +700,7 @@ const previewChunksMiddleware = async (
             logger.debug(`[server]: [${orgId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
@@ -708,6 +710,7 @@ const previewChunksMiddleware = async (
 
         return await previewChunks(executeData)
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw new AppError(error.statusCode, error.message)
         if (error instanceof AppError) {
             throw error
         }
@@ -743,6 +746,7 @@ export const previewChunks = async ({ appDataSource, componentNodes, data, orgId
 
         return { chunks: docs, totalChunks: totalChunks, previewChunkCount: data.previewChunkCount }
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         if (error instanceof AppError) {
             throw error
         }
@@ -906,7 +910,7 @@ const processLoaderMiddleware = async (
             }
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
@@ -916,6 +920,7 @@ const processLoaderMiddleware = async (
 
         return await processLoader(executeData)
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw new AppError(error.statusCode, error.message)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: documentStoreServices.processLoader - ${getErrorMessage(error)}`)
     }
 }
@@ -1067,6 +1072,7 @@ const _saveChunksToStorage = async (
 
         return
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices._saveChunksToStorage - ${getErrorMessage(error)}`
@@ -1273,6 +1279,7 @@ export const insertIntoVectorStore = async ({
         const indexResult = await _insertIntoVectorStoreWorkerThread(appDataSource, componentNodes, telemetry, data, orgId, workspaceId)
         return indexResult
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices.insertIntoVectorStore - ${getErrorMessage(error)}`
@@ -1313,7 +1320,7 @@ const insertIntoVectorStoreMiddleware = async (
             logger.debug(`[server]: [${orgId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
@@ -1323,6 +1330,7 @@ const insertIntoVectorStoreMiddleware = async (
             return await insertIntoVectorStore(executeData)
         }
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw new AppError(error.statusCode, error.message)
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices.insertIntoVectorStoreMiddleware - ${getErrorMessage(error)}`
@@ -1423,6 +1431,7 @@ const _insertIntoVectorStoreWorkerThread = async (
 
         return indexResult ?? { result: 'Successfully Upserted' }
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices._insertIntoVectorStoreWorkerThread - ${getErrorMessage(error)}`
@@ -1951,6 +1960,7 @@ const upsertDocStore = async (
 
         return res
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: documentStoreServices.upsertDocStore - ${getErrorMessage(error)}`)
     }
 }
@@ -2023,7 +2033,7 @@ const upsertDocStoreMiddleware = async (
             logger.debug(`[server]: [${orgId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
@@ -2033,6 +2043,7 @@ const upsertDocStoreMiddleware = async (
             return await executeDocStoreUpsert(executeData)
         }
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw new AppError(error.statusCode, error.message)
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices.upsertDocStoreMiddleware - ${getErrorMessage(error)}`
@@ -2098,7 +2109,7 @@ const refreshDocStoreMiddleware = async (
             logger.debug(`[server]: [${orgId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = upsertQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
 
             if (!result) {
                 throw new Error('Job execution failed')
@@ -2108,6 +2119,7 @@ const refreshDocStoreMiddleware = async (
             return await executeDocStoreUpsert(executeData)
         }
     } catch (error) {
+        if (error instanceof MissingModelCredentialError) throw new AppError(error.statusCode, error.message)
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: documentStoreServices.refreshDocStoreMiddleware - ${getErrorMessage(error)}`

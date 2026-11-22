@@ -89,7 +89,7 @@ import { utilAddChatMessage } from './addChatMesage'
 import { ChatflowTokenUsage, recordCompletedRun, waitingForApproval } from '../services/usage'
 import { checkPredictions, checkStorage, updatePredictionsUsage, updateStorageUsage } from './quotaUsage'
 import { buildAgentGraph } from './buildAgentGraph'
-import { getErrorMessage } from '../errors/utils'
+import { fromQueueFailure, getErrorMessage } from '../errors/utils'
 import { FLOWISE_METRIC_COUNTERS, FLOWISE_COUNTER_STATUS, IMetricsProvider } from '../Interface.Metrics'
 import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
@@ -1399,7 +1399,7 @@ export const utilBuildChatflow = async (
             logger.debug(`[server]: [${orgId}/${chatflow.id}/${chatId}]: Job added to queue: ${job.id}`)
 
             const queueEvents = predictionQueue.getQueueEvents()
-            const result = await job.waitUntilFinished(queueEvents)
+            const result = await job.waitUntilFinished(queueEvents).catch(fromQueueFailure)
             appServer.abortControllerPool.remove(abortControllerId)
             if (!result) {
                 throw new Error('Job execution failed')

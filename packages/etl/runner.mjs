@@ -169,20 +169,26 @@ async function resumeUnlocked(runId) {
     return getRun(runId)
 }
 
-// After a restart nothing is in memory, so runs the database still marks active were interrupted.
+// After a restart nothing is in memory, so runs the database still marks active were interrupted. Each status write
+// re-reads the run in one transaction, so a pause or cancel committed between the initial read and the write stays.
 export async function resumeInterruptedRuns() {
     const resumed = []
     for (const run of await runsWithStatus(ACTIVE_STATUSES)) {
-        if (active.has(run.id)) continue
-        if (run.status === 'pausing') await updateRun(run.id, { status: 'paused' })
-        else if (run.status === 'cancelling') await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() })
-        else {
-            if (run.status === 'running') {
-                await updateRun(run.id, { status: 'queued' })
-                await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.')
+        await etlStore.tx(async (t) => {
+            const current = await getRun(run.id, t)
+            if (!current || active.has(run.id)) return
+            if (current.status === 'pausing') {
+                await updateRun(run.id, { status: 'paused' }, t)
+            } else if (current.status === 'cancelling') {
+                await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
+            } else if (current.status === 'running') {
+                await updateRun(run.id, { status: 'queued' }, t)
+                await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.', t)
+                resumed.push(run.id)
+            } else if (current.status === 'queued') {
+                resumed.push(run.id)
             }
-            resumed.push(run.id)
-        }
+        })
     }
     await pump()
     return resumed
@@ -228,8 +234,20 @@ function launch(run) {
             .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
             .catch(async (error) => {
                 if (isCrash(error)) return getRun(run.id)
-                await updateRun(run.id, { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() })
-                await addEvent(run.id, 'error', null, errorMessage(error))
+                // Re-read the run so a pause or cancel committed before this error handler runs is not overwritten.
+                await etlStore.tx(async (t) => {
+                    const current = await getRun(run.id, t)
+                    if (current?.status === 'queued' || current?.status === 'running') {
+                        await updateRun(run.id, { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() }, t)
+                    } else if (current?.status === 'cancelling') {
+                        await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
+                        await addEvent(run.id, 'info', null, 'Cancelled. Nothing was deleted.', t)
+                    } else if (current?.status === 'pausing') {
+                        await updateRun(run.id, { status: 'paused' }, t)
+                        await addEvent(run.id, 'info', null, 'Paused at the last committed batch.', t)
+                    }
+                    await addEvent(run.id, 'error', null, errorMessage(error), t)
+                })
                 onError(error, run)
                 return getRun(run.id)
             })
