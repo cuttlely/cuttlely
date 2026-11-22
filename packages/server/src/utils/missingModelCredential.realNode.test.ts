@@ -21,6 +21,7 @@ const savedMode = process.env.MODE
 
 import express from 'express'
 import request from 'supertest'
+import { AIMessageChunk } from '@langchain/core/messages'
 import errorHandlerMiddleware from '../middlewares/errors'
 import { MissingModelCredentialError, missingModelCredentialMessage } from '@cuttlely/components'
 import predictionsController from '../controllers/predictions'
@@ -197,6 +198,39 @@ const writeFailingModel = () => {
     return modelPath
 }
 
+const writeToolLoopModel = () => {
+    const modelPath = path.join(dataDir, 'chatOpenAI-tool-loop.js')
+    fs.writeFileSync(
+        modelPath,
+        [
+            'exports.nodeClass = class {',
+            '  async init(_nodeData, _input, options) {',
+            '    const model = { bindTools() { return model }, invoke: options.invokeModel }',
+            '    return model',
+            '  }',
+            '}',
+            ''
+        ].join('\n')
+    )
+    return modelPath
+}
+
+const writeBakeryTool = () => {
+    const toolPath = path.join(dataDir, 'bakery-tool.js')
+    fs.writeFileSync(
+        toolPath,
+        [
+            'exports.nodeClass = class {',
+            '  async init(_nodeData, _input, options) {',
+            "    return { name: 'bakery', description: 'Check the oven', schema: null, call: options.callTool }",
+            '  }',
+            '}',
+            ''
+        ].join('\n')
+    )
+    return toolPath
+}
+
 const emptyNodeData = (id: string, name: string, label: string, inputs: Record<string, unknown>) => ({
     id,
     name,
@@ -360,6 +394,112 @@ describe('real Agent and Condition Agent nodes rethrow a missing credential', ()
             )
         ).rejects.toMatchObject({
             message: 'Error in Agent node: Unexpected model failure'
+        })
+    })
+
+    describe('Agent tool-loop failures', () => {
+        let toolLoopModelPath = ''
+        let bakeryToolPath = ''
+
+        beforeAll(() => {
+            toolLoopModelPath = writeToolLoopModel()
+            bakeryToolPath = writeBakeryTool()
+        })
+
+        const usage = { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+        const toolCall = { id: 'oven-1', name: 'bakery', args: { bread: 'sourdough' }, type: 'tool_call' as const }
+        const runToolLoop = (failure: Error, stage: 'tool' | 'follow-up' | 'resume') => {
+            const response = new AIMessageChunk({ content: '', tool_calls: [toolCall], usage_metadata: usage })
+            const invokeModel = jest.fn().mockRejectedValue(failure)
+            if (stage !== 'resume') invokeModel.mockResolvedValueOnce(response)
+            const callTool = stage === 'tool' ? jest.fn().mockRejectedValue(failure) : jest.fn().mockResolvedValue('Bread is ready')
+            const inst = new agentClass()
+            const result = inst.run(
+                emptyNodeData('agent-1', 'agentAgentflow', 'Bakery agent', {
+                    agentModel: 'chatOpenAI',
+                    agentModelConfig: { modelName: 'gpt-4o-mini', streaming: false },
+                    agentTools: [{ agentSelectedTool: 'bakeryTool', agentSelectedToolConfig: {} }],
+                    ...(stage === 'resume' ? { humanInput: { type: 'proceed' } } : {})
+                }),
+                'When is the bread ready?',
+                {
+                    ...options(toolLoopModelPath),
+                    componentNodes: {
+                        chatOpenAI: { filePath: toolLoopModelPath },
+                        bakeryTool: { filePath: bakeryToolPath }
+                    },
+                    prependedChatHistory: [],
+                    abortController: new AbortController(),
+                    invokeModel,
+                    callTool,
+                    ...(stage === 'resume' ? { humanInputAction: { data: { input: { messages: [response] } } } } : {})
+                }
+            )
+            return { result, invokeModel, callTool }
+        }
+
+        it('preserves MissingModelCredentialError and tracing from a tool failure', async () => {
+            const cause = new Error('No credential selected')
+            const failure = Object.assign(new MissingModelCredentialError('Bakery tool'), { cause })
+            const { result, invokeModel, callTool } = runToolLoop(failure, 'tool')
+            await expect(result).rejects.toBe(failure)
+            expect(failure).toBeInstanceOf(MissingModelCredentialError)
+            expect(failure.statusCode).toBe(422)
+            expect(failure.cause).toBe(cause)
+            expect(failure.message).toBe(missingModelCredentialMessage('Bakery tool'))
+            expect(failure.message).not.toContain('Error in Agent node:')
+            expect(failure).toMatchObject({
+                usedTools: [{ tool: 'bakery', toolInput: toolCall.args, toolOutput: '', error: failure.message, id: toolCall.id }],
+                usageMetadata: usage
+            })
+            expect(invokeModel).toHaveBeenCalledTimes(1)
+            expect(callTool).toHaveBeenCalledTimes(1)
+        })
+
+        it('preserves a provider 429 and tracing from the follow-up model call', async () => {
+            class ProviderRateLimitError extends Error {}
+            const cause = new Error('Provider quota exceeded')
+            const failure = Object.assign(new ProviderRateLimitError('429 rate limit'), { statusCode: 429, cause })
+            const { result, invokeModel, callTool } = runToolLoop(failure, 'follow-up')
+            await expect(result).rejects.toBe(failure)
+            expect(failure).toBeInstanceOf(ProviderRateLimitError)
+            expect(failure.statusCode).toBe(429)
+            expect(failure.cause).toBe(cause)
+            expect(failure.message).toBe('429 rate limit')
+            expect(failure.message).not.toContain('Error in Agent node:')
+            expect(failure).toMatchObject({
+                usedTools: [{ tool: 'bakery', toolInput: toolCall.args, toolOutput: 'Bread is ready', id: toolCall.id }],
+                usageMetadata: usage
+            })
+            expect(invokeModel).toHaveBeenCalledTimes(2)
+            expect(callTool).toHaveBeenCalledTimes(1)
+        })
+
+        it('preserves MissingModelCredentialError and tracing from a human-input resume model call', async () => {
+            const cause = new Error('No credential selected after approval')
+            const failure = Object.assign(new MissingModelCredentialError('Bakery agent'), { cause })
+            const { result, invokeModel, callTool } = runToolLoop(failure, 'resume')
+            await expect(result).rejects.toBe(failure)
+            expect(failure).toBeInstanceOf(MissingModelCredentialError)
+            expect(failure.statusCode).toBe(422)
+            expect(failure.cause).toBe(cause)
+            expect(failure.message).toBe(missingModelCredentialMessage('Bakery agent'))
+            expect(failure.message).not.toContain('Error in Agent node:')
+            expect(failure).toMatchObject({
+                usedTools: [{ tool: 'bakery', toolInput: toolCall.args, toolOutput: 'Bread is ready', id: toolCall.id }],
+                usageMetadata: usage
+            })
+            expect(invokeModel).toHaveBeenCalledTimes(1)
+            expect(callTool).toHaveBeenCalledTimes(1)
+        })
+
+        it('still wraps a non-4xx failure after a tool call', async () => {
+            const { result } = runToolLoop(new Error('oven exploded'), 'follow-up')
+            await expect(result).rejects.toMatchObject({
+                message: 'Error in Agent node: oven exploded',
+                usedTools: [{ tool: 'bakery', toolOutput: 'Bread is ready' }],
+                usageMetadata: usage
+            })
         })
     })
 

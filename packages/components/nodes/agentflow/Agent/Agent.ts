@@ -140,6 +140,11 @@ function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; 
 }
 
 function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+    try {
+        rethrowIfModelClientError(cause)
+    } catch (clientError) {
+        throw Object.assign(clientError as object, { usedTools, usageMetadata })
+    }
     const failure = new Error(getErrorMessage(cause)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
     failure.usedTools = usedTools
     failure.usageMetadata = usageMetadata
