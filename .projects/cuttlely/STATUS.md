@@ -7,6 +7,12 @@
 
 Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 401 cases, with the same 12 pending cases. `CHANGELOG.md` records the fix under `## [Unreleased]`.
 
+## Orchestrate and A2A runtime admission (#540, 1.7.13)
+
+The working-tree fix for [#540](https://github.com/cuttlely/cuttlely/issues/540) checks runtime availability after keyed-flow validation and before charging Orchestrate completions and A2A `message/send` and `message/stream`. Runtime states `down`, `restarting`, `cooldown` and `exhausted` return HTTP 503 with `RUNTIME_UNAVAILABLE` and `Retry-After` in each protocol's JSON error envelope before a stream starts. A2A discovery and task reads remain available. Runtime failures after admission retain the existing in-protocol behavior.
+
+`packages/server/src/routes/runtimeAdmission.test.ts` covers the real authorization and scoped-key admission path. Targeted validation, full verification and deployment are separate; the full gate runs later. Product versions remain 1.7.12 until release preparation.
+
 ## 1.7.13 boot health and supervisor hygiene (PR B)
 
 The agent runtime serves health checks while MCP tools connect in the background (patch 0013), with up to four profiles discovering at once. A run waits only for its own profile within the existing discovery wait (patch 0003), and a server that never answers drops only its own tools. Discovery logs name each profile and failed server, with tool counts and elapsed time. The per-server connect timeout, health grace and 135-second start deadline are unchanged. Test: scripts/hermes-background-mcp.test.mjs.
