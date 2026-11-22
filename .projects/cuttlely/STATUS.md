@@ -3,9 +3,9 @@
 `resumeInterruptedRuns` and the non-crash error handler in `launch()` (`packages/etl/runner.mjs`) re-read the run and write its status in one store transaction, the same compare-and-set pattern as `claimQueued`, `resumeUnlocked`, `pauseRun` and `cancelRun`. A pause or cancel committed before either write is kept.
 
 -   Restart recovery skips a run that is gone or has a job, then writes from the fresh status: `pausing` → `paused`, `cancelling` → `cancelled`, `running` → `queued` with the restart event, `queued` unchanged. Only runs it leaves `queued` are returned as resumed.
--   Launch failure: `queued` or `running` → `failed` with the error and `finishedAt`; `cancelling` → `cancelled`; `pausing` → `paused`; any other status keeps its status. The error event is written in every case.
+-   Launch failure: `queued` or `running` → `failed` with the error and `finishedAt`; `cancelling` → `cancelled`; `pausing` → `paused`; any other status keeps its status. The error event is written only when the conditional update to `failed` applies.
 
-Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 401 cases, with the same 12 pending cases. `CHANGELOG.md` records the fix under `## [Unreleased]`.
+Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 434 cases, with the same 12 pending cases. `CHANGELOG.md` records the fix under `## [Unreleased]`.
 
 ## Analyst Postgres role passwords (#526, 1.7.13)
 
