@@ -1898,35 +1898,6 @@ def load_gateway_config_for_runner() -> "GatewayConfig":
     return scoped
 
 
-async def _discover_gateway_mcp_tools(config: object) -> None:
-    """Run startup MCP discovery for every profile this gateway serves: ``discover_mcp_tools`` reads
-    ``mcp_servers`` from ``get_hermes_home()``'s config, so an unscoped call only connects the launch
-    profile's servers (single-profile gateways keep the unscoped call).
-
-    Under multiplex, run it once per served profile inside that profile's ``_profile_runtime_scope`` and
-    carry the scope into the executor thread with ``copy_context()`` (the same shape as
-    ``_run_in_executor_with_context``). See #95518.
-
-    No gateway run can complete a browser OAuth flow (nobody watches its stdout; on Windows its
-    DEVNULL stdin even passes ``isatty``), so discovery runs with interactive OAuth suppressed — the
-    same gate the CLI's background discovery uses. An expired token then parks the server with an
-    actionable ``hermes mcp login`` warning instead of opening an authorize tab.
-    """
-    from tools.mcp_oauth import suppress_interactive_oauth
-    from tools.mcp_tool_discovery import discover_mcp_tools
-    loop = asyncio.get_running_loop()
-    with suppress_interactive_oauth():
-        if not getattr(config, "multiplex_profiles", False):
-            await loop.run_in_executor(None, copy_context().run, discover_mcp_tools)
-            return
-        for profile_name, profile_home in _multiplex_profile_homes(config):
-            try:
-                with _profile_runtime_scope(Path(profile_home)):
-                    await loop.run_in_executor(None, copy_context().run, discover_mcp_tools)
-            except Exception:
-                logger.warning("MCP tool discovery failed for profile '%s'", profile_name, exc_info=True)
-
-
 def _platform_has_bot_credential(platform: "Platform", platform_config: "PlatformConfig") -> bool:
     """Return True when a token-authenticated platform has a usable bot credential; platforms not using
     ``PlatformConfig.token`` (Signal session paths, port-binding HTTP adapters) always return True."""
@@ -5946,62 +5917,65 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     _best_effort(_start_keepalive, "Nous auth keepalive did not start: %s")
     _ensure_windows_gateway_venv_imports()
 
-    # discover_mcp_tools() blocks up to 120s; on the loop thread it would freeze platform heartbeats.
-    try:
-        # MCP tool discovery — run in an executor so the asyncio event loop stays responsive even when a
-        # configured MCP server is slow or unreachable.  discover_mcp_tools() uses a blocking 120s wait
-        # internally; calling it from the loop thread would freeze platform heartbeats (Discord shard,
-        # Telegram polling) until it returned. See #16856.
-        await _discover_gateway_mcp_tools(runner.config)
-    except Exception as e:
-        logger.debug("MCP tool discovery failed: %s", e)
+    from gateway.cuttlely_mcp_startup import GatewayMCPDiscovery
+    from hermes_constants import get_hermes_home
+    multiplex = getattr(runner.config, "multiplex_profiles", False)
+    profiles = (_multiplex_profile_homes(runner.config) if multiplex
+                else [("default", get_hermes_home())])
+    mcp_discovery = GatewayMCPDiscovery(
+        profiles, _profile_runtime_scope if multiplex else None, logger)
+    mcp_discovery.start()
 
     try:
-        success = await runner.start()
-    except BaseException:
-        _shutdown_gateway_health_export(runner)
-        raise
-    if not success:
-        _shutdown_gateway_health_export(runner)
-        return False
-
-    def _recover_pending() -> None:
-        recovered = _recover_pending_flushes(runner)
-        if recovered:
-            logger.info("Recovered %d pending message(s) from shutdown flush", recovered)
-
-    _best_effort(_recover_pending)
-    if runner.should_exit_cleanly:
-        _shutdown_gateway_health_export(runner)
-        if runner.exit_reason:
-            logger.error("Gateway exiting cleanly: %s", runner.exit_reason)
-        # Explicit exit codes (GATEWAY_FATAL_CONFIG_EXIT_CODE) must propagate so s6 finish maps 78 → 125.
-        if runner.exit_code is not None:
-            raise SystemExit(runner.exit_code)
-        return True
-    if not runner._running:
-        # Startup aborted by restart/shutdown before running mode; preserve that path without starting cron.
         try:
-            await runner.wait_for_shutdown()
-            try:
-                await _shutdown_mcp_servers_nonblocking(config=getattr(runner, "config", None))
-            except Exception:
-                logger.warning("MCP shutdown failed; connections may be left open", exc_info=True)
-            return _resolve_gateway_exit_verdict(runner, _signal_initiated_shutdown[0])
-        finally:
+            success = await runner.start()
+        except BaseException:
             _shutdown_gateway_health_export(runner)
+            raise
+        if not success:
+            _shutdown_gateway_health_export(runner)
+            return False
 
-    cron_stop, cron_provider, cron_thread, housekeeping_thread = (
-        _start_gateway_start_cron_and_housekeeping(runner))
+        def _recover_pending() -> None:
+            recovered = _recover_pending_flushes(runner)
+            if recovered:
+                logger.info("Recovered %d pending message(s) from shutdown flush", recovered)
 
-    # READY only once adapters, cron and housekeeping run; missing systemd state just disables watchdog.
-    runner._start_systemd_watchdog()
+        _best_effort(_recover_pending)
+        if runner.should_exit_cleanly:
+            _shutdown_gateway_health_export(runner)
+            if runner.exit_reason:
+                logger.error("Gateway exiting cleanly: %s", runner.exit_reason)
+            # Explicit exit codes (GATEWAY_FATAL_CONFIG_EXIT_CODE) must propagate so s6 finish maps 78 → 125.
+            if runner.exit_code is not None:
+                raise SystemExit(runner.exit_code)
+            return True
+        if not runner._running:
+            # Startup aborted by restart/shutdown before running mode; preserve that path without starting cron.
+            try:
+                await runner.wait_for_shutdown()
+                try:
+                    await _shutdown_mcp_servers_nonblocking(config=getattr(runner, "config", None))
+                except Exception:
+                    logger.warning("MCP shutdown failed; connections may be left open", exc_info=True)
+                return _resolve_gateway_exit_verdict(runner, _signal_initiated_shutdown[0])
+            finally:
+                _shutdown_gateway_health_export(runner)
 
-    await runner.wait_for_shutdown()
+        cron_stop, cron_provider, cron_thread, housekeeping_thread = (
+            _start_gateway_start_cron_and_housekeeping(runner))
 
-    return await _start_gateway_shutdown_tail(
-        runner, _control_server, cron_stop, cron_provider, cron_thread, housekeeping_thread,
-        _planned_stop_watcher_stop, _planned_stop_watcher_thread, _signal_initiated_shutdown)
+        # READY only once adapters, cron and housekeeping run; missing systemd state just disables watchdog.
+        runner._start_systemd_watchdog()
+
+        await runner.wait_for_shutdown()
+        await mcp_discovery.stop()
+
+        return await _start_gateway_shutdown_tail(
+            runner, _control_server, cron_stop, cron_provider, cron_thread, housekeeping_thread,
+            _planned_stop_watcher_stop, _planned_stop_watcher_thread, _signal_initiated_shutdown)
+    finally:
+        await mcp_discovery.stop()
 
 
 def _guard_corrupt_user_config() -> None:

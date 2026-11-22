@@ -268,6 +268,20 @@ import cli  # noqa: E402
 
 if hasattr(cli, "main"):
     cli.main(gateway=True)
+
+    # The legacy entry returns after teardown without the gateway main's exit
+    # bookkeeping. Stamp only a normal return (never an exception or SIGKILL),
+    # preserving the legacy process exit code of 0.
+    from contextlib import suppress
+
+    with suppress(Exception):
+        from gateway.lifecycle_ledger import mark_exited
+
+        mark_exited(0, reason="graceful_shutdown")
+    with suppress(Exception):
+        from hermes_logging import drain_log_queue
+
+        drain_log_queue(timeout=1.0)
 else:
     sys.stderr.write("Vendored Hermes CLI has no main(). Install its Python dependencies from hermes/ and retry.\n")
     sys.exit(1)
