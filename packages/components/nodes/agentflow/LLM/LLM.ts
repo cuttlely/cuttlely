@@ -15,7 +15,7 @@ import {
     replaceInlineDataWithFileReferences,
     updateFlowState
 } from '../utils'
-import { processTemplateVariables, configureStructuredOutput, extractResponseContent } from '../../../src/utils'
+import { processTemplateVariables, configureStructuredOutput, extractResponseContent, rethrowIfModelClientError } from '../../../src/utils'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
 import { flatten } from 'lodash'
 import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
@@ -692,7 +692,8 @@ class LLM_Agentflow implements INode {
             if (error instanceof Error && error.message === 'Aborted') {
                 throw error
             }
-            throw new Error(`Error in LLM node: ${error instanceof Error ? error.message : String(error)}`)
+            rethrowIfModelClientError(error)
+            throw Object.assign(new Error(`Error in LLM node: ${error instanceof Error ? error.message : String(error)}`), { cause: error })
         }
     }
 

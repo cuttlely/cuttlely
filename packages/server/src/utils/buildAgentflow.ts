@@ -10,6 +10,7 @@ import {
     IFileUpload,
     IHumanInput,
     IMessage,
+    MissingModelCredentialError,
     IServerSideEventStreamer,
     convertChatHistoryToText,
     generateFollowUpPrompts,
@@ -87,6 +88,7 @@ import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
 import { recordCompletedRun } from '../services/usage'
 import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from './nestedFlowCall'
+import { clientErrorStatus } from './upsertErrors'
 
 interface IWaitingNode {
     nodeId: string
@@ -2558,6 +2560,7 @@ const runAgentFlow = async ({
                 await analyticHandlers.onChainError(parentTraceIds, errorMessage, true)
             }
 
+            if (error instanceof MissingModelCredentialError || clientErrorStatus(error) !== undefined) throw error
             throw new Error(errorMessage)
         }
 
