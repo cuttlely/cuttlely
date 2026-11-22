@@ -83,7 +83,7 @@ it('waits for a background async run that arrives during the debounce', async ()
     const f = fixture()
     f.save({ [RESTART]: '300000' })
     await jest.advanceTimersByTimeAsync(9000)
-    let finish = () => undefined
+    let finish: () => void = () => undefined
     const run = runs.trackBackgroundRun(new Promise<void>((resolve) => (finish = resolve)))
     await jest.advanceTimersByTimeAsync(11000)
     expect(f.handler).not.toHaveBeenCalled()
@@ -96,7 +96,7 @@ it('waits for a background async run that arrives during the debounce', async ()
 
 it('cancels an idle drain when an already admitted run becomes visible during the recheck', async () => {
     const f = fixture()
-    let finish = () => undefined
+    let finish: () => void = () => undefined
     let run: Promise<void>
     const drain = runs.drainRuns
     const notifications = jest.fn()
