@@ -266,8 +266,12 @@ class GatewayProfileReconcileMixin:
             # tear down every other profile's servers.
             with _log_suppressed(logging.DEBUG, "MCP server shutdown failed", exc_info=True):
                 from hermes_constants import hermes_home_key
-                from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+                from tools.mcp_tool_lifecycle import shutdown_mcp_servers, _reregister_orphaned_adopters
                 shutdown_mcp_servers(scope=hermes_home_key(home))
+                # Scoped shutdown also tears down connections a still-served sibling
+                # had adopted, and records those adopters. Re-register them now so
+                # they reopen or re-adopt without waiting for their own later reload.
+                _reregister_orphaned_adopters()
             with _log_suppressed(logging.DEBUG, "profile log handler release failed", exc_info=True):
                 from hermes_logging import release_profile_log_handlers
                 release_profile_log_handlers(home)

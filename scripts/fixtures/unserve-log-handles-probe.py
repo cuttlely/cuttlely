@@ -148,6 +148,15 @@ def server_present(name: str, home: Path) -> bool:
         return key in mcp_tool._servers and mcp_tool._server_scope_keys.get(key) == scope
 
 
+def adopt(owner_home: Path, adopter_home: Path, name: str) -> None:
+    """Mark adopter_home as adopting owner_home's connection for name."""
+    owner_scope = hermes_home_key(owner_home)
+    adopter_scope = hermes_home_key(adopter_home)
+    key = (owner_scope, name)
+    with mcp_tool._lock:
+        mcp_tool._server_tool_scopes.setdefault(key, set()).add(adopter_scope)
+
+
 def start_mcp_loop() -> None:
     if getattr(mcp_tool, "_mcp_loop", None) is not None and mcp_tool._mcp_loop.is_running():
         return
@@ -281,6 +290,47 @@ async def main() -> None:
         "sibling_stderr_open": count_named(after_recon, sibling, "mcp-stderr.log") >= 1,
     }
 
+    # Shared connection: the still-served sibling adopted a server the victim owned.
+    # Retiring the owner must re-register the adopter so it reconnects as owner.
+    import tools.mcp_tool_config as mcp_config
+    import tools.mcp_tool_discovery as mcp_discovery
+    from hermes_constants import get_hermes_home
+
+    share_name = "tryshare"
+    share_home = root / "profiles" / share_name
+    serve_profile(runner, share_name, share_home)
+    shared = register_server("shared", share_home)
+    adopt(share_home, sibling, "shared")
+    orig_load = mcp_config._load_mcp_config
+    orig_reg = mcp_discovery.register_mcp_servers
+
+    def fake_load():
+        return {"shared": {"command": "true"}}
+
+    def fake_reg(servers):
+        home = get_hermes_home()
+        for name in servers:
+            register_server(name, Path(home))
+        return list(servers)
+
+    mcp_config._load_mcp_config = fake_load
+    mcp_discovery.register_mcp_servers = fake_reg
+    try:
+        await unserve(runner, share_name)
+    finally:
+        mcp_config._load_mcp_config = orig_load
+        mcp_discovery.register_mcp_servers = orig_reg
+    close_and_remove(share_home)
+    drain()
+    with mcp_tool._lock:
+        orphans = {k: set(v) for k, v in mcp_tool._orphaned_adopters.items()}
+    share = {
+        "owner_server_gone": shared.closed and not server_present("shared", share_home),
+        "adopter_reconnected": server_present("shared", sibling),
+        "orphans_cleared": not orphans,
+        "independent_sibling_still": server_present("sibling-server", sibling) and not sibling_server.closed,
+    }
+
     # Safety: a scoped shutdown must not be callable as a wildcard from this path.
     # Re-read the production source and confirm the call site always passes scope=.
     source = Path(sys.argv[1], "gateway/run_profile_reconcile.py").read_text(encoding="utf-8")
@@ -293,6 +343,7 @@ async def main() -> None:
         "scoped_shutdown": "shutdown_mcp_servers(scope=hermes_home_key(home))" in body,
         "no_bare_shutdown": all("shutdown_mcp_servers()" not in line for line in calls),
         "no_scope_none": all("scope=None" not in line for line in calls),
+        "calls_reregister_adopters": "_reregister_orphaned_adopters()" in body,
     }
 
     final = log_targets(root)
@@ -306,6 +357,7 @@ async def main() -> None:
                 "cycle_growth": cycle_growth,
                 "sibling": sibling_alive,
                 "reconcile": reconcile,
+                "share": share,
                 "safety": safety,
             }
         )

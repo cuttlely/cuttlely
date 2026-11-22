@@ -72,6 +72,11 @@ test(
             assert.equal(out.safety.scoped_shutdown, true)
             assert.equal(out.safety.no_bare_shutdown, true)
             assert.equal(out.safety.no_scope_none, true)
+            assert.equal(out.safety.calls_reregister_adopters, true)
+            assert.equal(out.share.owner_server_gone, true)
+            assert.equal(out.share.adopter_reconnected, true)
+            assert.equal(out.share.orphans_cleared, true)
+            assert.equal(out.share.independent_sibling_still, true)
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }

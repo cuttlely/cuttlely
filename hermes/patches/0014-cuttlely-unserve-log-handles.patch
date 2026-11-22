@@ -5,11 +5,11 @@ Subject: [PATCH] cuttlely: unserve-log-handles
 
 Close a retired multiplexed profile's log handlers and scoped MCP servers so temporary harness profiles do not leave those descriptors open. MCP shutdown is always scoped to the profile's hermes_home_key.
 ---
- gateway/run_profile_reconcile.py | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
+ gateway/run_profile_reconcile.py | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
 
 diff --git a/gateway/run_profile_reconcile.py b/gateway/run_profile_reconcile.py
-index bf70d9f177b2aa9a2923388658e0923553c35495..94a5d6ec44f0e7bad04b3efc9ad9ef93ec28c2db 100644
+index bf70d9f177b2aa9a2923388658e0923553c35495..542abe827181a21779b6d1556d61b9c7da2d408e 100644
 --- a/gateway/run_profile_reconcile.py
 +++ b/gateway/run_profile_reconcile.py
 @@ -215,6 +215,10 @@ class GatewayProfileReconcileMixin:
@@ -23,7 +23,7 @@ index bf70d9f177b2aa9a2923388658e0923553c35495..94a5d6ec44f0e7bad04b3efc9ad9ef93
          The whole teardown runs inside the removed profile's own runtime scope: adapter disconnect
          hooks, the agent-cache eviction (provider/memory shutdown) and the state/memory handle
          release all read config and credentials at call time, and this coroutine runs on the
-@@ -256,6 +260,17 @@ class GatewayProfileReconcileMixin:
+@@ -256,6 +260,21 @@ class GatewayProfileReconcileMixin:
              with _log_suppressed(logging.DEBUG, "memory-store release failed", exc_info=True):
                  from plugins.memory.holographic.store import MemoryStore
                  MemoryStore.release_all_under(home)
@@ -33,8 +33,12 @@ index bf70d9f177b2aa9a2923388658e0923553c35495..94a5d6ec44f0e7bad04b3efc9ad9ef93
 +            # tear down every other profile's servers.
 +            with _log_suppressed(logging.DEBUG, "MCP server shutdown failed", exc_info=True):
 +                from hermes_constants import hermes_home_key
-+                from tools.mcp_tool_lifecycle import shutdown_mcp_servers
++                from tools.mcp_tool_lifecycle import shutdown_mcp_servers, _reregister_orphaned_adopters
 +                shutdown_mcp_servers(scope=hermes_home_key(home))
++                # Scoped shutdown also tears down connections a still-served sibling
++                # had adopted, and records those adopters. Re-register them now so
++                # they reopen or re-adopt without waiting for their own later reload.
++                _reregister_orphaned_adopters()
 +            with _log_suppressed(logging.DEBUG, "profile log handler release failed", exc_info=True):
 +                from hermes_logging import release_profile_log_handlers
 +                release_profile_log_handlers(home)
