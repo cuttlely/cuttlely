@@ -117,7 +117,17 @@ for task in remaining:
     task.cancel()
 loop.run_until_complete(asyncio.gather(*remaining, return_exceptions=True))
 loop.close()
+
+import io, contextlib
+buf = io.StringIO()
+probe = GatewayMCPDiscovery([("default", homes[0])], scope, logging.getLogger("probe"))
+with contextlib.redirect_stderr(buf):
+    probe._discover("default", homes[0])
+text = buf.getvalue()
+assert "MCP discovery start for profile 'default'" in text, text
+assert "MCP discovery end for profile 'default'" in text, text
 print("profile concurrency, bounded gates, failure isolation and cancellation passed")
+print("discovery start/end reached stderr")
 `
 
 test('boot discovery caps profiles at four, gates queued profiles individually, and cancels queued work', () => {
@@ -328,6 +338,7 @@ async function boot(t, shortTimeout) {
         home,
         url: `http://127.0.0.1:${port}`,
         apiKey,
+        stdio: () => output,
         diagnostics: () => {
             let logs = ''
             for (const name of ['gateway.log', 'hermes.log']) {
@@ -405,7 +416,7 @@ test(
 )
 
 test('a timed-out MCP peer drops only its own tools and logs profile and server', { skip: integrationSkip }, async (t) => {
-    const { report, diagnostics } = await boot(t, true)
+    const { report, diagnostics, stdio } = await boot(t, true)
     const result = await waitFor(
         () => {
             const value = report()
@@ -420,4 +431,7 @@ test('a timed-out MCP peer drops only its own tools and logs profile and server'
     assert.match(diagnostics(), /MCP discovery start for profile 'default'/)
     assert.match(diagnostics(), /MCP discovery end for profile 'default': .*failed servers: bad, elapsed/)
     assert.match(diagnostics(), /MCP discovery failed for profile 'default', server 'bad'/)
+    assert.match(stdio(), /MCP discovery start for profile 'default'/)
+    assert.match(stdio(), /MCP discovery end for profile 'default': .*failed servers: bad, elapsed/)
+    assert.match(stdio(), /MCP discovery failed for profile 'default', server 'bad'/)
 })
