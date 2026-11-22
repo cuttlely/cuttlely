@@ -11,7 +11,8 @@ const isMulterFileTooLarge = (err: unknown): boolean => {
 }
 
 const asClientError = (err: AppError): AppError => {
-    if (err instanceof MissingModelCredentialError) {
+    // A stub of @cuttlely/components may omit the class; instanceof then throws and breaks every error response.
+    if (typeof MissingModelCredentialError === 'function' && err instanceof MissingModelCredentialError) {
         return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, err.message)
     }
     if (isMulterFileTooLarge(err)) {
