@@ -31,6 +31,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Orchestrate and A2A check the runtime before charging and answer 503 `RUNTIME_UNAVAILABLE` with `Retry-After` ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
 -   Analyst on Postgres keeps each role's encrypted password and legacy workspace mapping in the application database, so restarts and extra instances reuse the same password. Existing `.enc` files are imported without changing the password and left untouched. [#526](https://github.com/cuttlely/cuttlely/issues/526).
 -   Analyst on Postgres names the missing grant when the application database user can create neither its private schema nor a table in `public` (PostgreSQL 15+ when that user does not own the database): grant CREATE on the database (`GRANT CREATE ON DATABASE`) or set `CUTTLELY_POSTGRES_URL` to a separate database. CREATE on schema `public` works instead only if that user also owns the Analyst schema (`analyst_<tag>`) or holds USAGE and CREATE on it WITH GRANT OPTION. The error keeps SQLSTATE `42501` and writes nothing.
+-   A pause or cancel that lands while ETL restart recovery runs after a server start is no longer overwritten, and an ETL run that fails to start after a pause or cancel ends paused or cancelled instead of failed. [#539](https://github.com/cuttlely/cuttlely/issues/539).
 
 ### Upgrade notes / breaking changes
 
