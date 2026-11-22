@@ -13,7 +13,16 @@ import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, isBlank, resolveSettings } from './resolve'
 import { flagSnapshot, runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
-import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, readStoredValues, settingsDir, writeFileAtomic } from './store'
+import {
+    removeSettingsFile,
+    LAST_GOOD_FILE,
+    SETTINGS_FILE,
+    encryptionKeySync,
+    readSettingsFile,
+    readStoredValues,
+    settingsDir,
+    writeFileAtomic
+} from './store'
 
 type Env = Record<string, string | undefined>
 
@@ -160,7 +169,7 @@ function restoreLastGood(env: Env): CliResult {
         line = `Restored the last settings that started. ${NEXT_START}`
     } else {
         const restored = preserveRollout(null, readStoredValues(dir))
-        if (restored === null) fs.rmSync(file, { force: true })
+        if (restored === null) removeSettingsFile(dir)
         else writeFileAtomic(dir, SETTINGS_FILE, restored)
         line = `No settings have started successfully yet, so the settings file was set aside. ${NEXT_START}`
     }

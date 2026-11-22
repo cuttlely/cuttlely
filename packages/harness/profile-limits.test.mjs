@@ -51,7 +51,7 @@ test('stream limit refreshes compiled YAML and cache; older profiles stay curren
     const parent = compiled.dir
     const file = path.join(parent, 'harness-roster.json')
     const read = () => JSON.parse(fs.readFileSync(file, 'utf8'))
-    const yamlFile = path.join(dir, 'runtime', 'profiles', read().specialists[0].profileName, 'config.yaml')
+    const yamlFile = path.join(path.dirname(compiled.dir), read().specialists[0].profileName, 'config.yaml')
     const yaml = fs.readFileSync(yamlFile, 'utf8')
     assert.match(yaml, /stale_timeout_seconds: 45\n/)
     assert.equal(profileOutdated(record), false)
@@ -69,7 +69,7 @@ test('stream limit refreshes compiled YAML and cache; older profiles stay curren
     assert.equal(profileOutdated(record), true)
     compileProfileCached(record)
     assert.equal(fs.readFileSync(yamlFile, 'utf8'), yaml)
-    assert.doesNotMatch(yaml, /^  timeout:/m)
+    assert.doesNotMatch(yaml, /^ {2}timeout:/m)
     for (const raw of ['', 'bad', '0', '3601', '1.5']) assert.equal(configuredExecutionSeconds('cap', { cap: raw }), undefined)
     process.env.CUTTLELY_HERMES_TERMINAL_TIMEOUT = '900'
     process.env.CUTTLELY_HERMES_CODE_TIMEOUT = '1800'
@@ -78,8 +78,8 @@ test('stream limit refreshes compiled YAML and cache; older profiles stay curren
     assert.equal(read().terminalTimeoutSeconds, 900)
     assert.equal(read().codeTimeoutSeconds, 1800)
     const configured = fs.readFileSync(yamlFile, 'utf8')
-    assert.match(configured, /terminal:\n  cwd: .*\n  timeout: 900\n/)
-    assert.match(configured, /code_execution:\n  mode: project\n  timeout: 1800\n/)
+    assert.match(configured, /terminal:\n {2}cwd: .*\n {2}timeout: 900\n/)
+    assert.match(configured, /code_execution:\n {2}mode: project\n {2}timeout: 1800\n/)
     assert.equal(profileOutdated(record), false)
     delete process.env.CUTTLELY_HERMES_TERMINAL_TIMEOUT
     delete process.env.CUTTLELY_HERMES_CODE_TIMEOUT

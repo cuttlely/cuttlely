@@ -87,7 +87,14 @@ export function limitSnapshot(env: Env = process.env): Map<string, ResolvedLimit
 /** Separate from fileValuesToApply: saved limits override even host-set variables. */
 export function limitValuesToApply(env: Env, file: Record<string, string>): Record<string, string> {
     return Object.fromEntries(
-        [...resolveLimits(env, file)].filter(([, row]) => row.source === 'panel').map(([key, row]) => [key, row.value])
+        [...resolveLimits(env, file)]
+            .filter(([, row]) => row.source !== 'default')
+            .map(([key, row]) => {
+                // Preserve the host's spelling at start, including leading zeros. Later reads use its numeric record.
+                const raw =
+                    row.source === 'host' && !isBlank(env[key]) && Number(env[key]) === Number(row.value) ? String(env[key]) : row.value
+                return [key, raw]
+            })
     )
 }
 

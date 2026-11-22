@@ -71,7 +71,7 @@ export interface SettingDef {
     warnings?: { zero?: string; above?: { value: number; message: string } }
     /** Read on each use: host, then the settings file, then the default. No restart. */
     runtime?: boolean
-    /** A saved value overrides the host. Read on each use. The field stays editable. */
+    /** A saved value overrides the host. The field stays editable; limit entries use applies. */
     panelFirst?: boolean
     /** A time limit or cap: saved value, then the host, then the default. Also panelFirst. */
     limit?: boolean
@@ -729,7 +729,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'runtime',
         group: 'Limits',
         label: 'Turn time limit',
-        help: 'How long one agent team turn may run before unfinished specialists stop.',
+        help: 'How long one agent team turn may run before unfinished specialists stop. Applies to the next turn.',
         type: 'number',
         integer: true,
         limit: true,
@@ -903,7 +903,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'analyst',
         group: 'Limits',
         label: 'Query timeout',
-        help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds.',
+        help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds. Applies to the next query.',
         type: 'number',
         integer: true,
         limit: true,

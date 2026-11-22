@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HERMES = ROOT / "hermes"
 HOST = "127.0.0.1"
 
+
 def apply_terminal_limits(env):
     """Set process caps before importing runtime tools; unset keeps the existing environment."""
     for source, target in (

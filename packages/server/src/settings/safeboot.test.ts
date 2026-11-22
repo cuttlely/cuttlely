@@ -177,12 +177,12 @@ describe('start script helper', () => {
         expect(logs.join('\n')).not.toContain(SECRET)
     })
 
-    it('hands over nothing when the ignore flag is on', () => {
+    it('hands over only host records when the ignore flag is on', () => {
         const { data: root, dir } = data()
         writeSettingsFile(dir, { CUTTLELY_ANALYST: 'auto' }, { key: KEY })
         const logs: string[] = []
         const records = startRecords({ CUTTLELY_DATA_DIR: root, CUTTLELY_IGNORE_ADMIN_SETTINGS: 'true' }, null, (line) => logs.push(line))
-        expect(records).toEqual(['CUTTLELY_SETTINGS_HOST_KEYS='])
+        expect(records).toEqual(['CUTTLELY_SETTINGS_HOST_KEYS=', 'CUTTLELY_SETTINGS_HOST_LIMITS={}'])
         expect(logs[0]).toMatch(/ignored/)
     })
 })

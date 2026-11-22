@@ -254,7 +254,7 @@ describe('runtime limits', () => {
             PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: { min: 5, max: 1440, defaultValue: '60' },
             SMTP_PORT: { min: 1, max: 65535, defaultValue: '587' }
         }
-        const panelKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && setting.panelFirst)
+        const panelKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && setting.panelFirst && !setting.limit)
             .map((setting) => setting.key)
             .sort()
         expect(panelKeys).toEqual(Object.keys(panelFirst).sort())

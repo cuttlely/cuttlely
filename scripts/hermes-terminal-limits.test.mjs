@@ -58,6 +58,7 @@ test('configured caps reach the runtime before import and override native host n
 test('the multiplexed runtime takes terminal timeout from the profile policy', () => {
     const program = String.raw`
 import importlib.util, json, os, pathlib, sys, tempfile, types
+sys.dont_write_bytecode = True
 root = pathlib.Path(sys.argv[1])
 config = types.ModuleType("hermes_cli.config")
 config.TERMINAL_CONFIG_ENV_MAP = {"timeout": "TERMINAL_TIMEOUT", "cwd": "TERMINAL_CWD"}

@@ -54,7 +54,7 @@ export function startupOptionRows(): StartupOptionRow[] {
         range: rangeOf(setting),
         unit: unitOf(setting),
         where: whereOf(setting),
-        restart: !setting.fixed && (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
+        restart: setting.fixed || (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
     }))
     const editableKeys = new Set(SETTINGS.map((setting) => setting.key))
     const hostOnly = READ_ONLY_SETTINGS.filter((setting) => !editableKeys.has(setting.key)).map((setting) => ({
@@ -100,7 +100,7 @@ export function renderStartupOptionsDoc(): string {
         '',
         'A secret setting and every host-only key are named here and marked **not shown**. The table does not include the value, a default that would be the value, a length, a hash, a token, a key, or a connection string. The API follows the same rule: a secret is omitted from the response, and a host-only row is `key`, `set`, `source`, and `readOnly`.',
         '',
-        '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP` and the invite and mail settings, where a saved value wins over the host. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
+        '**Where it can be set** is the host and then Server settings, except time limits marked `limit`, `CUTTLELY_HISTORY_KEEP`, and invite and mail settings, where a saved value wins over the host. Fixed display fields read no environment variable and cannot be saved. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for live limits, runtime settings that apply on the next use, and fixed display fields. Restart limits say “Restart to apply.” in their help and appear in the pending restart banner; saving never stops running work. Every other option applies at the next start.',
         '',
         'Access-key enforcement is `INBOUND_ACCESS_V2` (`off`, `shadow`, `on`; default `off`). The instance-operator Server settings control applies on the next request and persists across restarts. A host value wins and locks it, including forced `off` for recovery. Invalid saved values resolve to `off`; invalid nonempty host values retain 503. [Rollout and compatibility warnings](./access-keys.md#rollout-and-migration).',
         '',

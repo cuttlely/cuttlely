@@ -24,7 +24,7 @@ import { flagSnapshot, invalidateRuntimeCache, runtimeConflict, runtimeSnapshot 
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
-import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
+import { removeSettingsFile, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
 import { checkValue } from './validate'
 import { readOrdinarySignInReadiness } from '../identity/authenticationState'
 import { signInOptionsBody } from '../identity/signInOptions'
@@ -565,8 +565,7 @@ async function writeValuesLocked(
 }
 
 function restoreSettingsFile(dir: string, previousRaw: string | null): void {
-    const file = path.join(dir, SETTINGS_FILE)
-    if (previousRaw === null) fs.rmSync(file, { force: true })
+    if (previousRaw === null) removeSettingsFile(dir)
     else writeFileAtomic(dir, SETTINGS_FILE, previousRaw)
 }
 
@@ -581,7 +580,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const file = path.join(state.dir, SETTINGS_FILE)
             const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
             const restored = preserveRollout(state.rawAtStart ?? null, readStoredValues(state.dir))
-            if (restored === null) fs.rmSync(file, { force: true })
+            if (restored === null) removeSettingsFile(state.dir)
             else writeFileAtomic(state.dir, SETTINGS_FILE, restored)
             const next = readSettingsFile(state.dir, key).values
             const changes = describeChanges(before, next, deps.env)
@@ -625,7 +624,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
     const after = readSettingsFile(state.dir, key)
     if (after.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         // Not a usable file: put the working one back, byte for byte, and leave the set-aside copy where it is.
-        if (current === null) fs.rmSync(file, { force: true })
+        if (current === null) removeSettingsFile(state.dir)
         else writeFileAtomic(state.dir, SETTINGS_FILE, current)
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }

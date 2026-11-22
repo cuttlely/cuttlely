@@ -4,7 +4,7 @@ import { preserveRollout } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
-import { LAST_GOOD_FILE, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic } from './store'
+import { removeSettingsFile, LAST_GOOD_FILE, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic } from './store'
 
 export const BOOT_FILE = 'boot.json'
 export const ROLLED_BACK_FILE = 'server.rolled-back.json'
@@ -59,7 +59,7 @@ export function beginStart(dir: string, key: string | null, now = new Date()): B
         writeFileAtomic(dir, ROLLED_BACK_FILE, current)
         const restored = preserveRollout(lastGood, readStoredValues(dir))
         if (restored !== null) writeFileAtomic(dir, SETTINGS_FILE, restored)
-        else fs.rmSync(settingsPath, { force: true })
+        else removeSettingsFile(dir)
         const after = readSettingsFile(dir, key).values
         try {
             appendHistory(dir, {

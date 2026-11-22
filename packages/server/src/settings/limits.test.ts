@@ -10,7 +10,7 @@ import { HOST_LIMITS_VAR, resolveLimits } from './limits'
 import { SETTINGS, settingFor } from './registry'
 import { checkValue } from './validate'
 import { runtimeSnapshot } from './runtime'
-import { ServiceDeps, SettingsError, getView, saveChanges } from './service'
+import { ServiceDeps, SettingsError, discardChanges, getView, saveChanges } from './service'
 import { readSettingsFile, writeSettingsFile } from './store'
 
 const KEY = 'test-key-not-a-real-secret-0123456789abcdef'
@@ -110,6 +110,56 @@ describe('admin time limits', () => {
         expect(row(defaults, LIVE)).toMatchObject({ source: 'default', effective: '45000' })
     })
 
+    it('updates process.env through the file-write hook after a plain server start', async () => {
+        const f = fixture({ [LIVE]: '60000' })
+        const names = [
+            'CUTTLELY_DATA_DIR',
+            'CUTTLELY_SECRETKEY_OVERWRITE',
+            'CUTTLELY_SETTINGS_HOST_KEYS',
+            HOST_LIMITS_VAR,
+            LIVE,
+            'CUTTLELY_ANALYST',
+            'CUTTLELY_SETTINGS_SCRIPT_DEFAULTS'
+        ]
+        const before = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+        try {
+            delete process.env[HOST_LIMITS_VAR]
+            delete process.env.CUTTLELY_SETTINGS_HOST_KEYS
+            Object.assign(process.env, f.env)
+            const service = { env: process.env, state: applyAdminSettings(), key: async () => KEY }
+            await saveChanges(service, { values: { [LIVE]: '90000' } }, 'operator')
+            expect(process.env[LIVE]).toBe('90000')
+            await saveChanges(service, { values: { [LIVE]: '' } }, 'operator')
+            expect(process.env[LIVE]).toBe('60000')
+        } finally {
+            for (const name of names) {
+                if (before[name] === undefined) delete process.env[name]
+                else process.env[name] = before[name]
+            }
+        }
+    })
+
+    it('restores live values when discarding removes the settings file, including failed history writes', async () => {
+        const f = fixture({ [LIVE]: '60000' })
+        const service = f.start()
+        await saveChanges(service, { values: { [LIVE]: '90000' } }, 'operator')
+        await discardChanges(service, 'operator')
+        expect(f.env[LIVE]).toBe('60000')
+        expect(fs.existsSync(path.join(f.dir, 'server.json'))).toBe(false)
+        const append = jest.spyOn(require('./history'), 'appendHistory').mockImplementation(() => {
+            throw new Error('fixture history failure')
+        })
+        try {
+            await expect(saveChanges(service, { values: { [LIVE]: '90000' } }, 'operator')).rejects.toMatchObject({
+                code: 'HISTORY_FAILED'
+            })
+            expect(f.env[LIVE]).toBe('60000')
+            expect(fs.existsSync(path.join(f.dir, 'server.json'))).toBe(false)
+        } finally {
+            append.mockRestore()
+        }
+    })
+
     it('keeps restart keys at their startup value and lists only effective pending changes', async () => {
         const f = fixture({ [RESTART]: '60000' })
         const service = f.start()
@@ -120,6 +170,17 @@ describe('admin time limits', () => {
         const cleared = await saveChanges(service, { values: { [RESTART]: '' } }, 'operator')
         expect(cleared.restart.changed).not.toContain(RESTART)
         expect(row(cleared, RESTART)).toMatchObject({ changed: false, source: 'host' })
+    })
+
+    it('clears a restart value that replaced the host at start without changing the running environment', async () => {
+        const f = fixture({ [RESTART]: '60000' })
+        writeSettingsFile(f.dir, { [RESTART]: '90000' }, { key: KEY })
+        const service = f.start()
+        expect(f.env[RESTART]).toBe('90000')
+        const cleared = await saveChanges(service, { values: { [RESTART]: '' } }, 'operator')
+        expect(row(cleared, RESTART)).toMatchObject({ source: 'host', effective: '60000', running: '90000', changed: true, locked: false })
+        expect(f.env[RESTART]).toBe('90000')
+        expect(cleared.restart.changed).toContain(RESTART)
     })
 
     it('refuses a caller without operator authorization before writing', async () => {
@@ -152,6 +213,7 @@ describe('admin time limits', () => {
             )
         }
         expect(rowFrom(applied)).toEqual({ value: '60000', source: 'host' })
+        expect(startRecords(fixture({ [RESTART]: '060000' }).env, null, () => undefined)).toContain(`${RESTART}=060000`)
         expect(startRecords(fixture().env, null, () => undefined).some((line) => line.startsWith(`${RESTART}=`))).toBe(false)
     })
 

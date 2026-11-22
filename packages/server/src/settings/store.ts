@@ -216,6 +216,12 @@ export function writeFileAtomic(dir: string, file: string, text: string): void {
     if (file === SETTINGS_FILE) notifySettingsWrite(dir)
 }
 
+/** Removing the saved file also returns live settings to the host or default. */
+export function removeSettingsFile(dir: string): void {
+    fs.rmSync(path.join(dir, SETTINGS_FILE), { force: true })
+    notifySettingsWrite(dir)
+}
+
 /** Copies the current file to the last-good copy, byte for byte. */
 export function saveLastGood(dir: string): boolean {
     try {
