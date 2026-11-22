@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Saved agent runtime limits that need a restart now apply when idle on supervised installations, after a 10-second save debounce, without cutting off work in progress; other installations apply them at the next restart.
 -   Every time limit and cap can now be set in Admin, Server settings; a saved value comes first, then the host variable, then the default.
 
 -   Release preparation checks current release notices and image/widget pins against the root package version in both full and fast verification, reporting stale versions and missing spots with file and line diagnostics.
@@ -13,6 +14,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Chat lock leases now renew while a turn runs, preventing a long turn from admitting a second run in the same chat; **Chat lock lease** is editable in Server Settings.
 -   Agent-runtime MCP discovery start and end lines now also go to stderr, so they appear in container and hosted logs. They already went to the runtime log files. Failed-server lines were already warnings on stderr.
 -   Retiring a multiplexed agent-runtime profile now closes that profile's log files and MCP stderr handles, so temporary harness profiles no longer leave those descriptors open. A profile that is still served keeps writing its logs, and its MCP servers stay connected. If it had adopted a connection the retired profile owned, it is re-registered immediately so it can reopen or re-adopt that server. MCP shutdown and adopter re-registration run off the gateway event loop so health stays responsive. [#536](https://github.com/cuttlely/cuttlely/issues/536).
 -   Agent mode now reaches the chief of a harness whose name has capitals; the chief’s runtime profile id is the lowercase name, an existing chief folder is renamed once on upgrade so router sessions and memory are kept, and a second name differing only in letter case is refused at compile with a clear error while the harness that already owns the profile keeps working.
