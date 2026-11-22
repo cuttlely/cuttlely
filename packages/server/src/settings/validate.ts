@@ -163,7 +163,7 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
                         min: setting.min,
                         max: setting.max
                     }
-                return { ok: true, value }
+                return { ok: true, value: String(Number(value)) }
             }
             if (setting.runtime) return runtimeInteger(setting, value)
             if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }

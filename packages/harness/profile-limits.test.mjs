@@ -10,10 +10,18 @@ const original = { ...process.env }
 process.env.CUTTLELY_DATA_DIR = dir
 process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 delete process.env.CUTTLELY_HERMES_STREAM_STALE_SECONDS
+delete process.env.CUTTLELY_HERMES_TERMINAL_TIMEOUT
+delete process.env.CUTTLELY_HERMES_CODE_TIMEOUT
 const { saveHarness, getHarness } = await import('./store.mjs')
-const { compileProfileCached, profileOutdated, streamStaleSeconds } = await import('./profile.mjs')
+const { compileProfileCached, profileOutdated, streamStaleSeconds, configuredExecutionSeconds } = await import('./profile.mjs')
 after(() => {
-    for (const key of ['CUTTLELY_DATA_DIR', 'CUTTLELY_HERMES_HOME', 'CUTTLELY_HERMES_STREAM_STALE_SECONDS']) {
+    for (const key of [
+        'CUTTLELY_DATA_DIR',
+        'CUTTLELY_HERMES_HOME',
+        'CUTTLELY_HERMES_STREAM_STALE_SECONDS',
+        'CUTTLELY_HERMES_TERMINAL_TIMEOUT',
+        'CUTTLELY_HERMES_CODE_TIMEOUT'
+    ]) {
         if (original[key] === undefined) delete process.env[key]
         else process.env[key] = original[key]
     }
@@ -58,6 +66,23 @@ test('stream limit refreshes compiled YAML and cache; older profiles stay curren
     assert.equal(fs.readFileSync(yamlFile, 'utf8'), yaml.replace('stale_timeout_seconds: 45', 'stale_timeout_seconds: 120'))
     assert.equal(profileOutdated(record), false)
     delete process.env.CUTTLELY_HERMES_STREAM_STALE_SECONDS
+    assert.equal(profileOutdated(record), true)
+    compileProfileCached(record)
+    assert.equal(fs.readFileSync(yamlFile, 'utf8'), yaml)
+    assert.doesNotMatch(yaml, /^  timeout:/m)
+    for (const raw of ['', 'bad', '0', '3601', '1.5']) assert.equal(configuredExecutionSeconds('cap', { cap: raw }), undefined)
+    process.env.CUTTLELY_HERMES_TERMINAL_TIMEOUT = '900'
+    process.env.CUTTLELY_HERMES_CODE_TIMEOUT = '1800'
+    assert.equal(profileOutdated(record), true)
+    compileProfileCached(record)
+    assert.equal(read().terminalTimeoutSeconds, 900)
+    assert.equal(read().codeTimeoutSeconds, 1800)
+    const configured = fs.readFileSync(yamlFile, 'utf8')
+    assert.match(configured, /terminal:\n  cwd: .*\n  timeout: 900\n/)
+    assert.match(configured, /code_execution:\n  mode: project\n  timeout: 1800\n/)
+    assert.equal(profileOutdated(record), false)
+    delete process.env.CUTTLELY_HERMES_TERMINAL_TIMEOUT
+    delete process.env.CUTTLELY_HERMES_CODE_TIMEOUT
     assert.equal(profileOutdated(record), true)
     compileProfileCached(record)
     assert.equal(fs.readFileSync(yamlFile, 'utf8'), yaml)

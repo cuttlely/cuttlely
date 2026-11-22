@@ -30,6 +30,14 @@ import { agentRunTimeoutMs } from './budget.mjs'
 const require = createRequire(import.meta.url)
 
 const CHIEF_TOOLSETS = ['memory', 'session_search', 'mcp-roster']
+// Unset stays absent from YAML, preserving the runtime's own defaults.
+export function configuredExecutionSeconds(key, env = process.env) {
+    const raw = env[key]
+    if (raw == null || String(raw).trim() === '') return undefined
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 1 && n <= 3600 ? n : undefined
+}
+
 const BLOCKED_UNLESS_ENABLED = ['terminal', 'browser', 'code_execution', 'file', 'web']
 // Read-only Hermes skills (skills_list, skill_view; a Cuttlely patch in hermes/toolsets.py). Playbooks live in
 // the profile's skills folder under PLAYBOOK_DIR, which Cuttlely owns and rewrites on every compile.
@@ -1993,9 +2001,14 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push(`  turn_budget_chars: ${budget.turnChars}`)
     yaml.push('terminal:')
     yaml.push(`  cwd: ${yamlQuote(workspace)}`)
+    // Multiplexed runs use a complete profile policy and do not inherit the process timeout.
+    const terminalTimeout = configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT')
+    if (terminalTimeout !== undefined) yaml.push(`  timeout: ${terminalTimeout}`)
     if (specialist.codeExecution) {
         yaml.push('code_execution:')
         yaml.push('  mode: project')
+        const codeTimeout = configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT')
+        if (codeTimeout !== undefined) yaml.push(`  timeout: ${codeTimeout}`)
     }
     if (specialist.browser) {
         yaml.push('browser:')
@@ -2475,6 +2488,8 @@ function compileProfileFiles(record, options = {}) {
         dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
         streamStaleSeconds: streamStaleSeconds(),
+        terminalTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT'),
+        codeTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT'),
         defaultEvidenceBytes: defaultEvidenceBytes()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
@@ -2972,6 +2987,8 @@ export function profileOutdated(record) {
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
     // Older compiled profiles already use 45 seconds. Keep them current at that default.
     if ((roster?.streamStaleSeconds ?? 45) !== streamStaleSeconds()) return true
+    if (roster?.terminalTimeoutSeconds !== configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT')) return true
+    if (roster?.codeTimeoutSeconds !== configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT')) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
         // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
@@ -3353,7 +3370,16 @@ function recheckCached(compiled) {
 export function compileProfileCached(record, options = {}) {
     assertChiefProfileAvailable(record.name)
     const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
-    const key = [hermesHome(), agentRunTimeoutMs(), streamStaleSeconds(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
+    const key = [
+        hermesHome(),
+        agentRunTimeoutMs(),
+        streamStaleSeconds(),
+        configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT'),
+        configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT'),
+        defaultEvidenceBytes(),
+        JSON.stringify(record),
+        stamp
+    ].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {
