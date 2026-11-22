@@ -31,7 +31,7 @@ import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
-import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
@@ -175,7 +175,8 @@ export function registerProfileToken({
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
-    const directory = profileName || ''
+    // Match the lowercase directory that profileDir() writes, including a capitalised chief name.
+    const directory = hermesProfileId(profileName || '')
     if (directory) {
         for (const [existing, meta] of [...tokens]) {
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
@@ -444,6 +445,8 @@ function ingestProfileTokens(abandoned = new Set()) {
     if (!entries) return
     for (const entry of entries) {
         if (abandoned.has(entry)) continue
+        // The runtime never serves legacy capitalised folders, even when their lowercase target already exists.
+        if (entry !== hermesProfileId(entry)) continue
         // A link is not a profile the runtime loads, including one that could not be renamed aside.
         if (entry.endsWith('.quarantine') || /\.quarantine-\d+$/.test(entry)) continue
         const dir = path.join(root, entry)
