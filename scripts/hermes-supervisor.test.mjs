@@ -1035,6 +1035,7 @@ DATA="$CUTTLELY_DATA_DIR"
 HERMES_STOP="$DATA/stop"
 WORKER_PIDS=()
 ${superviseSource()}
+${source.match(/stop_worker_pids\(\) \{[\s\S]*?\n\}/)[0]}
 ${cleanup}
 hermes_diagnostics() { :; }
 "$NODE_BIN" -e '
@@ -1381,6 +1382,7 @@ rm -f "$HERMES_STOP"
 HERMES_PARENT_PID=$$
 WORKER_PIDS=()
 ${superviseSource()}
+${source.match(/stop_worker_pids\(\) \{[\s\S]*?\n\}/)[0]}
 ${cleanup}
 trap cleanup EXIT
 trap 'HERMES_RECOVERY_RESTART=1; exit 75' USR1
