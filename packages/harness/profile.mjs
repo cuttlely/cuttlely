@@ -1300,24 +1300,16 @@ function modelKey(model) {
     return ''
 }
 
-// A still-saved marker owner wins, then a unique legacy folder distinct from the lowercase target.
-// Otherwise the earliest saved createdAt owns it, with exact names in code-unit order breaking ties.
+// A still-saved marker owner wins, then the lowercase folder's roster owner, else the earliest saved createdAt.
+// Exact names in code-unit order break ties; a non-owner's legacy folder stays untouched.
 function chiefProfileCollision(name) {
     const id = hermesProfileId(name)
     const names = listHarnessNames().filter((other) => hermesProfileId(other) === id)
     if (!names.some((other) => other !== name)) return
     let owner = readMarker(path.join(profileDir(name), 'harness-parent'))
     if (names.includes(owner)) return owner === name ? undefined : owner
-    const root = profilesRoot()
-    const opened = openDirNoFollow(root, { quiet: true })
-    if (opened) {
-        try {
-            const legacy = names.filter((candidate) => candidate !== id && lstatChild(opened.fd, root, candidate)?.isDirectory())
-            if (legacy.length === 1) return legacy[0] === name ? undefined : legacy[0]
-        } finally {
-            closeFds(opened.fds)
-        }
-    }
+    owner = onDiskRoster(profileDir(name))?.name
+    if (names.includes(owner)) return owner === name ? undefined : owner
     owner = names
         .map((candidate) => getHarness(candidate))
         .filter(Boolean)
@@ -1997,7 +1989,8 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     const conflicts = chiefProfileCollision(home) ? [homeId] : []
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
-    if (homeParent && homeParent !== home && !conflicts.includes(homeId)) conflicts.push(homeId)
+    const homeRoster = onDiskRoster(homeDir)?.name
+    if (((homeParent && homeParent !== home) || (homeRoster && homeRoster !== home)) && !conflicts.includes(homeId)) conflicts.push(homeId)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
     const normalized = {
         ...record,
