@@ -120,6 +120,7 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'try-profile-tombstones.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-evidence-budget.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-probe-cache-fd.test.mjs'),
+            path.join(ROOT, 'scripts', 'hermes-unserve-log-handles.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-max-concurrent-runs.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-analyst-scope.test.mjs'),
             path.join(ROOT, 'scripts', 'live-e2e-pick.test.mjs'),

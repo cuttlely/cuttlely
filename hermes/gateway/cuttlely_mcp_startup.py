@@ -1,6 +1,7 @@
 """Background gateway MCP discovery and profile-local first-run readiness."""
 
 import asyncio
+import sys
 import threading
 import time
 from contextlib import nullcontext
@@ -36,13 +37,23 @@ class GatewayMCPDiscovery:
         _pending.update(self.events)
         self.task = None
 
+    def _emit_info(self, message, *args):
+        # Production Cuttlely boots Hermes at verbosity 0 (stderr WARNING only),
+        # so INFO would stay in gateway.log and miss container/Render logs.
+        self.logger.info(message, *args)
+        try:
+            sys.stderr.write((message % args) + "\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
+
     def start(self):
         self.task = asyncio.create_task(self._run(), name="gateway-mcp-discovery")
 
     def _discover(self, name, home):
         started = time.monotonic()
         status = []
-        self.logger.info("MCP discovery start for profile '%s'", name)
+        self._emit_info("MCP discovery start for profile '%s'", name)
         try:
             from tools.mcp_oauth import suppress_interactive_oauth
             from tools.mcp_tool_discovery import discover_mcp_tools, get_mcp_status
@@ -60,7 +71,7 @@ class GatewayMCPDiscovery:
                       if not s["disabled"] and s["status"] not in ("connected", "lazy")]
             for server in failed:
                 self.logger.warning("MCP discovery failed for profile '%s', server '%s'", name, server)
-            self.logger.info(
+            self._emit_info(
                 "MCP discovery end for profile '%s': %d tools, failed servers: %s, elapsed %.2fs",
                 name, sum(s["tools"] for s in status), ", ".join(failed) or "none",
                 time.monotonic() - started)
