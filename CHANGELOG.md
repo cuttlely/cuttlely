@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Analyst queries can use `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` up to 1 hour; the default stays 15 seconds. New `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS` raises the specialist MCP tool-call limit, up to 3660000 ms; unset keeps the 300 s MCP default and 420 s Hermes per-tool default. When set, the stdio bridge wait and Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) follow the rounded tool timeout with a 60 s margin. This route covers MCP tools only: shell stays capped at 600 s and code execution at 300 s; for those longer tasks, use a pipeline job. New `CUTTLELY_HERMES_HEALTH_TIMEOUT` sets the agent-runtime health probe wait (default 2 s, range 1–30 s). Admin Server Settings fields for these limits are coming in the same release; use the env vars today. [Long-running queries and tasks](./docs/how-to/server-settings.md#long-running-queries-and-tasks).
+
 ### Added
 
 -   Release preparation checks current release notices and image/widget pins against the root package version in both full and fast verification, reporting stale versions and missing spots with file and line diagnostics.

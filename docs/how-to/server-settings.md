@@ -85,6 +85,33 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 **Turn time limit** separately bounds the whole team turn and defaults to 45 seconds. A shorter turn limit still stops unfinished work, so raise it too when a turn needs longer, or set it to `0` to turn that limit off. Unlimited agent run time still permits cancellation and does not remove model, provider, other MCP tool, SQL query, or HTTP request limits. [How long a turn should take](./harnesses.md#how-long-a-turn-should-take) explains the whole-turn budget.
 
+## Long-running queries and tasks
+
+Set these environment variables on the host and restart Cuttlely. Admin Server Settings fields for these limits are coming in the same release; use the env vars for the extended limits today.
+
+| Variable                                | Default         | Host range and behavior                                                                                                                                                          |
+| --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15000 ms (15 s) | Up to 3600000 ms (1 hour). Positive values below 1000 become 1000; invalid values and values above the maximum use 15000 and warn once.                                          |
+| `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`       | 240000 ms       | Up to 3600000 ms; `0` means no deadline.                                                                                                                                         |
+| `CUTTLELY_HARNESS_TURN_BUDGET_MS`       | 45000 ms        | `0` turns the whole-turn budget off.                                                                                                                                             |
+| `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS`      | Unset           | Positive integer from 1 to 3660000 ms; seconds are rounded up. Unset, blank, invalid or out-of-range values keep the 300 s MCP default and 420 s agent-runtime per-tool default. |
+| `CUTTLELY_HERMES_HEALTH_TIMEOUT`        | 2 s             | 1–30 s for the agent-runtime health probe wait; invalid or out-of-range values use 2 s with a warning.                                                                           |
+
+For example, to allow a query longer than 300 seconds:
+
+```bash
+CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS=360000
+CUTTLELY_HARNESS_RUN_TIMEOUT_MS=3600000
+CUTTLELY_HARNESS_TURN_BUDGET_MS=0
+CUTTLELY_HARNESS_TOOL_TIMEOUT_MS=3660000
+```
+
+A 300-second query needs every limit around it to be larger than 300 seconds. With the tool setting above, specialist MCP servers wait 3660 s, the stdio bridge waits 3720 s, and both Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) are 3720 s. The bridge and deadlines follow the tool setting with a 60 s margin. The roster MCP server always has an unlimited MCP wait; the agent run and whole-turn limits still apply. When the tool setting is unset, the bridge keeps its existing 130 s wait.
+
+This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s; for those, a pipeline job is the supported route. HTTP-connected MCP servers also have a fixed 300-second wait for data inside the agent runtime. That wait only fires when no data arrives for 300 seconds.
+
+Set any proxy or load-balancer idle timeout to at least 3720 s for harness streams with this example. [Proxy stream timeouts](./reverse-proxy.md#how-long-a-stream-can-stay-quiet) explains the separate limits for streams and reusable connections.
+
 ## Maximum concurrent agent runs
 
 Under **Agent runtime** > **Limits**, **Maximum concurrent agent runs** caps how many agent runs the agent runtime works on at the same time, across every agent team. The default is **10**. The field accepts **1** to **50**, or **0** for no limit, which the page shows as **Unlimited**. A negative number or a number above 50 is refused when you save. A run over the limit is turned away as busy, and the agent team turn reports it unless the specialist's **Capacity wait** is on (see [Agent teams](./harnesses.md)). Higher values use more memory and CPU, and send more model requests at once. The page shows a warning under the field for a value above 25, and a stronger one for **Unlimited**, because a burst of questions can then use all the memory and CPU on the server. Review and save, then restart Cuttlely to apply it. A value set on the host locks the field.
@@ -120,12 +147,12 @@ Use `/api/v1/ping/live` for gateway and container liveness, and `/api/v1/ping` s
 
 ## Analyst limits
 
-**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.
+**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host row cap above the maximum is treated as the maximum. For the query timeout env setting, a value above 3600000 milliseconds uses the 15-second default and logs a warning once. A positive query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number uses the default and logs a warning once.
 
-| Setting           | Variable                                | Default    | Range            |
-| ----------------- | --------------------------------------- | ---------- | ---------------- |
-| **Row cap**       | `CUTTLELY_ANALYST_ROW_CAP`              | 100 rows   | 1 to 1000 rows   |
-| **Query timeout** | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15 seconds | 1 to 120 seconds |
+| Setting           | Variable                                | Default    | Host range        |
+| ----------------- | --------------------------------------- | ---------- | ----------------- |
+| **Row cap**       | `CUTTLELY_ANALYST_ROW_CAP`              | 100 rows   | 1 to 1000 rows    |
+| **Query timeout** | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15 seconds | 1 to 3600 seconds |
 
 The row cap is the page size. A lower cap puts fewer rows into the specialist's prompt and into the handoff Harness Prime reads, so the turn uses less context. Say `show more` for the next page. The rows stay in the database.
 
