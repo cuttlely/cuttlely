@@ -7,6 +7,16 @@ const availability = require('../../../harness/availability.cjs') as {
 export const runtimeState = availability.runtimeState
 export const assertRuntimeAvailable = availability.assertRuntimeAvailable
 
+/** Runtime refusals also come from the shared runtime as plain errors with these fields. */
+export function isRuntimeUnavailableError(error: unknown): error is Error & {
+    statusCode: number
+    code: string
+    retryAfterSeconds?: number
+} {
+    const failure = error as { statusCode?: unknown; code?: unknown } | null
+    return failure instanceof Error && failure.statusCode === 503 && failure.code === 'RUNTIME_UNAVAILABLE'
+}
+
 /** Check only an authorized flow. Ordinary flows and operator recovery routes remain usable. */
 export function assertFlowRuntimeAvailable(flow: { type?: string | null; flowData: string }) {
     if (flow.type === 'HARNESS') return assertRuntimeAvailable()

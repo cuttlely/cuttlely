@@ -5,6 +5,7 @@ import a2aController from '../../controllers/a2a'
 import predictionsController from '../../controllers/predictions'
 import { AppError } from '../../errors/appError'
 import { authorizeFlowAccess } from '../../utils/authorizeFlowAccess'
+import { assertFlowRuntimeAvailable, isRuntimeUnavailableError } from '../../utils/runtimeAvailability'
 import {
     ExternalAgentError,
     externalAgentAuth,
@@ -15,7 +16,7 @@ import {
 import logger from '../../utils/logger'
 import { isJsonContentType } from '../orchestrate'
 import { assertA2aPublicBaseUrl } from '../../services/a2a/agentCard'
-import { A2A_RPC_CODES, A2aRpcError, jsonRpcError } from '../../services/a2a/rpc'
+import { A2A_RPC_CODES, A2aRpcError, jsonRpcError, parseEnvelope } from '../../services/a2a/rpc'
 import { A2aLogState, emptyA2aLog } from '../../services/a2a/executor'
 
 export { assertA2aPublicBaseUrl }
@@ -137,13 +138,23 @@ export const a2aErrorHandler = (err: unknown, req: Request, res: Response, _next
         res.end()
         return
     }
+    if (isRuntimeUnavailableError(err)) {
+        if (err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds))
+        const parsed = parseEnvelope((req as Request & { orchestrate?: unknown }).orchestrate)
+        const log = (res.locals.a2aLog || emptyA2aLog()) as A2aLogState
+        log.rpc = String(A2A_RPC_CODES.internal)
+        const body = jsonRpcError(parsed.id, A2A_RPC_CODES.internal, err.message)
+        res.status(err.statusCode).json({
+            ...body,
+            error: { ...body.error, data: { code: err.code } }
+        })
+        return
+    }
     if (err instanceof ExternalAgentError) {
         sendExternalAgentError(res, err)
         return
     }
     if (err instanceof AppError) {
-        // The agent runtime is down: the caller may retry, so say when.
-        if (err.code === 'RUNTIME_UNAVAILABLE' && err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds))
         sendExternalAgentError(res, mapAppError(err))
         return
     }
@@ -187,7 +198,11 @@ router.post(
             getChatflowId: (req) => req.params.id,
             keyOnly: true,
             checkOrigin: true,
-            beforeAdmission: (_req, flow) => assertExternalFlowKeyed(flow)
+            beforeAdmission: (req, flow) => {
+                assertExternalFlowKeyed(flow)
+                const parsed = parseEnvelope((req as Request & { orchestrate?: unknown }).orchestrate)
+                if (parsed.ok && (parsed.method === 'message/send' || parsed.method === 'message/stream')) assertFlowRuntimeAvailable(flow)
+            }
         })
     ),
     wrap(refuseKeylessFlow),

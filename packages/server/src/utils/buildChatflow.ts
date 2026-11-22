@@ -1310,9 +1310,9 @@ export const utilBuildChatflow = async (
     let stopWatchingClient = () => {}
 
     try {
-        // Validate API Key if its external API request. The key is checked without charging first, so a flow that needs
-        // the agent runtime is refused while it is down before the key is charged (webhook, Orchestrate and A2A callers
-        // retry on Retry-After).
+        // Check external access without charging before checking the runtime. Prediction, Orchestrate and A2A
+        // execution routes also check runtime availability before admission and before starting a stream;
+        // webhook callers reach this check before charging. Runtime refusals carry Retry-After.
         if (!isInternal) {
             if (!(await validateFlowAPIKey(req, chatflow, false))) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)

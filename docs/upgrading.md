@@ -4,6 +4,8 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
+
 ## Upgrading to 1.7.12
 
 Back up the application database, encryption key and settings first. Use matching 1.7.12 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.
@@ -35,7 +37,7 @@ Back up the application database, encryption key and settings before upgrading. 
 
 The supervisor now recovers inside the image, including with plain `docker run` and no restart policy. After an exhausted burst it writes a diagnostic snapshot/status, waits 300 seconds with liveness green and readiness 503, resets the burst, then restarts the server and runtime together in place. Only `CUTTLELY_EXIT_ON_EXHAUSTED=1` requests a non-zero container exit. Review the new reset, backoff and cooldown defaults in [Agent runtime recovery](./how-to/server-settings.md#agent-runtime-recovery), and point custom probes at the [liveness and readiness routes](./how-to/docker.md#health-checks).
 
-Agent calls made while the supervisor reports `down` or `restarting` return HTTP 503 with a JSON `RUNTIME_UNAVAILABLE` code and `Retry-After`. Authentication and authorization still run first. Wait for runtime recovery before starting another run; UI and service administration requests remain available while Node and its database are healthy.
+Agent calls made while the supervisor reports `down`, `restarting`, `cooldown` or `exhausted` return HTTP 503 with a JSON `RUNTIME_UNAVAILABLE` code and `Retry-After`. In 1.7.13, Orchestrate and A2A execution calls also refuse before charging the access key or starting a stream; A2A puts the code in the JSON-RPC error data. A2A discovery and task reads remain available. Authentication and authorization still run first. Wait for runtime recovery before starting another run; UI and service administration requests remain available while Node and its database are healthy.
 
 ## Upgrading to 1.7.9
 
