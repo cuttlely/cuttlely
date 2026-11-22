@@ -12,6 +12,7 @@ import logger from '../../utils/logger'
 import oauth2Router from './index'
 
 jest.mock('@cuttlely/components', () => ({
+    MissingModelCredentialError: class extends Error {},
     secureAxiosRequest: jest.fn()
 }))
 

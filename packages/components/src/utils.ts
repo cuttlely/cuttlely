@@ -757,6 +757,12 @@ function isClientStatusError(error: unknown): error is Error & { statusCode: num
     return Number.isInteger(status) && status >= 400 && status < 500
 }
 
+/** Rethrow a missing-credential or other 4xx client error instead of wrapping it in a node error. */
+export function rethrowIfModelClientError(error: unknown): void {
+    if (error instanceof MissingModelCredentialError) throw error
+    if (isClientStatusError(error)) throw error
+}
+
 /**
  * Get credential data
  * @param {string} selectedCredentialId
