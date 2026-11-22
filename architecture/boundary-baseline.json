@@ -3068,6 +3068,26 @@
             "from": "scripts/harness-per-run-auth.test.cjs",
             "to": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
             "reason": "Production fixture loads the real Chatflow Tool so concurrent Harness chats can be checked against actual nested-target admission, not a stand-in."
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/controllers/ping",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/services/harnesses",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/services/harnesses/bootGate",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/startup/databaseHealth",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
         }
     ],
     "r4Edges": [
