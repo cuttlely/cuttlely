@@ -120,7 +120,7 @@ import {
     withPromptImages
 } from './images.mjs'
 import { prepareHarnessTurnUploads } from './uploads.mjs'
-import { acquireTurn, lockTtlMs, renewTurn, releaseTurn } from './lock.mjs'
+import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
@@ -384,23 +384,11 @@ async function runHarnessTurn({
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }
     const turnLock = acquireTurn(name, chatId)
-    let renewalTimer
-    let renewalWarned = false
-    const scheduleRenewal = () => {
-        renewalTimer = setTimeout(() => {
-            try {
-                renewTurn(turnLock)
-            } catch {
-                if (!renewalWarned) {
-                    renewalWarned = true
-                    console.warn('[harness] chat lock lease could not be renewed')
-                }
-            }
-            scheduleRenewal()
-        }, Math.max(1000, Math.floor(lockTtlMs() / 3)))
-        renewalTimer.unref()
-    }
-    scheduleRenewal()
+    const deadlines = [turnBudgetMs(budgetMs), timeoutMs ?? agentRunTimeoutMs()].filter((ms) => ms > 0)
+    const stopRenewal = startTurnRenewal(turnLock, {
+        signal: readClientSignal(signal),
+        deadlineMs: deadlines.length ? Math.min(...deadlines) : 0
+    })
     const analystScope = analystScopeKey(name, chatId)
     try {
         return await withAnalystScope(
@@ -434,7 +422,7 @@ async function runHarnessTurn({
             { workspace: harness.workspaceId }
         )
     } finally {
-        clearTimeout(renewalTimer)
+        stopRenewal()
         releaseTurn(turnLock)
     }
 }

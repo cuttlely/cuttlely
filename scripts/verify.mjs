@@ -76,6 +76,8 @@ export const STEPS = [
             path.join(ROOT, 'packages', 'harness', 'mcp-bridge-timeout.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-health-timeout.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'queue-cancellation.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'lock.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'run-lease.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'gateway-chief.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
             path.join(ROOT, 'scripts', 'check-boundaries.test.mjs'),

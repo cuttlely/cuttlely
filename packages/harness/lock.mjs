@@ -7,7 +7,7 @@ import { HarnessError } from './errors.mjs'
 import { dataRoot } from './paths.mjs'
 import { sessionKey } from './session.mjs'
 
-export const BUSY_MESSAGE = 'This chat already has a harness turn in progress.'
+export const BUSY_MESSAGE = 'A reply is still in progress in this chat. Try again in a moment.'
 
 let cached = null
 
@@ -125,6 +125,46 @@ export function renewTurn(held) {
     database()
         .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ?')
         .run(Date.now() + ttl, held.key, held.owner)
+}
+
+// Only the live turn owns this timer. Cancellation and its earliest hard deadline stop
+// renewal even if work never settles. With every deadline off (0), it renews until
+// cancellation or finally, as before. A zero lease still explicitly never expires.
+export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
+    const deadline = deadlineMs > 0 ? Date.now() + deadlineMs : 0
+    let timer
+    let stopped = false
+    let warned = false
+    const stop = () => {
+        stopped = true
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', stop)
+    }
+    const schedule = () => {
+        if (stopped) return
+        if (signal?.aborted || (deadline && Date.now() >= deadline)) return stop()
+        const interval = Math.max(1000, Math.floor(lockTtlMs() / 3))
+        timer = setTimeout(
+            () => {
+                if (stopped) return
+                if (signal?.aborted || (deadline && Date.now() >= deadline)) return stop()
+                try {
+                    renewTurn(held)
+                } catch {
+                    if (!warned) {
+                        warned = true
+                        console.warn('[harness] chat lock lease could not be renewed')
+                    }
+                }
+                schedule()
+            },
+            deadline ? Math.min(interval, deadline - Date.now()) : interval
+        )
+        timer.unref()
+    }
+    signal?.addEventListener('abort', stop, { once: true })
+    schedule()
+    return stop
 }
 
 export function releaseTurn(held) {

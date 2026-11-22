@@ -121,6 +121,7 @@ test('a slow turn renews past its original expiry and clears its unref timer on 
         chatId: 'same',
         input: 'Wait.',
         budgetMs: 0,
+        timeoutMs: 0,
         flowOptions: { appDataSource: {}, harnessCaller: { via: 'session' } },
         loadNode: async () =>
             class {

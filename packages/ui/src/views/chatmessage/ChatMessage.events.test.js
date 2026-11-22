@@ -5,6 +5,13 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { transformSync } from '@babel/core'
 import { resolveShowToolEvents } from '@/utils/toolEvents'
+import {
+    HARNESS_BUSY_MESSAGE,
+    keepUnsentHarnessMessage,
+    harnessCanvasRunPath,
+    harnessResponseError,
+    harnessBusyNotice
+} from '@/utils/harnessCanvasChat'
 
 // Render the actual message-status JSX with leaf cards substituted. This keeps the
 // regression independent of the chat composer's microphone, upload and model APIs.
@@ -91,4 +98,104 @@ test('answer tokens create a reply even when no tool or step-status event opened
         { message: 'Question', type: 'userMessage' },
         { message: 'First answer', type: 'apiMessage', feedback: null }
     ])
+})
+
+test('the canvas busy handler preserves the refused message and restores the input', () => {
+    const start = source.indexOf('    const showHarnessBusy =')
+    const stop = source.indexOf('    const fetchHarnessRun =', start)
+    let messages = [{ message: 'Keep this question', type: 'userMessage' }]
+    const states = {}
+    const busy = new Function(
+        'setMessages',
+        'keepUnsentHarnessMessage',
+        'setLoading',
+        'setAnalyzingUpload',
+        'setUserInput',
+        source.slice(start, stop) + '\nreturn showHarnessBusy'
+    )(
+        (update) => {
+            messages = update(messages)
+        },
+        keepUnsentHarnessMessage,
+        (value) => {
+            states.loading = value
+        },
+        (value) => {
+            states.analyzing = value
+        },
+        (value) => {
+            states.input = value
+        }
+    )
+    busy('Keep this question', HARNESS_BUSY_MESSAGE)
+    expect(states).toEqual({ loading: false, analyzing: false, input: 'Keep this question' })
+    expect(messages).toEqual([
+        { message: 'Keep this question', type: 'userMessage', notSent: true },
+        { message: HARNESS_BUSY_MESSAGE, type: 'apiMessage', notice: true }
+    ])
+    expect(source).toMatch(/<Alert severity='info' role='status'>\s*{message.message}\s*<\/Alert>/)
+    expect(source).toContain("<Typography variant='caption'>Not sent</Typography>")
+})
+
+test.each(['harness', 'chatflow'])('%s chat handles HTTP and stream busy responses through the real callbacks', async (kind) => {
+    const start = source.indexOf(kind === 'harness' ? '    const fetchHarnessRun =' : '    const fetchResponseFromEventStream =')
+    const stop = source.indexOf(
+        kind === 'harness' ? '    const fetchResponseFromEventStream =' : '\n    useEffect(() => {\n        chatMountedRef.current',
+        start
+    )
+    const method = kind === 'harness' ? 'fetchHarnessRun' : 'fetchResponseFromEventStream'
+    const showHarnessBusy = jest.fn()
+    const updateErrorMessage = jest.fn()
+    const dependencies = {
+        FormData,
+        AbortController,
+        baseURL: '',
+        harnessCanvasRunPath,
+        harnessResponseError,
+        harnessBusyNotice,
+        predictionAbortRef: { current: null },
+        streamGenerationRef: { current: 0 },
+        stopNoticeRef: { current: false },
+        chatMountedRef: { current: true },
+        chatId: 'same',
+        closeResponse: jest.fn(),
+        cleanupCalledTools: jest.fn(),
+        EventStreamContentType: 'text/event-stream',
+        showToolEvents: false,
+        isAgentStyleEvent: () => false,
+        showHarnessBusy,
+        updateErrorMessage
+    }
+    for (const streaming of [false, true]) {
+        const fetchEventSource = async (_url, callbacks) => {
+            if (streaming) {
+                await callbacks.onmessage({
+                    data: JSON.stringify({
+                        event: 'error',
+                        data: HARNESS_BUSY_MESSAGE,
+                        status: 409,
+                        code: 'busy'
+                    })
+                })
+                await callbacks.onclose()
+            } else {
+                await callbacks.onopen({
+                    ok: false,
+                    status: 409,
+                    headers: { get: () => 'application/json' },
+                    text: async () => JSON.stringify({ message: HARNESS_BUSY_MESSAGE })
+                })
+            }
+        }
+        const run = new Function(...Object.keys(dependencies), 'fetchEventSource', source.slice(start, stop) + `\nreturn ${method}`)(
+            ...Object.values(dependencies),
+            fetchEventSource
+        )
+        const result = run('flow', kind === 'harness' ? 'Keep this question' : { question: 'Keep this question', chatId: 'same' })
+        if (streaming) {
+            await result
+            expect(showHarnessBusy).toHaveBeenCalledWith('Keep this question', HARNESS_BUSY_MESSAGE)
+            expect(updateErrorMessage).not.toHaveBeenCalled()
+        } else await expect(result).rejects.toMatchObject({ status: 409, message: HARNESS_BUSY_MESSAGE })
+    }
 })
