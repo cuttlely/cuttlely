@@ -886,7 +886,7 @@ describe('analyst: role secrets survive independent Postgres instances', () => {
         }
         const refused = (error) => {
             assert.equal(error.code, '42501')
-            assert.match(error.message, /CREATE on the database/)
+            assert.match(error.message, /CREATE on the database \(GRANT CREATE ON DATABASE\)/)
             assert.match(error.message, /CREATE on schema public/)
             assert.match(error.message, /CUTTLELY_POSTGRES_URL/)
             assert.doesNotMatch(error.message, /^permission denied/)

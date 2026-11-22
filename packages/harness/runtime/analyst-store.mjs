@@ -382,7 +382,7 @@ const ISOLATION_ERROR =
 const SECRET_ERROR =
     'Analyst mode could not read the stored role secret. The credential encryption key may have changed. Set CUTTLELY_POSTGRES_URL to a separate database instead of using the application login.'
 const SECRET_GRANT_ERROR =
-    'Analyst mode could not store its role password. The application database user needs CREATE on the database; CREATE on schema public is enough only when the Analyst schema (analyst_<tag>) already exists. Otherwise, set CUTTLELY_POSTGRES_URL to a separate database.'
+    'Analyst mode could not store its role password. Grant the application database user CREATE on the database (GRANT CREATE ON DATABASE), or set CUTTLELY_POSTGRES_URL to a separate database. CREATE on schema public works instead only if that user also owns the Analyst schema (analyst_<tag>) or holds USAGE and CREATE on it WITH GRANT OPTION.'
 const APP_SQLITE_ERROR = 'Analyst mode refused to open the application SQLite file.'
 
 const ready = new Map()
