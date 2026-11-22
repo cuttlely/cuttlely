@@ -91,6 +91,29 @@ it('rejects agent images through request validation before loading runtime or hi
     expect(dispatch).not.toHaveBeenCalled()
 })
 
+it.each(['Default', 'default', 'DEFAULT'])('returns 400 for reserved chief name %s before loading runtime or history', async (name) => {
+    const load = jest.fn(async () => {
+        throw new Error('Reserved-name refusal must precede runtime or history loading.')
+    })
+    setHarnessModuleLoader(load)
+    for (const [endpoint, streaming] of [
+        ['runs', false],
+        ['runs', true],
+        ['runs/async', false]
+    ] as const) {
+        const response = await request(app())
+            .post(`/api/v1/harnesses/${name}/${endpoint}`)
+            .set('Accept', streaming ? 'text/event-stream' : 'application/json')
+            .send({ question: 'How many loaves?', mode: 'agent', streaming })
+        expect(response.status).toBe(400)
+        expect(response.body.message).toBe(
+            `Harness "${name}" cannot run in agent mode: the runtime reserves the profile name "default". Rename the harness to use agent mode.`
+        )
+    }
+    expect(load).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+})
+
 it.each(
     [
         ['https://example.com/fixture.png'],

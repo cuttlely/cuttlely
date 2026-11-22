@@ -24,8 +24,15 @@ export function hermesBaseUrl() {
     return process.env.HERMES_API_URL || 'http://127.0.0.1:8642'
 }
 
+// The runtime serves a named profile only when its folder is a lowercase id (hermes_constants.PROFILE_ID_RE), and a
+// /p/<profile>/ prefix must name it exactly. Harness names may use capitals, so every profile folder and runtime
+// prefix uses the lowercase id. Specialist and draft names are lowercase already.
+export function hermesProfileId(name) {
+    return typeof name === 'string' ? name.toLowerCase() : name
+}
+
 export function profileDir(name) {
-    return path.join(hermesHome(), 'profiles', name)
+    return path.join(hermesHome(), 'profiles', hermesProfileId(name))
 }
 
 export function vendoredHermesDir() {
