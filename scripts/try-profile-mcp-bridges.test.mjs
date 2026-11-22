@@ -133,6 +133,11 @@ test(
     async () => {
         fs.mkdirSync(path.join(profiles, 'payroll'), { recursive: true })
         const published = startBridge('payroll')
+        // A saved harness from before try names were reserved, and its specialist. Their bridges carry no try marker.
+        fs.mkdirSync(path.join(dir, 'harnesses'), { recursive: true })
+        fs.writeFileSync(path.join(dir, 'harnesses', 'trydddd0001.json'), JSON.stringify({ name: 'trydddd0001' }))
+        fs.mkdirSync(path.join(profiles, 'trydddd0001--sales'), { recursive: true })
+        const tryLikePublished = startBridge('trydddd0001--sales', { marked: false })
         // Its folder was removed while it ran.
         const gone = 'trybbbb0001'
         fs.mkdirSync(path.join(profiles, gone), { recursive: true })
@@ -140,6 +145,8 @@ test(
         // Its folder is still there, but the runtime that started it is dead (re-parented) and no try turn holds it.
         const stale = 'trybbbb0002'
         tryFolders(stale)
+        // The server's try turn is still waiting on the dead runtime, so its lock is live.
+        noteLiveTry(stale)
         const runtimeDir = path.join(dir, 'fake-runtime')
         fs.mkdirSync(runtimeDir, { recursive: true })
         const runtimeScript = path.join(runtimeDir, 'cuttlely-hermes-api.py')
@@ -187,7 +194,9 @@ test(
         assert.equal(groupMembers(staleGroup), 0, 'a bridge of a dead runtime still runs')
         assert.equal(groupMembers(liveGroup), 2, 'a live try bridge was stopped')
         assert.equal(groupMembers(published.pid), 2, 'a published bridge was stopped')
+        assert.equal(groupMembers(tryLikePublished.pid), 2, 'a published bridge with a try-like name was stopped')
         endLiveTry(live)
+        endLiveTry(stale)
         runtime.kill('SIGKILL')
     }
 )
