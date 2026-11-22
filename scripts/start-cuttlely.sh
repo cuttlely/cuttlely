@@ -632,7 +632,9 @@ if ! wait_for_gateway; then
             HERMES_SUPERVISOR_PID=$!
         else
             write_hermes_status down 0 "gateway" 0
-            echo "Cuttlely is up. Hermes stays down until the harness gateway answers and Cuttlely is started again." >&2
+            echo "Cuttlely is up. Waiting in the background for the harness gateway before starting Hermes." >&2
+            start_hermes_when_gateway_ready &
+            HERMES_SUPERVISOR_PID=$!
         fi
     else
         status=0

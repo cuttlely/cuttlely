@@ -9,6 +9,7 @@ import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { diagnosticLine, snapshotDescriptors } from './hermes-fd-snapshot.mjs'
 import { pingForHermesStatus, readHermesStatus, writeHermesStatus } from './hermes-health.mjs'
+import { beginHermesStream } from '../packages/harness/runtime/hermes-stream.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // Child Node helpers are application processes, not node:test workers.
@@ -22,9 +23,13 @@ describe('hermes supervisor status', () => {
             assert.equal(readHermesStatus(dir), null)
             assert.deepEqual(pingForHermesStatus(null), { code: 200, body: 'pong', header: 'unknown' })
             writeHermesStatus(dir, { state: 'degraded', restarts: 0, pid: 4, detail: 'health' })
-            assert.equal(pingForHermesStatus(readHermesStatus(dir)).header, 'degraded')
+            assert.deepEqual(pingForHermesStatus(readHermesStatus(dir)), { code: 200, body: 'pong; hermes degraded', header: 'degraded' })
             writeHermesStatus(dir, { state: 'restarting', restarts: 1, pid: 0, detail: 'exit 75' })
-            assert.equal(pingForHermesStatus(readHermesStatus(dir)).header, 'restarting')
+            assert.deepEqual(pingForHermesStatus(readHermesStatus(dir)), {
+                code: 200,
+                body: 'pong; hermes restarting',
+                header: 'restarting'
+            })
             writeHermesStatus(dir, { state: 'down', restarts: 6, pid: 0, detail: 'exit 75' })
             const down = readHermesStatus(dir)
             assert.equal(down.state, 'down')
@@ -700,6 +705,101 @@ wait_for_gateway
             assert.ok((status.restarts || 0) > 0 || status.state === 'restarting')
         } finally {
             await stopSupervisor(child, dir)
+        }
+    })
+
+    it('a stream stays protected at 25 seconds, then zero bytes for 30 seconds permits TERM, grace, KILL and restart', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stalled-stream-'))
+        const clockFile = path.join(dir, 'clock')
+        let base = Date.now()
+        const setClock = (elapsed) => fs.writeFileSync(clockFile, String((base + elapsed) / 1000))
+        setClock(0)
+        const stream = beginHermesStream(dir)
+        stream.touch()
+        const leaseDir = path.join(dir, 'hermes-streams')
+        base = Number(fs.readFileSync(path.join(leaseDir, fs.readdirSync(leaseDir)[0]), 'utf8'))
+        setClock(0)
+        const check = path.join(dir, 'stream-check.mjs')
+        fs.writeFileSync(
+            check,
+            `
+import fs from 'node:fs'
+import { hermesStreamActive } from ${JSON.stringify(new URL('../packages/harness/runtime/hermes-stream.mjs', import.meta.url).href)}
+const dir = process.env.CUTTLELY_DATA_DIR
+const at = Number(fs.readFileSync(dir + '/clock', 'utf8')) * 1000
+Date.now = () => at
+const active = hermesStreamActive(dir)
+fs.writeFileSync(dir + '/checked', JSON.stringify({ at, active }))
+process.exit(active ? 0 : 1)
+`
+        )
+        const run = spawnScript(
+            `set -euo pipefail
+DATA="$CUTTLELY_DATA_DIR"
+HERMES_STOP="$DATA/hermes-supervisor.stop"
+${superviseSource()}
+# Advance only the watchdog clock; shorten shell polling without changing its grace or miss policy.
+hermes_clock() { cat "$DATA/clock"; }
+sleep() { command sleep 0.005; }
+hermes_diagnostics() { :; }
+hermes_backoff_seconds() { echo 0; }
+export CUTTLELY_HERMES_HEALTH_GRACE=0
+export CUTTLELY_HERMES_STREAM_CHECK="$DATA/stream-check.sh"
+launches=0
+start_hermes_once() {
+    launches=$((launches + 1))
+    "$NODE_BIN" -e '
+        const fs = require("fs")
+        process.on("SIGTERM", () => {})
+        fs.writeFileSync(process.env.CUTTLELY_DATA_DIR + "/child-ready", "1")
+        setInterval(() => {}, 1000)
+    ' &
+    HERMES_PID=$!
+    while [[ ! -f "$DATA/child-ready" ]]; do command sleep 0.01; done
+}
+hermes_answers_health() {
+    if [[ "$launches" -gt 1 ]]; then return 0; fi
+    if [[ ! -f "$DATA/healthy-once" ]]; then touch "$DATA/healthy-once"; return 0; fi
+    return 1
+}
+supervise_hermes
+`,
+            isolatedEnv(dir)
+        )
+        fs.writeFileSync(path.join(dir, 'stream-check.sh'), '#!/bin/sh\nexec "$NODE_BIN" "$CUTTLELY_DATA_DIR/stream-check.mjs"\n', {
+            mode: 0o755
+        })
+        const checked = async (elapsed, active) => {
+            setClock(elapsed)
+            const deadline = Date.now() + 8000
+            while (Date.now() < deadline) {
+                try {
+                    const value = JSON.parse(fs.readFileSync(path.join(dir, 'checked'), 'utf8'))
+                    if (value.at === base + elapsed && value.active === active) return
+                } catch {
+                    /* The checker is writing. */
+                }
+                await delay(20)
+            }
+            assert.fail(`stream check at ${elapsed}ms did not report ${active}: ${run.output}`)
+        }
+        try {
+            const first = await waitForStatus(dir, (row) => row?.state === 'up', run, 8000)
+            await checked(25000, true)
+            assert.equal(readHermesStatus(dir).restarts, 0, run.output)
+            await checked(29999, true)
+            assert.equal(readHermesStatus(dir).restarts, 0, run.output)
+            await checked(30000, false)
+            await waitForStatus(dir, (row) => row?.state === 'degraded', run, 8000)
+            assert.equal(readHermesStatus(dir).restarts, 0, run.output)
+            setClock(45000)
+            const second = await waitForStatus(dir, (row) => row?.state === 'up' && row.restarts === 1, run, 10000)
+            assert.notEqual(second.pid, first.pid)
+            assert.throws(() => process.kill(first.pid, 0), { code: 'ESRCH' })
+            assert.match(run.output, /SIGKILL escalation:.*health failures.*stop grace=15s/)
+        } finally {
+            stream.end()
+            await stopSupervisor(run, dir)
         }
     })
 })
@@ -1574,13 +1674,18 @@ describe('recovery restart with a slow server start', () => {
         }
     })
 
-    it('on first boot a gateway that never answered is still recorded as down', async () => {
+    it('on first boot starts Hermes by itself when the gateway answers after the cap', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-slow-start-'))
         const run = gatewayBootBranch(dir, false)
         try {
-            await run.exited
+            await delay(2500)
             assert.equal(fs.readFileSync(path.join(dir, 'status'), 'utf8').trim(), 'down', run.output)
             assert.equal(fs.existsSync(path.join(dir, 'supervised')), false)
+            fs.writeFileSync(path.join(dir, 'listening'), '1')
+            const deadline = Date.now() + 8000
+            while (!fs.existsSync(path.join(dir, 'supervised')) && Date.now() < deadline) await delay(100)
+            assert.equal(fs.existsSync(path.join(dir, 'supervised')), true, run.output)
+            await run.exited
         } finally {
             try {
                 process.kill(-run.child.pid, 'SIGKILL')
