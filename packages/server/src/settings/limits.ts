@@ -65,7 +65,7 @@ export function resolveLimits(env: Env, file: Record<string, string>): Map<strin
             .toLowerCase()
     )
     return new Map(
-        limitSettings().map((setting) => {
+        limitSettings().map((setting): [string, ResolvedLimit] => {
             const raw = ignored ? undefined : file[setting.key]
             if (!isBlank(raw)) {
                 const checked = checkValue(setting, raw)
