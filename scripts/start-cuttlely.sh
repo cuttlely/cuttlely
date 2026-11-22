@@ -589,6 +589,27 @@ stop_worker_pids() {
     done
 }
 
+supervise_harness_worker() {
+    local worker_pid="" backoff=2 started status
+    # The loop owns its child. Finish its shorter grace before the parent reaps the loop.
+    trap 'trap "" TERM INT; if [[ -n "$worker_pid" ]]; then stop_worker_pids 3 "$worker_pid"; fi; exit 0' TERM INT
+    while true; do
+        [[ -f "$HERMES_STOP" ]] && return 0
+        started="$SECONDS"
+        "${NODE_CMD[@]}" "$ROOT/packages/harness/worker.mjs" &
+        worker_pid=$!
+        status=0
+        wait "$worker_pid" || status=$?
+        worker_pid=""
+        [[ -f "$HERMES_STOP" ]] && return 0
+        if [[ "$((SECONDS - started))" -ge 600 ]]; then backoff=2; fi
+        echo "Harness worker exited with status ${status}. Restarting in ${backoff}s." >&2
+        hermes_pause "$backoff" || return 0
+        backoff=$((backoff * 2))
+        if [[ "$backoff" -gt 60 ]]; then backoff=60; fi
+    done
+}
+
 cleanup() {
     local shutdown_deadline
     shutdown_deadline="$(awk -v now="$(hermes_clock)" 'BEGIN { print int(now) + 28 }')"
@@ -669,7 +690,7 @@ if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
     count="${CUTTLELY_HARNESS_WORKERS:-1}"
     i=1
     while [[ "$i" -le "$count" ]]; do
-        "${NODE_CMD[@]}" "$ROOT/packages/harness/worker.mjs" &
+        supervise_harness_worker &
         WORKER_PIDS+=("$!")
         i=$((i + 1))
     done

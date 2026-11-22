@@ -92,6 +92,17 @@ WORKER_PIDS=()
 NODE_CMD=("$NODE_BIN")
 ${pick('hermes_clock')}
 ${pick('stop_worker_pids')}
+${pick('supervise_harness_worker')}
+${pick('hermes_pause').replace('hermes_pause()', 'worker_test_pause()')}
+# Record the real backoff sequence; shorten only the fixture's pause.
+hermes_pause() {
+    echo "$1" >> "$DATA/backoffs"
+    if [[ -f "$DATA/long-backoff" ]]; then
+        worker_test_pause 60
+    else
+        worker_test_pause 0.05
+    fi
+}
 ${pick('cleanup')}
 ${traps}
 "$NODE_BIN" "$DATA/server.mjs" &
@@ -170,6 +181,73 @@ describe('external harness worker supervisor', () => {
                 )
                 run.child.kill('SIGTERM')
                 assert.equal(await run.exited, 143, run.output)
+                assert.deepEqual(groupPids(run.child.pid), [], 'shutdown leaves zero processes')
+            } finally {
+                await dispose(run, dir)
+            }
+        })
+    }
+
+    it('restarts a killed worker five times without orphan workers or loops', async (t) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-workers-'))
+        const run = stack(dir)
+        try {
+            await waitFor(run, () => rows(dir, 'workers').length === 2)
+            const first = rows(dir, 'workers')
+            const fixedPids = groupPids(run.child.pid).filter((pid) => !first.some((worker) => worker.pid === pid))
+            assert.equal(fixedPids.length, 5, 'outer, inner, server and two worker loops')
+            let worker = first[0]
+            for (let kill = 1; kill <= 5; kill++) {
+                const started = performance.now()
+                process.kill(worker.pid, 'SIGKILL')
+                await waitFor(run, () => rows(dir, 'workers').length === 2 + kill, 2000)
+                worker = rows(dir, 'workers').at(-1)
+                assert.ok(performance.now() - started < 2000, 'worker returns within the shortened backoff')
+                assert.equal(worker.parent, first[0].parent, 'same loop owns every replacement')
+                assert.ok(alive(first[1].pid), 'other worker keeps running')
+                const live = rows(dir, 'workers').filter(({ pid }) => alive(pid))
+                assert.equal(live.length, 2, `kill ${kill}: only the two expected workers live`)
+                assert.deepEqual(
+                    groupPids(run.child.pid).sort((a, b) => a - b),
+                    [...fixedPids, ...live.map(({ pid }) => pid)].sort((a, b) => a - b),
+                    `kill ${kill}: zero extra processes, including zombies`
+                )
+            }
+            assert.deepEqual(rows(dir, 'backoffs'), [2, 4, 8, 16, 32])
+            t.diagnostic('5 kills: 2 expected live workers, 2 expected loops, 0 orphan processes')
+            run.child.kill('SIGTERM')
+            assert.equal(await run.exited, 143, run.output)
+            assert.deepEqual(groupPids(run.child.pid), [], 'shutdown leaves zero processes')
+            t.diagnostic('shutdown: 0 processes')
+        } finally {
+            await dispose(run, dir)
+        }
+    })
+
+    for (const action of ['shutdown', 'restart']) {
+        it(`interrupts worker backoff and reaps the loops on ${action}`, async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-workers-'))
+            const run = stack(dir)
+            try {
+                await waitFor(run, () => rows(dir, 'workers').length === 2)
+                const first = rows(dir, 'workers')
+                fs.writeFileSync(path.join(dir, 'long-backoff'), '1')
+                process.kill(first[0].pid, 'SIGKILL')
+                await waitFor(run, () => rows(dir, 'backoffs').length === 1)
+                const started = performance.now()
+                if (action === 'restart') {
+                    fs.writeFileSync(path.join(dir, 'restart'), '75')
+                    await waitFor(run, () => rows(dir, 'workers').length === 4, 7000)
+                    assert.ok(
+                        first.every(({ parent }) => !alive(parent)),
+                        'old loops reaped'
+                    )
+                    assert.equal(rows(dir, 'workers').filter(({ pid }) => alive(pid)).length, 2)
+                }
+                run.child.kill('SIGTERM')
+                assert.equal(await run.exited, 143, run.output)
+                assert.ok(performance.now() - started < 8000, '60s backoff interrupted')
+                assert.equal(rows(dir, 'workers').length, action === 'restart' ? 4 : 2, 'no respawn while stopping')
                 assert.deepEqual(groupPids(run.child.pid), [], 'shutdown leaves zero processes')
             } finally {
                 await dispose(run, dir)
