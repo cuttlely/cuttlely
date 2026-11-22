@@ -145,6 +145,26 @@ test('without a legacy folder the stale chief is parked and boot compiles a fres
     assert.equal(fs.readdirSync(parkRoot()).length, 2)
 })
 
+test('a move-aside that fails leaves every folder as it was and the compile refuses with name_taken', () => {
+    seedLeftoverState()
+    // The park root cannot be created (a file holds its name), standing in for any move that fails, such as EXDEV.
+    fs.mkdirSync(process.env.CUTTLELY_HERMES_HOME, { recursive: true })
+    fs.writeFileSync(parkRoot(), 'not a folder\n')
+    assert.equal(staleChiefOwner('Acme-Agentic'), 'acme-agentic')
+    assert.throws(() => compileProfile(getHarness('Acme-Agentic')), { code: 'name_taken' })
+    assert.deepEqual(
+        boot()
+            .filter((row) => row.name === 'Acme-Agentic')
+            .map((row) => row.status),
+        ['failed']
+    )
+    assert.equal(roster('acme-agentic'), 'acme-agentic')
+    assert.ok(!fs.existsSync(path.join(profiles(), 'acme-agentic', 'harness-parent')))
+    assert.equal(fs.readFileSync(path.join(profiles(), 'acme-agentic', 'memory', 'MEMORY.md'), 'utf8'), 'stale memory\n')
+    assert.equal(fs.readFileSync(path.join(profiles(), 'Acme-Agentic', 'memory', 'MEMORY.md'), 'utf8'), 'Acme-Agentic memory\n')
+    assert.equal(fs.readFileSync(parkRoot(), 'utf8'), 'not a folder\n')
+})
+
 test('the park folder is outside profiles/ and the orphan sweep never touches it', async () => {
     seedLeftoverState()
     boot()

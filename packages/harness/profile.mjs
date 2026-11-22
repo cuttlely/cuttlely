@@ -2066,7 +2066,9 @@ function markerText(file) {
 // Profile directories this harness would compile into that another harness already has: its home holding another
 // harness's specialist, or a specialist name (joined with "--") holding another harness's home or specialist.
 // Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
-export function profileDestinationConflicts(record, profileName = record?.name) {
+// staleHomeParks: a pre-save check may pass over a stale lowercase chief that the compile will move aside. The compile
+// itself passes false, so a move that failed (the folder is still there) refuses with name_taken and writes nothing.
+export function profileDestinationConflicts(record, profileName = record?.name, { staleHomeParks = true } = {}) {
     const home = String(profileName || '')
     const homeId = hermesProfileId(home)
     // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
@@ -2074,11 +2076,11 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
     const homeRoster = onDiskRoster(homeDir)?.name
-    // A stale lowercase chief of a deleted spelling is parked by the compile that follows, so it is not a conflict here.
+    // A stale lowercase chief of a deleted spelling is moved aside by the compile that follows, so a pre-save check skips it.
     if (
         ((homeParent && homeParent !== home) || (homeRoster && homeRoster !== home)) &&
         !conflicts.includes(homeId) &&
-        !staleChiefOwner(home)
+        !(staleHomeParks && staleChiefOwner(home))
     )
         conflicts.push(homeId)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
@@ -2420,7 +2422,8 @@ function compileProfileFiles(record, options = {}) {
         )
     }
     if (!tryProfile) {
-        const taken = profileDestinationConflicts(record, profileName)
+        // Adoption above already moved a stale chief aside; if that failed, its folder is still a conflict.
+        const taken = profileDestinationConflicts(record, profileName, { staleHomeParks: false })
         if (taken.length) {
             throw new HarnessError(
                 'name_taken',
