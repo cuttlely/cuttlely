@@ -1,7 +1,8 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
-import { removeSpecificFileFromUpload } from '@cuttlely/components'
+import { findMissingModelCredentialError } from '../../errors/utils'
+import { MissingModelCredentialError, removeSpecificFileFromUpload } from '@cuttlely/components'
 
 // Name and code, not instanceof: the storage package and the server can each load their own multer.
 const isMulterFileTooLarge = (err: unknown): boolean => {
@@ -11,6 +12,16 @@ const isMulterFileTooLarge = (err: unknown): boolean => {
 }
 
 const asClientError = (err: AppError): AppError => {
+    // A stub of @cuttlely/components may omit the class; instanceof then throws and breaks every error response.
+    if (typeof MissingModelCredentialError === 'function' && err instanceof MissingModelCredentialError) {
+        return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, err.message)
+    }
+    // Backup: a wrap site that missed the rethrow still carries the credential error on `cause`.
+    // Reply with that error's own message only — never the wrapper or any other error from the chain.
+    const credentialError = findMissingModelCredentialError(err)
+    if (credentialError) {
+        return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, credentialError.message)
+    }
     if (isMulterFileTooLarge(err)) {
         return new AppError(StatusCodes.BAD_REQUEST, 'File is too large to upload. The limit is 25 MB.')
     }

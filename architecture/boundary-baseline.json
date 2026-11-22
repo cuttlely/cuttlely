@@ -837,6 +837,16 @@
         },
         {
             "from": "packages/server/src/middlewares/errors/index.test.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "The #239 error-middleware test constructs MissingModelCredentialError from the components package and restores queue failures with fromQueueFailure, the same helpers those paths use."
+        },
+        {
+            "from": "packages/server/src/middlewares/errors/index.test.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "The #239 error-middleware test constructs MissingModelCredentialError from the components package and restores queue failures with fromQueueFailure, the same helpers those paths use."
+        },
+        {
+            "from": "packages/server/src/middlewares/errors/index.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
@@ -4533,6 +4543,10 @@
         {
             "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
+        },
+        {
+            "path": "packages/server/src/utils/missingModelCredential.realNode.test.ts",
+            "reason": "The real-node missing-credential test stays next to the prediction path it exercises."
         },
         {
             "path": "packages/server/src/utils/nestedFlowCall.test.ts",
