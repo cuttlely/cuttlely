@@ -5,7 +5,7 @@
 -   Restart recovery skips a run that is gone or has a job, then writes from the fresh status: `pausing` → `paused`, `cancelling` → `cancelled`, `running` → `queued` with the restart event, `queued` unchanged. Only runs it leaves `queued` are returned as resumed.
 -   Launch failure: `queued` or `running` → `failed` with the error and `finishedAt`; `cancelling` → `cancelled`; `pausing` → `paused`; any other status keeps its status. The error event is written only when the conditional update to `failed` applies.
 
-Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 434 cases, with the same 12 pending cases. `CHANGELOG.md` records the fix under `## [Unreleased]`.
+Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 434 cases, with the same 12 pending cases, and then runs `packages/etl/check/run-control-postgres.test.mjs` for the same races on a real Postgres at READ COMMITTED. That suite skips with a clear message when no Postgres is available, and CI requires it in the build job and the analyst-postgres 14–18 matrix. `CHANGELOG.md` records the fix under `## [Unreleased]`.
 
 ## Missing model credential answers 422 outside Iteration (#239, 1.7.13)
 
