@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,7 +27,7 @@ async function waitFor(check, diagnostics) {
     assert.fail(`Timed out: ${diagnostics()}`)
 }
 
-async function fixture(t, multiplex) {
+async function fixture(t, multiplex, { modelUrl, profiles = ['secondary'] } = {}) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-lifecycle-'))
     const home = path.join(directory, 'hermes')
     fs.mkdirSync(home, { recursive: true })
@@ -34,13 +35,24 @@ async function fixture(t, multiplex) {
     // An explicit false is retired and can silently enable multiplexing instead.
     const config = {
         gateway: multiplex ? { multiplex_profiles: true } : {},
+        ...(modelUrl
+            ? {
+                  model: { provider: 'custom', default: 'recovery-model', base_url: modelUrl, api_key: 'offline-fixture-only' },
+                  platform_toolsets: { api_server: [] }
+              }
+            : {}),
         model_catalog: { enabled: false },
         security: { tirith_enabled: false }
     }
     fs.writeFileSync(path.join(home, 'config.yaml'), JSON.stringify(config))
+    if (modelUrl) fs.writeFileSync(path.join(home, '.env'), 'API_SERVER_KEY=offline-recovery-fixture\n', { mode: 0o600 })
     if (multiplex) {
-        fs.mkdirSync(path.join(home, 'profiles', 'secondary'), { recursive: true })
-        fs.writeFileSync(path.join(home, 'profiles', 'secondary', 'config.yaml'), JSON.stringify(config))
+        for (const profile of profiles) {
+            const dir = path.join(home, 'profiles', profile)
+            fs.mkdirSync(dir, { recursive: true })
+            fs.writeFileSync(path.join(dir, 'config.yaml'), JSON.stringify(config))
+            if (modelUrl) fs.writeFileSync(path.join(dir, '.env'), 'API_SERVER_KEY=offline-recovery-fixture\n', { mode: 0o600 })
+        }
     }
     const socket = net.createServer()
     socket.listen(0, '127.0.0.1')
@@ -50,7 +62,7 @@ async function fixture(t, multiplex) {
     const sentinel = () => JSON.parse(fs.readFileSync(path.join(home, 'state', 'gateway.lifecycle.json'), 'utf8'))
     const logs = () => {
         let result = ''
-        for (const base of [home, path.join(home, 'profiles', 'secondary')]) {
+        for (const base of [home, ...profiles.map((profile) => path.join(home, 'profiles', profile))]) {
             for (const name of ['gateway.log', 'errors.log', 'gateway-exit-diag.log']) {
                 try {
                     result += fs.readFileSync(path.join(base, 'logs', name), 'utf8')
@@ -69,6 +81,7 @@ async function fixture(t, multiplex) {
     return {
         sentinel,
         logs,
+        url: `http://127.0.0.1:${port}`,
         async boot() {
             let output = ''
             const child = spawn(PYTHON, ['-u', path.join(ROOT, 'scripts', 'cuttlely-hermes-api.py')], {
@@ -84,6 +97,7 @@ async function fixture(t, multiplex) {
                     HERMES_HOME: home,
                     HERMES_RUNTIME_DIR: path.join(directory, 'runtime'),
                     API_SERVER_PORT: String(port),
+                    ...(modelUrl ? { API_SERVER_KEY: 'offline-recovery-fixture', OPENAI_API_KEY: 'offline-fixture-only' } : {}),
                     CUTTLELY_PRELOAD_HERMES: 'true',
                     PYTHONDONTWRITEBYTECODE: '1'
                 },
@@ -168,4 +182,72 @@ test('SIGKILL leaves evidence and the next boot reports the previous life as unc
     assert.equal(restartSignal, null, second.output())
     assert.equal(restartCode, 0, second.output())
     assert.equal(runtime.sentinel().phase, 'exited')
+})
+
+test('every profile serves completions again within 135 seconds of a real Hermes SIGKILL', { skip, timeout: 170000 }, async (t) => {
+    const model = http.createServer(async (req, res) => {
+        let request = ''
+        for await (const chunk of req) request += chunk
+        if (JSON.parse(request || '{}').stream) {
+            res.writeHead(200, { 'content-type': 'text/event-stream' })
+            res.write(
+                `data: ${JSON.stringify({
+                    id: 'recovery-completion',
+                    object: 'chat.completion.chunk',
+                    created: 1,
+                    model: 'recovery-model',
+                    choices: [{ index: 0, delta: { role: 'assistant', content: 'recovery ready' }, finish_reason: null }]
+                })}\n\n`
+            )
+            return res.end('data: [DONE]\n\n')
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(
+            JSON.stringify({
+                id: 'recovery-completion',
+                object: 'chat.completion',
+                created: 1,
+                model: 'recovery-model',
+                choices: [{ index: 0, message: { role: 'assistant', content: 'recovery ready' }, finish_reason: 'stop' }],
+                usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
+            })
+        )
+    })
+    model.listen(0, '127.0.0.1')
+    await once(model, 'listening')
+    t.after(
+        () =>
+            new Promise((resolve) => {
+                model.closeAllConnections()
+                model.close(resolve)
+            })
+    )
+    const profiles = ['default', 'secondary', 'third']
+    const runtime = await fixture(t, true, {
+        profiles: profiles.slice(1),
+        modelUrl: `http://127.0.0.1:${model.address().port}/v1`
+    })
+    const serveEveryProfile = async (deadline) => {
+        for (const profile of profiles) {
+            const response = await fetch(`${runtime.url}/p/${profile}/v1/chat/completions`, {
+                method: 'POST',
+                headers: { Authorization: 'Bearer offline-recovery-fixture', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: 'hermes-agent', messages: [{ role: 'user', content: 'Reply ready.' }], stream: false }),
+                signal: AbortSignal.timeout(Math.max(1, Math.min(30000, deadline - Date.now())))
+            })
+            assert.equal(response.status, 200, `${profile}: ${await response.clone().text()}`)
+            const body = await response.json()
+            assert.match(body.choices[0].message.content, /recovery ready/, profile)
+        }
+    }
+    const first = await runtime.boot()
+    await serveEveryProfile(Date.now() + 90000)
+    const started = Date.now()
+    await first.stop('SIGKILL')
+    // Reuse the lifecycle fixture's real launcher; supervisor restart policy has separate signal tests.
+    await runtime.boot()
+    await serveEveryProfile(started + 135000)
+    const elapsed = Date.now() - started
+    assert.ok(elapsed < 135000, `all three profiles recovered in ${elapsed}ms`)
+    t.diagnostic(`SIGKILL to successful completions from all ${profiles.length} profiles: ${elapsed} ms`)
 })

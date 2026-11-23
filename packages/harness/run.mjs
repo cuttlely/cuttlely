@@ -125,7 +125,7 @@ import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
-import { getHarness, listHarnesses } from './store.mjs'
+import { getHarness, listHarnesses, listHarnessNames } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
@@ -4160,21 +4160,24 @@ export async function warmHarnessProfiles({
     fetchImpl = fetch,
     healthWaitMs = 1200000,
     mode = process.env.CUTTLELY_WARM_HERMES === 'false' ? 'off' : process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
-    lock = (fn) => fn()
+    lock = (fn) => fn(),
+    onCompiled = () => {}
 } = {}) {
     if (mode === 'off') return []
-    const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
-    for (const record of records) {
-        let roster
+    for (const name of names || listHarnessNames()) {
+        let record, roster
         try {
+            record = getHarness(name)
+            if (!record) continue
             // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
             // The stamp is computed before the lock so the lock stays compile-only.
             const stamp = await credentialStampAsync(credentialIdsFor(record))
             const compiled = await lock(() => compileProfileCached(record, { credentialStamp: stamp }))
             roster = compiled.roster || record
+            onCompiled(name)
         } catch (error) {
-            console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)
+            console.warn(`[harness] ${name} warm-up skipped: ${error.message}`)
             continue
         }
         for (const specialist of roster.specialists || []) {

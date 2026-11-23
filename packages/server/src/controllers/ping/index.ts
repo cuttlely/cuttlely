@@ -2,8 +2,21 @@ import fs from 'fs'
 import path from 'path'
 import { Request, Response, NextFunction } from 'express'
 import { getDatabaseHealth } from '../../startup/databaseHealth'
-import { BOOT_RETRY_AFTER_SECONDS, bootPassBlocksPing, PROFILES_COMPILING } from '../../services/harnesses/bootGate'
+import {
+    BOOT_RETRY_AFTER_SECONDS,
+    bootPassBlocksPing,
+    PROFILES_COMPILING,
+    unavailableHarnessNames
+} from '../../services/harnesses/bootGate'
 import { runtimeState } from '../../utils/runtimeAvailability'
+
+function pingDetails(body: string, dataDir: string | undefined): string {
+    const state = runtimeState(dataDir)
+    if (state === 'restarting' || state === 'degraded') body += `; hermes ${state}`
+    const names = unavailableHarnessNames()
+    if (names.length) body += `; unavailable harnesses: ${names.join(', ')}`
+    return body
+}
 
 function analystHeader(dataDir: string | undefined): string {
     if (!dataDir) return 'unknown'
@@ -27,7 +40,10 @@ export function pingForDataDir(dataDir: string | undefined): { code: number; bod
 
 // Strict runtime readiness. 503 until the boot profile compile finishes (or if that pass did not finish), then the
 // usual answer: 200 once the compile is done, including when it continues in the background past the startup cap.
-export function composePing(dataDir: string | undefined): {
+export function composePing(
+    dataDir: string | undefined,
+    details = true
+): {
     code: number
     body: string
     header: string
@@ -35,9 +51,17 @@ export function composePing(dataDir: string | undefined): {
     retryAfter?: number
 } {
     if (bootPassBlocksPing()) {
-        return { code: 503, body: PROFILES_COMPILING, header: 'compiling', analyst: 'unknown', retryAfter: BOOT_RETRY_AFTER_SECONDS }
+        return {
+            code: 503,
+            body: details ? pingDetails(PROFILES_COMPILING, dataDir) : PROFILES_COMPILING,
+            header: 'compiling',
+            analyst: 'unknown',
+            retryAfter: BOOT_RETRY_AFTER_SECONDS
+        }
     }
-    return pingForDataDir(dataDir)
+    const health = pingForDataDir(dataDir)
+    if (details) health.body = pingDetails(health.body, dataDir)
+    return health
 }
 
 /**
@@ -51,7 +75,7 @@ export function restartedInPlace(env: Record<string, string | undefined> = proce
 
 const healthHandler = (live: boolean) => async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const health = composePing(process.env.CUTTLELY_DATA_DIR)
+        const health = composePing(process.env.CUTTLELY_DATA_DIR, !live)
         res.setHeader('X-Cuttlely-Hermes', health.header)
         res.setHeader('X-Cuttlely-Analyst', health.analyst)
         if (health.retryAfter) res.setHeader('Retry-After', String(health.retryAfter))
@@ -60,7 +84,10 @@ const healthHandler = (live: boolean) => async (req: Request, res: Response, nex
         const database = getDatabaseHealth()
         const db = database ? await database.check() : null
         res.setHeader('X-Cuttlely-Database', db ? (db.ok ? 'up' : 'down') : 'unknown')
-        if (db && !db.ok) return res.status(503).send(`database unreachable: ${db.reason}`)
+        if (db && !db.ok) {
+            const body = `database unreachable: ${db.reason}`
+            return res.status(503).send(live ? body : pingDetails(body, process.env.CUTTLELY_DATA_DIR))
+        }
         // On the container's first boot the startup page and the compile above keep liveness at 503 until Node can
         // serve the app. After a restart in place liveness answers as soon as the server listens.
         return live ? res.status(200).send('pong') : res.status(health.code).send(health.body)

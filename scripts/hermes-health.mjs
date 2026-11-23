@@ -58,8 +58,8 @@ export function readHermesStatus(dataDir) {
 
 export function pingForHermesStatus(status) {
     if (['down', 'exhausted', 'cooldown'].includes(status?.state)) return { code: 503, body: 'hermes down', header: 'down' }
-    if (status?.state === 'restarting') return { code: 200, body: 'pong', header: 'restarting' }
-    if (status?.state === 'degraded') return { code: 200, body: 'pong', header: 'degraded' }
+    if (status?.state === 'restarting') return { code: 200, body: 'pong; hermes restarting', header: 'restarting' }
+    if (status?.state === 'degraded') return { code: 200, body: 'pong; hermes degraded', header: 'degraded' }
     if (status?.state === 'up') return { code: 200, body: 'pong', header: 'up' }
     return { code: 200, body: 'pong', header: 'unknown' }
 }

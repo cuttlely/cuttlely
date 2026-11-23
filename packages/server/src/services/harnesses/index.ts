@@ -29,7 +29,14 @@ import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/
 import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
 import { resolveTryOwner } from '../../utils/tryOwner'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
-import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
+import {
+    beginBootPass,
+    bootPassCapMs,
+    finishBootPass,
+    markBootIncomplete,
+    openBootAfterCap,
+    registerUnavailableHarnessNames
+} from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -469,6 +476,11 @@ function clearBootFailure(name: string) {
     bootFailures.delete(name)
 }
 
+export function unavailableHarnessNames(): string[] {
+    return [...bootFailures.keys()].sort()
+}
+registerUnavailableHarnessNames(unavailableHarnessNames)
+
 /** A failed boot compile refuses a run with 503, not 500. */
 export function assertHarnessAvailable(name: string) {
     const error = bootFailures.get(name)
@@ -716,11 +728,12 @@ const startHarnessRuntime = () => {
 // Runs in the background: a failed warm-up only means the next chat pays the cold start.
 const warmHarnesses = (names?: string[]) => {
     if (process.env.CUTTLELY_WARM_HERMES === 'false') return
-    configureRuntime()
+    return configureRuntime()
         .then(() => loadHarness('run.mjs'))
         .then((engine) =>
             engine.warmHarnessProfiles({
-                names,
+                names: names ? [...new Set([...names, ...bootFailures.keys()])] : undefined,
+                onCompiled: clearBootFailure,
                 mode: process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
                 lock: (compile: () => unknown) => withProfileLock(() => Promise.resolve(compile()))
             })
