@@ -143,7 +143,7 @@ export async function lastRunFor(pipelineId) {
     return runRow(await etlStore.get('SELECT * FROM runs WHERE pipeline_id = ? ORDER BY created_at DESC LIMIT 1', [pipelineId]))
 }
 
-export async function updateRun(id, fields, q = etlStore) {
+function runPatch(fields) {
     const columns = {
         status: fields.status,
         checkpoint: fields.checkpoint === undefined ? undefined : JSON.stringify(fields.checkpoint),
@@ -157,10 +157,47 @@ export async function updateRun(id, fields, q = etlStore) {
     }
     const entries = Object.entries(columns).filter(([, value]) => value !== undefined)
     entries.push(['updated_at', now()])
+    return entries
+}
+
+export async function updateRun(id, fields, q = etlStore) {
+    const entries = runPatch(fields)
     await q.run(`UPDATE runs SET ${entries.map(([key]) => `${key} = ?`).join(', ')} WHERE id = ?`, [
         ...entries.map(([, value]) => value),
         id
     ])
+}
+
+// The status predicate belongs to the write: a transaction's earlier read alone does not protect a run at READ COMMITTED.
+export async function updateRunIf(id, expectedStatuses, fields, q = etlStore) {
+    if (!expectedStatuses.length) return false
+    const entries = runPatch(fields)
+    const result = await q.run(
+        `UPDATE runs SET ${entries.map(([key]) => `${key} = ?`).join(', ')} WHERE id = ? AND status IN (${expectedStatuses
+            .map(() => '?')
+            .join(', ')})`,
+        [...entries.map(([, value]) => value), id, ...expectedStatuses]
+    )
+    return (result.changes ?? result.rowCount) > 0
+}
+
+// Both execution and a launch failure finish pending stops here. Only the writer that completes the stop adds its event.
+export async function finishRunStop(runId, q = etlStore) {
+    for (;;) {
+        const current = await getRun(runId, q)
+        if (!['pausing', 'cancelling'].includes(current?.status)) return false
+        const cancelled = current.status === 'cancelling'
+        const applied = await updateRunIf(
+            runId,
+            [current.status],
+            { status: cancelled ? 'cancelled' : 'paused', ...(cancelled ? { finishedAt: now() } : {}) },
+            q
+        )
+        // A different stop may have arrived since the read. Finish that request instead.
+        if (!applied) continue
+        await addEvent(runId, 'info', null, cancelled ? 'Cancelled. Nothing was deleted.' : 'Paused at the last committed batch.', q)
+        return true
+    }
 }
 
 export async function addEvent(runId, level, step, message, q = etlStore) {
