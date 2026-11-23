@@ -127,6 +127,10 @@ It prints `pong`. The `X-Cuttlely-Hermes` response header is `up` once the agent
 
 To run a second copy on the same machine, give it its own data as well as its own ports: set `PORT`, `CUTTLELY_HARNESS_GATEWAY_PORT`, and `HERMES_API_PORT` to free ports, and `DATABASE_PATH`, `SECRETKEY_PATH`, `BLOB_STORAGE_PATH`, and `CUTTLELY_DATA_DIR` to new folders. Two servers on the same data would both run its schedules.
 
+## Run it as a service
+
+The start script already restarts the agent runtime in place while the Node process is up. To keep a source install running after the terminal closes, or to bring the Node process back if it exits, run `bash scripts/start-cuttlely.sh` from a systemd unit with `Restart=on-failure` or `Restart=always` and `WorkingDirectory` set to the repository root. Use `GET /api/v1/ping/live` for service restart decisions, and `GET /api/v1/ping` for agent readiness. [Health checks](./reverse-proxy.md#health-checks).
+
 ## Create your account
 
 A new install has no users. With `CUTTLELY_LOCAL_ADMIN=true`, there are two ways to create the first account. Both make the same account, the owner (**Super User**).
