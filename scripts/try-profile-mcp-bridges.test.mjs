@@ -41,7 +41,7 @@ function startBridge(entry, { marked = true } = {}) {
         cwd: home,
         detached: true,
         stdio: 'ignore',
-        env: { PATH: process.env.PATH, ...(marked ? { [TRY_PROFILE_DIR_ENV]: home } : {}) }
+        env: { HOME: dir, DATABASE_PATH: dir, PATH: process.env.PATH, ...(marked ? { [TRY_PROFILE_DIR_ENV]: home } : {}) }
     })
     spawned.push(child)
     return child
@@ -238,24 +238,33 @@ test('sticky bridges stop through the finally path when runtime close throws', {
 
 test('flow deletion stops sticky process groups before removing home and specialist folders', { skip: !linux }, async () => {
     const flow = 'fixture-deleted-flow'
-    const scope = `try${tryIdForFlow(flow)}`
+    const scope = `try${tryIdForFlow(flow, 'user:fixture')}`
     tryFolders(scope, { sticky: true })
-    const bridges = [startBridge(scope), startBridge(`${scope}--worker`)]
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try-flow'), flow)
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try-owner'), 'user:fixture')
+    const other = `try${tryIdForFlow(flow, 'user:second')}`
+    tryFolders(other, { sticky: true })
+    fs.writeFileSync(path.join(profiles, other, 'harness-try-flow'), flow)
+    fs.writeFileSync(path.join(profiles, other, 'harness-try-owner'), 'user:second')
+    const bridges = [startBridge(scope), startBridge(`${scope}--worker`), startBridge(other), startBridge(`${other}--worker`)]
     assert.ok(await waitFor(() => bridges.every((child) => groupMembers(child.pid) === 2)))
     const rmdir = fs.rmdirSync
-    let checked = false
+    const checked = new Set()
     fs.rmdirSync = function (target, ...args) {
-        if (fs.realpathSync(target).startsWith(path.join(profiles, scope))) {
-            for (const child of bridges) assert.equal(groupMembers(child.pid), 0, 'folder removed before bridge exit')
-            checked = true
+        const owner = [scope, other].find((name) => fs.realpathSync(target).startsWith(path.join(profiles, name)))
+        if (owner) {
+            const ownedBridges = owner === scope ? bridges.slice(0, 2) : bridges.slice(2)
+            for (const child of ownedBridges) assert.equal(groupMembers(child.pid), 0, 'folder removed before bridge exit')
+            checked.add(owner)
         }
         return rmdir.call(fs, target, ...args)
     }
     try {
         await removeTryProfileForFlow(flow)
-        assert.equal(checked, true)
-        assert.equal(fs.existsSync(path.join(profiles, scope)), false)
-        assert.equal(fs.existsSync(path.join(profiles, `${scope}--worker`)), false)
+        assert.deepEqual([...checked].sort(), [scope, other].sort())
+        for (const name of [scope, `${scope}--worker`, other, `${other}--worker`])
+            assert.equal(fs.existsSync(path.join(profiles, name)), false)
+        assert.ok(fs.existsSync(path.join(profiles, 'finance')))
     } finally {
         fs.rmdirSync = rmdir
     }

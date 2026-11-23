@@ -17,6 +17,7 @@ export interface NestedFlowNodeOptions extends ICommonObject {
 }
 
 export interface NestedFlowExecutionRuntime extends IPredictionQueueAppServer {
+    tryOwner?: string
     baseURL: string
     orgId: string
     subscriptionId: string
@@ -71,6 +72,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
         const outcome = await harnessesService.startCanvasRun(target, incomingInput, {
             source: 'playground',
             caller: harnessCaller,
+            tryOwner: runtime.tryOwner,
             canvas: 'live',
             nestedFlowCaller: runtime.caller,
             nestedFlowDepth: runtime.depth + 1,
@@ -101,6 +103,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
         productId: runtime.productId,
         signal: runtime.signal,
         harnessCaller,
+        tryOwner: runtime.tryOwner,
         nestedFlowCaller: runtime.caller,
         nestedFlowDepth: runtime.depth + 1
     })

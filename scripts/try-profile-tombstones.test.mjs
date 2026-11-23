@@ -13,7 +13,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'hermes')
 process.env.HERMES_HOME = process.env.CUTTLELY_HERMES_HOME
 const profiles = path.join(process.env.HERMES_HOME, 'profiles')
 const { listDirNoFollow } = await import('../packages/harness/contained-walk.mjs')
-const { startGateway, profileTokenKnown, sweepAbandonedTryProfiles } = await import('../packages/harness/gateway.mjs')
+const { bootHarnessGateway, profileTokenKnown, sweepAbandonedTryProfiles } = await import('../packages/harness/gateway.mjs')
 const { compileProfile, compileTryProfile, discardTryProfile, markProfileDeleted, tryRuntime, tryIdForFlow } = await import(
     '../packages/harness/profile.mjs'
 )
@@ -130,13 +130,9 @@ test('.deleted is excluded from profile listing, gateway ingest and sweeping', a
     )
     assert.equal(listDirNoFollow(profiles).includes('.deleted'), false)
     assert.equal(sweepAbandonedTryProfiles().has('.deleted'), false)
-    const gateway = await startGateway({ port: 0 })
-    try {
-        assert.equal(profileTokenKnown(token), false)
-        assert.ok(fs.statSync(path.join(profiles, '.deleted')).isDirectory())
-    } finally {
-        await gateway.close()
-    }
+    bootHarnessGateway()
+    assert.equal(profileTokenKnown(token), false)
+    assert.ok(fs.statSync(path.join(profiles, '.deleted')).isDirectory())
 })
 
 test('sweeping preserves live tries, saved harnesses and unmarked try-like directories', () => {
@@ -214,10 +210,16 @@ test('clearing a deletion marker preserves supported mixed-case harness names', 
 
 test('sticky teardown keeps real directories while marking them deleted for runtime scans', async () => {
     const flow = 'tombstone-sticky-fixture'
-    const id = tryIdForFlow(flow)
+    const id = tryIdForFlow(flow, 'user:fixture')
     const scope = `try${id}`
     const model = { nodeName: 'chatXAI', inputs: { modelName: 'fixture-model' } }
-    const record = { name: 'sticky-fixture', chatflowId: flow, chief: { model }, specialists: [{ name: 'worker', model, shell: true }] }
+    const record = {
+        name: 'sticky-fixture',
+        chatflowId: flow,
+        tryOwner: 'user:fixture',
+        chief: { model },
+        specialists: [{ name: 'worker', model, shell: true }]
+    }
     compileTryProfile(record, id)
     const names = [scope, `${scope}--worker`]
     const stateFile = path.join(profiles, scope, 'state.db')

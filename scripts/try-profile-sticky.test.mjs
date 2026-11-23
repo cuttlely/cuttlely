@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { fork } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import os from 'node:os'
 import path from 'node:path'
@@ -19,6 +21,7 @@ const {
     compileTryProfile,
     discardTryProfile,
     readProfileEnv,
+    resetTryProfileSession,
     removeTryProfileForFlow,
     tryIdForFlow,
     tryProfileName,
@@ -28,7 +31,7 @@ const {
 const { bootHarnessGateway, sweepAbandonedTryProfiles, profileTokenKnown, stopGateway } = await import('../packages/harness/gateway.mjs')
 const { noteLiveTry, tryLockIsLive } = await import('../packages/harness/try-live.mjs')
 const { runHarness, runHooks } = await import('../packages/harness/run.mjs')
-const { acquireTurn, releaseTurn, closeQueueDb } = await import('../packages/harness/lock.mjs')
+const { acquireTurn, releaseTurn, closeQueueDb, BUSY_MESSAGE, database } = await import('../packages/harness/lock.mjs')
 const { closeSessions } = await import('../packages/harness/session.mjs')
 after(async () => {
     await stopGateway()
@@ -41,10 +44,11 @@ const model = { nodeName: 'chatXAI', inputs: { modelName: 'fixture-model' } }
 const draft = (chatflowId, revision = 'first') => ({
     name: 'fixture-team',
     chatflowId,
+    tryOwner: 'user:fixture',
     chief: { model, instructions: `chief-${revision}` },
     specialists: [{ name: 'worker', model, instructions: `worker-${revision}`, shell: true, modules: [] }]
 })
-const homeFor = (flow) => tryProfileName(tryIdForFlow(flow))
+const homeFor = (flow) => tryProfileName(tryIdForFlow(flow, 'user:fixture'))
 const read = (name, file) => fs.readFileSync(path.join(profiles, name, file), 'utf8')
 const immediate = () => new Promise((resolve) => setImmediate(resolve))
 function deferred() {
@@ -58,7 +62,6 @@ function deferred() {
 // No live runtime is involved. Its close still sees deletion markers and all files before bridges stop.
 tryRuntime.closeProfiles = async (names) => {
     for (const name of names) {
-        assert.equal(read('.deleted', name), 'deleted\n')
         if (fs.existsSync(path.join(profiles, name))) assert.ok(fs.statSync(path.join(profiles, name)).isDirectory())
     }
 }
@@ -70,7 +73,7 @@ test('N turns per flow retain one home and its specialists, replacing configurat
     const homesBefore = fs.readdirSync(profiles).filter((name) => /^try[a-f0-9]{16}$/.test(name))
     assert.equal(homesBefore.length, 0)
     for (const flow of flows) {
-        const id = tryIdForFlow(flow)
+        const id = tryIdForFlow(flow, 'user:fixture')
         const home = homeFor(flow)
         assert.match(id, /^[a-f0-9]{16}$/)
         let inode
@@ -138,9 +141,9 @@ test('sweep retains sticky homes and children but removes old shells and abandon
     assert.ok(fs.statSync(path.join(profiles, fresh)).isDirectory())
 })
 
-test('canvas and replay use the same id; waiting run and discard cannot close the first turn or release its chat lock', async () => {
+test('canvas and replay collisions return busy immediately; cleanup waits without releasing the chat lock', async () => {
     const flow = 'fixture-concurrent-flow'
-    const id = tryIdForFlow(flow)
+    const id = tryIdForFlow(flow, 'user:fixture')
     const home = homeFor(flow)
     const entered = deferred()
     const finish = deferred()
@@ -148,6 +151,7 @@ test('canvas and replay use the same id; waiting run and discard cannot close th
     let second
     let discard
     let closes = 0
+    let baselineCloses = 0
     const oldClose = tryRuntime.closeProfiles
     tryRuntime.closeProfiles = async (names) => {
         closes += 1
@@ -157,11 +161,15 @@ test('canvas and replay use the same id; waiting run and discard cannot close th
         assert.equal(info.tryId, id)
         compiles += 1
         if (compiles === 1) {
+            baselineCloses = closes
+            const started = performance.now()
             // Starting these inside the active hook must not inherit ownership of its teardown.
-            second = assert.rejects(
-                runHarness({ ...args, replay: true, record: { ...draft(flow, 'later'), tryId: 'abcdef01' } }),
-                /fixture stops after compile/
-            )
+            second = assert
+                .rejects(runHarness({ ...args, replay: true, record: { ...draft(flow, 'later'), tryId: 'abcdef01' } }), {
+                    code: 'busy',
+                    message: BUSY_MESSAGE
+                })
+                .then(() => assert.ok(performance.now() - started < 100))
             discard = discardTryProfile(id)
             entered.resolve()
             await finish.promise
@@ -181,15 +189,15 @@ test('canvas and replay use the same id; waiting run and discard cannot close th
     try {
         await immediate()
         assert.equal(compiles, 1)
-        assert.equal(closes, 0)
+        assert.equal(closes, baselineCloses)
         assert.ok(tryLockIsLive(home))
         assert.throws(() => acquireTurn(record.name, args.chatId), { code: 'busy' })
         assert.ok(read(home, 'SOUL.md').includes('chief-first'))
         finish.resolve()
         await Promise.all([first, second, discard])
-        assert.equal(compiles, 2)
-        assert.equal(closes, 3)
-        assert.ok(read(home, 'SOUL.md').includes('chief-later'))
+        assert.equal(compiles, 1)
+        assert.equal(closes, baselineCloses + 2)
+        assert.ok(read(home, 'SOUL.md').includes('chief-first'))
         assert.equal(record.tryId, '12345678', 'the caller draft was mutated')
         assert.equal(tryLockIsLive(home), false)
         const lock = acquireTurn(record.name, args.chatId)
@@ -204,9 +212,22 @@ test('canvas and replay use the same id; waiting run and discard cannot close th
 test('flow deletion waits for the active turn, then removes only that flow and its specialist workspaces', async () => {
     const flow = 'fixture-flow-b'
     const home = homeFor(flow)
+    const otherOwner = 'user:second'
+    const otherId = tryIdForFlow(flow, otherOwner)
+    const otherHome = tryProfileName(otherId)
+    compileTryProfile({ ...draft(flow), tryOwner: otherOwner }, otherId)
+    const savedChild = `${home}--saved`
+    fs.mkdirSync(path.join(profiles, savedChild), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'harnesses'), { recursive: true })
+    fs.writeFileSync(
+        path.join(dir, 'harnesses', `${savedChild}.json`),
+        JSON.stringify({ name: savedChild, chief: { model }, specialists: [] })
+    )
+    fs.writeFileSync(path.join(profiles, savedChild, 'harness-parent'), home)
+    fs.writeFileSync(path.join(profiles, savedChild, 'config.yaml'), 'saved child fixture')
     const entered = deferred()
     const finish = deferred()
-    const turn = withTryProfile(tryIdForFlow(flow), async (discard) => {
+    const turn = withTryProfile(tryIdForFlow(flow, 'user:fixture'), async (discard) => {
         noteLiveTry(home)
         entered.resolve()
         await finish.promise
@@ -219,16 +240,20 @@ test('flow deletion waits for the active turn, then removes only that flow and i
     assert.ok(fs.existsSync(path.join(profiles, home)))
     finish.resolve()
     await Promise.all([turn, deletion])
-    for (const entry of [home, `${home}--worker`]) {
+    for (const entry of [home, `${home}--worker`, otherHome, `${otherHome}--worker`]) {
         assert.equal(fs.existsSync(path.join(profiles, entry)), false)
         assert.equal(fs.existsSync(path.join(dir, 'workspaces', entry)), false)
     }
     assert.ok(fs.existsSync(path.join(profiles, homeFor('fixture-flow-a'))))
     assert.ok(fs.existsSync(path.join(profiles, 'published-fixture')))
+    assert.equal(read(savedChild, 'config.yaml'), 'saved child fixture')
+    assert.equal(fs.existsSync(path.join(profiles, '.deleted', savedChild)), false)
+    assert.equal(sweepAbandonedTryProfiles().has(savedChild), false)
+    assert.equal(read(savedChild, 'config.yaml'), 'saved child fixture')
     await removeTryProfileForFlow(flow)
 })
 
-test('workers in separate processes wait for ownership and recover a dead owner', { timeout: 10000 }, async () => {
+test('workers in separate processes get busy immediately and recover a dead owner', { timeout: 10000 }, async () => {
     const fixture = path.join(dir, 'mutex-worker.mjs')
     fs.writeFileSync(
         fixture,
@@ -252,16 +277,22 @@ test('workers in separate processes wait for ownership and recover a dead owner'
                 })
             ])
             assert.equal(ready, 'held')
-            let admitted = false
-            const waiting = withTryProfile('abcdf01234567890', async () => {
-                admitted = true
-            })
-            await new Promise((resolve) => setTimeout(resolve, 60))
-            assert.equal(admitted, false)
+            const started = performance.now()
+            await assert.rejects(
+                withTryProfile('abcdf01234567890', async () => assert.fail('collision admitted')),
+                {
+                    code: 'busy',
+                    message: BUSY_MESSAGE
+                }
+            )
+            assert.ok(performance.now() - started < 100)
             if (crash) worker.kill('SIGKILL')
             else worker.send('release')
             await exited
-            await waiting
+            let admitted = false
+            await withTryProfile('abcdf01234567890', async () => {
+                admitted = true
+            })
             assert.equal(admitted, true)
         } finally {
             worker.kill('SIGKILL')
@@ -271,7 +302,7 @@ test('workers in separate processes wait for ownership and recover a dead owner'
 
 test('a sticky runtime-close error still forgets tokens and deletion still removes the files', async () => {
     const flow = 'fixture-close-error'
-    const id = tryIdForFlow(flow)
+    const id = tryIdForFlow(flow, 'user:fixture')
     const home = homeFor(flow)
     compileTryProfile(draft(flow), id)
     const token = readProfileEnv(`${home}--worker`).OPENAI_API_KEY
@@ -293,7 +324,7 @@ test('a sticky runtime-close error still forgets tokens and deletion still remov
 
 test('gateway token ingestion keeps idle sticky tokens revoked and permits an active turn', async () => {
     const flow = 'fixture-token-ingest'
-    const id = tryIdForFlow(flow)
+    const id = tryIdForFlow(flow, 'user:fixture')
     const home = homeFor(flow)
     noteLiveTry(home)
     compileTryProfile(draft(flow), id)
@@ -314,6 +345,11 @@ test('flow deletion preserves a legacy saved harness whose name matches the deri
     fs.mkdirSync(path.join(profiles, home), { recursive: true })
     fs.writeFileSync(path.join(dir, 'harnesses', `${home}.json`), JSON.stringify({ name: home, chief: { model }, specialists: [] }))
     fs.writeFileSync(path.join(profiles, home, 'config.yaml'), 'saved fixture')
+    fs.writeFileSync(path.join(profiles, home, 'harness-try-flow'), flow)
+    fs.writeFileSync(path.join(profiles, home, 'harness-try-owner'), 'user:fixture')
+    fs.writeFileSync(path.join(profiles, home, 'harness-try-keep'), home)
+    assert.throws(() => compileTryProfile(draft(flow), tryIdForFlow(flow, 'user:fixture')), { code: 'name_taken' })
+    await assert.rejects(resetTryProfileSession(tryIdForFlow(flow, 'user:fixture'), 'new-chat'), { code: 'name_taken' })
     await removeTryProfileForFlow(flow)
     assert.equal(read(home, 'config.yaml'), 'saved fixture')
     assert.equal(fs.existsSync(path.join(profiles, '.deleted', home)), false)
@@ -321,7 +357,7 @@ test('flow deletion preserves a legacy saved harness whose name matches the deri
 
 test('another gateway worker cannot retain access to a finished or replaced sticky turn', async () => {
     const flow = 'fixture-worker-token'
-    const id = tryIdForFlow(flow)
+    const id = tryIdForFlow(flow, 'user:fixture')
     const home = homeFor(flow)
     noteLiveTry(home)
     compileTryProfile(draft(flow), id)
@@ -341,4 +377,179 @@ test('another gateway worker cannot retain access to a finished or replaced stic
     assert.equal(worker.profileTokenKnown(newToken), true)
     await discardTryProfile(id)
     assert.equal(worker.profileTokenKnown(newToken), false)
+})
+
+test('sticky ids require an owner and separate users can hold one flow at the same time', async () => {
+    const flow = 'fixture-two-users'
+    for (const owner of [undefined, '', ' ', 1]) assert.throws(() => tryIdForFlow(flow, owner), { code: 'bad_session' })
+    const firstId = tryIdForFlow(flow, 'user:fixture')
+    const secondId = tryIdForFlow(flow, 'user:second')
+    assert.equal(firstId, createHash('sha256').update(`cuttlely-try-flow-owner:${flow}:user:fixture`).digest('hex').slice(0, 16))
+    assert.notEqual(firstId, secondId)
+    await withTryProfile(firstId, async () => {
+        const started = performance.now()
+        await assert.rejects(
+            withTryProfile(firstId, async () => assert.fail('collision admitted')),
+            { code: 'busy', message: BUSY_MESSAGE }
+        )
+        assert.ok(performance.now() - started < 100)
+        await withTryProfile(secondId, async () => {})
+    })
+    database()
+        .prepare('INSERT INTO try_profile_turns (scope, owner, pid, started_at) VALUES (?, ?, ?, ?)')
+        .run(tryProfileName(firstId), 'fixture-recycled-pid', process.pid, 'stale-start-ticks')
+    await withTryProfile(firstId, async () => {})
+    await assert.rejects(runHarness({ record: { ...draft(flow), tryOwner: undefined, tryId: firstId } }), /owner key/)
+})
+
+test('next compile overwrites the prompt, specialist and model in the same home', async () => {
+    const flow = 'fixture-edits'
+    const id = tryIdForFlow(flow, 'user:fixture')
+    const first = compileTryProfile(draft(flow, 'old'), id)
+    const state = path.join(first.dir, 'state.db')
+    fs.writeFileSync(state, 'fixture file identity only')
+    const inode = fs.statSync(state).ino
+    const retiredFiles = ['state.db', 'state.db-wal', 'state.db-shm', 'mcp-stderr.log'].map((file) => {
+        const target = path.join(profiles, `${tryProfileName(id)}--worker`, file)
+        fs.writeFileSync(target, 'retired specialist fixture')
+        return [target, fs.statSync(target).ino]
+    })
+    const changed = draft(flow)
+    changed.chief.instructions = 'reply only BANANA'
+    changed.chief.model = { ...model, inputs: { modelName: 'fixture-new-model' } }
+    changed.specialists = [{ ...changed.specialists[0], name: 'new-worker', instructions: 'new tool fixture' }]
+    const next = compileTryProfile(changed, id)
+    assert.equal(next.dir, first.dir)
+    assert.match(read(tryProfileName(id), 'SOUL.md'), /reply only BANANA/)
+    assert.equal(read(tryProfileName(id), 'SOUL.md').includes('chief-old'), false)
+    const roster = JSON.parse(read(tryProfileName(id), 'harness-roster.json'))
+    assert.equal(roster.chief.model.inputs.modelName, 'fixture-new-model')
+    assert.deepEqual(
+        roster.specialists.map((row) => row.name),
+        ['new-worker']
+    )
+    assert.equal(read(tryProfileName(id), 'config.yaml').includes(`${tryProfileName(id)}--worker`), false)
+    assert.equal(read(tryProfileName(id), 'harness-try-keep').trim(), tryProfileName(id))
+    assert.equal(fs.statSync(state).ino, inode)
+    for (const [file, identity] of retiredFiles) assert.equal(fs.statSync(file).ino, identity)
+})
+
+test('chat boundaries clear SQLite history and file memory in place for chief and specialist homes', async () => {
+    const flow = 'fixture-chat-boundary'
+    const id = tryIdForFlow(flow, 'user:fixture')
+    const scope = tryProfileName(id)
+    const compileAndReset = async (chatId) =>
+        withTryProfile(id, async (discard) => {
+            compileTryProfile(draft(flow), id)
+            await resetTryProfileSession(id, chatId)
+            await discard()
+        })
+    await compileAndReset('chat-a')
+    const identities = new Map()
+    for (const name of [scope, `${scope}--worker`]) {
+        const home = path.join(profiles, name)
+        const state = path.join(home, 'state.db')
+        const db = new DatabaseSync(state)
+        db.exec(`PRAGMA journal_mode = WAL;
+            CREATE TABLE sessions(id TEXT PRIMARY KEY);
+            CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT REFERENCES sessions(id), content TEXT);
+            CREATE TABLE memories(content TEXT);
+            CREATE TABLE configuration(value TEXT);
+            CREATE VIRTUAL TABLE messages_fts USING fts5(content, content='messages', content_rowid='id');
+            CREATE TRIGGER message_insert AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(rowid, content) VALUES(new.id, new.content); END;
+            CREATE TRIGGER message_delete AFTER DELETE ON messages BEGIN INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content); END;
+            INSERT INTO sessions VALUES('chat-a'); INSERT INTO messages VALUES(1, 'chat-a', 'secret fixture');
+            INSERT INTO memories VALUES('remember fixture'); INSERT INTO configuration VALUES('keep schema');`)
+        const reader = new DatabaseSync(state, { readOnly: true })
+        reader.prepare('SELECT * FROM sessions').all()
+        db.close()
+        reader.close()
+        for (const file of ['state.db', 'state.db-wal', 'state.db-shm'])
+            identities.set(path.join(home, file), fs.statSync(path.join(home, file)).ino)
+        for (const file of ['memories/MEMORY.md', 'memories/USER.md', 'sessions/chat-a.jsonl']) {
+            const target = path.join(home, file)
+            fs.mkdirSync(path.dirname(target), { recursive: true })
+            fs.writeFileSync(target, 'remember chat-a fixture')
+            identities.set(target, fs.statSync(target).ino)
+        }
+    }
+    // A follow-up keeps this chat's state and still overwrites configuration.
+    await compileAndReset('chat-a')
+    for (const name of [scope, `${scope}--worker`]) {
+        const db = new DatabaseSync(path.join(profiles, name, 'state.db'), { readOnly: true })
+        assert.equal(db.prepare('SELECT count(*) AS n FROM memories').get().n, 1)
+        db.close()
+    }
+    await compileAndReset('chat-b')
+    for (const [file, inode] of identities) assert.equal(fs.statSync(file).ino, inode, file)
+    for (const name of [scope, `${scope}--worker`]) {
+        const db = new DatabaseSync(path.join(profiles, name, 'state.db'), { readOnly: true })
+        for (const table of ['sessions', 'messages', 'memories']) assert.equal(db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n, 0)
+        assert.equal(db.prepare("SELECT count(*) AS n FROM messages_fts WHERE messages_fts MATCH 'secret'").get().n, 0)
+        assert.equal(db.prepare('SELECT value FROM configuration').get().value, 'keep schema')
+        db.close()
+        for (const file of ['memories/MEMORY.md', 'memories/USER.md', 'sessions/chat-a.jsonl']) assert.equal(read(name, file), '')
+        assert.equal(read(name, 'harness-try-session'), 'chat-b')
+    }
+    const secondId = tryIdForFlow(flow, 'user:second')
+    const second = compileTryProfile({ ...draft(flow), tryOwner: 'user:second' }, secondId)
+    await resetTryProfileSession(secondId, 'chat-b')
+    assert.notEqual(second.dir, path.join(profiles, scope))
+    assert.equal(fs.existsSync(path.join(second.dir, 'state.db')), false)
+    assert.equal(fs.existsSync(path.join(second.dir, 'memories/MEMORY.md')), false)
+    // Upgrade: a missing boundary marker also clears existing state.
+    fs.unlinkSync(path.join(profiles, scope, 'harness-try-session'))
+    const state = path.join(profiles, scope, 'state.db')
+    const reader = new DatabaseSync(state, { readOnly: true })
+    reader.prepare('SELECT * FROM memories').all()
+    const writer = new DatabaseSync(state)
+    writer.exec("INSERT INTO memories VALUES('old-version fixture')")
+    writer.close()
+    reader.close()
+    await compileAndReset('chat-c')
+    const db = new DatabaseSync(state, { readOnly: true })
+    assert.equal(db.prepare('SELECT count(*) AS n FROM memories').get().n, 0)
+    db.close()
+    for (const [file, inode] of identities) assert.equal(fs.statSync(file).ino, inode, file)
+})
+
+test('upgrade sweep removes old unique homes with state and stale markers, keeping sticky and saved homes', () => {
+    const homes = ['try0000000000000001', 'try0000000000000002', 'try0000000000000003']
+    const past = new Date(Date.now() - 11 * 60 * 1000)
+    for (const name of homes) {
+        const home = path.join(profiles, name)
+        fs.mkdirSync(home, { recursive: true })
+        fs.writeFileSync(path.join(home, 'state.db'), 'old fake state')
+        if (name.endsWith('2')) fs.writeFileSync(path.join(home, 'harness-try'), 'stale-unique-id')
+        if (!name.endsWith('1')) fs.utimesSync(home, past, past)
+    }
+    fs.writeFileSync(path.join(dir, 'harnesses', `${homes[2]}.json`), JSON.stringify({ name: homes[2], chief: { model }, specialists: [] }))
+    const swept = sweepAbandonedTryProfiles()
+    for (const name of homes.slice(0, 2)) {
+        assert.ok(swept.has(name))
+        assert.equal(fs.existsSync(path.join(profiles, name)), false)
+    }
+    assert.equal(read(homes[2], 'state.db'), 'old fake state')
+    assert.equal(swept.has(homeFor('fixture-flow-a')), false)
+    assert.ok(fs.existsSync(path.join(profiles, 'published-fixture')))
+})
+
+test('a session reset refuses to change memory until the previous runtime closes', async () => {
+    const flow = 'fixture-reset-close-failed'
+    const id = tryIdForFlow(flow, 'user:fixture')
+    const compiled = compileTryProfile(draft(flow), id)
+    const memory = path.join(compiled.dir, 'memories', 'MEMORY.md')
+    fs.mkdirSync(path.dirname(memory), { recursive: true })
+    fs.writeFileSync(memory, 'previous session fixture')
+    const oldClose = tryRuntime.closeProfiles
+    tryRuntime.closeProfiles = async () => {
+        throw new Error('fixture still served')
+    }
+    try {
+        await assert.rejects(resetTryProfileSession(id, 'new-chat'), /fixture still served/)
+        assert.equal(fs.readFileSync(memory, 'utf8'), 'previous session fixture')
+        assert.equal(fs.existsSync(path.join(compiled.dir, 'harness-try-session')), false)
+    } finally {
+        tryRuntime.closeProfiles = oldClose
+    }
 })

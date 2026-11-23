@@ -220,6 +220,25 @@ describe('harness publish check', () => {
         expect(callers).toEqual([keyCaller, keyCaller])
     })
 
+    test('retains the session owner independently of the caller across both replay sides', async () => {
+        replayHooks.run = null
+        const seen: unknown[] = []
+        harnessReplayHooks.run = async ({ caller, tryOwner }) => {
+            seen.push({ caller, tryOwner })
+            return { text: 'fixture answer' }
+        }
+        const started = await startCheck(flow() as any, { questions: ['Fixture?'] }, 'http://x', {
+            caller: { via: 'session' },
+            tryOwner: 'user:fixture'
+        })
+        await settle()
+        expect((await getCheck(flow(), started.id)).status).toBe('done')
+        expect(seen).toEqual([
+            { caller: { via: 'session' }, tryOwner: 'user:fixture' },
+            { caller: { via: 'session' }, tryOwner: 'user:fixture' }
+        ])
+    })
+
     test('sums route, specialist and handoff tokens from the run report', async () => {
         replayHooks.run = null
         harnessReplayHooks.run = async ({ flowData }) => ({

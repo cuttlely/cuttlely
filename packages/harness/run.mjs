@@ -88,6 +88,7 @@ import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
     compileTryProfile,
+    resetTryProfileSession,
     chiefInstructions,
     credentialIdsFor,
     noteLiveTry,
@@ -435,7 +436,7 @@ export function setHarnessAvailabilityCheck(check) {
 export async function runHarness(args = {}) {
     if (args.record?.tryId) {
         // Copy the draft: callers may reuse it for another turn. Both canvas entrypoints reach this gate.
-        const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId) : args.record.tryId
+        const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId, args.record.tryOwner) : args.record.tryId
         args = { ...args, record: { ...args.record, tryId } }
         return withTryProfile(tryId, (discard) => guardHarnessRun(args.name, () => runHarnessBody(args, discard)))
     }
@@ -555,6 +556,7 @@ async function runTurnBody(
         const compiled = harness.tryId
             ? compileTryProfile(harness, harness.tryId)
             : compileProfileCached(harness, { credentialStamp: await credentialStampAsync(credentialIdsFor(harness)) })
+        if (harness.tryId) await resetTryProfileSession(harness.tryId, chatId)
         profileMs = Date.now() - profileStarted
         roster = compiled.roster || harness
     }

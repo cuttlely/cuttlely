@@ -1,3 +1,4 @@
+import { tryOwnerFor } from '../../utils/tryOwner'
 import { NextFunction, Request, Response } from 'express'
 import { accessContext, completeAccessKeyAdmission } from '../../services/accessKeys/authorization'
 import { StatusCodes } from 'http-status-codes'
@@ -360,7 +361,12 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
         const closed = () => gone || clientGone(req)
         // A Harness card, or this harness itself, replays for the caller: an API key runs only what is on its list.
-        const view = await flowCheckService.startCheck(flow, body, baseURL, { caller: await harnessCallerFor(req), watch: { closed } })
+        const caller = await harnessCallerFor(req)
+        const view = await flowCheckService.startCheck(flow, body, baseURL, {
+            caller,
+            ...(flow.type === 'HARNESS' ? { tryOwner: tryOwnerFor(caller, req.user?.id) } : {}),
+            watch: { closed }
+        })
         ownedId = view.id
         if (closed()) {
             const id = ownedId

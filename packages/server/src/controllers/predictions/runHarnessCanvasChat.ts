@@ -8,6 +8,7 @@ import type { IHarnessCaller } from '../../Interface'
 import harnessesService from '../../services/harnesses'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
+import { tryOwnerFor } from '../../utils/tryOwner'
 
 const hasBodyUploads = (uploads: unknown) =>
     uploads !== undefined && uploads !== null && uploads !== '' && !(Array.isArray(uploads) && uploads.length === 0)
@@ -52,8 +53,9 @@ export async function runHarnessCanvasChat(
     await refuseUploads(req)
     const streaming = isStreamingRequest(req)
     const source = 'playground'
+    const tryOwner = tryOwnerFor(caller, req.user?.id)
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
-        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, canvas: options.canvas, ...extra })
+        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, tryOwner, canvas: options.canvas, ...extra })
     if (!streaming) {
         const outcome = await run()
         assertVerifiedDeliveryDeadline(outcome.payload)

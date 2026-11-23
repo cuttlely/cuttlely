@@ -26,6 +26,7 @@ import type { IHarnessCaller, INestedFlowCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
 import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
+import { resolveTryOwner } from '../../utils/tryOwner'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
@@ -351,6 +352,7 @@ export async function backfillHarnessWorkspaces() {
 }
 
 type HarnessNestedFlowContext = {
+    tryOwner?: string
     nestedFlowCaller?: INestedFlowCaller
     nestedFlowDepth?: number
     signal?: AbortSignal
@@ -389,6 +391,7 @@ function contextFromRuntime(
                 parentFlowId: chatflowId,
                 parentWorkspaceId: workspaceId,
                 caller: nested.nestedFlowCaller,
+                tryOwner: nested.tryOwner,
                 depth: nested.nestedFlowDepth ?? 0,
                 signal: nested.signal ? ({ signal: nested.signal } as AbortController) : runtime.signal
             })
@@ -423,6 +426,7 @@ export async function contextFor(
                 parentFlowId: record.chatflowId,
                 parentWorkspaceId: record.workspaceId,
                 caller: nested.nestedFlowCaller,
+                tryOwner: nested.tryOwner,
                 depth:
                     Number.isInteger(nested.nestedFlowDepth) && (nested.nestedFlowDepth as number) >= 0
                         ? (nested.nestedFlowDepth as number)
@@ -1473,7 +1477,12 @@ const startRun = async (
         Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
-        const nested = { nestedFlowCaller, nestedFlowDepth, signal: opts.signal }
+        const nested = {
+            nestedFlowCaller,
+            nestedFlowDepth,
+            signal: opts.signal,
+            tryOwner: typeof opts.record?.tryOwner === 'string' ? opts.record.tryOwner : opts.runtime?.tryOwner
+        }
         runtime = opts.runtime
             ? contextFromRuntime(opts.record || prepared.harness, opts.runtime, nested)
             : await contextFor(prepared.harness, nested)
@@ -1801,7 +1810,7 @@ const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) 
 
 // Canvas chat and Try it run the draft canvas when one exists, otherwise the Live canvas. The public prediction
 // route passes canvas 'live', so a saved draft does not change it before Publish. The saved harness and its profile
-// are not written. The try compiles under its own id and is removed when the run ends.
+// are not written. The try keeps a fixed path for this canvas and owner.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
@@ -1811,6 +1820,7 @@ const startCanvasRun = async (
         signal?: AbortSignal
         onEvent?: (event: { type: string }) => void
         caller: IHarnessCaller
+        tryOwner?: string
         nestedFlowCaller?: INestedFlowCaller
         nestedFlowDepth?: number
         runtime?: NestedFlowExecutionRuntime
@@ -1833,17 +1843,17 @@ const startCanvasRun = async (
         nestedFlowCaller: opts.nestedFlowCaller,
         nestedFlowDepth: opts.nestedFlowDepth,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
     })
 }
 
-// Publish check. Live and the draft take turns using the same fixed try profile as the canvas.
+// Publish check. Live and the draft use the same fixed try profile as this owner's canvas.
 // Nothing is written to run history, the session, or the analyst capture for this chat.
 const replayCheck = async (
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },
     flowData: string,
     body: Record<string, unknown>,
-    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined }
+    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined; tryOwner?: string }
 ) => {
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
     // An API key that does not list this harness, or no caller at all, is refused here too.
@@ -1868,7 +1878,7 @@ const replayCheck = async (
         caller: opts.caller,
         replay: true,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
     })
 }
 

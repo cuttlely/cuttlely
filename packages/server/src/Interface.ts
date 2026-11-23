@@ -487,6 +487,8 @@ export interface IExecuteFlowParams extends IPredictionQueueAppServer {
     sessionToken?: string
     /** Who a Harness card on this flow runs for. The harness engine refuses a run without one. */
     harnessCaller: IHarnessCaller | undefined
+    /** Sticky Try owner retained independently of caller authorization across nested flow execution. */
+    tryOwner?: string
     /** Parent caller retained across queue serialization for same-server nested flow authorization. */
     nestedFlowCaller?: INestedFlowCaller
     /** Number of same-server flow calls above this run. */

@@ -38,7 +38,7 @@ import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
 import { serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
 import { callerFlowOptionsForJob } from './queue.mjs'
-import { getHarness } from './store.mjs'
+import { getHarness, listHarnessNames } from './store.mjs'
 import { trustedOutputReceipt } from './trusted-output.mjs'
 
 const DEFAULT_PORT = 43118
@@ -376,7 +376,7 @@ function abandonedTryHome(home) {
     if (!TRY_HOME.test(home || '')) return false
     if (tryKeepMarker(home)) return false
     if (savedHarnessState(home) !== 'absent') return false
-    if (!tryMarkerMatches(home) && !leftoverShell(home)) return false
+    if (!tryMarkerMatches(home) && !leftoverShell(home) && !legacyUniqueTryHome(home)) return false
     if (tryLockIsLive(home)) return false
     return true
 }
@@ -385,6 +385,21 @@ function abandonedTryHome(home) {
 // config and no roster, so nothing in it can be served. A fresh one can be a try that is still being set up, so
 // only one untouched for 10 minutes counts.
 const LEFTOVER_SHELL_AGE_MS = 10 * 60 * 1000
+
+// Older per-turn ids could leave a database behind without a valid marker after a crash.
+// Saved harnesses and keep-marked homes are excluded before reaching this check.
+function legacyUniqueTryHome(entry) {
+    if (!/^try[a-f0-9]{16}$/.test(entry)) return false
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    const files = listDirNoFollow(dir)
+    if (!files) return false
+    if (files.some((name) => ['state.db', 'harness-try', 'config.yaml', 'harness-roster.json'].includes(name))) return true
+    try {
+        return Date.now() - fs.lstatSync(dir).mtimeMs >= LEFTOVER_SHELL_AGE_MS
+    } catch {
+        return false
+    }
+}
 
 function leftoverShell(entry) {
     const dir = path.join(hermesHome(), 'profiles', entry)
@@ -452,7 +467,9 @@ export function sweepAbandonedTryProfiles() {
     const entries = listDirNoFollow(root)
     if (!entries) return abandoned
     const drop = []
+    const saved = new Set(listHarnessNames())
     for (const entry of entries) {
+        if (saved.has(entry)) continue
         const marker = readParent(path.join(root, entry))
         if (!abandonedTryEntry(entry, marker)) continue
         drop.push(entry)

@@ -642,6 +642,20 @@ describe('the publish check', () => {
         expect(res.status).toHaveBeenCalledWith(202)
     })
 
+    it('passes the signed-in owner separately when starting a Harness check', async () => {
+        granted.add('chatflows:update')
+        getChatflowByIdForWorkspace.mockResolvedValueOnce({ ...FLOW, type: 'HARNESS' })
+        const next = jest.fn()
+        await controller.startCheck(checkRequest({ questions: ['Fixture?'] }), accepted(), next)
+        expect(next).not.toHaveBeenCalled()
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'HARNESS' }),
+            { questions: ['Fixture?'] },
+            'http://cuttlely.test:3000',
+            { caller: { via: 'session' }, tryOwner: 'user:user-1', watch: expect.objectContaining({ closed: expect.any(Function) }) }
+        )
+    })
+
     it('a consumed body on a live socket still starts the check', async () => {
         granted.add('chatflows:update')
         checkService.startCheck.mockImplementation(async () => ({ id: 'c-live', status: 'running' }))

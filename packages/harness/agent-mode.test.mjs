@@ -436,7 +436,7 @@ for (const draft of [false, true])
         const record = {
             name,
             workspaceId: 'fixture-workspace',
-            ...(draft ? { chatflowId: 'draft-canvas', tryId: 'a1713ade' } : {}),
+            ...(draft ? { chatflowId: 'draft-canvas', tryOwner: 'user:fixture', tryId: 'a1713ade' } : {}),
             chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
             specialists: [{ name: 'worker' }]
         }
@@ -583,7 +583,7 @@ for (const draft of [false, true])
         const base = {
             name,
             workspaceId: 'fixture-workspace',
-            ...(draft ? { chatflowId: 'budget-canvas', tryId: 'b1713ade' } : {}),
+            ...(draft ? { chatflowId: 'budget-canvas', tryOwner: 'user:fixture', tryId: 'b1713ade' } : {}),
             chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
             specialists: [{ name: 'worker' }]
         }
@@ -611,7 +611,10 @@ for (const draft of [false, true])
                 flowOptions: { workspaceId: 'fixture-workspace', harnessCaller: { via: 'session' } },
                 fetchImpl: async (_url, options) => {
                     const body = JSON.parse(options.body)
-                    const soul = chiefInstructions({ ...record, name: draft ? tryProfileName(tryIdForFlow(record.chatflowId)) : name })
+                    const soul = chiefInstructions({
+                        ...record,
+                        name: draft ? tryProfileName(tryIdForFlow(record.chatflowId, 'user:fixture')) : name
+                    })
                     bodies.push({ ...body, soul })
                     return new Response(JSON.stringify({ status: 'completed', output: 'Continued.' }))
                 }

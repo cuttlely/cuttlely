@@ -4,12 +4,13 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import net from 'node:net'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { isFlowiseMcpBinding } from './bridge.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
-import { acquireTryProfileTurn, releaseTryProfileTurn } from './lock.mjs'
+import { acquireTryProfileTurn, releaseTryProfileTurn, BUSY_MESSAGE } from './lock.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
@@ -2041,7 +2042,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 }
 
-function forgetRetiredSpecialistProfiles(harnessName, keep) {
+function forgetRetiredSpecialistProfiles(harnessName, keep, { retainFiles = false } = {}) {
     const root = path.join(hermesHome(), 'profiles')
     // A linked or missing profiles directory is not listed. Listing the absolute path would follow it.
     const opened = openDirNoFollow(root, { quiet: true })
@@ -2062,6 +2063,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
                 continue
             const retired = readEnvFile(path.join(dir, '.env'))
             forgetProfileToken(retired.OPENAI_API_KEY)
+            if (retainFiles) continue
             removeContainedTree(dir)
             removeContainedTree(specialistWorkspace(entry))
         }
@@ -2459,7 +2461,11 @@ function compileProfileFiles(record, options = {}) {
         const tryMarker = path.join(dir, 'harness-try')
         if (tryProfile) {
             writeIfChanged(tryMarker, `${profileName}\n`)
-            if (options.stickyTry) writeIfChanged(path.join(dir, 'harness-try-keep'), `${profileName}\n`)
+            if (options.stickyTry) {
+                writeIfChanged(path.join(dir, 'harness-try-keep'), `${profileName}\n`)
+                writeIfChanged(path.join(dir, 'harness-try-flow'), record.chatflowId)
+                writeIfChanged(path.join(dir, 'harness-try-owner'), record.tryOwner)
+            }
         } else {
             removeChild(held.fd, dir, 'harness-try')
             removeChild(held.fd, dir, 'harness-try-keep')
@@ -2476,7 +2482,7 @@ function compileProfileFiles(record, options = {}) {
         keep.add(specialist.profileName)
         compileSpecialistProfile(record, specialist, profileName, tryProfile, Boolean(options.adoptUnstampedTokens))
     }
-    forgetRetiredSpecialistProfiles(profileName, keep)
+    forgetRetiredSpecialistProfiles(profileName, keep, { retainFiles: Boolean(options.stickyTry) })
 
     const compiled = {
         ...record,
@@ -2568,26 +2574,131 @@ export function tryProfileName(tryId) {
     return `try${id}`
 }
 
-// One home per canvas for Try it, playground and Publish replays. Saved profile names never use this id.
-export function tryIdForFlow(chatflowId) {
+// One home per canvas and owner for Try it, playground and Publish replays.
+export function tryIdForFlow(chatflowId, ownerKey) {
     if (typeof chatflowId !== 'string' || !chatflowId.trim()) {
         throw new HarnessError('bad_name', 'A sticky try profile requires a chatflow id.')
     }
-    return crypto.createHash('sha256').update(`cuttlely-try-flow:${chatflowId}`).digest('hex').slice(0, 16)
+    if (typeof ownerKey !== 'string' || !ownerKey.trim()) {
+        throw new HarnessError('bad_session', 'A sticky try profile requires a non-empty owner key.')
+    }
+    return crypto.createHash('sha256').update(`cuttlely-try-flow-owner:${chatflowId}:${ownerKey}`).digest('hex').slice(0, 16)
 }
 
 export function compileTryProfile(record, tryId) {
-    const stickyTry = Boolean(record.chatflowId) && tryId === tryIdForFlow(record.chatflowId)
-    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true, stickyTry })
+    const profileName = tryProfileName(tryId)
+    if (getHarness(profileName)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    const stickyTry = Boolean(record.chatflowId && record.tryOwner) && tryId === tryIdForFlow(record.chatflowId, record.tryOwner)
+    return compileProfile(record, { profileName, tryProfile: true, stickyTry })
+}
+
+function clearTryStateDatabase(file) {
+    const stat = lstatNoFollow(file)
+    if (!stat) return
+    if (!stat.isFile()) throw new HarnessError('bad_session', 'Try session state must be a regular database file.')
+    for (const sidecar of ['-wal', '-shm']) {
+        const entry = lstatNoFollow(`${file}${sidecar}`)
+        if (entry && !entry.isFile()) throw new HarnessError('bad_session', 'Try session sidecars must be regular files.')
+    }
+    // A read-only connection holds the WAL open while the writer closes. Closing that reader last leaves
+    // the WAL and shared-memory files in place, with no connection retained between turns.
+    const reader = new DatabaseSync(file, { readOnly: true })
+    let writer
+    try {
+        reader.prepare('SELECT name FROM sqlite_master LIMIT 1').all()
+        writer = new DatabaseSync(file)
+        writer.exec('PRAGMA busy_timeout = 1000; PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE')
+        const tables = writer.prepare('PRAGMA table_list').all()
+        for (const table of tables) {
+            if (table.schema !== 'main' || table.type !== 'table' || table.name.startsWith('sqlite_')) continue
+            const sessionTable = /(?:^|_)(?:sessions?|messages?|memories|memory|conversations?|turns?|history)(?:_|$)/i.test(table.name)
+            const runtimeTable = [
+                'system_prompts',
+                'gateway_routing',
+                'gateway_hygiene_state',
+                'gateway_heartbeats',
+                'compression_locks',
+                'async_delegations'
+            ].includes(table.name)
+            if (!sessionTable && !runtimeTable) continue
+            writer.exec(`DELETE FROM "${table.name.replaceAll('"', '""')}"`)
+        }
+        // External-content indexes can retain old terms when Hermes deferred their delete triggers.
+        for (const table of tables) {
+            if (
+                table.schema !== 'main' ||
+                table.type !== 'virtual' ||
+                !/(?:session|message|memor|conversation|turn|history)/i.test(table.name)
+            )
+                continue
+            const sql = writer.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(table.name)?.sql || ''
+            if (!/USING\s+fts[345]\b/i.test(sql)) continue
+            const quoted = `"${table.name.replaceAll('"', '""')}"`
+            if (/content\s*=\s*(['"])\1/i.test(sql)) writer.exec(`INSERT INTO ${quoted}(${quoted}) VALUES ('delete-all')`)
+            else if (/content\s*=/i.test(sql)) writer.exec(`INSERT INTO ${quoted}(${quoted}) VALUES ('rebuild')`)
+            else writer.exec(`DELETE FROM ${quoted}`)
+        }
+        writer.exec('COMMIT')
+    } finally {
+        try {
+            writer?.close()
+        } finally {
+            reader.close()
+        }
+    }
+}
+
+function clearTrySessionFiles(dir) {
+    for (const entry of listDirNoFollow(dir) || []) {
+        const file = path.join(dir, entry)
+        const stat = lstatNoFollow(file)
+        if (stat?.isDirectory()) clearTrySessionFiles(file)
+        else if (stat?.isFile()) {
+            const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)
+            try {
+                fs.ftruncateSync(fd, 0)
+            } finally {
+                fs.closeSync(fd)
+            }
+        }
+    }
+}
+
+// Called under the try mutex after compile and before serve. Cuttlely supplies same-chat history itself.
+export async function resetTryProfileSession(tryId, chatId) {
+    if (typeof chatId !== 'string' || !chatId.trim()) throw new HarnessError('bad_session', 'A try session requires a chat id.')
+    const scope = tryProfileName(tryId)
+    if (getHarness(scope)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    const root = path.join(hermesHome(), 'profiles')
+    if (readMarker(path.join(root, scope, 'harness-try-keep')) !== scope) return
+    const names = tryProfileNames(scope)
+    const changed = names.filter((name) => readMarker(path.join(root, name, 'harness-try-session')) !== chatId)
+    if (!changed.length) return
+    // Also closes a profile left served by a worker that died before its finally path completed.
+    if (tryRuntime.closeProfiles) await tryRuntime.closeProfiles(names)
+    else {
+        for (const name of names) {
+            if (!(await stopRuntimeProfile(name))) {
+                throw new HarnessError('bad_session', 'The previous Try session could not be closed. Try again when the runtime is ready.')
+            }
+        }
+    }
+    for (const name of changed) {
+        const dir = path.join(root, name)
+        clearTryStateDatabase(path.join(dir, 'state.db'))
+        for (const entry of ['memories', 'memory', 'sessions']) clearTrySessionFiles(path.join(dir, entry))
+        writeIfChanged(path.join(dir, 'harness-try-session'), chatId)
+    }
 }
 
 const tryTurns = new Map()
 
 // Hold the whole compile/run/discard lifecycle, including the runtime close. Only the callback receives
-// the owner's teardown function. Any other run/discard queues, even one started inside a run hook.
-export async function withTryProfile(tryId, body) {
+// the owner's teardown function. Only explicit cleanup waits; colliding turns fail immediately.
+export async function withTryProfile(tryId, body, { wait = false } = {}) {
     const scope = tryProfileName(tryId)
     const previous = tryTurns.get(scope) || Promise.resolve()
+    if (!wait && tryTurns.has(scope)) throw new HarnessError('busy', BUSY_MESSAGE)
     let release
     const held = new Promise((resolve) => {
         release = resolve
@@ -2598,7 +2709,7 @@ export async function withTryProfile(tryId, body) {
     let sharedLock
     let active = true
     try {
-        sharedLock = await acquireTryProfileTurn(scope)
+        sharedLock = await acquireTryProfileTurn(scope, { wait })
         return await body(() => {
             if (!active) throw new HarnessError('bad_session', 'This try turn has already finished.')
             return discardTryProfileUnlocked(tryId)
@@ -2631,8 +2742,10 @@ function tryProfileNames(scope) {
     const entries = listDirNoFollow(root)
     if (!entries) return []
     const names = []
+    const saved = new Set(listHarnessNames())
     for (const entry of entries) {
         if (!entry || entry === '.' || entry === '..') continue
+        if (saved.has(entry)) continue
         const marker = readMarker(path.join(root, entry, 'harness-parent'))
         if (tryOwnedEntry(scope, entry, marker)) names.push(entry)
     }
@@ -2650,11 +2763,13 @@ function readMarker(file) {
 
 function tryScopeEntries(scope) {
     const names = new Set(tryProfileNames(scope))
+    const saved = new Set(listHarnessNames())
     const root = path.join(hermesHome(), 'profiles')
     const entries = listDirNoFollow(root)
     if (entries) {
         for (const entry of entries) {
             if (!entry || entry === '.' || entry === '..') continue
+            if (saved.has(entry)) continue
             if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
         }
     }
@@ -2663,6 +2778,7 @@ function tryScopeEntries(scope) {
     if (workEntries) {
         for (const entry of workEntries) {
             if (!entry || entry === '.' || entry === '..') continue
+            if (saved.has(entry)) continue
             if (entry === scope || entry.startsWith(`${scope}--`) || names.has(entry)) names.add(entry)
         }
     }
@@ -2924,18 +3040,43 @@ async function closeTryRuntime(names) {
 // Close the runtime, stop and wait for MCP process groups, then forget tokens on every turn. Sticky homes
 // keep their files: Hermes can retain open database/log handles, so unlinking creates a descriptor leak.
 export function discardTryProfile(tryId) {
-    return withTryProfile(tryId, () => discardTryProfileUnlocked(tryId))
+    return withTryProfile(tryId, () => discardTryProfileUnlocked(tryId), { wait: true })
 }
 
 // Canvas deletion is the only normal removal of a sticky home. It waits for admitted turns to finish and
 // uses the same bridge teardown before removing home, specialists and their workspaces.
-export function removeTryProfileForFlow(chatflowId) {
-    const id = tryIdForFlow(chatflowId)
-    return withTryProfile(id, () => {
-        // Legacy saved harnesses can predate the reserved try namespace. A hash match grants no ownership.
-        if (getHarness(tryProfileName(id))) return
-        return discardTryProfileUnlocked(id, { remove: true })
-    })
+export async function removeTryProfileForFlow(chatflowId) {
+    if (typeof chatflowId !== 'string' || !chatflowId.trim()) {
+        throw new HarnessError('bad_name', 'Try profile cleanup requires a chatflow id.')
+    }
+    const root = path.join(hermesHome(), 'profiles')
+    const removals = []
+    for (const scope of listDirNoFollow(root) || []) {
+        if (!/^try[a-f0-9]{16}$/.test(scope) || getHarness(scope)) continue
+        const dir = path.join(root, scope)
+        if (readMarker(path.join(dir, 'harness-try-flow')) !== chatflowId) continue
+        let owner
+        try {
+            owner = readFileNoFollow(path.join(dir, 'harness-try-owner')) || ''
+        } catch {
+            continue
+        }
+        if (!owner || tryProfileName(tryIdForFlow(chatflowId, owner)) !== scope) continue
+        if (readMarker(path.join(dir, 'harness-try-keep')) !== scope) continue
+        removals.push(
+            withTryProfile(
+                scope.slice(3),
+                () => {
+                    if (getHarness(scope)) return
+                    return discardTryProfileUnlocked(scope.slice(3), { remove: true })
+                },
+                { wait: true }
+            )
+        )
+    }
+    const results = await Promise.allSettled(removals)
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed) throw failed.reason
 }
 
 async function discardTryProfileUnlocked(tryId, { remove = false } = {}) {

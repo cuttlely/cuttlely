@@ -136,7 +136,7 @@ export function turnBusyError() {
 
 // A fixed try path is shared by canvas and replay workers, possibly in different processes. Unlike the
 // chat lease, this mutex never expires while its owner is alive: a long turn must not be cut short.
-export async function acquireTryProfileTurn(scope) {
+export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
     const owner = `${process.pid}:${randomUUID()}`
     const startedAt = processStartTicks(process.pid)
     for (;;) {
@@ -162,6 +162,7 @@ export async function acquireTryProfileTurn(scope) {
             return true
         })
         if (acquired) return { scope, owner }
+        if (!wait) throw new HarnessError('busy', BUSY_MESSAGE)
         await new Promise((resolve) => setTimeout(resolve, 25))
     }
 }
