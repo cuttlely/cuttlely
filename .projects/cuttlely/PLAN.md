@@ -2,7 +2,7 @@
 
 ## Current release work
 
-Admin time limits and caps are prepared on the existing settings registry for 1.7.13. Integrate the separately prepared tool-call and health-timeout readers and Analyst maximum increase, then run the full verification gate on the combined tree. Apply-when-idle remains later work; current restart saves only report pending changes.
+The 1.7.13 candidate combines admin time limits, idle application of restart settings, chat lease renewal, runtime self-recovery and Try profile cleanup. The release gate covers these changes together with the router follow-up and ETL status fixes.
 
 #536 leftover work: retiring a multiplexed profile closes that profile's log files and MCP stderr handles (Hermes patch 0014), scoped so a still-served sibling keeps working. Reconcile uses the same path. Issue #536 stays open until this change merges.
 
