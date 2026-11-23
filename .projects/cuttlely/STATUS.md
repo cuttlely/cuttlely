@@ -4,6 +4,10 @@ The annotated tag `v1.7.13` points to `4722923d` ([release PR #569](https://gith
 
 Runtime self-recovery, configurable limits, renewable chat locks and idle restart ship with reusable Try profiles, MCP bridge cleanup, router follow-up and ETL stop-race fixes. Focused checks covered token retirement across workers, preservation of saved profiles, and ten committed PostgreSQL stop races. Harness Publish and Promote checks run one question at a time on the shared Try profile. Other supported flows keep their configured concurrency. Saved harness requests carry the authenticated session owner into nested harness calls, including through an external worker. Live checks on 1.7.13 confirmed one specialist per routed task, same-chat recall, and fresh-chat isolation. The release smoke test did not include an extended Try-profile load soak.
 
+## Render compute for light QA
+
+The Render Blueprint specifies Standard (`1c-2g`) for a light QA trial. Start at `2c-4g` for general use. Concurrent evaluations and browser specialists may need `2c-8g`. Verify the applied compute plan separately from the application deploy.
+
 ## Chat lock renewal and idle limit application (1.7.13 preparation)
 
 Chat lease renewal stops on cancellation and enabled turn/run deadlines; busy replies retain HTTP 409 and the unsent message, with targeted lifecycle and process-restart regressions.
