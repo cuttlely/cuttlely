@@ -1562,7 +1562,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'testing',
         group: 'Publish check',
         label: 'Questions at once',
-        help: 'How many questions one publish check runs at the same time. Live and the draft for one question still run one after the other. 1 to 8.',
+        help: 'Chatflow and agentflow publish checks run 1 to 8 questions at once. Harness checks run one at a time. Each question runs on Live and then on the draft.',
         type: 'number',
         unit: 'count',
         min: 1,

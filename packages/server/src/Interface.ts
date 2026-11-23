@@ -511,7 +511,7 @@ export interface IApiKeyAccess {
 export type IHarnessCaller = { via: 'session' } | { via: 'flow' } | ({ via: 'api_key' } & IApiKeyAccess)
 
 /** Serializable identity retained by a queued run for same-server flow calls. No bearer value is stored. */
-export type INestedFlowCaller = { via: 'session' } | { via: 'flow' } | { via: 'api_key'; apiKeyId: string }
+export type INestedFlowCaller = { via: 'session'; tryOwner?: string } | { via: 'flow' } | { via: 'api_key'; apiKeyId: string }
 
 export interface INodeOverrides {
     [key: string]: {

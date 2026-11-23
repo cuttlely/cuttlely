@@ -99,7 +99,7 @@ function scanCap(): number {
     return runtimeNumber('CUTTLELY_CHECK_SCAN_CAP')
 }
 
-export function checkLimits() {
+export function checkLimits(flowType?: string | null) {
     return {
         maxQuestions: compareCountMax(),
         defaultQuestions: compareCountDefault(),
@@ -107,7 +107,8 @@ export function checkLimits() {
         maxQuestionChars: MAX_QUESTION_CHARS,
         maxTokens: runtimeNumber('CUTTLELY_CHECK_MAX_TOKENS'),
         maxSeconds: runtimeNumber('CUTTLELY_CHECK_MAX_SECONDS'),
-        concurrency: runtimeNumber('CUTTLELY_CHECK_CONCURRENCY')
+        // Every side of a harness check reuses the same canvas-and-owner Try profile.
+        concurrency: flowType === 'HARNESS' ? 1 : runtimeNumber('CUTTLELY_CHECK_CONCURRENCY')
     }
 }
 
@@ -506,7 +507,7 @@ export function starterQuestions(chatbotConfig?: string | null): string[] {
     }
 }
 
-function checkTurnedOff(): CheckSetup {
+function checkTurnedOff(flowType?: string | null): CheckSetup {
     return {
         publishCheck: false,
         unavailable: { code: 'disabled', message: PUBLISH_CHECK_OFF_MESSAGE },
@@ -514,7 +515,7 @@ function checkTurnedOff(): CheckSetup {
         pastCount: 0,
         pastTruncated: false,
         riskySteps: [],
-        limits: checkLimits(),
+        limits: checkLimits(flowType),
         liveEmpty: true,
         replayInputs: false,
         replaySource: null,
@@ -536,7 +537,7 @@ export async function getCheckSetup(
         const candidate = await candidateFor(flow, given)
         const record = checks.get(candidate.key)
         return {
-            ...checkTurnedOff(),
+            ...checkTurnedOff(flow.type),
             // The off banner stays. Only a check still in progress is returned, so it can be stopped.
             check: record?.status === 'running' ? await present(flow, record, candidate.canvas, reveal) : null
         }
@@ -563,7 +564,7 @@ export async function getCheckSetup(
         pastCount: offered.pastCount,
         pastTruncated: offered.pastTruncated,
         riskySteps: riskySteps(draft ? [flow.flowData, draft] : [flow.flowData], flow.chatbotConfig),
-        limits: checkLimits(),
+        limits: checkLimits(flow.type),
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
@@ -867,7 +868,7 @@ export async function startCheck(
         startedAt: Date.now(),
         finishedAt: null,
         includeRiskySteps,
-        limits: checkLimits(),
+        limits: checkLimits(flow.type),
         liveEmpty: liveIsEmpty(flow.flowData),
         cases: questions.map((question, index) => ({
             question,

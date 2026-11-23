@@ -206,6 +206,44 @@ describe('harness publish check', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test.each(['draft', 'promote'])('runs all questions in a %s check through one Try profile in sequence', async (kind) => {
+        replayHooks.run = null
+        const incoming = kind === 'promote' ? { key: 'flow-1:promote', canvas: canvas('LYCHEE') } : undefined
+        const candidateAnswer = incoming ? 'LYCHEE' : 'PAPAYA'
+        const owner = 'user:fixture'
+        const questions = ['What time do you open?', 'Do you have rye?']
+        const seen: string[] = []
+        let busy = false
+        harnessReplayHooks.run = async ({ flowData, question, tryOwner }) => {
+            if (busy) throw new Error('This Try profile is busy.')
+            busy = true
+            try {
+                expect(tryOwner).toBe(owner)
+                const answer = JSON.parse(flowData).nodes[0].data.inputs.instructions
+                seen.push(`${question}: ${answer}`)
+                await new Promise<void>((resolve) => setImmediate(resolve))
+                return { text: answer }
+            } finally {
+                busy = false
+            }
+        }
+        const target = flow()
+        const started = await startCheck(target as any, { questions }, 'http://x', {
+            caller: { via: 'session' },
+            tryOwner: owner,
+            given: incoming
+        })
+        await settle(incoming?.key || target.id)
+        const done = await getCheck(target, started.id, incoming)
+        expect(done.status).toBe('done')
+        expect(done.completed).toBe(questions.length)
+        expect(done.limits.concurrency).toBe(1)
+        expect(done.cases).toMatchObject(
+            questions.map((question) => ({ question, live: { text: 'MANGO', error: null }, draft: { text: candidateAnswer, error: null } }))
+        )
+        expect(seen).toEqual(questions.flatMap((question) => [`${question}: MANGO`, `${question}: ${candidateAnswer}`]))
+    })
+
     test('replays each side for the caller that started the check, so an API key keeps its harness list', async () => {
         replayHooks.run = null
         const callers: unknown[] = []

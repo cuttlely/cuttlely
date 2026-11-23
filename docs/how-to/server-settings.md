@@ -237,7 +237,7 @@ The question count default cannot be above the question cap. The rating scan mus
 | **Publish check**            | `CUTTLELY_PUBLISH_CHECK`         | On            | on or off                                  |
 | **Publish check token cap**  | `CUTTLELY_CHECK_MAX_TOKENS`      | 100000 tokens | 1000 to 2000000 tokens                     |
 | **Publish check time limit** | `CUTTLELY_CHECK_MAX_SECONDS`     | 180 seconds   | 10 to 1800 seconds                         |
-| **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8                                     |
+| **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8 (always 1 for harness checks)       |
 | **One run timeout**          | `CUTTLELY_CHECK_RUN_TIMEOUT_MS`  | 60000 ms      | 10000 to 600000 ms                         |
 | **Keep a finished check**    | `CUTTLELY_CHECK_KEEP_MINUTES`    | 30 minutes    | 5 to 1440 minutes                          |
 | **Question cap**             | `CUTTLELY_CHECK_COUNT_MAX`       | 100           | 1 to 500                                   |

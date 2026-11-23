@@ -124,15 +124,10 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         return
     }
     const signal = watchClientDisconnect(res)
+    const runOptions = { source, workspaceId, caller, expectedChatflowId, signal, sessionUserId: req.user?.id }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
-                source,
-                workspaceId,
-                caller,
-                expectedChatflowId,
-                signal
-            })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, runOptions)
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -147,11 +142,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     res.flushHeaders()
     try {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
-            source,
-            workspaceId,
-            caller,
-            expectedChatflowId,
-            signal,
+            ...runOptions,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })
         // Images a specialist made: the events named them, the chat shows them.
@@ -176,6 +167,7 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
             workspaceId,
             source: 'api',
             caller,
+            sessionUserId: req.user?.id,
             admit: async () => {
                 await completeAccessKeyAdmission(req)
                 return harnessCallerFor(req)

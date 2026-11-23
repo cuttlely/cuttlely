@@ -4,6 +4,7 @@ import type { DataSource } from 'typeorm'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { AppError } from '../errors/appError'
 import { assertFlowRuntimeAvailable } from './runtimeAvailability'
+import { tryOwnerFor } from './tryOwner'
 import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
 import { authorizeNestedFlowKey } from '../services/accessKeys/authorization'
 import { ChatType, IComponentNodes, IHarnessCaller, INestedFlowCaller, IPredictionQueueAppServer } from '../Interface'
@@ -32,8 +33,9 @@ interface NestedFlowRuntime extends NestedFlowExecutionRuntime {
     depth: number
 }
 
-export function nestedFlowCallerFromHarness(caller?: IHarnessCaller): INestedFlowCaller | undefined {
+export function nestedFlowCallerFromHarness(caller?: IHarnessCaller, sessionUserId?: string): INestedFlowCaller | undefined {
     if (!caller) return undefined
+    if (caller.via === 'session' && sessionUserId?.trim()) return { via: 'session', tryOwner: tryOwnerFor(caller, sessionUserId) }
     return caller.via === 'api_key' ? { via: 'api_key', apiKeyId: caller.apiKeyId } : { via: caller.via }
 }
 
@@ -111,9 +113,12 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
 }
 
 export function nestedFlowNodeOptions(runtime: NestedFlowRuntime): NestedFlowNodeOptions {
+    // The serializable caller follows the chat into a worker; the closure itself cannot.
+    const tryOwner = runtime.caller.via === 'session' ? runtime.caller.tryOwner ?? runtime.tryOwner : undefined
+    const caller = runtime.caller.via === 'session' && tryOwner ? { via: 'session' as const, tryOwner } : { ...runtime.caller }
     return {
-        nestedFlowCaller: { ...runtime.caller },
+        nestedFlowCaller: { ...caller },
         nestedFlowDepth: runtime.depth,
-        runNestedFlow: (request: INestedFlowRequest) => runNestedFlow(runtime, request)
+        runNestedFlow: (request: INestedFlowRequest) => runNestedFlow({ ...runtime, caller, tryOwner }, request)
     }
 }

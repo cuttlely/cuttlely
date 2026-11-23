@@ -1466,6 +1466,7 @@ const startRun = async (
         runId?: string
         // Who the run acts for. An API key's id is stored on the history row.
         caller: IHarnessCaller
+        sessionUserId?: string
         // Set by the canvas run. A flow with no list of its own may start that canvas.
         allowFlow?: boolean
         // Required for enforced key callers; retained through runtime and queue name re-resolution.
@@ -1486,7 +1487,7 @@ const startRun = async (
     assertRuntimeAvailable()
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
-    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
+    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller, opts.sessionUserId)
     const nestedFlowDepth =
         Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
@@ -1592,6 +1593,7 @@ const startBackgroundRun = async (
         workspaceId: string
         source?: 'api' | 'schedule'
         caller: IHarnessCaller
+        sessionUserId?: string
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         // API admission follows run/chat authorization and precedes the first queued history write.
@@ -1641,6 +1643,7 @@ const startBackgroundRun = async (
                 workspaceId: opts.workspaceId,
                 runId,
                 caller: opts.caller,
+                sessionUserId: opts.sessionUserId,
                 expectedChatflowId: opts.expectedChatflowId
             }
         )
