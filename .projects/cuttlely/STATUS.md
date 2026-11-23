@@ -1,3 +1,7 @@
+## Router follow-up turns stay on routing JSON (#561)
+
+On a follow-up turn (`history?.length`), `routeSteps` in `packages/harness/run.mjs` appends the exported `ROUTE_HISTORY_REMINDER` line to the routing user message: `Route this request; do not answer it. Reply with only the routing JSON.` First turns, the JSON retry, parsing, and the system prompt are unchanged. Tests in `packages/harness/check.mjs` next to the existing `ROUTE_JSON_RETRY` cases assert that a follow-up's first route call ends with that line and that a first-turn user message stays byte-identical to main. Flag-off and golden outputs on first turns are unchanged.
+
 ## ETL restart recovery and launch failure status (#539)
 
 `resumeInterruptedRuns` and the non-crash error handler in `launch()` (`packages/etl/runner.mjs`) re-read the run and write its status in one store transaction, the same compare-and-set pattern as `claimQueued`, `resumeUnlocked`, `pauseRun` and `cancelRun`. A pause or cancel committed before either write is kept.
