@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.12)
+# Cuttlely FAQ (1.7.13)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.12?
+### What's new in 1.7.13?
+
+The harness runs API accepts `"mode": "agent"` so the chief runs on the agent runtime; router mode stays the default. Follow-up router turns stay on routing JSON. Direct chief calls reach the configured model through the gateway. Long-running Analyst query, specialist MCP tool, and runtime health-probe limits are set with environment variables; Admin Server Settings fields for those limits are planned for a later release. ETL restart recovery no longer overwrites a concurrent pause or cancel. Analyst on Postgres keeps role passwords in the application database. Use matching 1.7.13 server and widget packages. [Agent mode](./docs/how-to/harness-agent-mode.md) · [Long-running queries and tasks](./docs/how-to/server-settings.md#long-running-queries-and-tasks) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1713).
+
+### What changed in 1.7.12?
 
 Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. Use matching 1.7.12 server and widget packages. No schema migration is added. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
 

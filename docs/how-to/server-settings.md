@@ -87,7 +87,7 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 ## Long-running queries and tasks
 
-Set these environment variables on the host and restart Cuttlely. Admin Server Settings fields for these limits are coming in the same release; use the env vars for the extended limits today.
+Set these environment variables on the host and restart Cuttlely. Admin Server Settings fields for these limits are planned for a later release.
 
 | Variable                                | Default         | Host range and behavior                                                                                                                                                          |
 | --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

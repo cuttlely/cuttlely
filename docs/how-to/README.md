@@ -2,6 +2,13 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.13
+
+-   **Run a harness in agent mode.** The harness runs API accepts `"mode": "agent"` to run the chief on the agent runtime and delegate through `run_specialist`. Router mode remains the default. Follow-up router turns stay on routing JSON. Direct chief calls reach the configured model through the gateway. [Run a harness in agent mode](./harness-agent-mode.md).
+-   **Raise long-running query and tool limits with env vars.** `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`, `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS`, and `CUTTLELY_HERMES_HEALTH_TIMEOUT` set those limits on the host. Admin Server Settings fields for these limits are planned for a later release. [Long-running queries and tasks](./server-settings.md#long-running-queries-and-tasks).
+-   **Keep ETL pause and cancel across restart recovery.** Restart recovery and launch failures use conditional status writes so a concurrent pause or cancel is not overwritten. [ETL](./etl.md).
+-   **Analyst passwords on Postgres stay in the application database.** Existing `.enc` files are imported unchanged. Stop the old instance before starting the new one on ephemeral or unshared disks. [Upgrade guide](../upgrading.md#upgrading-to-1713).
+
 ## New in 1.7.12
 
 -   **Connect roster over the runtime's stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. [Upgrade guide](../upgrading.md#upgrading-to-1712).

@@ -1,3 +1,7 @@
+## 1.7.13 release
+
+-   `CHANGELOG.md` and the four product manifests (`package.json`, `packages/server/package.json`, `packages/cli/package.json`, `packages/chat-widget/package.json`): dated 1.7.13 notes and version bumps for what had merged onto main by 4 AM CT on 2026-11-23 (`9916a48c55dccf512e3b20dc17919bdacd67a3cb`), including follow-up router turns staying on routing JSON in #565 (`9916a48c55dccf512e3b20dc17919bdacd67a3cb`, #561) and ETL conditional status writes in #556 (`5d27991dcae4d4b79014de4f8b88ae150a66d9a9`, #539). #562 and #564 are not in this cut.
+
 ## 1.7.12 release
 
 -   `CHANGELOG.md` and the four product manifests (`package.json`, `packages/server/package.json`, `packages/cli/package.json`, `packages/chat-widget/package.json`): dated 1.7.12 notes and version bumps for the roster stdio-framing fix in #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store start/resume/pause/cancel fixes in #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`).

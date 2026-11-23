@@ -2,13 +2,9 @@
 
 ## Current release work
 
-#536 leftover work: retiring a multiplexed profile closes that profile's log files and MCP stderr handles (Hermes patch 0014), scoped so a still-served sibling keeps working. Reconcile uses the same path. Issue #536 stays open until this change merges.
+1.7.13 is being cut from main `9916a48c55dccf512e3b20dc17919bdacd67a3cb`, which is what had merged by 4 AM CT on 2026-11-23. The release branch dates the changelog `## [1.7.13] - 2026-11-23` and bumps the product manifests plus the version-consistency release notices and image/widget pins. #565 landed as `9916a48c55dccf512e3b20dc17919bdacd67a3cb` (#561). #556 landed as `5d27991dcae4d4b79014de4f8b88ae150a66d9a9` (#539). #562 and #564 are not in this cut. Publication and deployment remain separate.
 
-Also in this change: MCP discovery start and end lines are written to stderr as well as the runtime log files, so they appear in container and hosted logs (patch 0013 regenerated).
-
-1.7.13 PR A prepares direct chief execution through the existing runs API with optional agent mode; router mode remains the default. Chief gateway binding and the compiler revision change are included. The local base is the 1.7.12 release commit `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)). Publication and deployment remain separate. Outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540).
-
-1.7.12 is published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. Release notes are dated `## [1.7.12] - 2026-11-21`. The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Orchestrate and A2A outage-response follow-up remains [#540](https://github.com/cuttlely/cuttlely/issues/540). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)).
+1.7.12 is published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. Release notes are dated `## [1.7.12] - 2026-11-21`. The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)).
 
 ## Milestones
 
@@ -38,7 +34,9 @@ Also in this change: MCP discovery start and end lines are written to stderr as 
 
 ## Next concrete tasks
 
--   **1.7.12 release (published).** Published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. Release notes are dated `## [1.7.12] - 2026-11-21` and cover the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Known issue #540 remains open.
+-   **1.7.13 release (in progress).** Version bumps and dated changelog for what had merged onto main by 4 AM CT on 2026-11-23 (`9916a48c55dccf512e3b20dc17919bdacd67a3cb`), including #565 (`9916a48c55dccf512e3b20dc17919bdacd67a3cb`, #561) and #556 (`5d27991dcae4d4b79014de4f8b88ae150a66d9a9`, #539). #562 and #564 are not in this cut.
+
+-   **1.7.12 release (published).** Published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. Release notes are dated `## [1.7.12] - 2026-11-21` and cover the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode).
 
 -   **1.7.11 release (published).** Published as `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)), tagged `v1.7.11`. Release notes are dated `## [1.7.11] - 2026-11-21` and cover the startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542). Known issue #540 remains open.
 
