@@ -1,5 +1,5 @@
 // Server settings page logic, kept apart from the components so it can be tested.
-// Drafts are raw strings keyed by setting name: '' removes a saved value (back to the default).
+// Drafts are raw strings keyed by setting name: '' removes a saved value (back to the host or default).
 
 export const SECRET_ACTIONS = { set: 'Set', replaced: 'Replaced', removed: 'Removed', changed: 'Changed' }
 
@@ -55,7 +55,7 @@ export function numberWarning(setting, drafts) {
     const warnings = setting.warnings
     if (!warnings || setting.type !== 'number') return null
     const raw = currentValue(setting, drafts)
-    const text = String(raw === '' || raw === undefined || raw === null ? setting.defaultValue ?? '' : raw).trim()
+    const text = String(raw === '' || raw === undefined || raw === null ? setting.clearValue ?? setting.defaultValue ?? '' : raw).trim()
     if (!/^\d+(\.\d+)?$/.test(text)) return null
     const value = Number(text)
     if (value === 0 && warnings.zero) return { strong: true, message: warnings.zero }
@@ -76,7 +76,7 @@ export function effectiveValues(settings, drafts) {
         }
         if (Object.prototype.hasOwnProperty.call(drafts, setting.key)) {
             const draft = drafts[setting.key]
-            map.set(setting.key, draft !== '' ? draft : setting.defaultValue ?? '')
+            map.set(setting.key, draft !== '' ? draft : setting.clearValue ?? setting.defaultValue ?? '')
         } else {
             map.set(setting.key, setting.effective ?? setting.defaultValue ?? '')
         }
@@ -115,7 +115,11 @@ export function isSwitchOn(setting, raw) {
 
 /** Words for a raw value: On or Off, the option label, or the default in words. */
 export function describeValue(setting, raw) {
-    if (raw === undefined || raw === null || raw === '') return `Default (${setting.defaultLabel})`
+    if (raw === undefined || raw === null || raw === '') {
+        if (setting.clearSource === 'host' && setting.clearValue !== undefined && setting.clearValue !== '')
+            return `Host (${describeValue(setting, setting.clearValue)})`
+        return `Default (${setting.defaultLabel})`
+    }
     if (setting.type === 'switch') {
         if (isSwitchOn(setting, raw)) return 'On'
         // A listed on set means the server reads every other value as off.

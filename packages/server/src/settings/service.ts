@@ -59,6 +59,9 @@ export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     changed: boolean
     /** The value the server behaves as if it had (plain settings only), for conditions. */
     effective?: string
+    /** Non-secret limit fallback after clearing its saved value. */
+    clearValue?: string
+    clearSource?: 'host' | 'default'
 }
 
 export interface SettingsView {
@@ -177,6 +180,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
         return !setting?.fixed && !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
     })
     const limits = limitSnapshot(env)
+    const clearedLimits = resolveLimits(env, {})
     const startLimits = resolveLimits(env, state.ignored ? {} : state.atStart)
     for (const setting of SETTINGS) {
         if (
@@ -233,7 +237,13 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.changed = changed.includes(setting.key)
             view.value = picked.source === 'default' ? '' : picked.value
             view.effective = picked.value
-            view.running = state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value
+            view.running =
+                setting.applies === 'live'
+                    ? env[setting.key] ?? setting.defaultValue ?? ''
+                    : state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value
+            const cleared = clearedLimits.get(setting.key)!
+            view.clearValue = cleared.value
+            view.clearSource = cleared.source === 'host' ? 'host' : 'default'
             if (setting.min !== undefined && setting.max !== undefined) view.range = { min: setting.min, max: setting.max }
         } else if (setting.panelFirst) {
             const picked = accountLinkSnapshot(env).get(setting.key)

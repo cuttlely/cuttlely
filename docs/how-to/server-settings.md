@@ -79,7 +79,7 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ## Time limits and caps
 
-The agent team limits below use **saved admin setting > host environment variable > default**. A host value does not lock these fields. Clear a saved value to return to the original host value, or the default when no host value was set. With nothing saved, existing defaults and runtime behavior are unchanged.
+The agent team limits below use **saved admin setting > host environment variable > default**. A host value does not lock these fields. Clear a saved value to return to the original host value, or the default when no host value was set. The review shows that fallback before saving. With nothing saved, existing defaults and runtime behavior are unchanged.
 
 Each editable limit shows the existing source chip: **Saved here**, **Host**, or **Default**. Review and save uses the same operator/owner authorization, validation and **History** as other Server settings. Values outside the minimum or maximum, or fractional raw values for an integer field, are refused. Fields shown in seconds with an `_MS` variable store raw milliseconds.
 
@@ -101,7 +101,7 @@ Each editable limit shows the existing source chip: **Saved here**, **Host**, or
 | Misses before a restart                 | `CUTTLELY_HERMES_HEALTH_FAILS`            | 3                                                                               | 1       | 100     | Restart |
 | Continuous misses before a restart      | `CUTTLELY_HERMES_HEALTH_WINDOW`           | 15 seconds                                                                      | 0       | 3600    | Restart |
 
-Ranges are in seconds except **Misses before a restart**, which counts failed checks. **Agent run time** and **Turn time limit** accept 0 for unlimited. The tool-call field has no single default: when unset, the agent runtime waits 300 seconds for an MCP tool and the bridge waits 130 seconds. When set, the bridge wait uses the chosen value and the runtime per-tool deadline uses that value plus 60 seconds. The model-call cap defaults to two minutes; shorter turn, agent-run, provider and transport deadlines still apply.
+Ranges are in seconds except **Misses before a restart**, which counts failed checks. **Agent run time** and **Turn time limit** accept 0 for unlimited. The tool-call field has no single default: when unset, the agent runtime waits 300 seconds for an MCP tool and the bridge waits 130 seconds. When set, the bridge wait uses the chosen value and the runtime per-tool deadline uses that value plus 60 seconds. The model-call cap defaults to two minutes; shorter turn, agent-run, provider and transport deadlines still apply. External harness workers refresh the three live limits from the shared settings file before each job, so saves and clears apply to the next run without restarting a worker. Saving does not stop work already running.
 
 Shell commands longer than the foreground maximum move to the background. The agent runtime per-tool deadline still applies to shell and code runs. Increasing the code-run timeout does not increase the fixed tool-call response wait below.
 
@@ -145,7 +145,7 @@ CUTTLELY_HARNESS_TOOL_TIMEOUT_MS=3660000
 
 A 300-second query needs every limit around it to be larger than 300 seconds. With the tool setting above, specialist MCP servers wait 3660 s, the stdio bridge waits 3720 s, and both Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) are 3720 s. The bridge and deadlines follow the tool setting with a 60 s margin. The roster MCP server always has an unlimited MCP wait; the agent run and whole-turn limits still apply. When the tool setting is unset, the bridge keeps its existing 130 s wait.
 
-This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings.
+This tool-call setting covers MCP tools only. Shell and code timeouts have separate controls in [Time limits and caps](#time-limits-and-caps). The fixed 300 s code tool-call response wait still applies; use a pipeline job when work needs longer than that response wait. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings.
 
 Set any proxy or load-balancer idle timeout to at least 3720 s for harness streams with this example. [Proxy stream timeouts](./reverse-proxy.md#how-long-a-stream-can-stay-quiet) explains the separate limits for streams and reusable connections.
 

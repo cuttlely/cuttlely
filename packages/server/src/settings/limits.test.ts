@@ -40,6 +40,45 @@ afterEach(() => {
 })
 
 describe('admin time limits', () => {
+    it('keeps saved limits after the base command loads, with matching running values', async () => {
+        const f = fixture({ [RESTART]: '60000' })
+        writeSettingsFile(f.dir, { [RESTART]: '90000' }, { key: KEY })
+        const before = process.env
+        process.env = { HOME: before.HOME, DATABASE_PATH: before.DATABASE_PATH, ...f.env }
+        jest.doMock('dotenv', () => ({
+            __esModule: true,
+            default: {
+                config: () => {
+                    process.env[RESTART] = '60000'
+                }
+            }
+        }))
+        jest.doMock('../utils/logger', () => ({ __esModule: true, default: {} }))
+        jest.doMock('../identity/initialOwner', () => ({ captureInitialOwnerEnvironment: jest.fn() }))
+        try {
+            let state: ServiceDeps['state']
+            jest.isolateModules(() => {
+                state = require('../commands/base').startState
+            })
+            expect(process.env[RESTART]).toBe('90000')
+            const view = await getView({ env: process.env, state: state!, key: async () => KEY })
+            expect(row(view, RESTART)).toMatchObject({ effective: '90000', running: process.env[RESTART], source: 'panel' })
+        } finally {
+            process.env = before
+            jest.dontMock('dotenv')
+            jest.dontMock('../utils/logger')
+            jest.dontMock('../identity/initialOwner')
+        }
+    })
+
+    it('exposes the original host fallback when a saved limit is cleared', async () => {
+        const f = fixture({ [LIVE]: '60000' })
+        writeSettingsFile(f.dir, { [LIVE]: '90000' }, { key: KEY })
+        expect(row(await getView(f.start()), LIVE)).toMatchObject({ clearValue: '60000', clearSource: 'host' })
+        const noHost = fixture()
+        expect(row(await getView(noHost.start()), LIVE)).toMatchObject({ clearValue: '45000', clearSource: 'default' })
+    })
+
     it('resolves saved, host, then default and leaves unset defaults out of the environment', () => {
         const f = fixture({ [LIVE]: '60000' })
         writeSettingsFile(f.dir, { [LIVE]: '90000' }, { key: KEY })
@@ -94,7 +133,7 @@ describe('admin time limits', () => {
         expect(row(await getView(service), LIVE)).toMatchObject({ source: 'host', value: '60000', locked: false })
         const saved = await saveChanges(service, { values: { [LIVE]: '90000' } }, 'operator')
         expect(f.env[LIVE]).toBe('90000')
-        expect(row(saved, LIVE)).toMatchObject({ source: 'panel', effective: '90000', running: '60000', changed: false })
+        expect(row(saved, LIVE)).toMatchObject({ source: 'panel', effective: '90000', running: '90000', changed: false })
         expect(saved.restart.changed).not.toContain(LIVE)
         expect(readHistory(f.dir)[0]).toMatchObject({ kind: 'save', by: 'operator', changes: [{ key: LIVE, to: '90000' }] })
         const cleared = await saveChanges(service, { values: { [LIVE]: '' } }, 'operator')

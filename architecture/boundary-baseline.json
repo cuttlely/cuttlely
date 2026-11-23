@@ -1651,6 +1651,11 @@
             "reason": "The HTTP localhost switch is read from Server settings and handed to the components HTTP guard through its reader setter"
         },
         {
+            "from": "packages/server/src/settings/limits.test.ts",
+            "to": "packages/server/src/commands/base.ts",
+            "reason": "The limits test loads the base command to prove saved limits survive its startup dotenv load"
+        },
+        {
             "from": "packages/server/src/settings/operator-claim.ts",
             "to": "packages/server/src/database/entities/index.ts",
             "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
