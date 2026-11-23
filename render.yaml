@@ -47,12 +47,9 @@ services:
       name: cuttlely
       runtime: docker
       region: oregon
-      # pro plus is 8 GB RAM and 4 CPU. Hermes, Chromium, and Node share the instance.
-      # pro (4 GB, 2 CPU) is the minimum; starter and standard are too small and
-      # run out of memory when a browser specialist starts Chromium. pro max is the
-      # next step up. Render spells this plan "pro plus" (4c-8g in its newer plan ids).
-      # Disks are not on the free plan.
-      plan: pro plus
+      # Standard has one CPU and 2 GB of RAM for a trial with light QA.
+      # Start at 2c-4g for general use. Concurrent evaluations and Chromium may need 2c-8g.
+      plan: 1c-2g
       branch: main
       # commit deploys every push to main. autoDeploy: true is the old field name.
       autoDeployTrigger: commit
