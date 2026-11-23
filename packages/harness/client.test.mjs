@@ -16,12 +16,49 @@ const { profileDir } = await import('./paths.mjs')
 const { saveHarness } = await import('./store.mjs')
 const { runHarness } = await import('./run.mjs')
 const { setGatewayContext, startGateway, stopGateway } = await import('./gateway.mjs')
+const { hermesStreamActive } = await import('./runtime/hermes-stream.mjs')
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 const profile = 'cleanup-fixture--worker'
 fs.mkdirSync(path.dirname(profileEnvPath(profile)), { recursive: true })
 fs.writeFileSync(profileEnvPath(profile), 'API_SERVER_KEY=offline-fixture-only\n', { mode: 0o600 })
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+test('only received bytes renew the 30-second lease, including keepalive comments between slow events', async (t) => {
+    let now = Date.now()
+    t.mock.method(Date, 'now', () => now)
+    const observations = []
+    const bytes = (text) => new TextEncoder().encode(text)
+    const events = []
+    const body = (async function* () {
+        observations.push(hermesStreamActive(dir)) // Open headers alone are not evidence of progress.
+        yield bytes('data: {"type":"started"}\n\n')
+        now += 25000
+        observations.push(hermesStreamActive(dir))
+        yield bytes(': keepalive\n\n')
+        now += 25000
+        observations.push(hermesStreamActive(dir)) // Real events are now 50 seconds apart.
+        yield new Uint8Array() // An empty chunk must not renew the lease.
+        now += 4999
+        observations.push(hermesStreamActive(dir))
+        now += 1
+        observations.push(hermesStreamActive(dir)) // Exactly 30 seconds with no bytes is stale.
+        yield bytes('data: {"type":"finished"}\n\n')
+        observations.push(hermesStreamActive(dir))
+        yield bytes(': stream closed\n\n')
+    })()
+    const result = await waitForRun({
+        harnessName: profile,
+        runId: 'slow-stream',
+        timeoutMs: 0,
+        onEvent: (event) => events.push(event.type),
+        fetchImpl: async (url) => (String(url).endsWith('/events') ? { ok: true, body } : json({ status: 'completed' }))
+    })
+    assert.equal(result.status, 'completed')
+    assert.deepEqual(observations, [false, true, true, true, false, true])
+    assert.deepEqual(events, ['started', 'finished'])
+    assert.equal(hermesStreamActive(dir), false, 'closing the stream removes its lease')
+})
 
 test('cancelling one chat stops only its runtime run and gateway model request', { timeout: 10000 }, async (t) => {
     const name = 'cancel-isolation'

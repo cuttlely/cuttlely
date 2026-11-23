@@ -5,32 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { checkVersionConsistency } from './version-consistency.mjs'
+import { RELEASE_DOC_FIXTURE as CONTENTS } from './fixtures/release-docs.mjs'
+import { checkVersionConsistency, releaseDocText } from './version-consistency.mjs'
 
 const SCRIPT = fileURLToPath(new URL('./version-consistency.mjs', import.meta.url))
 const EXPECTED = '2.3.4'
 const STALE = '2.3.3'
-// Independent examples of the release-facing surfaces, rather than generating
-// fixture text from the check's selectors (which could hide a missing selector).
-const CONTENTS = {
-    'package.json': JSON.stringify({ version: EXPECTED }),
-    'website/src/components/Hero.astro': '<p><strong>New in 2.3.4:</strong> Current features.</p>\n',
-    'FAQ.md': '# Cuttlely FAQ (2.3.4)\n',
-    'AGENTS.md': '# Agent instructions for Cuttlely\n\nCuttlely 2.3.4 gives applications agent teams.\n',
-    'README.md':
-        '# Cuttlely\n\n**2.3.4 adds current features.**\n\nLatest stable is **2.3.4**. Pin image `2.3.4` or install `cuttlely@2.3.4`.\n',
-    'README.ja.md': '# Cuttlely\n\n**2.3.4 では、新しい機能を追加しました。**\n\n最新の安定版は **2.3.4** です。`cuttlely@2.3.4`。\n',
-    'README.ko.md': '# Cuttlely\n\n**2.3.4에서는 새로운 기능을 추가합니다.**\n\n최신 안정 버전은 **2.3.4**입니다. `cuttlely@2.3.4`.\n',
-    'i18n/README-ZH.md': '# Cuttlely\n\n最新稳定版是 **2.3.4**。`cuttlely@2.3.4`。\n',
-    'i18n/README-TW.md': '# Cuttlely\n\n最新穩定版是 **2.3.4**。`cuttlely@2.3.4`。\n',
-    'docs/how-to/README.md': '# How-to guides\n\n## New in 2.3.4\n\nCurrent features.\n',
-    'docs/how-to/docker.md':
-        '# Docker\n\nUse `ghcr.io/cuttlely/cuttlely:latest` by default.\n\n- **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:X.Y.Z`, for example `ghcr.io/cuttlely/cuttlely:2.3.4`.\n',
-    'docs/how-to/share-and-embed.md': '# Embed\n\nPin `npm install @cuttlely/chat@2.3.4` for a 2.3.4 server.\n',
-    '.env.example': '# CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:2.3.4\n',
-    'docker-compose.yml':
-        '# CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:2.3.4    pin the 2.3.4 release image\nservices:\n  cuttlely:\n    image: ${CUTTLELY_IMAGE:-ghcr.io/cuttlely/cuttlely:latest}\n'
-}
 
 function fixture(t, changes = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'version-consistency-'))
@@ -255,4 +235,17 @@ test('the command exits successfully for a matching tree and nonzero with action
         assert.equal(result.status, status, text)
         assert.match(text, diagnostic)
     }
+})
+
+test('a release promotes only its own headline and leaves prior release history intact', () => {
+    const source = '**Upcoming** · **2.3.5 adds a feature.**\n**2.3.4 previous feature.**\nLatest stable is **2.3.4**.\n'
+    assert.equal(
+        releaseDocText('README.md', source, '2.3.4', '2.3.5'),
+        '**2.3.5 adds a feature.**\n**2.3.4 previous feature.**\nLatest stable is **2.3.5**.\n'
+    )
+    const pins = 'Use ghcr.io/cuttlely/cuttlely:2.3.4 with dependency 2.3.4.\n## Release history\nUse ghcr.io/cuttlely/cuttlely:2.3.4.\n'
+    assert.equal(
+        releaseDocText('docs/how-to/docker.md', pins, '2.3.4', '2.3.5'),
+        'Use ghcr.io/cuttlely/cuttlely:2.3.5 with dependency 2.3.4.\n## Release history\nUse ghcr.io/cuttlely/cuttlely:2.3.4.\n'
+    )
 })

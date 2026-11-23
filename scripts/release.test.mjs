@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { RELEASE_DOC_FIXTURE } from './fixtures/release-docs.mjs'
 import { assertIsolated, isolateProcessEnv, testGit, withoutGitEnv } from './test-git.mjs'
 import {
     HELP,
@@ -380,6 +381,16 @@ function fixture() {
         path.join(repo, 'packages', 'chat-widget', 'package.json'),
         '{\n    "name": "@cuttlely/chat",\n    "version": "1.0.0"\n}\n'
     )
+    for (const [file, text] of Object.entries(RELEASE_DOC_FIXTURE)) {
+        if (file === 'package.json') continue
+        let contents = text.replaceAll('2.3.4', '1.0.0')
+        if (file.startsWith('README')) contents = '**Upcoming** · **1.1.0 adds a feature.**\n' + contents
+        if (file === 'docs/how-to/README.md') contents = '## Upcoming · New in 1.1.0\n' + contents
+        fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
+        fs.writeFileSync(path.join(repo, file), contents)
+    }
+    fs.writeFileSync(path.join(repo, 'packages/cli/README.md'), 'npx cuttlely start --tag 1.0.0\n')
+    fs.writeFileSync(path.join(repo, 'packages/chat-widget/README.md'), 'The 1.0.0 package matches a 1.0.0 server.\n')
     fs.writeFileSync(path.join(repo, 'CHANGELOG.md'), CHANGELOG)
     sh(repo, 'git', ['add', '.'])
     sh(repo, 'git', ['commit', '-q', '-m', 'init'])

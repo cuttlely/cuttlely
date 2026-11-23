@@ -45,7 +45,11 @@ export function hostSetKeys(env: Env, settings: SettingDef[] = SETTINGS): Set<st
         )
     }
     const defaulted = scriptDefaultKeys(env)
-    return new Set(settings.filter((setting) => !isBlank(env[setting.key]) && !defaulted.has(setting.key)).map((setting) => setting.key))
+    return new Set(
+        settings
+            .filter((setting) => !setting.fixed && !isBlank(env[setting.key]) && !defaulted.has(setting.key))
+            .map((setting) => setting.key)
+    )
 }
 
 export function resolveSettings(input: { env: Env; hostKeys?: Set<string>; file?: Record<string, string> }): ResolvedSetting[] {
@@ -54,6 +58,7 @@ export function resolveSettings(input: { env: Env; hostKeys?: Set<string>; file?
     const defaulted = scriptDefaultKeys(input.env)
     return SETTINGS.map((setting) => {
         const key = setting.key
+        if (setting.fixed) return { key, value: '', source: 'default' as const }
         if (hostKeys.has(key) && !isBlank(input.env[key])) return { key, value: String(input.env[key]), source: 'host' as const }
         if (Object.prototype.hasOwnProperty.call(file, key) && !isBlank(file[key]))
             return { key, value: String(file[key]), source: 'file' as const }
@@ -86,7 +91,7 @@ export function fileValuesToApply(
         const setting = settingFor(key)
         // Invite and mail settings are read on each use. Copying them onto the process would hide the host value.
         if (key === 'INBOUND_ACCESS_V2') continue // Runtime rollout must never look host-set after a restart.
-        if (!setting || setting.panelFirst || setting.envOnly || hostKeys.has(key) || isBlank(value)) continue
+        if (!setting || setting.fixed || setting.panelFirst || setting.envOnly || hostKeys.has(key) || isBlank(value)) continue
         // A host-set partner of this alias wins, the same way a host-set key wins.
         if (partnerIsSet(env, key, defaults)) continue
         out[key] = String(value)

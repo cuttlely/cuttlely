@@ -1,6 +1,6 @@
 # Server settings
 
-**Admin** > **Server Settings** is where the host-designated instance operator changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations, testing and limits, and advanced options. You change values on the page and review them. Runtime limits apply on the next use. The other settings wait for a restart. Initial operator designation and recovery require access to the host.
+**Admin** > **Server Settings** is where the host-designated instance operator changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations, testing and limits, and advanced options. You change values on the page and review them. Live limits apply on the next use. Each other setting says when its saved change takes effect. Initial operator designation and recovery require access to the host.
 
 ![Server settings in the light theme. Set up your server shows three tiles, 0 of 3 done: Sign-in for your team, Analyst, and A model key, with Skip for now. Sign-in & identity is selected. The Sign in with WorkOS AuthKit card has Set up AuthKit. Owner password sign-in is On and marked Locked.](../images/server-settings/server-settings-signin.png)
 
@@ -29,7 +29,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference.
 3. The bar at the bottom counts your edits. Select **Review and save**.
 4. Review lists each change from old to new. Secrets show only as set, replaced or removed. A change marked **High risk** (it could stop Cuttlely from starting, or keep people from signing in) needs `RESTART` typed before **Save changes** works.
-5. A runtime limit applies on the next use. Every other saved change waits for a restart. Select **Restart now** in the bar when one still needs it. When this server cannot restart itself, the button says **How to restart**.
+5. A live limit applies on the next use. Agent runtime limits that need a restart show **Pending: applies when idle** when the server can restart itself. Other startup settings wait for a restart; select **Restart now** in the bar when one still needs it. When this server cannot restart itself, the button says **How to restart**.
 
 ![Security & network after a save. A green notice reads Saved. Restart Cuttlely to apply. The bar says 6 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-saved.png)
 
@@ -37,7 +37,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 ![Review 2 changes. File storage, marked High risk, goes from Default (This server) to S3 or compatible. Proxies in front of Cuttlely, marked High risk, goes from Default (None) to 1. The warning says a high-risk change can stop Cuttlely from starting or keep people from signing in. RESTART is typed in the box. Back and Save changes are at the bottom.](../images/server-settings/server-settings-review-high-risk.png)
 
-Runtime limits apply on the next use. The other settings apply at the next restart, and until then the server keeps running with what it started with. **Discard** puts the saved file back the way it was at start.
+Live limits apply on the next use. Restart-type limits apply [when idle](#time-limits-and-caps) on supervised installations. Other startup settings apply at the next restart, and until then the server keeps running with what it started with. **Discard** puts the saved file back the way it was at start.
 
 Failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait are runtime limits. A shorter session lifetime ends sessions that are already signed in, on the next request, including an AuthKit session. Every WorkOS callback creates its own Cuttlely database session, and using Cuttlely records activity at most once a minute to keep the idle clock moving. If WorkOS does not send a provider session id, the Cuttlely session still uses these limits; only hosted WorkOS sign-out is unavailable for that session. The shutdown wait is 0 to 300000 milliseconds. 0 does not wait. A queue worker picks up a saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. How many settings changes to keep is the exception: on **Security & network**, under **History**, **Settings changes to keep** (`CUTTLELY_HISTORY_KEEP`, 1000, from 100 to 10000) is saved on this page, and that saved value wins over the environment variable. The field shows the number in effect and whether it came from the panel, the environment, or the default. A number outside 100 to 10000 is refused. The field stays editable when the environment sets the variable. [Server settings API](../reference/server-settings-api.md).
 
@@ -49,7 +49,7 @@ Failed sign-ins before lockout, the idle session lifetime, the absolute session 
 | 2     | Server settings, saved in `settings/server.json` in Cuttlely's data folder                                                                                      | Editable                                       |
 | 3     | The built-in default                                                                                                                                            | Editable; the default is named under the field |
 
-A blank value counts as not set. A value set by the host always wins, so the page never overrides it. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host. Invite and mail settings are the other exception: a value saved here overrides the host, the field stays editable, and the change applies to the next invite or message. The mail password is not one of those: it stays in the environment, and the page only shows whether it is set.
+A blank value counts as not set. For ordinary startup settings, a value set by the host wins. The agent team fields in **Time limits and caps** use a saved value first. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host. Invite and mail settings are the other exception: a value saved here overrides the host, the field stays editable, and the change applies to the next invite or message. The mail password is not one of those: it stays in the environment, and the page only shows whether it is set.
 
 `CUTTLELY_FILE_SIZE_LIMIT` is the same limit as the existing upload size variable, and `DISABLE_CUTTLELY_TELEMETRY` is the usage-event switch. When both names of one of those settings are set, the `CUTTLELY_` name is used. The encryption key is not on this page. `CUTTLELY_SECRETKEY_OVERWRITE` is that key's compatibility alias. If it and the existing overwrite variable are both set to different values, Cuttlely refuses to start. `METRICS_PREFIX`, under Metrics, is optional. Empty keeps the metric names this server already publishes.
 
@@ -77,9 +77,53 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ![The end of the Analyst section: Query timeout, Query previews in the run trace set to On, and the test card. Test the analyst database failed: Could not connect to the analyst database. Not the application database has a green dot, and Connect and sign in has a red dot: The analyst database refused the connection. Check the address and port, and that the service is running. The button is Test again. The bar at the bottom says 1 unsaved change.](../images/server-settings/test-connection-analyst-failed.png)
 
+## Time limits and caps
+
+The agent team limits below use **saved admin setting > host environment variable > default**. A host value does not lock these fields. Clear a saved value to return to the original host value, or the default when no host value was set. The review shows that fallback before saving. With nothing saved, existing defaults and runtime behavior are unchanged.
+
+Each editable limit shows the existing source chip: **Saved here**, **Host**, or **Default**. Review and save uses the same operator/owner authorization, validation and **History** as other Server settings. Values outside the minimum or maximum, or fractional raw values for an integer field, are refused. Fields shown in seconds with an `_MS` variable store raw milliseconds.
+
+**Live** applies to the next call or query without restarting or stopping current work. The chat lock lease is also read at each renewal. A saved **Restart** limit that needs a profile rewrite or an agent runtime restart shows **Pending: applies when idle** when the server runs under the start script. It stays in the existing restart banner until applied.
+
+Cuttlely waits at least 10 seconds after the last save, then checks for an idle runtime every 5 seconds while limits are pending. Work in progress is never cut off to apply these limits: open chat turns, async agent team runs, pipeline work and other tracked background runs finish first. At idle, new runs receive the short restarting answer, and Cuttlely checks once more before restarting through the same path as **Restart now**. That restart reloads saved settings, recompiles outdated profiles and restarts the agent runtime. If a run arrives during the check, Cuttlely resumes admission and waits for the next idle moment. An earlier manual or service restart also applies the saved values.
+
+Without a supervisor or an available restart handler, the chip says **Pending: applies at the next restart**; saving does not restart the server. If the same limits are still pending after an automatic attempt, automatic application stops, the page flags it and the log lists the keys. Restart manually after checking the installation. History records an idle restart as **system**, listing keys without values.
+
+| Setting                                 | Environment variable                      | Default                                                                         | Minimum | Maximum | Applies |
+| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- | ------- | ------- | ------- |
+| Model call time limit                   | `CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS`  | 2 minutes                                                                       | 1       | 3600    | Live    |
+| Silent model stream limit               | `CUTTLELY_HERMES_STREAM_STALE_SECONDS`    | 45 seconds                                                                      | 5       | 3600    | Restart |
+| Shell command time limit                | `CUTTLELY_HERMES_TERMINAL_TIMEOUT`        | 180 seconds                                                                     | 1       | 3600    | Restart |
+| Longest shell command in the foreground | `CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND` | 600 seconds                                                                     | 1       | 3600    | Restart |
+| Code run time limit                     | `CUTTLELY_HERMES_CODE_TIMEOUT`            | 300 seconds                                                                     | 1       | 3600    | Restart |
+| Tool call time limit                    | `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS`        | Not set: the agent runtime waits 300 seconds for a tool, the bridge 130 seconds | 1       | 3660    | Restart |
+| Agent run time                          | `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`         | 4 minutes                                                                       | 0       | 3600    | Restart |
+| Chat lock lease                         | `CUTTLELY_HARNESS_LOCK_MS`                | Turn time limit plus 5 seconds, or 2 minutes when the turn time limit is off    | 0       | 86400   | Live    |
+| Turn time limit                         | `CUTTLELY_HARNESS_TURN_BUDGET_MS`         | 45 seconds                                                                      | 0       | 3600    | Live    |
+| Query timeout                           | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`   | 15 seconds                                                                      | 1       | 3600    | Live    |
+| Health check timeout                    | `CUTTLELY_HERMES_HEALTH_TIMEOUT`          | 2 seconds                                                                       | 1       | 30      | Restart |
+| Grace period after a start              | `CUTTLELY_HERMES_HEALTH_GRACE`            | 60 seconds                                                                      | 0       | 3600    | Restart |
+| Misses before a restart                 | `CUTTLELY_HERMES_HEALTH_FAILS`            | 3                                                                               | 1       | 100     | Restart |
+| Continuous misses before a restart      | `CUTTLELY_HERMES_HEALTH_WINDOW`           | 15 seconds                                                                      | 0       | 3600    | Restart |
+
+Ranges are in seconds except **Misses before a restart**, which counts failed checks. **Agent run time** and **Turn time limit** accept 0 for unlimited. The tool-call field has no single default: when unset, the agent runtime waits 300 seconds for an MCP tool and the bridge waits 130 seconds. When set, the bridge wait and the runtime per-tool deadline use the chosen value plus 60 seconds. The model-call cap defaults to two minutes; shorter turn, agent-run, provider and transport deadlines still apply. External harness workers refresh the three live limits from the shared settings file before each job, so saves and clears apply to the next run without restarting a worker. Saving does not stop work already running.
+
+**Chat lock lease** refuses a second message in the same chat with HTTP 409: “A reply is still in progress in this chat. Try again in a moment.” The chat shows a notice and keeps the message for retry. Cuttlely renews the lease while the turn runs and releases it when the turn finishes or fails; cancellation and the earliest enabled turn or agent-run deadline stop renewal even if cleanup hangs. With both deadlines off, renewal continues until cancellation or completion. A crashed process stops renewing, so its lock expires one lease after the last renewal. The field displays seconds and stores whole milliseconds; clearing it restores the turn time limit plus 5 seconds, or 2 minutes when the turn time limit is off. **0** means **Never expires**: a crashed run can then keep the chat busy indefinitely, including across restarts. Lease renewal does not change the queue's or startup recovery's extra 15-second stale-run allowance.
+
+Shell commands longer than the foreground maximum move to the background. The agent runtime per-tool deadline still applies to shell and code runs. Increasing the code-run timeout does not increase the fixed tool-call response wait below.
+
+| Fixed field                                                          | Value       | Note                                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Code tool-call response wait (`CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT`) | 300 seconds | Fixed in this version.                                                                                                                                                                      |
+| HTTP MCP data wait (`CUTTLELY_FIXED_HERMES_MCP_HTTP_READ`)           | 300 seconds | Fixed in this version. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. |
+
+Fixed fields are read-only text. Their keys identify the display rows; no environment variable is read for them. They cannot be saved or exported as settings. The code tool-call response wait covers both its socket wait and response deadline. The HTTP MCP data wait covers SSE silence and Streamable HTTP reads. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. A tool call time limit of 3660 seconds does not lift it: an HTTP MCP tool that stays silent for about 300 seconds still fails with a timeout. Stdio MCP tools, such as the Analyst and the specialist bridge, are not affected.
+
+Other product limits, including publish checks and sign-in limits, keep the precedence described in their sections below.
+
 ## Agent run time
 
-Under **Agent runtime** > **Limits**, **Agent run time** controls how long Cuttlely waits for a specialist's agent runtime run, including a nested `run_specialist` task. The default is **240 seconds** (four minutes). Enter **300** for five minutes, or **0** for unlimited waiting. The field accepts 0 to 3600 seconds. Review and save, then restart Cuttlely to apply it. A value set on the host locks the field.
+Under **Agent runtime** > **Limits**, **Agent run time** controls how long Cuttlely waits for a specialist's agent runtime run, including a nested `run_specialist` task. The default is **240 seconds** (four minutes). Enter **300** for five minutes, or **0** for unlimited waiting. The field accepts 0 to 3600 seconds. Review and save; a supervised installation applies it when idle, or an earlier restart applies it. Without a supervisor it applies at the next restart. A saved value takes precedence over the host.
 
 The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use milliseconds: `300000` for five minutes, `0` for unlimited, and `240000` for the default. Its range is 0 to 3600000 milliseconds. Nested specialist tasks use this same setting; their previous separate 90-second wait is replaced by the four-minute default. They have no additional five-minute MCP wrapper limit.
 
@@ -87,7 +131,7 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 ## Long-running queries and tasks
 
-Set these environment variables on the host and restart Cuttlely. Admin Server Settings fields for these limits are coming in the same release; use the env vars for the extended limits today.
+Set these limits in **Admin**, **Server settings** (see [Time limits and caps](#time-limits-and-caps)), or as environment variables on the host. A saved value comes first, then the host variable, then the default.
 
 | Variable                                | Default         | Host range and behavior                                                                                                                                                          |
 | --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -108,7 +152,7 @@ CUTTLELY_HARNESS_TOOL_TIMEOUT_MS=3660000
 
 A 300-second query needs every limit around it to be larger than 300 seconds. With the tool setting above, specialist MCP servers wait 3660 s, the stdio bridge waits 3720 s, and both Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) are 3720 s. The bridge and deadlines follow the tool setting with a 60 s margin. The roster MCP server always has an unlimited MCP wait; the agent run and whole-turn limits still apply. When the tool setting is unset, the bridge keeps its existing 130 s wait.
 
-This tool-call setting covers MCP tools only. Shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings.
+This tool-call setting covers MCP tools only. Shell and code timeouts have separate controls in [Time limits and caps](#time-limits-and-caps). The fixed 300 s code tool-call response wait still applies; use a pipeline job when work needs longer than that response wait. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings.
 
 Set any proxy or load-balancer idle timeout to at least 3720 s for harness streams with this example. [Proxy stream timeouts](./reverse-proxy.md#how-long-a-stream-can-stay-quiet) explains the separate limits for streams and reusable connections.
 
@@ -120,7 +164,7 @@ The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime st
 
 ## Agent runtime recovery
 
-The start script supervises the agent runtime inside the image, including with plain `docker run` and no restart policy. These host environment variables apply after restarting the service; they are not controls in the settings panel. When the runtime starts (on the first start, after a runtime restart, and after a whole-stack restart in place), agent calls get `503 RUNTIME_UNAVAILABLE` with `Retry-After` until it answers its first health check. A runtime that has not answered within twice `CUTTLELY_HERMES_HEALTH_GRACE` plus `CUTTLELY_HERMES_HEALTH_WINDOW` (135 seconds by default) counts as a failed restart.
+The start script supervises the agent runtime inside the image, including with plain `docker run` and no restart policy. The health check timeout, startup grace, miss count and continuous-miss window are editable under **Advanced > Agent runtime health** and apply after restart. These host environment variables apply after restarting the service; they are not controls in the settings panel. When the runtime starts (on the first start, after a runtime restart, and after a whole-stack restart in place), agent calls get `503 RUNTIME_UNAVAILABLE` with `Retry-After` until it answers its first health check. A runtime that has not answered within twice `CUTTLELY_HERMES_HEALTH_GRACE` plus `CUTTLELY_HERMES_HEALTH_WINDOW` (135 seconds by default) counts as a failed restart.
 
 | Variable                                      | Default | What it controls                                                                                                                                                                                                                                                                                                           |
 | --------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -147,7 +191,7 @@ Use `/api/v1/ping/live` for gateway and container liveness, and `/api/v1/ping` s
 
 ## Analyst limits
 
-**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host row cap above the maximum is treated as the maximum. For the query timeout env setting, a value above 3600000 milliseconds uses the 15-second default and logs a warning once. A positive query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number uses the default and logs a warning once.
+**Analyst** also sets how much one query may return and how long it may run. The row cap applies the next time the server starts. The query timeout applies to the next query and can be up to 3600 seconds (1 hour). A host row cap above the maximum is treated as the maximum. A host query timeout above 3600000 milliseconds uses the 15-second default and logs a warning once. A positive query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number uses the default and logs a warning once.
 
 | Setting           | Variable                                | Default    | Host range        |
 | ----------------- | --------------------------------------- | ---------- | ----------------- |
@@ -193,7 +237,7 @@ The question count default cannot be above the question cap. The rating scan mus
 | **Publish check**            | `CUTTLELY_PUBLISH_CHECK`         | On            | on or off                                  |
 | **Publish check token cap**  | `CUTTLELY_CHECK_MAX_TOKENS`      | 100000 tokens | 1000 to 2000000 tokens                     |
 | **Publish check time limit** | `CUTTLELY_CHECK_MAX_SECONDS`     | 180 seconds   | 10 to 1800 seconds                         |
-| **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8                                     |
+| **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8 (always 1 for harness checks)       |
 | **One run timeout**          | `CUTTLELY_CHECK_RUN_TIMEOUT_MS`  | 60000 ms      | 10000 to 600000 ms                         |
 | **Keep a finished check**    | `CUTTLELY_CHECK_KEEP_MINUTES`    | 30 minutes    | 5 to 1440 minutes                          |
 | **Question cap**             | `CUTTLELY_CHECK_COUNT_MAX`       | 100           | 1 to 500                                   |

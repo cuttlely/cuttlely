@@ -88,3 +88,69 @@ test('a handoff timeout preserves the completed final result without duplicating
     assert.ok(result.agents.every((a) => a.status === 'completed'))
     assert.equal(result.text, final)
 })
+
+const { acquireTurn, releaseTurn, closeQueueDb } = await import('./lock.mjs')
+after(closeQueueDb)
+
+test('a slow turn renews past its original expiry and clears its unref timer on release', async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1800000000000 })
+    t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
+    process.env.CUTTLELY_HARNESS_LOCK_MS = '3000'
+    const timers = []
+    const set = globalThis.setTimeout
+    const clear = t.mock.method(globalThis, 'clearTimeout')
+    t.mock.method(globalThis, 'setTimeout', (...args) => {
+        const timer = set(...args)
+        if (args[1] === 1000) {
+            t.mock.method(timer, 'unref')
+            timers.push(timer)
+        }
+        return timer
+    })
+    saveHarness({
+        name: 'slow-lease',
+        chief: { model: { nodeName: 'fixtureChat' } },
+        specialists: [{ name: 'writer', instructions: 'Write.', modules: [] }]
+    })
+    let finish
+    let entered
+    const ready = new Promise((resolve) => (entered = resolve))
+    const gate = new Promise((resolve) => (finish = resolve))
+    const turn = runHarness({
+        name: 'slow-lease',
+        chatId: 'same',
+        input: 'Wait.',
+        budgetMs: 0,
+        timeoutMs: 0,
+        flowOptions: { appDataSource: {}, harnessCaller: { via: 'session' } },
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        invoke: async (messages) => {
+                            entered()
+                            await gate
+                            return {
+                                content: String(messages[0]?.content).includes('You route work')
+                                    ? JSON.stringify({ steps: [{ specialist: 'writer', task: 'Write.' }] })
+                                    : 'Finished.'
+                            }
+                        }
+                    }
+                }
+            }
+    })
+    await ready
+    for (let i = 0; i < 5; i++) t.mock.timers.tick(1000)
+    assert.throws(() => acquireTurn('slow-lease', 'same'), { code: 'busy' })
+    assert.ok(timers.length >= 5)
+    assert.equal(timers.at(-1).unref.mock.callCount(), 1)
+    finish()
+    await turn
+    assert.ok(clear.mock.calls.some((call) => call.arguments[0] === timers.at(-1)))
+    const count = timers.length
+    t.mock.timers.tick(10000)
+    assert.equal(timers.length, count)
+    const next = acquireTurn('slow-lease', 'same')
+    releaseTurn(next)
+})

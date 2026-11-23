@@ -58,6 +58,8 @@ function contextFrom(loaded) {
         ready: true,
         count,
         contextFor: async (record, nested = {}) => {
+            // Another process can save or clear limits between jobs. Refresh only the live fields.
+            loaded.syncLiveLimits?.()
             const organization = await organizationFor(loaded, record?.workspaceId)
             const flowOptions = {
                 appDataSource: loaded.appDataSource,
@@ -135,7 +137,10 @@ export function loadServerEnv(envFile = path.join(repoRoot(), 'packages', 'serve
 }
 
 async function loadBuiltServer() {
-    loadServerEnv()
+    const require = createRequire(path.join(repoRoot(), 'packages', 'server', 'package.json'))
+    // Load dotenv and saved settings before any node or database module reads the environment.
+    require(serverFile('settings/bootstrap.js'))
+    const { syncLiveLimits } = require(serverFile('settings/limits.js'))
     const nodesFile = serverFile('NodesPool.js')
     const dataFile = serverFile('DataSource.js')
     const cacheFile = serverFile('CachePool.js')
@@ -150,7 +155,6 @@ async function loadBuiltServer() {
         )
     )
         return null
-    const require = createRequire(path.join(repoRoot(), 'packages', 'server', 'package.json'))
     const { NodesPool } = require(nodesFile)
     const { getDataSource } = require(dataFile)
     const { CachePool } = require(cacheFile)
@@ -183,6 +187,7 @@ async function loadBuiltServer() {
     const workspaceEntity = appDataSource.entityMetadatas?.find((item) => item.name === 'Workspace')?.target
     const organizationEntity = appDataSource.entityMetadatas?.find((item) => item.name === 'Organization')?.target
     return {
+        syncLiveLimits,
         componentNodes: nodesPool.componentNodes,
         appDataSource,
         databaseEntities: utils.databaseEntities,

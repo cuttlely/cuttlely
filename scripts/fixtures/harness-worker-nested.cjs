@@ -44,7 +44,7 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
     const { entities } = require('./src/database/entities/index.ts')
     const { ChatFlow, ApiKey, ApiKeyResource, User, Workspace, Organization, Role, OrganizationUser, WorkspaceUser, ChatMessage } = entities
     const { parsePolicy } = require('./src/services/accessKeys/policy.ts')
-    const { nestedFlowNodeOptions } = require('./src/utils/nestedFlowCall.ts')
+    const { nestedFlowNodeOptions, nestedFlowCallerFromHarness } = require('./src/utils/nestedFlowCall.ts')
     const appModule = require('./src/utils/getRunningExpressApp.ts')
     const { getRunningExpressApp } = appModule
     const { getInstance } = require('./src/index.ts')
@@ -157,7 +157,8 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
             assert.equal(options.workspaceId, '${workspace}')
             assert.equal(options.orgId, '${org}')
             assert.equal(options.nestedFlowDepth, 2)
-            assert.deepEqual(options.nestedFlowCaller, { via: 'api_key', apiKeyId: 'worker-key' })
+            if (question === 'session lookup') assert.deepEqual(options.nestedFlowCaller, { via: 'session', tryOwner: 'user:worker-user' })
+            else assert.deepEqual(options.nestedFlowCaller, { via: 'api_key', apiKeyId: 'worker-key' })
             await assert.rejects(options.runNestedFlow({ targetFlowId: '${harnessId}', question }),
                 { statusCode: 400, message: /cannot call itself/ })
             const result = await options.runNestedFlow({ targetFlowId: '${targetId}', question: question + ' from harness' })
@@ -355,6 +356,31 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
         assert.equal(getInstance(), undefined)
         assert.throws(getRunningExpressApp, /getRunningExpressApp failed/)
         assert.equal(getDataSource().isInitialized, false)
+    })
+    await t.test('a saved session harness can call another private Harness after queue serialization', async () => {
+        const { jobPayload } = await import('../../packages/harness/queue.mjs')
+        const caller = { via: 'session' }
+        const job = jobPayload({
+            name: 'parent',
+            chatId: 'session-chat',
+            input: 'session lookup',
+            flowOptions: {
+                workspaceId: workspace,
+                harnessCaller: caller,
+                nestedFlowCaller: nestedFlowCallerFromHarness(caller, 'worker-user'),
+                nestedFlowDepth: 1
+            }
+        })
+        const runtime = await workerContextFor(
+            { chatflowId: '11111111-1111-4111-8111-111111111111', workspaceId: workspace },
+            JSON.parse(JSON.stringify(job))
+        )
+        const reply = await runtime.flowOptions.runNestedFlow({
+            targetFlowId: harnessId,
+            question: 'session lookup',
+            overrideConfig: { tryOwner: 'user:untrusted' }
+        })
+        assert.equal(reply.text, 'private target: session lookup from harness')
     })
     await t.test('a Private Harness canvas still requires its current grant and active key', async () => {
         await data.getRepository(ApiKeyResource).delete(harnessResource)

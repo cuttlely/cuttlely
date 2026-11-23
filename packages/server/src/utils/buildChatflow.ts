@@ -402,6 +402,7 @@ export const executeFlow = async ({
     sessionToken,
     replay,
     harnessCaller,
+    tryOwner,
     nestedFlowCaller,
     nestedFlowDepth
 }: IExecuteFlowParams) => {
@@ -433,6 +434,7 @@ export const executeFlow = async ({
               parentFlowId: chatflow.id,
               parentWorkspaceId: workspaceId,
               caller: serializedNestedCaller,
+              tryOwner,
               depth,
               baseURL,
               orgId,
@@ -1360,6 +1362,9 @@ export const utilBuildChatflow = async (
 
         const executeData: IExecuteFlowParams = {
             harnessCaller,
+            ...(harnessCaller.via === 'session' && typeof req.user?.id === 'string' && req.user.id.trim()
+                ? { tryOwner: `user:${req.user.id}` }
+                : {}),
             nestedFlowCaller:
                 harnessCaller.via === 'api_key' ? { via: 'api_key', apiKeyId: harnessCaller.apiKeyId } : { via: harnessCaller.via },
             nestedFlowDepth: 0,

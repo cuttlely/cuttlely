@@ -122,6 +122,7 @@ export function readSettingsFile(dir: string, key: string | null, file = SETTING
             )
             continue
         }
+        if (setting.fixed) continue
         if (setting.type === 'secret') {
             if (!stored || typeof stored !== 'object' || typeof stored.secret !== 'string') {
                 result.problems.push(`${name} is a secret but was not stored encrypted, so it was ignored.`)
@@ -157,11 +158,12 @@ export function writeSettingsFile(
     const stored: Record<string, StoredValue> = {}
     // Stored entries kept exactly as they are, such as secrets this key cannot read and nobody changed.
     for (const [name, value] of Object.entries(options.preserve ?? {})) {
-        if (settingFor(name) && !Object.prototype.hasOwnProperty.call(values, name)) stored[name] = value
+        if (settingFor(name) && !settingFor(name)?.fixed && !Object.prototype.hasOwnProperty.call(values, name)) stored[name] = value
     }
     for (const name of Object.keys(values).sort()) {
         const setting = settingFor(name)
         if (!setting) throw new Error(`${name} is not a setting this Cuttlely knows.`)
+        if (setting.fixed) continue
         const value = values[name]
         if (isBlank(value)) continue
         stored[name] = setting.type === 'secret' ? { secret: encryptSecret(value, options.key) } : value
@@ -189,15 +191,18 @@ export function readStoredValues(dir: string, file = SETTINGS_FILE): Record<stri
     }
 }
 
-const settingsWriteListeners = new Set<() => void>()
+const settingsWriteListeners = new Set<(dir: string) => void>()
 
-function notifySettingsWrite(): void {
-    for (const listener of settingsWriteListeners) listener()
+function notifySettingsWrite(dir: string): void {
+    for (const listener of settingsWriteListeners) listener(dir)
 }
 
-/** Called after server.json is saved. Each listener drops its cached read. */
-export function onSettingsFileWritten(listener: () => void): void {
+/** Called after server.json is saved or removed. Listeners refresh their settings. */
+export function onSettingsFileWritten(listener: (dir: string) => void): () => void {
     settingsWriteListeners.add(listener)
+    return () => {
+        settingsWriteListeners.delete(listener)
+    }
 }
 
 export function writeFileAtomic(dir: string, file: string, text: string): void {
@@ -211,7 +216,13 @@ export function writeFileAtomic(dir: string, file: string, text: string): void {
     } catch {
         // some volumes do not keep permissions
     }
-    if (file === SETTINGS_FILE) notifySettingsWrite()
+    if (file === SETTINGS_FILE) notifySettingsWrite(dir)
+}
+
+/** Removing the saved file also returns live settings to the host or default. */
+export function removeSettingsFile(dir: string): void {
+    fs.rmSync(path.join(dir, SETTINGS_FILE), { force: true })
+    notifySettingsWrite(dir)
 }
 
 /** Copies the current file to the last-good copy, byte for byte. */

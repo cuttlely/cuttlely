@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
-import { agentRunTimeoutMs, turnBudgetMs } from './budget.mjs'
+import { agentRunTimeoutMs, modelCallTimeoutMs, turnBudgetMs } from './budget.mjs'
 import {
     ANALYST_SUMMARY_LINE,
     analystPayloadsFor,
@@ -88,11 +88,13 @@ import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
     compileTryProfile,
+    resetTryProfileSession,
     chiefInstructions,
     credentialIdsFor,
-    discardTryProfile,
     noteLiveTry,
     tryProfileName,
+    tryIdForFlow,
+    withTryProfile,
     analystTablesNote,
     analystBridgeQueryName,
     hasAnalystTool,
@@ -120,10 +122,10 @@ import {
     withPromptImages
 } from './images.mjs'
 import { prepareHarnessTurnUploads } from './uploads.mjs'
-import { acquireTurn, releaseTurn } from './lock.mjs'
+import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
-import { getHarness, listHarnesses } from './store.mjs'
+import { getHarness, listHarnesses, listHarnessNames } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
@@ -261,7 +263,7 @@ export function harnessForTurn(name, record) {
     return harness
 }
 
-async function runHarnessBody(args = {}) {
+async function runHarnessBody(args = {}, discardOwnedTry) {
     if (args.mode !== undefined && !['router', 'agent'].includes(args.mode)) {
         throw new HarnessError('bad_mode', 'mode must be "router" or "agent".')
     }
@@ -278,7 +280,7 @@ async function runHarnessBody(args = {}) {
         )
     }
     assertRuntimeAvailable()
-    // A publish-check replay keeps no run history. The try profile is still removed below.
+    // A publish-check replay keeps no run history. Its runtime and bridges are still closed below.
     const replay = args.replay === true
     let pending = null
     if (!replay) {
@@ -336,9 +338,9 @@ async function runHarnessBody(args = {}) {
         }
         if (args.record?.tryId) {
             try {
-                await discardTryProfile(args.record.tryId)
+                await discardOwnedTry()
             } catch (error) {
-                console.warn(`[harness] try profile was not removed: ${error.message}`)
+                console.warn(`[harness] try profile teardown failed: ${error.message}`)
             }
         }
         if (replay) {
@@ -384,6 +386,11 @@ async function runHarnessTurn({
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }
     const turnLock = acquireTurn(name, chatId)
+    const deadlines = [turnBudgetMs(budgetMs), timeoutMs ?? agentRunTimeoutMs()].filter((ms) => ms > 0)
+    const stopRenewal = startTurnRenewal(turnLock, {
+        signal: readClientSignal(signal),
+        deadlineMs: deadlines.length ? Math.min(...deadlines) : 0
+    })
     const analystScope = analystScopeKey(name, chatId)
     try {
         return await withAnalystScope(
@@ -417,6 +424,7 @@ async function runHarnessTurn({
             { workspace: harness.workspaceId }
         )
     } finally {
+        stopRenewal()
         releaseTurn(turnLock)
     }
 }
@@ -432,6 +440,12 @@ export function setHarnessAvailabilityCheck(check) {
 }
 
 export async function runHarness(args = {}) {
+    if (args.record?.tryId) {
+        // Copy the draft: callers may reuse it for another turn. Both canvas entrypoints reach this gate.
+        const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId, args.record.tryOwner) : args.record.tryId
+        args = { ...args, record: { ...args.record, tryId } }
+        return withTryProfile(tryId, (discard) => guardHarnessRun(args.name, () => runHarnessBody(args, discard)))
+    }
     return guardHarnessRun(args?.name, () => runHarnessBody(args))
 }
 
@@ -548,6 +562,7 @@ async function runTurnBody(
         const compiled = harness.tryId
             ? compileTryProfile(harness, harness.tryId)
             : compileProfileCached(harness, { credentialStamp: await credentialStampAsync(credentialIdsFor(harness)) })
+        if (harness.tryId) await resetTryProfileSession(harness.tryId, chatId)
         profileMs = Date.now() - profileStarted
         roster = compiled.roster || harness
     }
@@ -1644,7 +1659,7 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
             messages: request.messages,
             tools: request.tools,
             json: request.json,
-            timeoutMs: Math.min(context.limit || 120000, 120000),
+            timeoutMs: Math.min(context.limit || modelCallTimeoutMs(), modelCallTimeoutMs()),
             onDelta: request.onDelta,
             signal,
             callbacks: context.traceCallbacks
@@ -4145,21 +4160,24 @@ export async function warmHarnessProfiles({
     fetchImpl = fetch,
     healthWaitMs = 1200000,
     mode = process.env.CUTTLELY_WARM_HERMES === 'false' ? 'off' : process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
-    lock = (fn) => fn()
+    lock = (fn) => fn(),
+    onCompiled = () => {}
 } = {}) {
     if (mode === 'off') return []
-    const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
-    for (const record of records) {
-        let roster
+    for (const name of names || listHarnessNames()) {
+        let record, roster
         try {
+            record = getHarness(name)
+            if (!record) continue
             // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
             // The stamp is computed before the lock so the lock stays compile-only.
             const stamp = await credentialStampAsync(credentialIdsFor(record))
             const compiled = await lock(() => compileProfileCached(record, { credentialStamp: stamp }))
             roster = compiled.roster || record
+            onCompiled(name)
         } catch (error) {
-            console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)
+            console.warn(`[harness] ${name} warm-up skipped: ${error.message}`)
             continue
         }
         for (const specialist of roster.specialists || []) {

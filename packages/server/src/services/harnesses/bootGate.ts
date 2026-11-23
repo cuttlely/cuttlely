@@ -18,6 +18,17 @@ export type BootPhase = 'idle' | 'running' | 'background' | 'incomplete' | 'done
 
 let phase: BootPhase = 'idle'
 
+// The public readiness response reports only a count, without importing the harness service.
+let readUnavailableHarnessCount: () => number = () => 0
+
+export function registerUnavailableHarnessCount(read: () => number): void {
+    readUnavailableHarnessCount = read
+}
+
+export function unavailableHarnessCount(): number {
+    return readUnavailableHarnessCount()
+}
+
 export function bootPassPhase(): BootPhase {
     return phase
 }

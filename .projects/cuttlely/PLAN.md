@@ -2,6 +2,8 @@
 
 ## Current release work
 
+The 1.7.13 candidate combines admin time limits, idle application of restart settings, chat lease renewal, runtime self-recovery and Try profile cleanup. The release gate covers these changes together with the router follow-up and ETL status fixes.
+
 #536 leftover work: retiring a multiplexed profile closes that profile's log files and MCP stderr handles (Hermes patch 0014), scoped so a still-served sibling keeps working. Reconcile uses the same path. Issue #536 stays open until this change merges.
 
 Also in this change: MCP discovery start and end lines are written to stderr as well as the runtime log files, so they appear in container and hosted logs (patch 0013 regenerated).

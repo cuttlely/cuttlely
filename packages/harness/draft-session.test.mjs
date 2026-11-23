@@ -37,7 +37,7 @@ test('previewing an unpublished harness retains draft context and leaves its nam
     for (const [index, input] of ['first', 'second'].entries()) {
         const result = await runHarness({
             name: draft.name,
-            record: { ...draft, tryId: String(index + 1).repeat(16) },
+            record: { ...draft, tryOwner: 'user:fixture', tryId: String(index + 1).repeat(16) },
             chatId: 'same-chat',
             input,
             flowOptions: { appDataSource: {}, workspaceId: draft.workspaceId, harnessCaller: { via: 'session' } },
@@ -81,7 +81,7 @@ test('existing published sessions keep their current profile path during canvas 
     appendTurn(published.name, 'chat', 'before preview', 'prior answer')
     const result = await runHarness({
         name: published.name,
-        record: { ...published, tryId: '3333333333333333' },
+        record: { ...published, tryOwner: 'user:fixture', tryId: '3333333333333333' },
         chatId: 'chat',
         input: 'after',
         flowOptions: { appDataSource: {}, workspaceId: published.workspaceId, harnessCaller: { via: 'session' } },
@@ -118,7 +118,7 @@ test('a different saved canvas never redirects an in-memory draft into its publi
     appendTurn(saved.name, 'chat', 'other team question', 'other team answer')
     await runHarness({
         name: draft.name,
-        record: { ...draft, tryId: '4444444444444444' },
+        record: { ...draft, tryOwner: 'user:fixture', tryId: '4444444444444444' },
         chatId: 'chat',
         input: 'own draft question',
         flowOptions: { appDataSource: {}, workspaceId: draft.workspaceId, harnessCaller: { via: 'session' } },

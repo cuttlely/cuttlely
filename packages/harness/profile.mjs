@@ -4,14 +4,26 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import net from 'node:net'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { isFlowiseMcpBinding } from './bridge.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
+import { acquireTryProfileTurn, releaseTryProfileTurn, BUSY_MESSAGE } from './lock.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
+import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, hermesProfileId, profileDir } from './paths.mjs'
+import {
+    dataRoot,
+    harnessStoreDir,
+    repoRoot,
+    hermesHome,
+    hermesBaseUrl,
+    hermesProfileId,
+    profileDir,
+    savedHarnessProfileIds
+} from './paths.mjs'
 import {
     ANALYST_RULES_MAX_CHARS,
     ROUTING_SUMMARY_CHARS,
@@ -30,6 +42,14 @@ import { agentRunTimeoutMs, harnessToolTimeoutMs } from './budget.mjs'
 const require = createRequire(import.meta.url)
 
 const CHIEF_TOOLSETS = ['memory', 'session_search', 'mcp-roster']
+// Unset stays absent from YAML, preserving the runtime's own defaults.
+export function configuredExecutionSeconds(key, env = process.env) {
+    const raw = env[key]
+    if (raw == null || String(raw).trim() === '') return undefined
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 1 && n <= 3600 ? n : undefined
+}
+
 const BLOCKED_UNLESS_ENABLED = ['terminal', 'browser', 'code_execution', 'file', 'web']
 // Read-only Hermes skills (skills_list, skill_view; a Cuttlely patch in hermes/toolsets.py). Playbooks live in
 // the profile's skills folder under PLAYBOOK_DIR, which Cuttlely owns and rewrites on every compile.
@@ -37,7 +57,12 @@ export const PLAYBOOK_TOOLSET = 'skills_read'
 export const PLAYBOOK_DIR = 'harness-playbooks'
 export const SPECIALIST_PLAYBOOKS =
     'Your playbooks are listed under skills. Before you answer, load each playbook whose description fits the question with skill_view, and follow it.'
-const SPECIALIST_STALE_SECONDS = 45
+export function streamStaleSeconds(env = process.env) {
+    const raw = env.CUTTLELY_HERMES_STREAM_STALE_SECONDS
+    if (raw == null || String(raw).trim() === '') return 45
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 5 && n <= 3600 ? n : 45
+}
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const PROFILE_MAX = 64
 const PROFILE_HASH = 8
@@ -1235,6 +1260,12 @@ function mcpServerBlocks(record) {
     return blocks
 }
 
+// Every MCP server of a try profile carries its profile folder, so teardown and the sweep (try-bridges.mjs) find
+// the processes the runtime started for it. Published profiles are not marked.
+function markTryBlocks(blocks, dir) {
+    for (const block of blocks) block.env = { ...(block.env || {}), [TRY_PROFILE_DIR_ENV]: path.resolve(dir) }
+}
+
 function isSpecialistBridge(block) {
     return block.args?.[0] === path.join(repoRoot(), 'packages', 'harness', 'mcp-bridge.mjs')
 }
@@ -1577,7 +1608,7 @@ function pushModel(yaml, defaultName, baseUrl, quoted = false) {
 function pushProviders(yaml) {
     yaml.push('providers:')
     yaml.push('  custom:')
-    yaml.push(`    stale_timeout_seconds: ${SPECIALIST_STALE_SECONDS}`)
+    yaml.push(`    stale_timeout_seconds: ${streamStaleSeconds()}`)
 }
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
@@ -1604,7 +1635,9 @@ function issueProfileToken({
         : (Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)) ||
           // A profile compiled before the stamp existed keeps its token when the boot upgrade has matched its owner.
           (adoptUnstamped && previous.CUTTLELY_GATEWAY_CREATED === undefined)
+    // A later draft must not reactivate a bearer issued for an earlier turn.
     const reusable =
+        !tryProfile &&
         !refresh &&
         sameBase &&
         sameRecord &&
@@ -1992,6 +2025,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
             CUTTLELY_HARNESS_PROFILE_ENV: path.resolve(profileEnvPath(specialist.profileName))
         }
     }
+    if (tryProfile) markTryBlocks(blocks, dir)
     const yaml = []
     yaml.push('agent:')
     yaml.push('  max_turns: 40')
@@ -2007,9 +2041,14 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push(`  turn_budget_chars: ${budget.turnChars}`)
     yaml.push('terminal:')
     yaml.push(`  cwd: ${yamlQuote(workspace)}`)
+    // Multiplexed runs use a complete profile policy and do not inherit the process timeout.
+    const terminalTimeout = configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT')
+    if (terminalTimeout !== undefined) yaml.push(`  timeout: ${terminalTimeout}`)
     if (specialist.codeExecution) {
         yaml.push('code_execution:')
         yaml.push('  mode: project')
+        const codeTimeout = configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT')
+        if (codeTimeout !== undefined) yaml.push(`  timeout: ${codeTimeout}`)
     }
     if (specialist.browser) {
         yaml.push('browser:')
@@ -2050,7 +2089,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 }
 
-function forgetRetiredSpecialistProfiles(harnessName, keep) {
+function forgetRetiredSpecialistProfiles(harnessName, keep, { retainFiles = false } = {}) {
     const root = path.join(hermesHome(), 'profiles')
     // A linked or missing profiles directory is not listed. Listing the absolute path would follow it.
     const opened = openDirNoFollow(root, { quiet: true })
@@ -2071,6 +2110,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
                 continue
             const retired = readEnvFile(path.join(dir, '.env'))
             forgetProfileToken(retired.OPENAI_API_KEY)
+            if (retainFiles) continue
             removeContainedTree(dir)
             removeContainedTree(specialistWorkspace(entry))
         }
@@ -2466,8 +2506,17 @@ function compileProfileFiles(record, options = {}) {
         ensureChildDir(held.fd, dir, 'sessions', held.fds, anchor)
         // A try is this marker, not a name the store might also use.
         const tryMarker = path.join(dir, 'harness-try')
-        if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
-        else removeChild(held.fd, dir, 'harness-try')
+        if (tryProfile) {
+            writeIfChanged(tryMarker, `${profileName}\n`)
+            if (options.stickyTry) {
+                writeIfChanged(path.join(dir, 'harness-try-keep'), `${profileName}\n`)
+                writeIfChanged(path.join(dir, 'harness-try-flow'), record.chatflowId)
+                writeIfChanged(path.join(dir, 'harness-try-owner'), record.tryOwner)
+            }
+        } else {
+            removeChild(held.fd, dir, 'harness-try')
+            removeChild(held.fd, dir, 'harness-try-keep')
+        }
     } finally {
         closeFds(held.fds)
     }
@@ -2480,7 +2529,7 @@ function compileProfileFiles(record, options = {}) {
         keep.add(specialist.profileName)
         compileSpecialistProfile(record, specialist, profileName, tryProfile, Boolean(options.adoptUnstampedTokens))
     }
-    forgetRetiredSpecialistProfiles(profileName, keep)
+    forgetRetiredSpecialistProfiles(profileName, keep, { retainFiles: Boolean(options.stickyTry) })
 
     const compiled = {
         ...record,
@@ -2489,6 +2538,10 @@ function compileProfileFiles(record, options = {}) {
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
+        // Left out at the default so a profile compiled with nothing saved matches earlier builds byte for byte.
+        streamStaleSeconds: streamStaleSeconds() === 45 ? undefined : streamStaleSeconds(),
+        terminalTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT'),
+        codeTimeoutSeconds: configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT'),
         harnessToolTimeoutMs: harnessToolTimeoutMs(),
         defaultEvidenceBytes: defaultEvidenceBytes()
     }
@@ -2525,6 +2578,7 @@ function compileProfileFiles(record, options = {}) {
         if (block.name === 'roster') continue
         disabled.push(block.name)
     }
+    if (tryProfile) markTryBlocks(mcpBlocks, dir)
 
     const yaml = []
     yaml.push('agent:')
@@ -2573,8 +2627,162 @@ export function tryProfileName(tryId) {
     return `try${id}`
 }
 
+// One home per canvas and owner for Try it, playground and Publish replays.
+export function tryIdForFlow(chatflowId, ownerKey) {
+    if (typeof chatflowId !== 'string' || !chatflowId.trim()) {
+        throw new HarnessError('bad_name', 'A sticky try profile requires a chatflow id.')
+    }
+    if (typeof ownerKey !== 'string' || !ownerKey.trim()) {
+        throw new HarnessError('bad_session', 'A sticky try profile requires a non-empty owner key.')
+    }
+    return crypto.createHash('sha256').update(`cuttlely-try-flow-owner:${chatflowId}:${ownerKey}`).digest('hex').slice(0, 16)
+}
+
 export function compileTryProfile(record, tryId) {
-    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true })
+    const profileName = tryProfileName(tryId)
+    if (savedHarnessProfileIds().has(profileName)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    const stickyTry = Boolean(record.chatflowId && record.tryOwner) && tryId === tryIdForFlow(record.chatflowId, record.tryOwner)
+    return compileProfile(record, { profileName, tryProfile: true, stickyTry })
+}
+
+function clearTryStateDatabase(file) {
+    const stat = lstatNoFollow(file)
+    if (!stat) return
+    if (!stat.isFile()) throw new HarnessError('bad_session', 'Try session state must be a regular database file.')
+    for (const sidecar of ['-wal', '-shm']) {
+        const entry = lstatNoFollow(`${file}${sidecar}`)
+        if (entry && !entry.isFile()) throw new HarnessError('bad_session', 'Try session sidecars must be regular files.')
+    }
+    // A read-only connection holds the WAL open while the writer closes. Closing that reader last leaves
+    // the WAL and shared-memory files in place, with no connection retained between turns.
+    const reader = new DatabaseSync(file, { readOnly: true })
+    let writer
+    try {
+        reader.prepare('SELECT name FROM sqlite_master LIMIT 1').all()
+        writer = new DatabaseSync(file)
+        // secure_delete zeroes the cleared rows, so old session text does not stay in free pages.
+        writer.exec('PRAGMA busy_timeout = 1000; PRAGMA foreign_keys = OFF; PRAGMA secure_delete = ON; BEGIN IMMEDIATE')
+        const tables = writer.prepare('PRAGMA table_list').all()
+        for (const table of tables) {
+            if (table.schema !== 'main' || table.type !== 'table' || table.name.startsWith('sqlite_')) continue
+            const sessionTable = /(?:^|_)(?:sessions?|messages?|memories|memory|conversations?|turns?|history)(?:_|$)/i.test(table.name)
+            const runtimeTable = [
+                'system_prompts',
+                'gateway_routing',
+                'gateway_hygiene_state',
+                'gateway_heartbeats',
+                'compression_locks',
+                'async_delegations'
+            ].includes(table.name)
+            if (!sessionTable && !runtimeTable) continue
+            writer.exec(`DELETE FROM "${table.name.replaceAll('"', '""')}"`)
+        }
+        // External-content indexes can retain old terms when Hermes deferred their delete triggers.
+        for (const table of tables) {
+            if (
+                table.schema !== 'main' ||
+                table.type !== 'virtual' ||
+                !/(?:session|message|memor|conversation|turn|history)/i.test(table.name)
+            )
+                continue
+            const sql = writer.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(table.name)?.sql || ''
+            if (!/USING\s+fts[345]\b/i.test(sql)) continue
+            const quoted = `"${table.name.replaceAll('"', '""')}"`
+            if (/content\s*=\s*(['"])\1/i.test(sql)) writer.exec(`INSERT INTO ${quoted}(${quoted}) VALUES ('delete-all')`)
+            else if (/content\s*=/i.test(sql)) writer.exec(`INSERT INTO ${quoted}(${quoted}) VALUES ('rebuild')`)
+            else writer.exec(`DELETE FROM ${quoted}`)
+        }
+        writer.exec('COMMIT')
+        writer.prepare('PRAGMA wal_checkpoint(PASSIVE)').all()
+    } finally {
+        try {
+            writer?.close()
+        } finally {
+            reader.close()
+        }
+    }
+}
+
+function clearTrySessionFiles(dir) {
+    for (const entry of listDirNoFollow(dir) || []) {
+        const file = path.join(dir, entry)
+        const stat = lstatNoFollow(file)
+        if (stat?.isDirectory()) clearTrySessionFiles(file)
+        else if (stat?.isFile()) {
+            const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)
+            try {
+                fs.ftruncateSync(fd, 0)
+            } finally {
+                fs.closeSync(fd)
+            }
+        }
+    }
+}
+
+// Called under the try mutex after compile and before serve. Cuttlely supplies same-chat history itself.
+export async function resetTryProfileSession(tryId, chatId) {
+    if (typeof chatId !== 'string' || !chatId.trim()) throw new HarnessError('bad_session', 'A try session requires a chat id.')
+    const scope = tryProfileName(tryId)
+    if (savedHarnessProfileIds().has(scope)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    const root = path.join(hermesHome(), 'profiles')
+    if (readMarker(path.join(root, scope, 'harness-try-keep')) !== scope) return
+    const names = tryProfileNames(scope)
+    const changed = names.filter((name) => readMarker(path.join(root, name, 'harness-try-session')) !== chatId)
+    if (!changed.length) return
+    // Also closes a profile left served by a worker that died before its finally path completed.
+    if (tryRuntime.closeProfiles) await tryRuntime.closeProfiles(names)
+    else {
+        for (const name of names) {
+            if (!(await stopRuntimeProfile(name))) {
+                throw new HarnessError('bad_session', 'The previous Try session could not be closed. Try again when the runtime is ready.')
+            }
+        }
+    }
+    for (const name of changed) {
+        const dir = path.join(root, name)
+        clearTryStateDatabase(path.join(dir, 'state.db'))
+        for (const entry of ['memories', 'memory', 'sessions']) clearTrySessionFiles(path.join(dir, entry))
+        writeIfChanged(path.join(dir, 'harness-try-session'), chatId)
+    }
+}
+
+const tryTurns = new Map()
+
+// Hold the whole compile/run/discard lifecycle, including the runtime close. Only the callback receives
+// the owner's teardown function. Only explicit cleanup waits; colliding turns fail immediately.
+export async function withTryProfile(tryId, body, { wait = false } = {}) {
+    const scope = tryProfileName(tryId)
+    const previous = tryTurns.get(scope) || Promise.resolve()
+    if (!wait && tryTurns.has(scope)) throw new HarnessError('busy', BUSY_MESSAGE)
+    let release
+    const held = new Promise((resolve) => {
+        release = resolve
+    })
+    const tail = previous.then(() => held)
+    tryTurns.set(scope, tail)
+    await previous
+    let sharedLock
+    let active = true
+    try {
+        sharedLock = await acquireTryProfileTurn(scope, { wait })
+        // Check before runHarnessBody writes the heartbeat or takes responsibility for teardown.
+        if (savedHarnessProfileIds().has(scope)) {
+            if (wait) return
+            throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+        }
+        return await body(() => {
+            if (!active) throw new HarnessError('bad_session', 'This try turn has already finished.')
+            return discardTryProfileUnlocked(tryId)
+        })
+    } finally {
+        active = false
+        try {
+            if (sharedLock) releaseTryProfileTurn(sharedLock)
+        } finally {
+            release()
+            if (tryTurns.get(scope) === tail) tryTurns.delete(scope)
+        }
+    }
 }
 
 // Tests stand in for the runtime close. The default asks the running runtime to drop the profile.
@@ -2594,8 +2802,10 @@ function tryProfileNames(scope) {
     const entries = listDirNoFollow(root)
     if (!entries) return []
     const names = []
+    const saved = savedHarnessProfileIds()
     for (const entry of entries) {
         if (!entry || entry === '.' || entry === '..') continue
+        if (saved.has(entry)) continue
         const marker = readMarker(path.join(root, entry, 'harness-parent'))
         if (tryOwnedEntry(scope, entry, marker)) names.push(entry)
     }
@@ -2613,11 +2823,13 @@ function readMarker(file) {
 
 function tryScopeEntries(scope) {
     const names = new Set(tryProfileNames(scope))
+    const saved = savedHarnessProfileIds()
     const root = path.join(hermesHome(), 'profiles')
     const entries = listDirNoFollow(root)
     if (entries) {
         for (const entry of entries) {
             if (!entry || entry === '.' || entry === '..') continue
+            if (saved.has(entry)) continue
             if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
         }
     }
@@ -2626,6 +2838,7 @@ function tryScopeEntries(scope) {
     if (workEntries) {
         for (const entry of workEntries) {
             if (!entry || entry === '.' || entry === '..') continue
+            if (saved.has(entry)) continue
             if (entry === scope || entry.startsWith(`${scope}--`) || names.has(entry)) names.add(entry)
         }
     }
@@ -2884,14 +3097,47 @@ async function closeTryRuntime(names) {
     await closeProfiles(names)
 }
 
-// Close the runtime for this try and every specialist profile before any directory is removed.
-// Tokens leave the map before the unlink. A close can recreate log directories after it answers,
-// so removal retries until those directories stay gone. A directory that is still there is logged once.
-export async function discardTryProfile(tryId) {
+// Close the runtime, stop and wait for MCP process groups, then forget tokens on every turn. Sticky homes
+// keep their files: Hermes can retain open database/log handles, so unlinking creates a descriptor leak.
+export function discardTryProfile(tryId) {
+    return withTryProfile(tryId, () => discardTryProfileUnlocked(tryId), { wait: true })
+}
+
+// Canvas deletion is the only normal removal of a sticky home. It waits for admitted turns to finish and
+// uses the same bridge teardown before removing home, specialists and their workspaces.
+export async function removeTryProfileForFlow(chatflowId) {
+    if (typeof chatflowId !== 'string' || !chatflowId.trim()) {
+        throw new HarnessError('bad_name', 'Try profile cleanup requires a chatflow id.')
+    }
+    const root = path.join(hermesHome(), 'profiles')
+    const removals = []
+    const saved = savedHarnessProfileIds()
+    for (const scope of listDirNoFollow(root) || []) {
+        if (!/^try[a-f0-9]{16}$/.test(scope) || saved.has(scope)) continue
+        const dir = path.join(root, scope)
+        if (readMarker(path.join(dir, 'harness-try-flow')) !== chatflowId) continue
+        let owner
+        try {
+            owner = readFileNoFollow(path.join(dir, 'harness-try-owner')) || ''
+        } catch {
+            continue
+        }
+        if (!owner || tryProfileName(tryIdForFlow(chatflowId, owner)) !== scope) continue
+        if (readMarker(path.join(dir, 'harness-try-keep')) !== scope) continue
+        removals.push(withTryProfile(scope.slice(3), () => discardTryProfileUnlocked(scope.slice(3), { remove: true }), { wait: true }))
+    }
+    const results = await Promise.allSettled(removals)
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed) throw failed.reason
+}
+
+async function discardTryProfileUnlocked(tryId, { remove = false } = {}) {
     const scope = tryProfileName(tryId)
+    let removeFiles = remove
+    let owned = [scope]
     try {
         const names = tryProfileNames(scope)
-        const owned = names.length ? names : [scope]
+        if (names.length) owned = names
         for (const entry of owned) {
             try {
                 markProfileDeleted(entry)
@@ -2900,22 +3146,37 @@ export async function discardTryProfile(tryId) {
             }
         }
         await closeTryRuntime(owned)
-        forgetTryTokens(scope)
-        for (const entry of owned) removeOneTryDir(entry)
-        if (typeof tryRuntime.afterFirstRemoval === 'function') {
-            try {
-                tryRuntime.afterFirstRemoval(scope)
-            } catch {
-                // A recreate during the hook is removed by the settle loop.
-            }
-        }
-        await settleTryDirectories(scope, owned)
-        const left = await retryBusyTryDirectories(scope)
-        warnTryDirectoriesLeft(left)
+        const sticky = readMarker(path.join(hermesHome(), 'profiles', scope, 'harness-try-keep')) === scope
+        removeFiles = remove || !sticky
     } finally {
-        compiledProfiles.delete(scope)
-        endLiveTry(scope)
+        try {
+            try {
+                // The runtime can exit without reaping its bridges. Preserve their files if they are still running.
+                const { left } = await stopTryProfileBridges([scope, ...owned, ...tryScopeEntries(scope)])
+                if (left.length) throw new Error(`Could not stop ${left.length} MCP bridge process(es) for Try profile ${scope}.`)
+            } finally {
+                forgetTryTokens(scope)
+            }
+            if (removeFiles) await removeTryDirectories(scope, remove ? tryScopeEntries(scope) : owned)
+        } finally {
+            compiledProfiles.delete(scope)
+            endLiveTry(scope)
+        }
     }
+}
+
+async function removeTryDirectories(scope, owned) {
+    for (const entry of owned) removeOneTryDir(entry)
+    if (typeof tryRuntime.afterFirstRemoval === 'function') {
+        try {
+            tryRuntime.afterFirstRemoval(scope)
+        } catch {
+            // A recreate during the hook is removed by the settle loop.
+        }
+    }
+    await settleTryDirectories(scope, owned)
+    const left = await retryBusyTryDirectories(scope)
+    warnTryDirectoriesLeft(left)
 }
 
 export { noteLiveTry }
@@ -2986,6 +3247,10 @@ export function profileOutdated(record) {
     // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
     if (roster?.defaultEvidenceBytes !== defaultEvidenceBytes()) return true
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
+    // Older compiled profiles already use 45 seconds. Keep them current at that default.
+    if ((roster?.streamStaleSeconds ?? 45) !== streamStaleSeconds()) return true
+    if (roster?.terminalTimeoutSeconds !== configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT')) return true
+    if (roster?.codeTimeoutSeconds !== configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT')) return true
     if (roster?.harnessToolTimeoutMs !== harnessToolTimeoutMs()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
@@ -3368,9 +3633,17 @@ function recheckCached(compiled) {
 export function compileProfileCached(record, options = {}) {
     assertChiefProfileAvailable(record.name)
     const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
-    const key = [hermesHome(), agentRunTimeoutMs(), harnessToolTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join(
-        '\0'
-    )
+    const key = [
+        hermesHome(),
+        agentRunTimeoutMs(),
+        harnessToolTimeoutMs(),
+        streamStaleSeconds(),
+        configuredExecutionSeconds('CUTTLELY_HERMES_TERMINAL_TIMEOUT'),
+        configuredExecutionSeconds('CUTTLELY_HERMES_CODE_TIMEOUT'),
+        defaultEvidenceBytes(),
+        JSON.stringify(record),
+        stamp
+    ].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

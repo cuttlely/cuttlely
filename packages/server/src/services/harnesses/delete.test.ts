@@ -59,6 +59,8 @@ let reopened: string[] = []
 let duringCleanup: ((name: string) => Promise<void>) | null = null
 let keptProfiles: string[] = []
 let expectedProfiles: string[][] = []
+let removedTryFlows: string[] = []
+let failTryCleanup = false
 let removedDraftSessions: Array<{ workspaceId: string; chatflowId: string }> = []
 
 let takenProfiles: string[] = []
@@ -110,6 +112,10 @@ const fakeModules = (file: string) => {
     }
     if (file === 'profile.mjs') {
         return Promise.resolve({
+            removeTryProfileForFlow: async (id: string) => {
+                removedTryFlows.push(id)
+                if (failTryCleanup) throw new Error('fixture teardown failed')
+            },
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
             compileProfileCached: () => undefined,
             credentialIdsFor: () => [],
@@ -153,6 +159,8 @@ const originalFind = harnessCanvasLookup.find
 beforeEach(() => {
     storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-delete-'))
     failRuns = false
+    removedTryFlows = []
+    failTryCleanup = false
     cleaned = []
     reopened = []
     failCleanup = false
@@ -817,5 +825,27 @@ describe('unpublished canvas admission', () => {
                 { canvasRecord: record }
             )
         ).rejects.toMatchObject({ statusCode: 404 })
+    })
+})
+
+describe('sticky try cleanup on canvas deletion', () => {
+    test('even a draft-only canvas cleans up its try home after commit', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+        expect(removedTryFlows).toEqual([])
+        await cascade.commit()
+        expect(removedTryFlows).toEqual([CANVAS_NAVI])
+    })
+
+    test('rollback preserves the try home', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+        await cascade.restore()
+        expect(removedTryFlows).toEqual([])
+    })
+
+    test('a teardown error does not fail the committed delete', async () => {
+        failTryCleanup = true
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+        await expect(cascade.commit()).resolves.toBeUndefined()
+        expect(removedTryFlows).toEqual([CANVAS_NAVI])
     })
 })

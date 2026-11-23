@@ -26,6 +26,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { checkVersionConsistency, RELEASE_DOC_FILES, releaseDocText } from './version-consistency.mjs'
+
 export const VERSION_FILES = [
     'package.json',
     'packages/server/package.json',
@@ -902,6 +904,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         if (!state.resume) {
             lines.push('pnpm verify')
             lines.push(`set "version" to ${state.version} in ${formatList(VERSION_FILES)}`)
+            lines.push('promote prepared release headlines and update current install pins')
             lines.push(`CHANGELOG.md: "## [${state.version}] - ${date}", a fresh "## [Unreleased]", compare links`)
             lines.push(formatCommand('git', ['commit', '-m', `Release v${state.version}`]))
             lines.push(formatCommand('git', ['tag', '-a', `v${state.version}`, '-m', `Cuttlely ${state.version}`]))
@@ -969,16 +972,24 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         run('pnpm', ['verify'], { cwd: root, capture: false })
 
         step(`Bump to ${state.version} and update CHANGELOG.md`)
+        const releaseDocs = new Map()
+        for (const file of RELEASE_DOC_FILES) {
+            const source = fs.readFileSync(path.join(root, file), 'utf8')
+            releaseDocs.set(file, releaseDocText(file, source, state.currentVersion, state.version))
+        }
+        const { errors } = checkVersionConsistency(root, state.version, releaseDocs)
+        if (errors.length) throw new ReleaseError(errors.join('\n'))
         for (const file of VERSION_FILES) {
             const full = path.join(root, file)
             fs.writeFileSync(full, setPackageVersion(fs.readFileSync(full, 'utf8'), state.version))
             say(`  ${file}: ${state.version}`)
         }
+        for (const [file, next] of releaseDocs) fs.writeFileSync(path.join(root, file), next)
         fs.writeFileSync(path.join(root, CHANGELOG), nextChangelog)
         say(`  CHANGELOG.md: ## [${state.version}] - ${date}`)
 
         step(`Commit and tag v${state.version}`)
-        git(root, ['add', '--', ...VERSION_FILES, CHANGELOG])
+        git(root, ['add', '--', ...VERSION_FILES, ...RELEASE_DOC_FILES, CHANGELOG])
         git(root, ['commit', '--no-verify', '-m', `Release v${state.version}`])
         const tagMessage = `Cuttlely ${state.version}\n\n${releaseNotes(nextChangelog, state.version)}`
         const tagFile = path.join(os.tmpdir(), `cuttlely-tag-${process.pid}.txt`)

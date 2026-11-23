@@ -13,6 +13,20 @@ ROOT = Path(__file__).resolve().parents[1]
 HERMES = ROOT / "hermes"
 HOST = "127.0.0.1"
 
+
+def apply_terminal_limits(env):
+    """Set process caps before importing runtime tools; unset keeps the existing environment."""
+    for source, target in (
+        ("CUTTLELY_HERMES_TERMINAL_TIMEOUT", "TERMINAL_TIMEOUT"),
+        ("CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND", "TERMINAL_MAX_FOREGROUND_TIMEOUT"),
+    ):
+        raw = env.get(source, "").strip()
+        if raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 3600:
+            env[target] = str(int(raw))
+
+
+apply_terminal_limits(os.environ)
+
 os.environ["API_SERVER_ENABLED"] = "true"
 os.environ["API_SERVER_HOST"] = HOST
 os.environ.setdefault("HERMES_HOME", str(Path(os.environ.get("CUTTLELY_DATA_DIR", ROOT / ".cuttlely")) / "hermes"))

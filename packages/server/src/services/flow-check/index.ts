@@ -99,7 +99,7 @@ function scanCap(): number {
     return runtimeNumber('CUTTLELY_CHECK_SCAN_CAP')
 }
 
-export function checkLimits() {
+export function checkLimits(flowType?: string | null) {
     return {
         maxQuestions: compareCountMax(),
         defaultQuestions: compareCountDefault(),
@@ -107,7 +107,8 @@ export function checkLimits() {
         maxQuestionChars: MAX_QUESTION_CHARS,
         maxTokens: runtimeNumber('CUTTLELY_CHECK_MAX_TOKENS'),
         maxSeconds: runtimeNumber('CUTTLELY_CHECK_MAX_SECONDS'),
-        concurrency: runtimeNumber('CUTTLELY_CHECK_CONCURRENCY')
+        // Every side of a harness check reuses the same canvas-and-owner Try profile.
+        concurrency: flowType === 'HARNESS' ? 1 : runtimeNumber('CUTTLELY_CHECK_CONCURRENCY')
     }
 }
 
@@ -184,6 +185,7 @@ interface CheckRecord {
     flowId: string
     // Who started the check. Each replay runs for this caller, so an API key runs only the harnesses on its list.
     caller: IHarnessCaller
+    tryOwner?: string
     workspaceId: string
     draftHash: string
     status: CheckView['status']
@@ -275,6 +277,7 @@ export interface ReplayInput {
     signal: AbortController
     baseURL: string
     caller: IHarnessCaller | undefined
+    tryOwner?: string
 }
 
 function purge(now = Date.now()) {
@@ -504,7 +507,7 @@ export function starterQuestions(chatbotConfig?: string | null): string[] {
     }
 }
 
-function checkTurnedOff(): CheckSetup {
+function checkTurnedOff(flowType?: string | null): CheckSetup {
     return {
         publishCheck: false,
         unavailable: { code: 'disabled', message: PUBLISH_CHECK_OFF_MESSAGE },
@@ -512,7 +515,7 @@ function checkTurnedOff(): CheckSetup {
         pastCount: 0,
         pastTruncated: false,
         riskySteps: [],
-        limits: checkLimits(),
+        limits: checkLimits(flowType),
         liveEmpty: true,
         replayInputs: false,
         replaySource: null,
@@ -534,7 +537,7 @@ export async function getCheckSetup(
         const candidate = await candidateFor(flow, given)
         const record = checks.get(candidate.key)
         return {
-            ...checkTurnedOff(),
+            ...checkTurnedOff(flow.type),
             // The off banner stays. Only a check still in progress is returned, so it can be stopped.
             check: record?.status === 'running' ? await present(flow, record, candidate.canvas, reveal) : null
         }
@@ -561,7 +564,7 @@ export async function getCheckSetup(
         pastCount: offered.pastCount,
         pastTruncated: offered.pastTruncated,
         riskySteps: riskySteps(draft ? [flow.flowData, draft] : [flow.flowData], flow.chatbotConfig),
-        limits: checkLimits(),
+        limits: checkLimits(flow.type),
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
@@ -741,7 +744,7 @@ export async function startCheck(
     },
     baseURL: string,
     // `caller` is who started the check, and each replay runs for it. `given` is a Promote candidate.
-    options: { caller: IHarnessCaller; given?: Candidate; watch?: StartWatch }
+    options: { caller: IHarnessCaller; tryOwner?: string; given?: Candidate; watch?: StartWatch }
 ): Promise<CheckView> {
     const { caller, given, watch } = options
     assertPublishCheckOn()
@@ -856,6 +859,7 @@ export async function startCheck(
         id: uuidv4(),
         flowId: flow.id,
         caller,
+        tryOwner: options.tryOwner,
         workspaceId: String(flow.workspaceId || ''),
         draftHash: canvasHash(draft as string),
         status: 'running',
@@ -864,7 +868,7 @@ export async function startCheck(
         startedAt: Date.now(),
         finishedAt: null,
         includeRiskySteps,
-        limits: checkLimits(),
+        limits: checkLimits(flow.type),
         liveEmpty: liveIsEmpty(flow.flowData),
         cases: questions.map((question, index) => ({
             question,
@@ -920,7 +924,15 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
-        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL, caller: record.caller })
+        const { text, metrics, lines } = await run({
+            flow,
+            flowData,
+            question,
+            signal: controller,
+            baseURL,
+            caller: record.caller,
+            tryOwner: record.tryOwner
+        })
         const tokens = totalTokens(metrics)
         const usage = lines ?? usageLinesFromMetrics(metrics)
         const book = await bookOnce(record)
@@ -1136,9 +1148,10 @@ async function replayFlow({
     question,
     signal,
     baseURL,
-    caller
+    caller,
+    tryOwner
 }: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
-    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal, caller })
+    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal, caller, tryOwner })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()

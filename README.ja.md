@@ -27,6 +27,8 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
+**次回** · **1.7.13 では、エージェントモードの chief が専門エージェントに直接作業を委任できます。** 既定はルーターモードです。Try チャットはフローと所有者ごとにプロファイルを再利用します。監視下の環境では、実行中の作業が終わると保存済みのランタイム制限が適用されます。[エージェントモード](./docs/how-to/harness-agent-mode.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1713)。
+
 **1.7.12 では、roster がエージェントランタイムの使う stdio フレーミングで接続します。** roster は 1.0 以降一度も接続できていませんでした。混在モデルの harness ごとに起動が約 60 秒速くなり（2 つある場合は約 2 分）、chief の `run_specialist` ツールが登録されます。ルーター経由のトラフィックは変わりません。ETL の開始、再開、一時停止、キャンセルが同時に行われても、キャンセル済みまたは一時停止済みの実行が動き続けたり、同じパイプラインで 2 つ目の実行が始まったりしなくなりました。[ETL](./docs/how-to/etl.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1712)。
 
 **1.7.11 では、コールドスタート時にエージェントランタイムがデッドロックしなくなりました。** ランタイムの状態が `restarting` のときでも、起動時のツール一覧は拒否されなくなったため、ヘルスチェックに応答して起動を完了できます。ツール呼び出しとチャット補完は、それまで引き続き拒否されます。[#542](https://github.com/cuttlely/cuttlely/issues/542) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1711)。
@@ -125,7 +127,7 @@ Node 20+ と Docker
 -   [サインイン](./docs/how-to/sign-in.md)。最初のアカウントを作ります。チームは AuthKit なしで、ローカルユーザー（`CUTTLELY_LOCAL_USERS`）でサインインできます。AuthKit はあとからオンにでき、確認済みのメールアドレスが既存のローカルユーザーにひも付きます。
 -   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。招待された人は、AuthKit の有無にかかわらず、本人あての 1 回限りの招待リンクからのみ参加できます: [ユーザーを招待する](./docs/how-to/sign-in.md#invite-people)。 有効なオーナーは他の人の承認待ちオーナー招待を取り消せます。有効なオーナーの行は読み取り専用です。
 -   [監査ログ](./docs/how-to/audit-log.md)。サインイン、ロックアウト、招待、リセット、ロールの変更、ユーザーの無効化、設定の変更。
--   [サーバー設定](./docs/how-to/server-settings.md)。ホスト側で[インスタンスオペレーター](./docs/how-to/instance-operator.md)を指定すると、サインイン、データベース、ストレージなどのサービス全体の設定を **Admin** から変更できます。有効な指定がない場合、ブラウザーからのサービス管理はできません。ホストや CLI からの復旧は引き続き利用できます。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
+-   [サーバー設定](./docs/how-to/server-settings.md)。ホスト側で[インスタンスオペレーター](./docs/how-to/instance-operator.md)を指定すると、サインイン、データベース、ストレージなどのサービス全体の設定を **Admin** から変更できます。有効な指定がない場合、ブラウザーからのサービス管理はできません。ホストや CLI からの復旧は引き続き利用できます。[時間制限と上限](./docs/how-to/server-settings.md#time-limits-and-caps)には値の出どころが表示され、保存したエージェントチームの制限はホストの値と既定値より優先されます。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
 
 ## アプリを動かすエージェントチーム
 

@@ -160,6 +160,10 @@ export async function startDashboardRefresh(
             throw new AppError(409, 'Harness changed after authorization. Retry the refresh.')
         }
     }
+    if (isDraining() || isShuttingDown()) {
+        await store.cancel(id, workspace, claim.token)
+        throw new AppError(503, 'Cuttlely is restarting. Try again in a minute.')
+    }
     void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim, harnessRecord }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */
     })
@@ -176,6 +180,7 @@ export async function tickDashflows() {
         for (const row of await mod.dashStore().due()) {
             if (isDraining() || isShuttingDown()) break
             const access = await resolveTeamAccess(row.owner, row.workspace)
+            if (isDraining() || isShuttingDown()) break
             if (!access.owner && !access.permissions?.includes('chatflows:update')) {
                 const claim = await mod.dashStore().claim(row.id, row.workspace)
                 await mod

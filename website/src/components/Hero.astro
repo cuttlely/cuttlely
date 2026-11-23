@@ -6,7 +6,7 @@ import mascot from '../assets/cuttlely-mascot-primary-1024.webp'
 import { Icon } from '@astrojs/starlight/components'
 import CopyButton from './CopyButton.astro'
 import { REPO_URL } from '../../scripts/site-config.mjs'
-import { releaseVersion } from '../../scripts/release-version.mjs'
+import { releaseHeadline, releaseVersion } from '../../scripts/release-version.mjs'
 
 const hero = Astro.locals.starlightRoute.entry.data.hero ?? {}
 const tagline = hero.tagline ?? ''
@@ -45,7 +45,7 @@ const version = releaseVersion()
             <a class="cl-link-arrow" href="/flowise/">Already have flows? Bring them over <Icon name="right-arrow" /></a>
         </p>
         <p class="cl-hero-from">
-            <strong class="cl-hero-release" data-release-version={version}>New in {version}:</strong> Roster now connects over the stdio framing the agent runtime uses. <a href="/changelog/">What's new</a>
+            <strong class="cl-hero-release" data-release-version={version}>New in {version}:</strong> {releaseHeadline(version)} <a href="/changelog/">What's new</a>
         </p>
         <p class="cl-hero-from">
             Upgrading? Back up first and follow the <a href="/docs/upgrading/">upgrade and recovery guide</a>.

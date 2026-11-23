@@ -6,6 +6,16 @@ import { renderStartupOptionsDoc, startupOptionRows } from './startupOptions'
 const DOC = path.resolve(__dirname, '../../../../docs/reference/startup-options.md')
 
 describe('startup options reference', () => {
+    it('documents configurable execution timeouts and the two fixed waits accurately', () => {
+        const doc = renderStartupOptionsDoc()
+        expect(doc.includes('shell stays capped at 600 s and code execution at 300 s')).toBe(false)
+        expect(doc).toContain('fixed 300 s code tool-call response wait')
+        const changelog = fs.readFileSync(path.resolve(__dirname, '../../../../CHANGELOG.md'), 'utf8')
+        expect(changelog).not.toContain('Every time limit and cap can now be set')
+        const guide = fs.readFileSync(path.resolve(__dirname, '../../../../docs/how-to/server-settings.md'), 'utf8')
+        expect(guide).not.toContain('Shell stays capped at 600 s and code execution at 300 s')
+    })
+
     it('lists every exposed option once, hides secret values, and matches the doc', () => {
         const rows = startupOptionRows()
         const keys = rows.map((row) => row.key)

@@ -1,3 +1,4 @@
+import { tryOwnerFor, resolveTryOwner } from '../../utils/tryOwner'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -85,5 +86,22 @@ describe('background run while the agent runtime is unavailable', () => {
             harnessesService.startBackgroundRun('bakery', body, { workspaceId: 'team-a', caller: { via: 'session' }, admit })
         ).rejects.toThrow('stop after admission: history.mjs')
         expect(admit).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('Try owner identity', () => {
+    it('uses a separate owner key while leaving caller identity unchanged', () => {
+        const caller = { via: 'session' as const }
+        expect(tryOwnerFor(caller, 'fixture-one')).toBe('user:fixture-one')
+        expect(tryOwnerFor(caller, 'fixture-two')).toBe('user:fixture-two')
+        expect(caller).toEqual({ via: 'session' })
+        expect(tryOwnerFor({ via: 'api_key', apiKeyId: 'fixture-key', harnesses: [] })).toBe('api:fixture-key')
+        expect(tryOwnerFor({ via: 'flow' })).toBe('flow')
+        expect(resolveTryOwner(caller, 'user:fixture-one')).toBe('user:fixture-one')
+        expect(resolveTryOwner({ via: 'api_key', apiKeyId: 'fixture-key', harnesses: [] }, 'user:wrong')).toBe('api:fixture-key')
+    })
+    it.each([undefined, '', ' ', 1])('refuses a signed-in Try without a user id (%p)', (id) => {
+        expect(() => tryOwnerFor({ via: 'session' }, id)).toThrow('A signed-in Try requires a user id.')
+        expect(() => resolveTryOwner({ via: 'session' }, id as string)).toThrow('A signed-in Try requires a user id.')
     })
 })

@@ -57,6 +57,13 @@ export function serializableCaller(caller) {
 export function serializableNestedFlowCaller(caller) {
     const saved = serializableCaller(caller)
     if (!saved) return null
+    if (
+        saved.via === 'session' &&
+        typeof caller.tryOwner === 'string' &&
+        caller.tryOwner.startsWith('user:') &&
+        caller.tryOwner.slice(5).trim()
+    )
+        return { via: 'session', tryOwner: caller.tryOwner }
     return saved.via === 'api_key' ? { via: 'api_key', apiKeyId: saved.apiKeyId } : { via: saved.via }
 }
 

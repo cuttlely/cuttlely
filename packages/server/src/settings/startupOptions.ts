@@ -21,6 +21,7 @@ function hidden(setting: SettingDef): boolean {
 }
 
 function whereOf(setting: SettingDef): string {
+    if (setting.fixed) return 'Fixed in this version'
     if (setting.envOnly) return HOST_ONLY
     if (setting.panelFirst || setting.key === 'CUTTLELY_HISTORY_KEEP') return 'Server settings, then the host'
     return HOST_OR_PANEL
@@ -53,7 +54,7 @@ export function startupOptionRows(): StartupOptionRow[] {
         range: rangeOf(setting),
         unit: unitOf(setting),
         where: whereOf(setting),
-        restart: setting.runtime ? ('No' as const) : ('Yes' as const)
+        restart: setting.fixed || (setting.applies ? setting.applies === 'live' : setting.runtime) ? ('No' as const) : ('Yes' as const)
     }))
     const editableKeys = new Set(SETTINGS.map((setting) => setting.key))
     const hostOnly = READ_ONLY_SETTINGS.filter((setting) => !editableKeys.has(setting.key)).map((setting) => ({
@@ -99,7 +100,9 @@ export function renderStartupOptionsDoc(): string {
         '',
         'A secret setting and every host-only key are named here and marked **not shown**. The table does not include the value, a default that would be the value, a length, a hash, a token, a key, or a connection string. The API follows the same rule: a secret is omitted from the response, and a host-only row is `key`, `set`, `source`, and `readOnly`.',
         '',
-        '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP` and the invite and mail settings, where a saved value wins over the host. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
+        '**Where it can be set** is the host and then Server settings, except time limits marked `limit`, `CUTTLELY_HISTORY_KEEP`, and invite and mail settings, where a saved value wins over the host. Fixed display fields read no environment variable and cannot be saved. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for live limits, runtime settings that apply on the next use, and fixed display fields. Restart limits say “Restart to apply.” in their help and appear in the pending restart banner; saving never stops running work. Every other option applies at the next start.',
+        '',
+        'Publish checks on chatflows and agentflows use `CUTTLELY_CHECK_CONCURRENCY` (1 to 8, default 2). Harness checks always run one question at a time because the questions share a Try profile.',
         '',
         'Access-key enforcement is `INBOUND_ACCESS_V2` (`off`, `shadow`, `on`; default `off`). The instance-operator Server settings control applies on the next request and persists across restarts. A host value wins and locks it, including forced `off` for recovery. Invalid saved values resolve to `off`; invalid nonempty host values retain 503. [Rollout and compatibility warnings](./access-keys.md#rollout-and-migration).',
         '',
@@ -111,7 +114,7 @@ export function renderStartupOptionsDoc(): string {
         '',
         'The agent runtime concurrency limit is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. The default is `10`. Accepted values are whole numbers from `1` to `50`, or `0` for no limit; negative values and values above `50` are refused. Higher values use more memory and CPU. It applies after a restart: the start script writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime\u2019s `config.yaml` and keeps the other keys there.',
         '',
-        "For [long-running queries and tasks](../how-to/server-settings.md#long-running-queries-and-tasks), set the env vars today; admin Server Settings fields for these limits are coming in the same release. `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` defaults to 15000 ms and accepts up to 3600000 ms (1 hour); positive values below 1000 become 1000, and invalid or higher values fall back to 15000 with a warning once. `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS` accepts integer milliseconds from 1 to 3660000 inclusive, rounded up to seconds for MCP. Unset, blank, invalid or out-of-range values keep the 300 s MCP default, the 420 s Hermes per-tool default and the 130 s stdio bridge wait. When set, the bridge wait and Hermes `timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch` use the rounded tool timeout plus 60 s. This setting covers MCP tools; shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings. `CUTTLELY_HERMES_HEALTH_TIMEOUT` sets the agent-runtime health probe wait in seconds: default 2, range 1–30, with invalid or out-of-range values using 2 and logging a warning.",
+        "For [long-running queries and tasks](../how-to/server-settings.md#long-running-queries-and-tasks), use the fields in Server settings or the env vars; a saved value comes first, then the host variable, then the default. `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` defaults to 15000 ms and accepts up to 3600000 ms (1 hour); positive values below 1000 become 1000, and invalid or higher values fall back to 15000 with a warning once. `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS` accepts integer milliseconds from 1 to 3660000 inclusive, rounded up to seconds for MCP. Unset, blank, invalid or out-of-range values keep the 300 s MCP default, the 420 s Hermes per-tool default and the 130 s stdio bridge wait. When set, the bridge wait and Hermes `timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch` use the rounded tool timeout plus 60 s. This setting covers MCP tools. Shell and code timeouts are configured separately through `CUTTLELY_HERMES_TERMINAL_TIMEOUT`, `CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND` and `CUTTLELY_HERMES_CODE_TIMEOUT`; the fixed 300 s code tool-call response wait still applies. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings. `CUTTLELY_HERMES_HEALTH_TIMEOUT` sets the agent-runtime health probe wait in seconds: default 2, range 1–30, with invalid or out-of-range values using 2 and logging a warning.",
         '',
         'Pinned queries are `CUTTLELY_PINNED_QUERIES`. They are on only when the value is exactly `1` or `true`. Any other value, including `false`, `yes`, `on`, `TRUE`, and an empty value, leaves them off. Off removes the pinned query tools at the next start.',
         '',

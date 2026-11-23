@@ -292,18 +292,19 @@ async function waitForRunEnd(url, headers, fetchImpl, deadline, onEvent, callerS
     const controller = new AbortController()
     const unlink = linkSignal(controller, callerSignal)
     const timer = Number.isFinite(deadline) ? setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now())) : undefined
-    let endStream = () => {}
+    let stream
     try {
         const response = await fetchImpl(url, { headers: { ...headers, accept: 'text/event-stream' }, signal: controller.signal })
         if (!response.ok || !response.body) return
         try {
-            endStream = beginHermesStream()
+            stream = beginHermesStream()
         } catch {
-            endStream = () => {}
+            // A missing data dir must not fail the run.
         }
         const decoder = new TextDecoder()
         let pending = ''
         for await (const chunk of response.body) {
+            if (chunk.byteLength) stream?.touch()
             pending += decoder.decode(chunk, { stream: true })
             const frames = pending.split('\n\n')
             pending = frames.pop() ?? ''
@@ -325,7 +326,7 @@ async function waitForRunEnd(url, headers, fetchImpl, deadline, onEvent, callerS
         // A caller abort must not fall through to polling. A stream timeout still does.
         if (callerSignal?.aborted) throw error
     } finally {
-        endStream()
+        stream?.end()
         clearTimeout(timer)
         controller.abort()
         unlink()

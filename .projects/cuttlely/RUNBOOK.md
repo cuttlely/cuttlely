@@ -1,3 +1,9 @@
+## Agent team limits in Server settings
+
+Use [Time limits and caps](../../docs/how-to/server-settings.md#time-limits-and-caps) for field defaults and bounds. A saved limit overrides the original host value; clearing returns to that host or the default. Live limits update the server environment on a settings-file write or removal. Restart limits stay pending until the next start; saving never stops active work. The start helper records numeric host limits in `CUTTLELY_SETTINGS_HOST_LIMITS` before saved settings replace environment values. Fixed fields are display-only and read no environment variable.
+
+Terminal settings are exported before Hermes imports its tools. Routed multiplex profiles also require the conditional `terminal.timeout` in specialist YAML because their terminal policy ignores ambient process timeouts. Code-run timeout is conditional in the existing `code_execution` block. Unset settings preserve the existing output. Do not change vendored runtime code for these controls.
+
 ## Fileless preview and first publication
 
 Run `node --test packages/harness/draft-session.test.mjs` and the server's `src/services/harnesses/delete.test.ts`, then the final committed-head full gate. Deployed QA must preview a newly imported unpublished Harness, verify its saved queries and publish that same draft. The preview session belongs under `harness-draft-sessions`, never the future Live profile directory. Existing unowned profiles remain a publication blocker; inspect them as the instance operator or choose an unused name rather than weakening the ownership check.

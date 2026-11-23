@@ -6,13 +6,23 @@ import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollo
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
+import { limitSnapshot } from './limits'
 import { accountLinkSnapshot } from './accountLinks'
 import { SettingsBusyError, withSettingsLockSync } from './lock'
 import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, isBlank, resolveSettings } from './resolve'
 import { flagSnapshot, runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
-import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, readStoredValues, settingsDir, writeFileAtomic } from './store'
+import {
+    removeSettingsFile,
+    LAST_GOOD_FILE,
+    SETTINGS_FILE,
+    encryptionKeySync,
+    readSettingsFile,
+    readStoredValues,
+    settingsDir,
+    writeFileAtomic
+} from './store'
 
 type Env = Record<string, string | undefined>
 
@@ -26,6 +36,7 @@ const NEXT_START = 'It applies the next time Cuttlely starts.'
 
 function appliesLater(name: string): string {
     if (name === ACCESS_ROLLOUT_KEY) return 'It applies on the next request.'
+    if (settingFor(name)?.applies === 'live') return 'It applies the next time that limit is used.'
     if (settingFor(name)?.runtime) return 'It applies the next time that limit is used.'
     return NEXT_START
 }
@@ -37,12 +48,13 @@ function listSettings(env: Env, all: boolean): CliResult {
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
     const account = accountLinkSnapshot(env)
+    const limits = limitSnapshot(env)
     const lines = [`Settings file: ${path.join(dir, SETTINGS_FILE)}${read.exists ? '' : ' (none yet)'}`]
     const shown = rows.filter((row) => {
         if (all || read.unreadable.includes(row.key)) return true
         const setting = settingFor(row.key)
         if (setting?.envOnly) return !isBlank(env[row.key])
-        const resolved = live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
+        const resolved = limits.get(row.key) ?? live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
         // A host or saved value that does not resolve still belongs on the list, with the value in effect.
         if (resolved) return resolved.source !== 'default' || row.source !== 'default'
         return row.source !== 'default'
@@ -52,10 +64,13 @@ function listSettings(env: Env, all: boolean): CliResult {
         const setting = settingFor(row.key)
         const resolved = live.get(row.key)
         const flag = flags.get(row.key)
-        const savedFirst = account.get(row.key)
+        const savedFirst = limits.get(row.key) ?? account.get(row.key)
         let value = row.value
         let source: string
-        if (row.key === ACCESS_ROLLOUT_KEY) {
+        if (setting?.fixed) {
+            value = `${setting.defaultLabel}. Fixed in this version.`
+            source = 'fixed'
+        } else if (row.key === ACCESS_ROLLOUT_KEY) {
             const rollout = rolloutState(env, read.values)
             value = rollout.value
             source = rollout.source
@@ -154,7 +169,7 @@ function restoreLastGood(env: Env): CliResult {
         line = `Restored the last settings that started. ${NEXT_START}`
     } else {
         const restored = preserveRollout(null, readStoredValues(dir))
-        if (restored === null) fs.rmSync(file, { force: true })
+        if (restored === null) removeSettingsFile(dir)
         else writeFileAtomic(dir, SETTINGS_FILE, restored)
         line = `No settings have started successfully yet, so the settings file was set aside. ${NEXT_START}`
     }

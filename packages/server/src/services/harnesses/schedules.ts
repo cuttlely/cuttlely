@@ -63,6 +63,7 @@ export async function tickHarnessSchedules() {
                     workspaceId: schedule.workspaceId,
                     source: 'schedule',
                     caller: { via: 'session' },
+                    sessionUserId: schedule.ownerId,
                     track: trackBackgroundRun,
                     onSettled
                 }

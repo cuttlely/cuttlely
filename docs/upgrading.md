@@ -19,6 +19,8 @@ Analyst on Postgres now keeps each role's encrypted password and legacy workspac
 
 If the legacy `analyst-role.enc` workspace mapping was already lost before this upgrade, it cannot be recovered automatically. Keep the same credential encryption key: a changed key refuses the stored secret rather than resetting the role password. [Analyst storage](./how-to/analyst.md#postgres).
 
+**Harnesses and runtime limits.** Router mode remains the default. Try profiles are reused per flow and owner, and a new chat clears the previous chat’s runtime memory. A second turn for a busy profile returns HTTP 409. Where the supervisor is available, saved limits that need a restart apply after current work finishes. Review their status in Admin → Server settings. [Time limits and caps](./how-to/server-settings.md#long-running-queries-and-tasks).
+
 ## Upgrading to 1.7.12
 
 Back up the application database, encryption key and settings first. Use matching 1.7.12 server and widget packages. This patch adds no schema migration or required configuration change and preserves default-Off access-key enforcement.

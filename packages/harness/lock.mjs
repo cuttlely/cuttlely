@@ -6,8 +6,9 @@ import { turnBudgetMs } from './budget.mjs'
 import { HarnessError } from './errors.mjs'
 import { dataRoot } from './paths.mjs'
 import { sessionKey } from './session.mjs'
+import { processStartTicks } from './try-live.mjs'
 
-export const BUSY_MESSAGE = 'This chat already has a harness turn in progress.'
+export const BUSY_MESSAGE = 'A reply is still in progress in this chat. Try again in a moment.'
 
 let cached = null
 
@@ -28,6 +29,12 @@ export function database() {
             session_key TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
             expires_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS try_profile_turns (
+            scope TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            started_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
@@ -118,6 +125,56 @@ export function acquireTurn(name, chatId) {
     return { key, owner }
 }
 
+// One owner-scoped write: an old worker cannot renew a replacement worker's lease.
+export function renewTurn(held) {
+    if (!held?.key || !held?.owner) return
+    const expiry = expiresAt(Date.now())
+    database()
+        .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ? AND expires_at != ?')
+        .run(expiry, held.key, held.owner, expiry)
+}
+
+// Only the live turn owns this timer. Cancellation and its earliest hard deadline stop
+// renewal even if work never settles. With every deadline off (0), it renews until
+// cancellation or finally, as before. A zero lease still explicitly never expires.
+export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
+    const deadline = deadlineMs > 0 ? performance.now() + deadlineMs : 0
+    let timer
+    let stopped = false
+    let warned = false
+    const stop = () => {
+        stopped = true
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', stop)
+    }
+    const schedule = () => {
+        if (stopped) return
+        if (signal?.aborted || (deadline && performance.now() >= deadline)) return stop()
+        const ttl = lockTtlMs()
+        const interval = ttl === 0 ? 1000 : Math.max(1, Math.floor(ttl / 3))
+        timer = setTimeout(
+            () => {
+                if (stopped) return
+                if (signal?.aborted || (deadline && performance.now() >= deadline)) return stop()
+                try {
+                    renewTurn(held)
+                } catch {
+                    if (!warned) {
+                        warned = true
+                        console.warn('[harness] chat lock lease could not be renewed')
+                    }
+                }
+                schedule()
+            },
+            deadline ? Math.min(interval, deadline - performance.now()) : interval
+        )
+        timer.unref()
+    }
+    signal?.addEventListener('abort', stop, { once: true })
+    schedule()
+    return stop
+}
+
 export function releaseTurn(held) {
     if (!held?.key || !held?.owner) return
     database().prepare('DELETE FROM turns WHERE session_key = ? AND owner = ?').run(held.key, held.owner)
@@ -125,4 +182,41 @@ export function releaseTurn(held) {
 
 export function turnBusyError() {
     return new HarnessError('busy', BUSY_MESSAGE)
+}
+
+// A fixed try path is shared by canvas and replay workers, possibly in different processes. Unlike the
+// chat lease, this mutex never expires while its owner is alive: a long turn must not be cut short.
+export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
+    const owner = `${process.pid}:${randomUUID()}`
+    const startedAt = processStartTicks(process.pid)
+    for (;;) {
+        const acquired = immediate((db) => {
+            const row = db.prepare('SELECT owner, pid, started_at FROM try_profile_turns WHERE scope = ?').get(scope)
+            if (row) {
+                let alive = true
+                try {
+                    process.kill(row.pid, 0)
+                } catch (error) {
+                    alive = error?.code !== 'ESRCH'
+                }
+                const currentStart = processStartTicks(row.pid)
+                if (alive && (!row.started_at || !currentStart || row.started_at === currentStart)) return false
+                db.prepare('DELETE FROM try_profile_turns WHERE scope = ? AND owner = ?').run(scope, row.owner)
+            }
+            db.prepare('INSERT INTO try_profile_turns (scope, owner, pid, started_at) VALUES (?, ?, ?, ?)').run(
+                scope,
+                owner,
+                process.pid,
+                startedAt
+            )
+            return true
+        })
+        if (acquired) return { scope, owner }
+        if (!wait) throw new HarnessError('busy', BUSY_MESSAGE)
+        await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+}
+
+export function releaseTryProfileTurn(held) {
+    database().prepare('DELETE FROM try_profile_turns WHERE scope = ? AND owner = ?').run(held.scope, held.owner)
 }

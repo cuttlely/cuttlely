@@ -231,6 +231,9 @@ button:disabled { cursor: default; opacity: 0.5; }
 .dc-error { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--dc-danger-soft); color: var(--dc-fg); font-size: 0.92em; }
 .dc-error svg { color: var(--dc-danger); flex: none; width: 18px; height: 18px; margin-top: 2px; }
 .dc-error .dc-chip { margin-top: 8px; }
+.dc-notice { padding: 10px 12px; border-radius: 12px; background: var(--dc-bg); color: var(--dc-fg); font-size: 0.92em; }
+.dc-not-sent { font-size: 0.85em; color: var(--dc-fg); }
+.dc-notice .dc-chip { display: block; margin-top: 8px; }
 .dc-notice { flex: 1; display: grid; place-items: center; padding: 32px 24px; text-align: center; }
 .dc-notice-card { max-width: 340px; display: grid; justify-items: center; gap: 10px; }
 .dc-notice-icon { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--dc-surface); color: var(--dc-fg); }

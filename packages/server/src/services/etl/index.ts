@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { isDraining, isShuttingDown, trackBackgroundRun } from '../../settings/runs'
 import path from 'path'
 import { Readable } from 'stream'
 import { pathToFileURL } from 'url'
@@ -69,6 +70,8 @@ async function etl(): Promise<any> {
         configured = true
         api.configureRunner({
             contextFor,
+            stopping: () => isDraining() || isShuttingDown(),
+            track: trackBackgroundRun,
             onError: (error: unknown, run: { id: string }) => logger.warn(`[etl] run ${run.id} failed: ${getErrorMessage(error)}`)
         })
     }
@@ -264,16 +267,18 @@ export async function backfillPipelineWorkspaces(api: any) {
 }
 
 const resumeEtlRuns = () => {
-    etl()
-        .then(async (api) => {
-            await backfillPipelineWorkspaces(api).catch((error) =>
-                logger.warn(`[etl] workspace backfill failed: ${getErrorMessage(error)}`)
-            )
-            const resumed = await api.bootEtl()
-            if (resumed.length) logger.info(`[etl] resuming ${resumed.length} interrupted run(s) from their checkpoints`)
-            logger.info('[etl] scheduler started')
-        })
-        .catch((error) => logger.warn(`[etl] could not resume runs: ${getErrorMessage(error)}`))
+    void trackBackgroundRun(
+        etl()
+            .then(async (api) => {
+                await backfillPipelineWorkspaces(api).catch((error) =>
+                    logger.warn(`[etl] workspace backfill failed: ${getErrorMessage(error)}`)
+                )
+                const resumed = await api.bootEtl()
+                if (resumed.length) logger.info(`[etl] resuming ${resumed.length} interrupted run(s) from their checkpoints`)
+                logger.info('[etl] scheduler started')
+            })
+            .catch((error) => logger.warn(`[etl] could not resume runs: ${getErrorMessage(error)}`))
+    )
 }
 
 const listSchedules = (id: string, workspaceId?: string) =>

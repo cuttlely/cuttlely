@@ -1,16 +1,12 @@
 // First: the admin settings file goes into the environment before any other module reads it.
 import { startState } from '../settings/bootstrap'
 import { Command, Flags } from '@oclif/core'
-import dotenv from 'dotenv'
-import path from 'path'
 import logger from '../utils/logger'
 import { drainTimeoutMs } from '../settings/runs'
 import { encryptionKeyConflict } from '../settings/settingAlias'
 import { captureInitialOwnerEnvironment } from '../identity/initialOwner'
 
 export { startState }
-
-dotenv.config({ path: path.join(__dirname, '..', '..', '.env'), override: true })
 
 enum EXIT_CODE {
     SUCCESS = 0,

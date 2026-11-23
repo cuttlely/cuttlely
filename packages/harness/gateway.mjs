@@ -31,8 +31,9 @@ import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
-import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId, savedHarnessProfileIds } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
+import { TRY_BRIDGE_SWEEP_MS, sweepOrphanTryBridges, tryEntriesWithBridges } from './try-bridges.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
 import { serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
@@ -190,7 +191,8 @@ export function registerProfileToken({
         specialistName,
         modelKey: modelKey || '',
         profileName: directory,
-        tryProfile: Boolean(tryProfile)
+        tryProfile: Boolean(tryProfile),
+        stickyTry: Boolean(tryProfile) && tryKeepMarker(harnessName)
     }
     // An unchanged token keeps its entry, so a request already running under it is not taken for revoked.
     const current = tokens.get(token)
@@ -200,7 +202,8 @@ export function registerProfileToken({
 
 // Whether a token is registered (used by the checks).
 export function profileTokenKnown(token) {
-    return Boolean(token) && tokens.has(token)
+    const meta = tokens.get(token)
+    return Boolean(meta) && tokenIsCurrent(token, meta)
 }
 
 export function forgetProfileToken(token) {
@@ -351,42 +354,76 @@ function tryMarkerMatches(home) {
     return fs.readFileSync(marker, 'utf8').trim() === home
 }
 
-// 'saved' stays. 'unknown' (the store threw) stays. Only a confirmed miss can be removed.
-function savedHarnessState(name) {
+// A canvas try home is removable only when it carries the try marker, is not a saved harness,
+// and has neither a sticky keep marker nor a live lock.
+function tryKeepMarker(home) {
     try {
-        return getHarness(name) ? 'saved' : 'absent'
+        return readFileNoFollow(path.join(hermesHome(), 'profiles', home, 'harness-try-keep'))?.trim() === home
     } catch {
-        return 'unknown'
+        return false
     }
 }
 
-// A canvas try home is removable only when it carries the try marker, is not a saved harness,
-// and has no live lock.
-function abandonedTryHome(home) {
+function abandonedTryHome(home, saved) {
     if (!TRY_HOME.test(home || '')) return false
-    if (savedHarnessState(home) !== 'absent') return false
-    if (!tryMarkerMatches(home)) return false
+    if (tryKeepMarker(home)) return false
+    if (saved.has(home)) return false
+    if (!tryMarkerMatches(home) && !leftoverShell(home) && !legacyUniqueTryHome(home)) return false
     if (tryLockIsLive(home)) return false
     return true
 }
 
+// A try folder the runtime recreated after teardown (an empty folder, or only logs/ and a lock): no marker, no
+// config and no roster, so nothing in it can be served. A fresh one can be a try that is still being set up, so
+// only one untouched for 10 minutes counts.
+const LEFTOVER_SHELL_AGE_MS = 10 * 60 * 1000
+
+// Older per-turn ids could leave a database behind without a valid marker after a crash.
+// Saved harnesses and keep-marked homes are excluded before reaching this check.
+function legacyUniqueTryHome(entry) {
+    if (!/^try[a-f0-9]{16}$/.test(entry)) return false
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    const files = listDirNoFollow(dir)
+    if (!files) return false
+    if (files.some((name) => ['state.db', 'harness-try', 'config.yaml', 'harness-roster.json'].includes(name))) return true
+    try {
+        return Date.now() - fs.lstatSync(dir).mtimeMs >= LEFTOVER_SHELL_AGE_MS
+    } catch {
+        return false
+    }
+}
+
+function leftoverShell(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    const names = listDirNoFollow(dir)
+    if (!names || !names.every((name) => ['logs', 'try.lock'].includes(name))) return false
+    try {
+        return Date.now() - fs.lstatSync(dir).mtimeMs >= LEFTOVER_SHELL_AGE_MS
+    } catch {
+        return false
+    }
+}
+
 // A specialist or fitted profile follows its try home. It is also a leftover when that home's
 // directory or try marker is already gone, as long as the home is not a saved harness and not locked.
-function abandonedChild(home) {
+function abandonedChild(home, saved) {
     if (!TRY_HOME.test(home || '')) return false
+    if (tryKeepMarker(home)) return false
     if (tryLockIsLive(home)) return false
-    if (savedHarnessState(home) !== 'absent') return false
+    if (saved.has(home)) return false
     if (tryMarkerMatches(home)) return true
     const dir = path.join(hermesHome(), 'profiles', home)
     return !fs.existsSync(dir) || !fs.existsSync(path.join(dir, 'harness-try'))
 }
 
-function abandonedTryEntry(entry, parentMarker) {
+function abandonedTryEntry(entry, parentMarker, saved) {
+    if (saved.has(entry)) return false
     const home = tryHomeOf(entry)
-    if (home && entry === home) return abandonedTryHome(home)
-    if (home) return abandonedChild(home)
+    if (home && entry === home) return abandonedTryHome(home, saved)
+    if (home) return abandonedChild(home, saved)
     if (!TRYX_HOME.test(entry)) return false
-    return abandonedChild(parentMarker)
+    if (!parentMarker && leftoverShell(entry)) return true
+    return abandonedChild(parentMarker, saved)
 }
 
 function removeProfileTree(entry) {
@@ -423,9 +460,13 @@ export function sweepAbandonedTryProfiles() {
     const entries = listDirNoFollow(root)
     if (!entries) return abandoned
     const drop = []
+    const saved = savedHarnessProfileIds()
+    // A folder whose try bridges still run stays until a bridge sweep has stopped them.
+    const running = tryEntriesWithBridges()
     for (const entry of entries) {
         const marker = readParent(path.join(root, entry))
-        if (!abandonedTryEntry(entry, marker)) continue
+        if (!abandonedTryEntry(entry, marker, saved)) continue
+        if (running.has(entry) || running.has(entry.split('--')[0])) continue
         drop.push(entry)
         abandoned.add(entry)
     }
@@ -443,6 +484,7 @@ function ingestProfileTokens(abandoned = new Set()) {
     const root = path.join(hermesHome(), 'profiles')
     const entries = listDirNoFollow(root)
     if (!entries) return
+    const saved = savedHarnessProfileIds()
     for (const entry of entries) {
         if (abandoned.has(entry)) continue
         // The runtime never serves legacy capitalised folders, even when their lowercase target already exists.
@@ -465,7 +507,10 @@ function ingestProfileTokens(abandoned = new Set()) {
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
         const role = env.CUTTLELY_GATEWAY_ROLE || 'specialist'
         if (!['chief', 'specialist'].includes(role) || !harnessName || (role === 'specialist' && !specialistName)) continue
-        if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
+        if (abandonedTryEntry(entry, harnessName, saved) || abandonedTryEntry(entry, readParent(dir), saved)) continue
+        // Retained files must not reactivate a finished turn's tokens when a gateway worker starts.
+        const stickyTry = env.CUTTLELY_GATEWAY_TRY === '1' && tryKeepMarker(harnessName)
+        if (stickyTry && !tryLockIsLive(harnessName)) continue
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
         // A harness being deleted gets no published token back from disk either.
@@ -479,7 +524,8 @@ function ingestProfileTokens(abandoned = new Set()) {
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
             profileName: entry,
-            tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
+            tryProfile: env.CUTTLELY_GATEWAY_TRY === '1',
+            stickyTry
         })
     }
 }
@@ -503,6 +549,40 @@ function issuedForSavedRecord(name, created) {
         }
     }
     return false
+}
+
+let trySweepTimer = null
+let trySweeping = false
+
+// In the server process: on a timer, remove abandoned try folders and stop try MCP bridges that outlived their
+// profile or their runtime (see try-bridges.mjs). A live try keeps its folder and bridges. Calling it again does nothing.
+export function startTrySweeper({ intervalMs = TRY_BRIDGE_SWEEP_MS } = {}) {
+    if (trySweepTimer || process.platform !== 'linux') return
+    trySweepTimer = setInterval(async () => {
+        if (trySweeping) return
+        trySweeping = true
+        try {
+            // Bridges first, so a folder is never removed while its bridges run.
+            const { stopped, left } = await sweepOrphanTryBridges()
+            if (stopped.length)
+                console.warn(
+                    `[harness] stopped ${stopped.length} orphaned try MCP bridge process(es)${
+                        left.length ? `; ${left.length} still running` : ''
+                    }`
+                )
+            sweepAbandonedTryProfiles()
+        } catch (error) {
+            console.warn(`[harness] try sweep failed: ${error?.message || error}`)
+        } finally {
+            trySweeping = false
+        }
+    }, intervalMs)
+    trySweepTimer.unref?.()
+}
+
+export function stopTrySweeper() {
+    if (trySweepTimer) clearInterval(trySweepTimer)
+    trySweepTimer = null
 }
 
 // A process start loads tokens only after abandoned tries are gone.
@@ -550,8 +630,23 @@ async function readyToRun(meta) {
 }
 
 function assertStillValid(meta) {
-    for (const value of tokens.values()) if (value === meta) return
+    for (const [token, value] of tokens) if (value === meta && tokenIsCurrent(token, meta)) return
     throw new RevokedDuringRequest('Unauthorized')
+}
+
+// A worker may have loaded this token while another process owned the turn. Retained files alone do
+// not authorize a finished turn, or let its old bearer reach the next draft written at the same path.
+function tokenIsCurrent(token, meta) {
+    if (!meta.stickyTry) return true
+    if (!tryLockIsLive(meta.harnessName)) return false
+    try {
+        const current = readEnvFile(path.join(hermesHome(), 'profiles', meta.profileName, '.env')).OPENAI_API_KEY || ''
+        const stored = Buffer.from(current)
+        const given = Buffer.from(token)
+        return stored.length === given.length && stored.length > 0 && crypto.timingSafeEqual(stored, given)
+    } catch {
+        return false
+    }
 }
 
 function lookupToken(presented) {
@@ -560,7 +655,7 @@ function lookupToken(presented) {
     let found = null
     for (const [token, meta] of tokens) {
         const buf = Buffer.from(token)
-        if (buf.length === given.length && buf.length > 0 && crypto.timingSafeEqual(buf, given)) found = meta
+        if (buf.length === given.length && buf.length > 0 && crypto.timingSafeEqual(buf, given) && tokenIsCurrent(token, meta)) found = meta
     }
     return found
 }

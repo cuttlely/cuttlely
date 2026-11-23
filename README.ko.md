@@ -27,6 +27,8 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
+**다음 릴리스** · **1.7.13에서는 에이전트 모드의 chief가 전문가에게 직접 작업을 위임할 수 있습니다.** 기본값은 라우터 모드입니다. Try 채팅은 흐름과 소유자별로 프로필을 재사용합니다. 감독 프로세스가 있는 설치에서는 실행 중인 작업이 끝나면 저장한 런타임 제한이 적용됩니다. [에이전트 모드](./docs/how-to/harness-agent-mode.md) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1713).
+
 **1.7.12에서는 roster가 에이전트 런타임이 사용하는 stdio 프레이밍으로 연결됩니다.** roster는 1.0 이후 한 번도 연결되지 않았습니다. 혼합 모델 harness마다 기동이 약 60초 빨라지고(두 개면 약 2분), chief의 `run_specialist` 도구가 등록됩니다. 라우터 트래픽은 그대로입니다. 같은 순간에 ETL 실행을 시작, 재개, 일시 중지, 취소해도 취소되었거나 일시 중지된 실행이 계속 실행되거나 한 파이프라인에서 두 번째 실행이 시작되지 않습니다. [ETL](./docs/how-to/etl.md) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1712).
 
 **1.7.11에서는 콜드 스타트에서 에이전트 런타임이 더 이상 교착 상태에 빠지지 않습니다.** 런타임 상태가 `restarting`일 때도 시작 도구 목록이 거부되지 않으므로, 헬스 체크에 응답하고 기동을 마칠 수 있습니다. 도구 호출과 채팅 완성은 그때까지 계속 거부됩니다. [#542](https://github.com/cuttlely/cuttlely/issues/542) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1711).
@@ -125,7 +127,7 @@ Node 20+ 및 Docker
 -   [로그인](./docs/how-to/sign-in.md). 첫 계정을 만듭니다. 팀은 AuthKit 없이 로컬 사용자(`CUTTLELY_LOCAL_USERS`)로 로그인할 수 있습니다. AuthKit은 나중에 켤 수 있으며, 인증된 이메일이 기존 로컬 사용자와 연결됩니다.
 -   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션. 활성 소유자는 다른 사람의 대기 중인 소유자 초대를 취소할 수 있으며, 활성 소유자 행은 읽기 전용입니다. 초대받은 사람은 AuthKit 사용 여부와 관계없이 본인에게 온 일회용 초대 링크로만 참여할 수 있습니다: [사용자 초대하기](./docs/how-to/sign-in.md#invite-people).
 -   [감사 로그](./docs/how-to/audit-log.md). 로그인, 잠금, 초대, 재설정, 역할 변경, 사용자 비활성화, 설정 변경.
--   [서버 설정](./docs/how-to/server-settings.md). 호스트에서 [인스턴스 운영자](./docs/how-to/instance-operator.md)를 지정하면 로그인, 데이터베이스, 스토리지 등 서비스 전체 설정을 **Admin**에서 바꿀 수 있습니다. 유효한 지정이 없으면 브라우저에서 서비스를 관리할 수 없으며 호스트와 CLI를 통한 복구는 계속 사용할 수 있습니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
+-   [서버 설정](./docs/how-to/server-settings.md). 호스트에서 [인스턴스 운영자](./docs/how-to/instance-operator.md)를 지정하면 로그인, 데이터베이스, 스토리지 등 서비스 전체 설정을 **Admin**에서 바꿀 수 있습니다. 유효한 지정이 없으면 브라우저에서 서비스를 관리할 수 없으며 호스트와 CLI를 통한 복구는 계속 사용할 수 있습니다. [시간 제한과 상한](./docs/how-to/server-settings.md#time-limits-and-caps)에는 값의 출처가 표시되며, 저장한 에이전트 팀 제한이 호스트 값과 기본값보다 우선합니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
 
 ## 앱을 움직이는 에이전트 팀
 

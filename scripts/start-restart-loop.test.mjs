@@ -113,6 +113,7 @@ kill_hermes_pid() { [[ -f "$HERMES_STOP" ]] && echo hermes stopped >> ${JSON.str
 bash -c 'trap "sleep 1; echo server drained >> ${log}; exit 0" TERM; while true; do sleep 0.1; done' &
 CUTTLELY_PID=$!
 sleep 0.3
+${script.match(/stop_worker_pids\(\) \{[\s\S]*?\n\}/)[0]}
 ${cleanup}
 cleanup
 `

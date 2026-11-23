@@ -24,6 +24,18 @@ let maxActive = Math.max(1, Number(process.env.CUTTLELY_ETL_CONCURRENCY) || 1)
 let onError = () => {}
 let onSettled = () => {}
 let runnerFaults = null
+let stopping = () => false
+let track = (run) => run
+
+export function runnerStopping() {
+    return stopping()
+}
+
+// Register work before its first await, including admission and queue handoff.
+function admitted(work) {
+    if (stopping()) throw new EtlError('restarting', 'Cuttlely is restarting to apply new settings. Try again in a minute.', 503)
+    return track(Promise.resolve().then(work))
+}
 
 // The context a run of this pipeline gets (its credentials and node pool), for work outside a run such as a delete.
 export async function pipelineContext(pipeline) {
@@ -36,6 +48,8 @@ export function configureRunner(options = {}) {
     if (typeof options.onError === 'function') onError = options.onError
     if (typeof options.onSettled === 'function') onSettled = options.onSettled
     if (Object.hasOwn(options, 'faults')) runnerFaults = options.faults
+    if (typeof options.stopping === 'function') stopping = options.stopping
+    if (typeof options.track === 'function') track = options.track
 }
 
 // Pipelines being deleted. No run starts, resumes or leaves the queue for them, so nothing writes vectors back while the
@@ -66,7 +80,7 @@ export function isActive(runId) {
 // so a start during a delete is refused at once, and again inside the lock.
 export async function startRun(pipelineId, options) {
     refuseWhileDeleting(pipelineId)
-    return etlStore.withPipelineLock(pipelineId, () => startUnlocked(pipelineId, options))
+    return admitted(() => etlStore.withPipelineLock(pipelineId, () => startUnlocked(pipelineId, options)))
 }
 
 async function startUnlocked(pipelineId, { mode = 'incremental', settings = {} } = {}) {
@@ -139,9 +153,11 @@ export async function cancelRun(runId) {
 
 // Resume continues a paused run, or retries a failed one, from its last checkpoint with the same run id.
 export async function resumeRun(runId) {
-    const { pipelineId } = await requireRun(runId)
-    refuseWhileDeleting(pipelineId)
-    return etlStore.withPipelineLock(pipelineId, () => resumeUnlocked(runId))
+    return admitted(async () => {
+        const { pipelineId } = await requireRun(runId)
+        refuseWhileDeleting(pipelineId)
+        return etlStore.withPipelineLock(pipelineId, () => resumeUnlocked(runId))
+    })
 }
 
 // Pause and cancel do not take the pipeline lock, so the read, the checks and the 'queued' write share one transaction:
@@ -215,9 +231,9 @@ async function requireRun(runId, q) {
 }
 
 async function pump() {
-    if (active.size >= maxActive) return
+    if (stopping() || active.size >= maxActive) return
     for (const run of await runsWithStatus(['queued'])) {
-        if (active.size >= maxActive) break
+        if (stopping() || active.size >= maxActive) break
         if (active.has(run.id) || deleting.has(run.pipelineId)) continue
         launch(run)
     }
@@ -227,35 +243,37 @@ function launch(run) {
     const control = { stopRequested: null, abort: new AbortController() }
     const job = { control, promise: null }
     active.set(run.id, job)
-    job.promise = Promise.resolve()
-        .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
-        .catch(async (error) => {
-            if (isCrash(error)) return getRun(run.id)
-            // Re-read and condition the write so a stop committed even after this read is not overwritten.
-            await etlStore.tx(async (t) => {
-                const current = await getRun(run.id, t)
-                await fault({ faults: runnerFaults }, 'launchErrorAfterRead', current, t)
-                if (current?.status === 'queued' || current?.status === 'running') {
-                    const applied = await updateRunIf(
-                        run.id,
-                        [current.status],
-                        { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() },
-                        t
-                    )
-                    if (applied) await addEvent(run.id, 'error', null, errorMessage(error), t)
-                }
-                await finishRunStop(run.id, t)
-            })
-            onError(error, run)
-            return getRun(run.id)
-        })
-        .finally(async () => {
-            active.delete(run.id)
-            try {
-                await onSettled(run.id)
-            } catch (error) {
+    job.promise = track(
+        Promise.resolve()
+            .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
+            .catch(async (error) => {
+                if (isCrash(error)) return getRun(run.id)
+                // Re-read and condition the write so a stop committed even after this read is not overwritten.
+                await etlStore.tx(async (t) => {
+                    const current = await getRun(run.id, t)
+                    await fault({ faults: runnerFaults }, 'launchErrorAfterRead', current, t)
+                    if (current?.status === 'queued' || current?.status === 'running') {
+                        const applied = await updateRunIf(
+                            run.id,
+                            [current.status],
+                            { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() },
+                            t
+                        )
+                        if (applied) await addEvent(run.id, 'error', null, errorMessage(error), t)
+                    }
+                    await finishRunStop(run.id, t)
+                })
                 onError(error, run)
-            }
-            setImmediate(() => pump().catch((error) => onError(error, run)))
-        })
+                return getRun(run.id)
+            })
+            .finally(async () => {
+                active.delete(run.id)
+                try {
+                    await onSettled(run.id)
+                } catch (error) {
+                    onError(error, run)
+                }
+                setImmediate(() => pump().catch((error) => onError(error, run)))
+            })
+    )
 }

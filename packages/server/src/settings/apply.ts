@@ -1,5 +1,7 @@
 // Applies the admin settings file to the environment at start, before any other server module reads it.
-// The host always wins. When the start script already applied the file (CUTTLELY_SETTINGS_APPLIED=1), only the record is kept.
+// Saved limits override the host; other startup settings keep host precedence.
+// When the start script already applied ordinary settings (CUTTLELY_SETTINGS_APPLIED=1), only their record is kept.
+import { applyLimitSettings, recordHostLimits, resolveLimits } from './limits'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, hostSetKeys, fileValuesToApply, isBlank } from './resolve'
 import fs from 'fs'
 import path from 'path'
@@ -26,6 +28,8 @@ export interface StartState {
     problems: string[]
     /** The settings file text at start (null when there was none), so Discard can put it back exactly. Never sent to a browser. */
     rawAtStart?: string | null
+    /** Effective limit values at start, kept apart from later live changes. */
+    limitsAtStart?: Record<string, string>
     /** Safe boot restored the last good settings on this start. */
     rolledBack?: boolean
 }
@@ -61,6 +65,7 @@ function readRaw(dir: string): string | null {
 }
 
 export function applyAdminSettings(env: Env = process.env, options: { start?: boolean } = {}): StartState {
+    recordHostLimits(env)
     const dir = settingsDir(env)
     const state: StartState = {
         dir,
@@ -73,6 +78,8 @@ export function applyAdminSettings(env: Env = process.env, options: { start?: bo
         problems: []
     }
     if (isOnValue(env[IGNORE_VAR])) {
+        state.limitsAtStart = Object.fromEntries([...resolveLimits(env, {})].map(([key, row]) => [key, row.value]))
+        applyLimitSettings(env, {})
         state.ignored = true
         state.hostKeys = [...hostSetKeys(env)]
         return state
@@ -92,6 +99,7 @@ export function applyAdminSettings(env: Env = process.env, options: { start?: bo
     const read = readSettingsFile(dir, key)
     state.rawAtStart = readRaw(dir)
     state.atStart = read.values
+    state.limitsAtStart = Object.fromEntries([...resolveLimits(env, read.values)].map(([key, row]) => [key, row.value]))
     state.unreadable = read.unreadable
     state.problems = [...state.problems, ...read.problems]
     const toApply = fileValuesToApply(env, read.values, hostKeys)
@@ -100,6 +108,7 @@ export function applyAdminSettings(env: Env = process.env, options: { start?: bo
         for (const [key, value] of Object.entries(toApply)) env[key] = value
         if (env[HOST_KEYS_VAR] === undefined) env[HOST_KEYS_VAR] = state.hostKeys.join(',')
     }
+    applyLimitSettings(env, read.values)
     // After the host record is fixed, so this default does not look host-set.
     // A saved or host value of off, false, 0, or no is already non-blank and stays.
     ensureAnalystDefault(env)

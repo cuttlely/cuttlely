@@ -5,7 +5,7 @@ import path from 'node:path'
 import { dataRoot } from '../paths.mjs'
 
 export const HERMES_STREAM_DIR = 'hermes-streams'
-const FRESH_MS = 20000
+const FRESH_MS = 30000
 
 export function hermesStreamDir(dataDir) {
     const dir = dataDir == null || String(dataDir).trim() === '' ? dataRoot() : String(dataDir)
@@ -34,17 +34,14 @@ export function beginHermesStream(dataDir) {
             // A missing data dir must not fail the run.
         }
     }
-    touch()
-    const timer = setInterval(touch, 5000)
-    timer.unref?.()
-    return () => {
-        clearInterval(timer)
+    const end = () => {
         try {
             fs.rmSync(file, { force: true })
         } catch {
             // The supervisor treats a stale file as closed.
         }
     }
+    return { touch, end }
 }
 
 export function hermesStreamActive(dataDir) {

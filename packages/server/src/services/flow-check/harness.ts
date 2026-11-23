@@ -47,6 +47,7 @@ export interface ReplayCall {
     question: string
     signal: AbortSignal
     caller: IHarnessCaller | undefined
+    tryOwner?: string
 }
 
 // Tests stand in for the try-profile replay. Production calls the harness service.
@@ -205,6 +206,7 @@ export async function replayHarnessQuestion(args: {
     question: string
     signal: AbortSignal | AbortController
     caller: IHarnessCaller | undefined
+    tryOwner?: string
 }): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
     const signal = abortSignalOf(args.signal)
     if (harnessReplayHooks.run) {
@@ -213,7 +215,8 @@ export async function replayHarnessQuestion(args: {
             flowData: args.flowData,
             question: args.question,
             signal,
-            caller: args.caller
+            caller: args.caller,
+            tryOwner: args.tryOwner
         })
         return {
             text: String(outcome?.text ?? ''),
@@ -231,7 +234,7 @@ export async function replayHarnessQuestion(args: {
         },
         args.flowData,
         { question: args.question, chatId: `check-${randomUUID()}` },
-        { signal, caller: args.caller }
+        { signal, caller: args.caller, tryOwner: args.tryOwner }
     )
     const payload = outcome?.payload as
         | { text?: string; trace?: unknown; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }

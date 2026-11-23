@@ -275,6 +275,8 @@ export class ChatWidget {
                     run: msg.run && typeof msg.run === 'object' ? msg.run : null,
                     messageId: typeof msg.messageId === 'string' ? msg.messageId : '',
                     feedback: msg.feedback === 'up' || msg.feedback === 'down' ? msg.feedback : null,
+                    notSent: msg.notSent === true,
+                    notice: typeof msg.notice === 'string' ? msg.notice : '',
                     status: 'done',
                     rev: 0
                 }))
@@ -297,7 +299,9 @@ export class ChatWidget {
                     artifacts: msg.artifacts || [],
                     run: msg.run || null,
                     messageId: msg.messageId || '',
-                    feedback: msg.feedback || null
+                    feedback: msg.feedback || null,
+                    notSent: msg.notSent === true,
+                    notice: msg.notice || ''
                 }))
             localStorage.setItem(this.storageKey(), JSON.stringify({ chatId: this.chatId, sessionToken: this.sessionToken, messages }))
         } catch {
@@ -533,6 +537,7 @@ export class ChatWidget {
                 )
             )
         if (msg.text) body.append(h('div', { class: 'dc-user-bubble', text: msg.text }))
+        if (msg.notSent) body.append(h('div', { class: 'dc-not-sent', text: 'Not sent' }))
         return h('div', { class: 'dc-msg user', 'data-id': msg.id }, [h('span', { class: 'sr-only', text: 'You said:' }), body])
     }
 
@@ -559,6 +564,12 @@ export class ChatWidget {
         if (msg.artifacts?.length) body.append(this.renderArtifacts(msg.artifacts))
         if (msg.sources?.length) body.append(this.renderSources(msg.sources))
         if (msg.error) body.append(this.renderError(msg, isLast))
+        if (msg.notice) {
+            const notice = h('div', { class: 'dc-notice', role: 'status', text: msg.notice })
+            if (isLast && msg.retry)
+                notice.append(h('button', { class: 'dc-chip', type: 'button', text: 'Try again', onclick: () => this.retry(msg) }))
+            body.append(notice)
+        }
         if (msg.action && isLast && msg.status === 'done') body.append(this.renderAction(msg))
         if (msg.status === 'done' && msg.text) body.append(this.renderTools(msg))
         if (isLast && msg.status === 'done' && msg.followUps?.length && !this.busy) {
@@ -1179,8 +1190,9 @@ export class ChatWidget {
                 },
                 controller.signal
             )
-            if (!bot.text && !bot.error && !bot.artifacts.length && !bot.action) bot.text = bot.fallbackText || ''
-            if (!bot.text && !bot.error && !bot.artifacts.length && !bot.action) bot.error = 'The answer was empty. Try asking another way.'
+            if (!bot.text && !bot.error && !bot.notice && !bot.artifacts.length && !bot.action) bot.text = bot.fallbackText || ''
+            if (!bot.text && !bot.error && !bot.notice && !bot.artifacts.length && !bot.action)
+                bot.error = 'The answer was empty. Try asking another way.'
         } catch (error) {
             if (controller.signal.aborted) {
                 if (!bot.text) bot.text = '_Stopped._'
@@ -1191,13 +1203,20 @@ export class ChatWidget {
                     this.block(info)
                     return
                 }
-                bot.error = info.message
+                if (info.kind === 'notice') bot.notice = info.message
+                else bot.error = info.message
                 bot.retry = { text: question.trim(), extra, uploads, files }
             }
         } finally {
             if (this.controller === controller) this.controller = null
             clearInterval(this.liveTimer)
             this.liveTimer = null
+        }
+        if (bot.notice) {
+            user.notSent = true
+            user.rev++
+            bot.run = null
+            bot.retry = { text: question.trim(), extra, uploads, files }
         }
         bot.status = 'done'
         if (bot.run && bot.run.phase !== 'done' && bot.run.phase !== 'failed')
@@ -1207,7 +1226,7 @@ export class ChatWidget {
         this.renderShellHeaderOnly()
         this.renderThread()
         this.scrollToEnd()
-        this.announce(bot.error ? bot.error : `Answer: ${bot.text.replace(/[#*_`>|]/g, '').slice(0, 280)}`)
+        this.announce(bot.notice || bot.error || `Answer: ${bot.text.replace(/[#*_`>|]/g, '').slice(0, 280)}`)
         this.save()
         this.focusInput()
     }
@@ -1267,8 +1286,12 @@ export class ChatWidget {
             return touch()
         }
         if (event === 'error') {
-            const status = typeof evt.status === 'number' ? evt.status : 0
-            const info = status ? describeError({ status }, this.config.errorMessage) : null
+            const status = evt.status || data?.status || data?.statusCode || 0
+            const info = describeError({ status, code: evt.code || data?.code, message: data?.message || data }, this.config.errorMessage)
+            if (info.kind === 'notice') {
+                bot.notice = info.message
+                return touch()
+            }
             bot.error =
                 info && info.kind !== 'error'
                     ? info.message

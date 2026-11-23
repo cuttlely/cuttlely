@@ -44,6 +44,17 @@ export function releaseVersion(root = findRepoRoot()) {
     return version
 }
 
+// Use the published README headline so the homepage and its badge change on the same release commit.
+export function releaseHeadline(version, root = findRepoRoot()) {
+    const prefix = `**${version} `
+    const line = readFileSync(join(root, 'README.md'), 'utf8')
+        .split(/\r?\n/)
+        .find((entry) => entry.startsWith(prefix))
+    const end = line?.indexOf('**', prefix.length) ?? -1
+    if (end < 0) throw new Error(`README.md has no release headline for ${version}`)
+    return `Cuttlely ${line.slice(prefix.length, end)}`
+}
+
 /** The latest dated heading in CHANGELOG.md, skipping ## [Unreleased]. */
 export function changelogLatestVersion(root = findRepoRoot()) {
     const md = readFileSync(join(root, 'CHANGELOG.md'), 'utf8')

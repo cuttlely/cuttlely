@@ -8,7 +8,7 @@ Version history and drafts read these environment variables when the server star
 | `CUTTLELY_DRAFTS`            | unset, drafts on                         | `off`, `false`, `0`, or `no` turns drafts off. Case and surrounding spaces do not matter. Other values leave them on.    |
 | `CUTTLELY_CHECK_MAX_TOKENS`  | `100000`                                 | Most tokens one publish check may use, Live and draft together. 1,000 to 2,000,000.                                      |
 | `CUTTLELY_CHECK_MAX_SECONDS` | `180`                                    | Most seconds one publish check may run. 10 to 1,800.                                                                     |
-| `CUTTLELY_CHECK_CONCURRENCY` | `2`                                      | How many questions one publish check runs at the same time. 1 to 8.                                                      |
+| `CUTTLELY_CHECK_CONCURRENCY` | `2`                                      | Chatflow and agentflow questions per check, 1 to 8 at once. Harness checks always run one at a time.                     |
 | `CUTTLELY_VERSIONS_DIR`      | unset                                    | The folder for the history repo. A relative path is resolved from the server's working directory.                        |
 | `CUTTLELY_DATA_DIR`          | `~/.cuttlely`, or as the install sets it | With `CUTTLELY_VERSIONS_DIR` unset, history is `$CUTTLELY_DATA_DIR/versions`.                                            |
 
@@ -58,7 +58,7 @@ The [publish check](./drafts-api.md#publish-check) replays recent questions agai
 
 -   `CUTTLELY_CHECK_MAX_TOKENS`: the most tokens one check may use, counting Live and the draft together. Default 100,000. Whole numbers from 1,000 to 2,000,000.
 -   `CUTTLELY_CHECK_MAX_SECONDS`: the most seconds one check may run. Default 180. Whole numbers from 10 to 1,800.
--   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap. A model evaluator's tokens count toward the same cap, including usage a provider reports only as an estimate. A provider that reports usage nowhere does not move this cap. That check is bounded only by the time limit.
+-   `CUTTLELY_CHECK_CONCURRENCY`: chatflow and agentflow questions running at the same time. Default 2, from 1 to 8. Harness checks always run one question at a time. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap. A model evaluator's tokens count toward the same cap, including usage a provider reports only as an estimate. A provider that reports usage nowhere does not move this cap. That check is bounded only by the time limit.
 
 A host value that is empty, not a whole number, or outside the range is ignored. The saved value is used when that is in range, and otherwise the default. Saving a value outside the range from Server settings is refused. When a limit is reached, the check stops starting new questions and shows the answers it has. How to run a check: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). Set a host value the same way as `CUTTLELY_DRAFTS` above, or set it in Server settings.
 

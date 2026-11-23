@@ -124,6 +124,12 @@ export const toPredictionError = (error: unknown): AppError => {
         failure.retryAfterSeconds = 5
         return failure
     }
+    const busy = errorChain(error).find((item) => item.code === 'busy' && item.harnessError === true)
+    if (busy) {
+        const failure = new AppError(StatusCodes.CONFLICT, getErrorMessage(busy))
+        failure.code = 'busy'
+        return failure
+    }
     if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) return error
     const limited = providerRateLimit(error)
     if (limited) {
@@ -155,7 +161,7 @@ export const errorEventDetails = (error: unknown): { status: number; code: strin
     const failure = toPredictionError(error)
     const status = failure.statusCode
     const code =
-        failure.code === 'RUNTIME_UNAVAILABLE'
+        failure.code === 'RUNTIME_UNAVAILABLE' || failure.code === 'busy'
             ? failure.code
             : PREDICTION_ERROR_CODES[status] || (status < 500 ? 'BAD_REQUEST' : 'INTERNAL_ERROR')
     return failure.retryAfterSeconds ? { status, code, retryAfter: failure.retryAfterSeconds } : { status, code }

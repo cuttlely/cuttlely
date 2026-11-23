@@ -73,11 +73,54 @@ function currentLines(text, currentHeading) {
     })
 }
 
-export function checkVersionConsistency(root = ROOT) {
-    const expected = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
+// These examples ship in npm tarballs or accompany the checked install pins.
+const COMPANION_PINS = {
+    'packages/cli/README.md': /The `[^ `]+` pin below selects the [^ ]+ maintenance release|--tag [^ ]+/g,
+    'packages/chat-widget/README.md': /The [^ ]+ package matches a [^ ]+ server/g,
+    'docs/how-to/docker.md': /selects the `[^`]+` maintenance release|--tag [^ `]+|version such as `[^`]+` pins one/g,
+    'docs/how-to/share-and-embed.md': /for a [^ ]+ server/g,
+    'docker-compose.yml': /pin the [^ ]+ release image/g
+}
+export const RELEASE_DOC_FILES = [...new Set([...RELEASE_SPOTS.map((spot) => spot.file), ...Object.keys(COMPANION_PINS)])]
+
+// Draft headlines sit above the current one with a visible "Upcoming" label. Promote
+// only the requested version; earlier release descriptions and their links retain their dates.
+export function releaseDocText(file, source, previous, version) {
+    if (previous === version) return source
+    const replaceVersion = (value) => value.replace(VERSION, (found) => (found === previous ? version : found))
+    const lines = source.split('\n')
+    for (const spot of RELEASE_SPOTS.filter((spot) => spot.file === file)) {
+        if (spot.label === 'release headline' || spot.label === 'New in heading') continue
+        for (const { line, text } of currentLines(source, spot.currentHeading)) {
+            if (!spot.pattern.test(text)) continue
+            lines[line - 1] = spot.values ? lines[line - 1].replace(spot.values, replaceVersion) : replaceVersion(lines[line - 1])
+            if (spot.first) break
+        }
+    }
+    const companion = COMPANION_PINS[file]
+    if (companion) {
+        for (const { line } of currentLines(source, false)) lines[line - 1] = lines[line - 1].replace(companion, replaceVersion)
+    }
+    if (path.basename(file).startsWith('README') && file !== 'docs/how-to/README.md') {
+        const marker = /^(?:\*\*(?:Upcoming|次回|다음 릴리스|即将发布|即將發布)\*\* · )/
+        for (const [i, line] of lines.entries()) {
+            const promoted = line.replace(marker, '')
+            if (promoted.startsWith(`**${version} `) || promoted.startsWith(`**${version}에서는`)) lines[i] = promoted
+        }
+    } else if (file === 'docs/how-to/README.md') {
+        const i = lines.findIndex((line) => line.trimEnd() === `## Upcoming · New in ${version}`)
+        if (i >= 0) lines[i] = lines[i].replace('Upcoming · ', '')
+    }
+    return lines.join('\n')
+}
+
+export function checkVersionConsistency(
+    root = ROOT,
+    expected = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
+    files = new Map()
+) {
     if (typeof expected !== 'string' || !expected) throw new Error('package.json:1: missing root version')
     const errors = []
-    const files = new Map()
     for (const spot of RELEASE_SPOTS) {
         if (!files.has(spot.file)) {
             try {

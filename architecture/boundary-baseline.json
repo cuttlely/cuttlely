@@ -1651,6 +1651,11 @@
             "reason": "The HTTP localhost switch is read from Server settings and handed to the components HTTP guard through its reader setter"
         },
         {
+            "from": "packages/server/src/settings/limits.test.ts",
+            "to": "packages/server/src/commands/base.ts",
+            "reason": "The limits test loads the base command to prove saved limits survive its startup dotenv load"
+        },
+        {
             "from": "packages/server/src/settings/operator-claim.ts",
             "to": "packages/server/src/database/entities/index.ts",
             "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
@@ -2109,6 +2114,16 @@
         {
             "from": "packages/server/src/utils/streaming.test.ts",
             "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/tryOwner.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The Try owner helper only takes the IHarnessCaller type from the shared server interface and the shared AppError for a missing owner"
+        },
+        {
+            "from": "packages/server/src/utils/tryOwner.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The Try owner helper only takes the IHarnessCaller type from the shared server interface and the shared AppError for a missing owner"
         },
         {
             "from": "packages/server/src/utils/uploadFileCors.test.ts",
@@ -3078,6 +3093,26 @@
             "from": "scripts/harness-per-run-auth.test.cjs",
             "to": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
             "reason": "Production fixture loads the real Chatflow Tool so concurrent Harness chats can be checked against actual nested-target admission, not a stand-in."
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/controllers/ping",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/services/harnesses",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/services/harnesses/bootGate",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
+        },
+        {
+            "from": "scripts/harness-self-recovery.test.mjs",
+            "to": "packages/server/dist/startup/databaseHealth",
+            "reason": "self-recovery integration test drives the built server's keep-warm, boot gate and ping handlers against the real harness compiler"
         }
     ],
     "r4Edges": [

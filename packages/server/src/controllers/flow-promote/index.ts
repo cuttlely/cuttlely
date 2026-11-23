@@ -1,3 +1,4 @@
+import { tryOwnerFor } from '../../utils/tryOwner'
 // Promote, on a server labeled Prod: the flows with a new version from Dev, one flow's version with what it
 // changes and the credentials it needs, the behavior check against Live, and Promote. Owner only (routes).
 import { NextFunction, Request, Response } from 'express'
@@ -184,11 +185,14 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { flow, candidate } = await checkTarget(req)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-        return res
-            .status(StatusCodes.ACCEPTED)
-            .json(
-                await flowCheckService.startCheck(flow, req.body || {}, baseURL, { caller: await harnessCallerFor(req), given: candidate })
-            )
+        const caller = await harnessCallerFor(req)
+        return res.status(StatusCodes.ACCEPTED).json(
+            await flowCheckService.startCheck(flow, req.body || {}, baseURL, {
+                caller,
+                ...(flow.type === 'HARNESS' ? { tryOwner: tryOwnerFor(caller, req.user?.id) } : {}),
+                given: candidate
+            })
+        )
     } catch (error) {
         next(error)
     }

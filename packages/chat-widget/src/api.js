@@ -13,18 +13,20 @@ export class ChatApiError extends Error {
 
 async function readError(res) {
     let message = ''
+    let code = ''
     try {
         const body = await res.text()
         try {
             const json = JSON.parse(body)
             message = typeof json?.message === 'string' ? json.message : typeof json?.error === 'string' ? json.error : ''
+            code = typeof json?.code === 'string' ? json.code : ''
         } catch {
             message = body
         }
     } catch {
         // ignore
     }
-    return new ChatApiError(res.status, String(message || '').slice(0, 300))
+    return new ChatApiError(res.status, String(message || '').slice(0, 300), code)
 }
 
 export function createClient({ apiHost, flowId, fetchImpl }) {
@@ -130,6 +132,9 @@ export function createClient({ apiHost, flowId, fetchImpl }) {
 /** What to tell a visitor for a failed request. */
 export function describeError(error, custom) {
     const status = error?.status
+    const busyMessage = 'A reply is still in progress in this chat. Try again in a moment.'
+    if ((status === 409 || error?.code === 'busy') && (error?.code === 'busy' || String(error?.message || '').endsWith(busyMessage)))
+        return { kind: 'notice', message: busyMessage }
     if (status === 401) return { kind: 'private', message: 'This chat is private or needs a key.' }
     if (status === 403) return { kind: 'origin', message: 'This chat is not available on this site.' }
     if (status === 404) return { kind: 'missing', message: 'This chat could not be found.' }

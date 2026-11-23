@@ -4,7 +4,7 @@ import { now } from './db.mjs'
 import * as etlStore from './store.mjs'
 import { nextCron } from './cron.mjs'
 import { activeRunFor, getRun } from './runs.mjs'
-import { configureRunner, startRun } from './runner.mjs'
+import { configureRunner, runnerStopping, startRun } from './runner.mjs'
 import { getPipeline } from './versions.mjs'
 
 // In-process scheduler. enqueue/startRun is still the only execution seam: a later queue
@@ -172,7 +172,7 @@ function installSettled() {
 
 // Due active schedules fire once. A pipeline that already has a run is skipped and the reason is stored.
 export async function tickSchedules() {
-    if (ticking) return []
+    if (ticking || runnerStopping()) return []
     ticking = true
     installSettled()
     const outcomes = []
@@ -182,6 +182,7 @@ export async function tickSchedules() {
             [schedulerNow().toISOString()]
         )
         for (const row of due) {
+            if (runnerStopping()) break
             const schedule = rowToSchedule(row)
             const at = schedulerNow()
             let outcome = 'started'
@@ -189,6 +190,7 @@ export async function tickSchedules() {
             let reason = null
             try {
                 const running = await activeRunFor(schedule.pipelineId)
+                if (runnerStopping()) break
                 if (running) {
                     outcome = 'skipped'
                     reason = `Run ${running.id.slice(0, 8)} is still ${running.status}. This tick was skipped so runs do not stack.`
@@ -204,6 +206,7 @@ export async function tickSchedules() {
                     })
                 }
             } catch (error) {
+                if (error.code === 'restarting') break
                 outcome = 'failed'
                 reason = error.message
                 await mark(schedule.id, { last_result: 'failed', last_reason: reason })

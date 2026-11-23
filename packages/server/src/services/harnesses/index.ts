@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
+import { isDraining, isShuttingDown } from '../../settings/runs'
 import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
@@ -26,8 +27,16 @@ import type { IHarnessCaller, INestedFlowCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
 import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
+import { resolveTryOwner } from '../../utils/tryOwner'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
-import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
+import {
+    beginBootPass,
+    bootPassCapMs,
+    finishBootPass,
+    markBootIncomplete,
+    openBootAfterCap,
+    registerUnavailableHarnessCount
+} from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -351,6 +360,7 @@ export async function backfillHarnessWorkspaces() {
 }
 
 type HarnessNestedFlowContext = {
+    tryOwner?: string
     nestedFlowCaller?: INestedFlowCaller
     nestedFlowDepth?: number
     signal?: AbortSignal
@@ -389,6 +399,7 @@ function contextFromRuntime(
                 parentFlowId: chatflowId,
                 parentWorkspaceId: workspaceId,
                 caller: nested.nestedFlowCaller,
+                tryOwner: nested.tryOwner,
                 depth: nested.nestedFlowDepth ?? 0,
                 signal: nested.signal ? ({ signal: nested.signal } as AbortController) : runtime.signal
             })
@@ -423,6 +434,7 @@ export async function contextFor(
                 parentFlowId: record.chatflowId,
                 parentWorkspaceId: record.workspaceId,
                 caller: nested.nestedFlowCaller,
+                tryOwner: nested.tryOwner,
                 depth:
                     Number.isInteger(nested.nestedFlowDepth) && (nested.nestedFlowDepth as number) >= 0
                         ? (nested.nestedFlowDepth as number)
@@ -463,6 +475,11 @@ function markBootFailed(name: string, error: string) {
 function clearBootFailure(name: string) {
     bootFailures.delete(name)
 }
+
+export function unavailableHarnessNames(): string[] {
+    return [...bootFailures.keys()].sort()
+}
+registerUnavailableHarnessCount(() => bootFailures.size)
 
 /** A failed boot compile refuses a run with 503, not 500. */
 export function assertHarnessAvailable(name: string) {
@@ -678,6 +695,8 @@ function configureRuntime(): Promise<void> {
                 // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
                 await recompileBeforeHermes(gateway)
+                // Removes abandoned try folders and stops try MCP bridges that outlived their profile or runtime.
+                gateway.startTrySweeper?.()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')
                 await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {
@@ -709,11 +728,12 @@ const startHarnessRuntime = () => {
 // Runs in the background: a failed warm-up only means the next chat pays the cold start.
 const warmHarnesses = (names?: string[]) => {
     if (process.env.CUTTLELY_WARM_HERMES === 'false') return
-    configureRuntime()
+    return configureRuntime()
         .then(() => loadHarness('run.mjs'))
         .then((engine) =>
             engine.warmHarnessProfiles({
-                names,
+                names: names ? [...new Set([...names, ...bootFailures.keys()])] : undefined,
+                onCompiled: clearBootFailure,
                 mode: process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
                 lock: (compile: () => unknown) => withProfileLock(() => Promise.resolve(compile()))
             })
@@ -1081,6 +1101,12 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             }
             await purgeHarnessRuns(finished)
             try {
+                const profile = await loadHarness('profile.mjs')
+                await profile.removeTryProfileForFlow(chatflowId)
+            } catch (error) {
+                logger.warn(`[harness] try profile cleanup for deleted canvas ${chatflowId} failed: ${getErrorMessage(error)}`)
+            }
+            try {
                 const session = await loadHarness('session.mjs')
                 session.removeDraftSessions({ workspaceId, chatflowId })
             } catch (error) {
@@ -1262,7 +1288,7 @@ function httpHarnessError(error: unknown) {
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
     if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
-    if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
+    if (code === 'busy') return Object.assign(new AppError(StatusCodes.CONFLICT, message), { code: 'busy' })
     if (code === 'harness_changed') return new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
@@ -1440,6 +1466,7 @@ const startRun = async (
         runId?: string
         // Who the run acts for. An API key's id is stored on the history row.
         caller: IHarnessCaller
+        sessionUserId?: string
         // Set by the canvas run. A flow with no list of its own may start that canvas.
         allowFlow?: boolean
         // Required for enforced key callers; retained through runtime and queue name re-resolution.
@@ -1460,12 +1487,17 @@ const startRun = async (
     assertRuntimeAvailable()
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
-    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
+    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller, opts.sessionUserId)
     const nestedFlowDepth =
         Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
-        const nested = { nestedFlowCaller, nestedFlowDepth, signal: opts.signal }
+        const nested = {
+            nestedFlowCaller,
+            nestedFlowDepth,
+            signal: opts.signal,
+            tryOwner: typeof opts.record?.tryOwner === 'string' ? opts.record.tryOwner : opts.runtime?.tryOwner
+        }
         runtime = opts.runtime
             ? contextFromRuntime(opts.record || prepared.harness, opts.runtime, nested)
             : await contextFor(prepared.harness, nested)
@@ -1561,6 +1593,7 @@ const startBackgroundRun = async (
         workspaceId: string
         source?: 'api' | 'schedule'
         caller: IHarnessCaller
+        sessionUserId?: string
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         // API admission follows run/chat authorization and precedes the first queued history write.
@@ -1570,6 +1603,7 @@ const startBackgroundRun = async (
         expectedChatflowId?: string
     }
 ) => {
+    if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting to apply new settings. Try again in a minute.')
     // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
     // drain that begins during the awaits below, instead of the drain seeing nothing in progress.
     let release = () => {}
@@ -1609,6 +1643,7 @@ const startBackgroundRun = async (
                 workspaceId: opts.workspaceId,
                 runId,
                 caller: opts.caller,
+                sessionUserId: opts.sessionUserId,
                 expectedChatflowId: opts.expectedChatflowId
             }
         )
@@ -1793,7 +1828,7 @@ const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) 
 
 // Canvas chat and Try it run the draft canvas when one exists, otherwise the Live canvas. The public prediction
 // route passes canvas 'live', so a saved draft does not change it before Publish. The saved harness and its profile
-// are not written. The try compiles under its own id and is removed when the run ends.
+// are not written. The try keeps a fixed path for this canvas and owner.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
@@ -1803,6 +1838,7 @@ const startCanvasRun = async (
         signal?: AbortSignal
         onEvent?: (event: { type: string }) => void
         caller: IHarnessCaller
+        tryOwner?: string
         nestedFlowCaller?: INestedFlowCaller
         nestedFlowDepth?: number
         runtime?: NestedFlowExecutionRuntime
@@ -1825,17 +1861,17 @@ const startCanvasRun = async (
         nestedFlowCaller: opts.nestedFlowCaller,
         nestedFlowDepth: opts.nestedFlowDepth,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
     })
 }
 
-// Publish check. Live and the draft each get their own try profile, the same one the canvas uses.
+// Publish check. Live and the draft use the same fixed try profile as this owner's canvas.
 // Nothing is written to run history, the session, or the analyst capture for this chat.
 const replayCheck = async (
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },
     flowData: string,
     body: Record<string, unknown>,
-    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined }
+    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined; tryOwner?: string }
 ) => {
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
     // An API key that does not list this harness, or no caller at all, is refused here too.
@@ -1860,7 +1896,7 @@ const replayCheck = async (
         caller: opts.caller,
         replay: true,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
     })
 }
 

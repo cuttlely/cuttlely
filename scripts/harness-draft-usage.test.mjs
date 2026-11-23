@@ -175,7 +175,7 @@ describe('harness draft try usage', () => {
         const outcome = await harnesses.startCanvasRun(
             chatflow,
             { question: 'Try the draft' },
-            { source: 'playground', caller: { via: 'session' } }
+            { source: 'playground', caller: { via: 'session' }, tryOwner: 'user:draft-usage-user' }
         )
         assert.equal(outcome.payload.text, 'baked')
         const afterDraft = await settle(dataSource, 40, 16)
