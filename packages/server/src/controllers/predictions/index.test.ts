@@ -202,7 +202,8 @@ describe('POST /api/v1/prediction/:id', () => {
             {
                 source: 'playground',
                 canvas: 'live',
-                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'], harnessIds: { 'bakery-team': HARNESS_ID } }
+                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'], harnessIds: { 'bakery-team': HARNESS_ID } },
+                tryOwner: `api:${STORED_ID}`
             }
         )
         expect(mockBuildChatflow).not.toHaveBeenCalled()
@@ -218,7 +219,7 @@ describe('POST /api/v1/prediction/:id', () => {
         expect(mockStartCanvasRun).toHaveBeenCalledWith(
             expect.objectContaining({ id: OPEN_ID, name: 'bakery-open', type: 'HARNESS' }),
             { question: 'hi', chatId: res.body.chatId },
-            { source: 'playground', canvas: 'live', caller: { via: 'flow' } }
+            { source: 'playground', canvas: 'live', caller: { via: 'flow' }, tryOwner: 'flow' }
         )
         expect(mockBuildChatflow).not.toHaveBeenCalled()
     })
