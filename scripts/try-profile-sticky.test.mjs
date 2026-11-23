@@ -513,6 +513,54 @@ test('chat boundaries clear SQLite history and file memory in place for chief an
     for (const [file, inode] of identities) assert.equal(fs.statSync(file).ino, inode, file)
 })
 
+test('KIWI memory pair matches main: the same Try chat keeps it, a new Try chat or another user never sees it', async () => {
+    const flow = 'fixture-kiwi'
+    const id = tryIdForFlow(flow, 'user:fixture')
+    const scope = tryProfileName(id)
+    const turn = async (chatId) =>
+        withTryProfile(id, async (discard) => {
+            compileTryProfile(draft(flow), id)
+            await resetTryProfileSession(id, chatId)
+            await discard()
+        })
+    const kiwiFiles = (name) => {
+        const found = []
+        const walk = (folder) => {
+            for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+                const target = path.join(folder, entry.name)
+                if (entry.isDirectory()) walk(target)
+                else if (fs.readFileSync(target).includes('KIWI')) found.push(target)
+            }
+        }
+        if (fs.existsSync(path.join(profiles, name))) walk(path.join(profiles, name))
+        return found
+    }
+    // Turn 1 of chat A: the runtime remembers KIWI in its database and memory file.
+    await turn('chat-kiwi-a')
+    const home = path.join(profiles, scope)
+    const db = new DatabaseSync(path.join(home, 'state.db'))
+    db.exec(`CREATE TABLE sessions(id TEXT PRIMARY KEY); CREATE TABLE messages(session_id TEXT, content TEXT); CREATE TABLE memories(content TEXT);
+        INSERT INTO sessions VALUES('chat-kiwi-a'); INSERT INTO messages VALUES('chat-kiwi-a', 'remember KIWI'); INSERT INTO memories VALUES('KIWI');`)
+    db.close()
+    fs.mkdirSync(path.join(home, 'memories'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'memories', 'MEMORY.md'), 'The word is KIWI')
+    // Turn 2 of chat A is a follow-up; Cuttlely also supplies the chat history, as on main.
+    await turn('chat-kiwi-a')
+    assert.ok(kiwiFiles(scope).length > 0, 'a same-chat follow-up lost its state')
+    // A new Try chat starts clean, as each Try did on main.
+    await turn('chat-kiwi-b')
+    assert.deepEqual(kiwiFiles(scope), [])
+    const check = new DatabaseSync(path.join(home, 'state.db'), { readOnly: true })
+    assert.equal(check.prepare("SELECT count(*) AS n FROM memories WHERE content LIKE '%KIWI%'").get().n, 0)
+    check.close()
+    // Another user on the same flow has a separate home with no KIWI.
+    const otherId = tryIdForFlow(flow, 'user:second')
+    assert.notEqual(tryProfileName(otherId), scope)
+    compileTryProfile({ ...draft(flow), tryOwner: 'user:second' }, otherId)
+    await resetTryProfileSession(otherId, 'chat-kiwi-c')
+    assert.deepEqual(kiwiFiles(tryProfileName(otherId)), [])
+})
+
 test('upgrade sweep removes old unique homes with state and stale markers, keeping sticky and saved homes', () => {
     const homes = ['try0000000000000001', 'try0000000000000002', 'try0000000000000003']
     const past = new Date(Date.now() - 11 * 60 * 1000)

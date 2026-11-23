@@ -33,7 +33,7 @@ import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
-import { TRY_BRIDGE_SWEEP_MS, sweepOrphanTryBridges } from './try-bridges.mjs'
+import { TRY_BRIDGE_SWEEP_MS, sweepOrphanTryBridges, tryEntriesWithBridges } from './try-bridges.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { sessionKey } from './session.mjs'
 import { serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
@@ -468,10 +468,13 @@ export function sweepAbandonedTryProfiles() {
     if (!entries) return abandoned
     const drop = []
     const saved = new Set(listHarnessNames())
+    // A folder whose try bridges still run stays until a bridge sweep has stopped them.
+    const running = tryEntriesWithBridges()
     for (const entry of entries) {
         if (saved.has(entry)) continue
         const marker = readParent(path.join(root, entry))
         if (!abandonedTryEntry(entry, marker)) continue
+        if (running.has(entry) || running.has(entry.split('--')[0])) continue
         drop.push(entry)
         abandoned.add(entry)
     }
@@ -564,7 +567,7 @@ export function startTrySweeper({ intervalMs = TRY_BRIDGE_SWEEP_MS } = {}) {
         if (trySweeping) return
         trySweeping = true
         try {
-            sweepAbandonedTryProfiles()
+            // Bridges first, so a folder is never removed while its bridges run.
             const { stopped, left } = await sweepOrphanTryBridges()
             if (stopped.length)
                 console.warn(
@@ -572,6 +575,7 @@ export function startTrySweeper({ intervalMs = TRY_BRIDGE_SWEEP_MS } = {}) {
                         left.length ? `; ${left.length} still running` : ''
                     }`
                 )
+            sweepAbandonedTryProfiles()
         } catch (error) {
             console.warn(`[harness] try sweep failed: ${error?.message || error}`)
         } finally {

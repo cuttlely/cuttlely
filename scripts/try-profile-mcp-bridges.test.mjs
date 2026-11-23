@@ -73,6 +73,17 @@ function bridgeCount() {
     return spawned.reduce((sum, child) => sum + groupMembers(child.pid), 0)
 }
 
+// Folder removal goes through /proc/self/fd/<dir fd>/<name>; resolve it to the logical path.
+function realTarget(target) {
+    const match = /^\/proc\/self\/fd\/(\d+)(\/.*)?$/.exec(String(target))
+    if (!match) return path.resolve(String(target))
+    try {
+        return path.join(fs.readlinkSync(`/proc/self/fd/${match[1]}`), match[2] || '')
+    } catch {
+        return path.resolve(String(target))
+    }
+}
+
 function tryFolders(scope, { sticky = false } = {}) {
     fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
     fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
@@ -103,9 +114,14 @@ test('N sticky try turns reuse their folders and leave the bridge count where it
             assert.ok(await waitFor(() => [chief, worker, legacy].every((child) => groupMembers(child.pid) === 2)))
             const rmdir = fs.rmdirSync
             let removedWhileRunning = 0
+            let removals = 0
+            const ours = [path.join(profiles, scope), path.join(dir, 'workspaces', scope)]
             fs.rmdirSync = function (target, ...args) {
-                if (path.resolve(target).startsWith(path.join(profiles, scope)))
+                const real = realTarget(target)
+                if (ours.some((prefix) => real.startsWith(prefix))) {
+                    removals += 1
                     removedWhileRunning += [chief, worker, legacy].reduce((sum, child) => sum + groupMembers(child.pid), 0)
+                }
                 return rmdir.call(fs, target, ...args)
             }
             try {
@@ -113,6 +129,8 @@ test('N sticky try turns reuse their folders and leave the bridge count where it
             } finally {
                 fs.rmdirSync = rmdir
             }
+            // A sticky turn stops its bridges and keeps its folders; only flow deletion removes them.
+            assert.equal(removals, 0, 'a sticky turn removed its folders')
             assert.equal(removedWhileRunning, 0, 'a try folder was removed while its bridges still ran')
             assert.equal(fs.statSync(path.join(profiles, scope)).isDirectory(), true)
             assert.equal(fs.readFileSync(path.join(profiles, scope, 'harness-try-keep'), 'utf8').trim(), scope)
@@ -204,6 +222,23 @@ test(
         runtime.kill('SIGKILL')
     }
 )
+
+test('the folder sweep keeps an abandoned try folder while its bridges run, and removes it once they stop', { skip: !linux }, async () => {
+    const { sweepAbandonedTryProfiles } = await import('../packages/harness/gateway.mjs')
+    const scope = 'tryffff0001'
+    tryFolders(scope)
+    const bridge = startBridge(`${scope}--worker`)
+    assert.ok(await waitFor(() => groupMembers(bridge.pid) === 2))
+    let swept = sweepAbandonedTryProfiles()
+    assert.equal(swept.has(scope), false)
+    assert.ok(fs.existsSync(path.join(profiles, scope)))
+    assert.ok(fs.existsSync(path.join(profiles, `${scope}--worker`)))
+    process.kill(-bridge.pid, 'SIGKILL')
+    assert.ok(await waitFor(() => groupMembers(bridge.pid) === 0))
+    swept = sweepAbandonedTryProfiles()
+    assert.ok(swept.has(scope))
+    assert.equal(fs.existsSync(path.join(profiles, scope)), false)
+})
 
 test('an empty try folder left after teardown is removed once it is 10 minutes old', async () => {
     const { sweepAbandonedTryProfiles } = await import('../packages/harness/gateway.mjs')

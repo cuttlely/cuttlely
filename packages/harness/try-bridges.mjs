@@ -219,6 +219,19 @@ export async function stopTryProfileBridges(entries, { graceMs = TRY_BRIDGE_STOP
     return { stopped: targets.map((proc) => proc.pid), left }
 }
 
+// The try entries, and their try homes, that still have a running bridge. Folder sweeps skip them.
+export function tryEntriesWithBridges() {
+    const out = new Set()
+    if (process.platform !== 'linux') return out
+    for (const proc of listProcesses()) {
+        if (!proc.entry) continue
+        out.add(proc.entry)
+        const home = tryHomeOf(proc.entry)
+        if (home) out.add(home)
+    }
+    return out
+}
+
 function recordedRuntimePid() {
     const text = readText(path.join(hermesHome(), 'gateway.pid')).trim()
     if (!text) return 0

@@ -2607,7 +2607,8 @@ function clearTryStateDatabase(file) {
     try {
         reader.prepare('SELECT name FROM sqlite_master LIMIT 1').all()
         writer = new DatabaseSync(file)
-        writer.exec('PRAGMA busy_timeout = 1000; PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE')
+        // secure_delete zeroes the cleared rows, so old session text does not stay in free pages.
+        writer.exec('PRAGMA busy_timeout = 1000; PRAGMA foreign_keys = OFF; PRAGMA secure_delete = ON; BEGIN IMMEDIATE')
         const tables = writer.prepare('PRAGMA table_list').all()
         for (const table of tables) {
             if (table.schema !== 'main' || table.type !== 'table' || table.name.startsWith('sqlite_')) continue
@@ -2639,6 +2640,7 @@ function clearTryStateDatabase(file) {
             else writer.exec(`DELETE FROM ${quoted}`)
         }
         writer.exec('COMMIT')
+        writer.prepare('PRAGMA wal_checkpoint(PASSIVE)').all()
     } finally {
         try {
             writer?.close()
