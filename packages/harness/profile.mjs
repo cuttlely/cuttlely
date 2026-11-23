@@ -28,7 +28,7 @@ import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 import { PINNED_QUERY_GUIDANCE, pinnedQueriesEnabled, specialistHasStampedPin } from './pinned-names.mjs'
-import { agentRunTimeoutMs } from './budget.mjs'
+import { agentRunTimeoutMs, harnessToolTimeoutMs } from './budget.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -1173,11 +1173,14 @@ function specialistCredentialEnv(specialist) {
 
 function mcpServerBlocks(record) {
     const blocks = []
+    const toolTimeoutMs = harnessToolTimeoutMs()
+    const timeout = toolTimeoutMs === undefined ? undefined : Math.ceil(toolTimeoutMs / 1000)
     for (const specialist of record.specialists) {
         const bridgeName = serverNameFor(specialist)
         const bridgeScript = path.join(repoRoot(), 'packages', 'harness', 'mcp-bridge.mjs')
         blocks.push({
             name: bridgeName,
+            timeout,
             command: process.execPath,
             // Hermes keys both persisted tool schemas and live connections by this route.
             // Tool bindings can change while the public specialist/server name stays the same.
@@ -1200,7 +1203,11 @@ function mcpServerBlocks(record) {
             // This flag injects that identity; it does not grant a query tool.
             // Those bridges share one analyst-mcp.json. Only a query or pinned query
             // tool raises its count, and a later empty or failed list does not clear it.
-            env: { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() }
+            env: {
+                CUTTLELY_ANALYST_BRIDGE: '1',
+                CUTTLELY_DATA_DIR: dataRoot(),
+                ...(toolTimeoutMs === undefined ? {} : { CUTTLELY_HARNESS_TOOL_TIMEOUT_MS: String(toolTimeoutMs) })
+            }
         })
         for (const mcp of specialist.mcpServers || []) {
             if (isFlowiseMcpBinding(mcp)) continue
@@ -1221,6 +1228,7 @@ function mcpServerBlocks(record) {
             )
             blocks.push({
                 name: sanitizeServerName(name),
+                timeout,
                 command: config.command === 'node' ? process.execPath : config.command,
                 args,
                 env: config.env || {}
@@ -1538,13 +1546,24 @@ function requestedBuiltin(specialist, name) {
     return false
 }
 
+function pushToolTimeouts(yaml) {
+    const ms = harnessToolTimeoutMs()
+    if (ms === undefined) return
+    const seconds = Math.ceil(ms / 1000) + 60
+    yaml.push('timeouts:')
+    yaml.push('  tools:')
+    yaml.push(`    sequential_call: ${seconds}`)
+    yaml.push(`    concurrent_batch: ${seconds}`)
+}
+
 function pushMcpServers(yaml, blocks) {
     yaml.push('mcp_servers:')
     for (const block of blocks) {
         yaml.push(`  ${block.name}:`)
         yaml.push(`    command: ${yamlQuote(block.command)}`)
-        // Only the owned roster wrapper sets this. Its Cuttlely client enforces the configured deadline.
+        // The roster wrapper keeps an infinite MCP wait; other blocks use the explicit tool limit.
         if (block.timeout === Infinity) yaml.push('    timeout: .inf')
+        else if (Number.isFinite(block.timeout)) yaml.push(`    timeout: ${Math.ceil(block.timeout)}`)
         yaml.push('    args:')
         for (const arg of block.args) yaml.push(`      - ${yamlQuote(arg)}`)
         const envEntries = Object.entries(block.env || {})
@@ -2022,6 +2041,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('tools:')
     yaml.push('  tool_search:')
     yaml.push('    enabled: "off"')
+    pushToolTimeouts(yaml)
     pushMcpServers(yaml, blocks)
     // The gateway selects the authorized node from its token, not this model label.
     const contextModel = specialistContextModel(specialist, record.chief)
@@ -2491,6 +2511,7 @@ function compileProfileFiles(record, options = {}) {
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: 'roster',
         agentRunTimeoutMs: agentRunTimeoutMs(),
+        harnessToolTimeoutMs: harnessToolTimeoutMs(),
         defaultEvidenceBytes: defaultEvidenceBytes()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
@@ -2536,6 +2557,7 @@ function compileProfileFiles(record, options = {}) {
     yaml.push('platform_toolsets:')
     yaml.push('  api_server:')
     for (const name of CHIEF_TOOLSETS) yaml.push(`    - ${name}`)
+    pushToolTimeouts(yaml)
     pushMcpServers(yaml, mcpBlocks)
     const issued = issueProfileToken({
         role: 'chief',
@@ -3206,6 +3228,7 @@ export function profileOutdated(record) {
     // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
     if (roster?.defaultEvidenceBytes !== defaultEvidenceBytes()) return true
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
+    if (roster?.harnessToolTimeoutMs !== harnessToolTimeoutMs()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
         // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
@@ -3587,7 +3610,9 @@ function recheckCached(compiled) {
 export function compileProfileCached(record, options = {}) {
     assertChiefProfileAvailable(record.name)
     const stamp = typeof options.credentialStamp === 'string' ? options.credentialStamp : credentialStamp(credentialIdsIn(record))
-    const key = [hermesHome(), agentRunTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join('\0')
+    const key = [hermesHome(), agentRunTimeoutMs(), harnessToolTimeoutMs(), defaultEvidenceBytes(), JSON.stringify(record), stamp].join(
+        '\0'
+    )
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

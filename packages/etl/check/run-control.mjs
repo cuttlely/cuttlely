@@ -533,11 +533,12 @@ async function stopThenExecute(id, action) {
             nextStart
         }
         check(
-            'run control RC-L1: a run that throws after a cancel during contextFor ends cancelled with the error event',
+            'run control RC-L1: a run that throws after a cancel during contextFor ends cancelled with one stop event and no error event',
             called &&
                 stored.status === 'cancelled' &&
                 stored.finishedAt &&
-                events.some((m) => m.includes(errorText)) &&
+                !events.some((m) => m.includes(errorText)) &&
+                events.filter((m) => m === 'Cancelled. Nothing was deleted.').length === 1 &&
                 chunks === 0 &&
                 nextStart.status === 200,
             JSON.stringify(detail)
@@ -583,8 +584,13 @@ async function stopThenExecute(id, action) {
             nextResume
         }
         check(
-            'run control RC-L2: a run that throws after a pause during contextFor ends paused with the error event and can be resumed',
-            called && stored.status === 'paused' && events.some((m) => m.includes(errorText)) && chunks === 0 && nextResume.status === 200,
+            'run control RC-L2: a run that throws after a pause during contextFor ends paused with one stop event, no error event and can be resumed',
+            called &&
+                stored.status === 'paused' &&
+                !events.some((m) => m.includes(errorText)) &&
+                events.filter((m) => m === 'Paused at the last committed batch.').length === 1 &&
+                chunks === 0 &&
+                nextResume.status === 200,
             JSON.stringify(detail)
         )
     } finally {
@@ -592,7 +598,7 @@ async function stopThenExecute(id, action) {
     }
 }
 
-// RC-L3: contextFor writes cancelled via a tx, then throws. Expect cancelled kept and the error event present.
+// RC-L3: contextFor writes cancelled via a tx, then throws. Expect cancelled kept with no error event.
 {
     const id = 'run-control-launch-3'
     await api.waitForIdle()
@@ -627,8 +633,13 @@ async function stopThenExecute(id, action) {
             hasErrorEvent: events.some((m) => m.includes(errorText))
         }
         check(
-            'run control RC-L3: a run that throws after a tx writes cancelled during contextFor keeps cancelled and has the error event',
-            called && stored.status === 'cancelled' && stored.finishedAt && events.some((m) => m.includes(errorText)) && chunks === 0,
+            'run control RC-L3: a run that throws after a tx writes cancelled during contextFor keeps cancelled with no error event',
+            called &&
+                stored.status === 'cancelled' &&
+                stored.finishedAt &&
+                !events.some((m) => m.includes(errorText)) &&
+                !events.includes('Cancelled. Nothing was deleted.') &&
+                chunks === 0,
             JSON.stringify(detail)
         )
     } finally {
@@ -680,3 +691,7 @@ async function stopThenExecute(id, action) {
         api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
     }
 }
+
+// The same conditional-write cases also run against a real READ COMMITTED Postgres fixture.
+const { checkRunControlRaces } = await import('./run-control-races.mjs')
+await checkRunControlRaces({ check, writeDuringRead: (t, write) => write(t) })

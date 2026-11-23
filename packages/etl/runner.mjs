@@ -1,7 +1,18 @@
 import { EtlError, errorMessage } from './errors.mjs'
 import { executeRun } from './execute.mjs'
-import { isCrash } from './faults.mjs'
-import { ACTIVE_STATUSES, activeRunFor, addEvent, getRun, insertRun, normalizeSettings, runsWithStatus, updateRun } from './runs.mjs'
+import { fault, isCrash } from './faults.mjs'
+import {
+    ACTIVE_STATUSES,
+    activeRunFor,
+    addEvent,
+    finishRunStop,
+    getRun,
+    insertRun,
+    normalizeSettings,
+    runsWithStatus,
+    updateRun,
+    updateRunIf
+} from './runs.mjs'
 import * as etlStore from './store.mjs'
 import { getPipeline, latestVersion } from './versions.mjs'
 
@@ -12,6 +23,7 @@ let contextFor = () => ({})
 let maxActive = Math.max(1, Number(process.env.CUTTLELY_ETL_CONCURRENCY) || 1)
 let onError = () => {}
 let onSettled = () => {}
+let runnerFaults = null
 
 // The context a run of this pipeline gets (its credentials and node pool), for work outside a run such as a delete.
 export async function pipelineContext(pipeline) {
@@ -23,6 +35,7 @@ export function configureRunner(options = {}) {
     if (Number(options.maxActive) > 0) maxActive = Number(options.maxActive)
     if (typeof options.onError === 'function') onError = options.onError
     if (typeof options.onSettled === 'function') onSettled = options.onSettled
+    if (Object.hasOwn(options, 'faults')) runnerFaults = options.faults
 }
 
 // Pipelines being deleted. No run starts, resumes or leaves the queue for them, so nothing writes vectors back while the
@@ -154,19 +167,20 @@ async function resumeUnlocked(runId) {
 }
 
 // After a restart nothing is in memory, so runs the database still marks active were interrupted. Each status write
-// re-reads the run in one transaction, so a pause or cancel committed between the initial read and the write stays.
+// is conditional on the status read, including when another connection commits a stop during a READ COMMITTED transaction.
 export async function resumeInterruptedRuns() {
     const resumed = []
     for (const run of await runsWithStatus(ACTIVE_STATUSES)) {
         await etlStore.tx(async (t) => {
             const current = await getRun(run.id, t)
             if (!current || active.has(run.id)) return
+            await fault({ faults: runnerFaults }, 'recoveryAfterRead', current, t)
             if (current.status === 'pausing') {
-                await updateRun(run.id, { status: 'paused' }, t)
+                if (!(await updateRunIf(run.id, [current.status], { status: 'paused' }, t))) return
             } else if (current.status === 'cancelling') {
-                await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
+                if (!(await updateRunIf(run.id, [current.status], { status: 'cancelled', finishedAt: new Date().toISOString() }, t))) return
             } else if (current.status === 'running') {
-                await updateRun(run.id, { status: 'queued' }, t)
+                if (!(await updateRunIf(run.id, [current.status], { status: 'queued' }, t))) return
                 await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.', t)
                 resumed.push(run.id)
             } else if (current.status === 'queued') {
@@ -217,19 +231,20 @@ function launch(run) {
         .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
         .catch(async (error) => {
             if (isCrash(error)) return getRun(run.id)
-            // Re-read the run so a pause or cancel committed before this error handler runs is not overwritten.
+            // Re-read and condition the write so a stop committed even after this read is not overwritten.
             await etlStore.tx(async (t) => {
                 const current = await getRun(run.id, t)
+                await fault({ faults: runnerFaults }, 'launchErrorAfterRead', current, t)
                 if (current?.status === 'queued' || current?.status === 'running') {
-                    await updateRun(run.id, { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() }, t)
-                } else if (current?.status === 'cancelling') {
-                    await updateRun(run.id, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
-                    await addEvent(run.id, 'info', null, 'Cancelled. Nothing was deleted.', t)
-                } else if (current?.status === 'pausing') {
-                    await updateRun(run.id, { status: 'paused' }, t)
-                    await addEvent(run.id, 'info', null, 'Paused at the last committed batch.', t)
+                    const applied = await updateRunIf(
+                        run.id,
+                        [current.status],
+                        { status: 'failed', error: errorMessage(error), finishedAt: new Date().toISOString() },
+                        t
+                    )
+                    if (applied) await addEvent(run.id, 'error', null, errorMessage(error), t)
                 }
-                await addEvent(run.id, 'error', null, errorMessage(error), t)
+                await finishRunStop(run.id, t)
             })
             onError(error, run)
             return getRun(run.id)

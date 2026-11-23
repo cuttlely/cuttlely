@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Analyst queries can use `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` up to 1 hour; the default stays 15 seconds. New `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS` raises the specialist MCP tool-call limit, up to 3660000 ms; unset keeps the 300 s MCP default and 420 s Hermes per-tool default. When set, the stdio bridge wait and Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) follow the rounded tool timeout with a 60 s margin. This route covers MCP tools only: shell stays capped at 600 s and code execution at 300 s, so use a pipeline job for those longer tasks. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings. New `CUTTLELY_HERMES_HEALTH_TIMEOUT` sets the agent-runtime health probe wait (default 2 s, range 1–30 s). Admin Server Settings fields for these limits are coming in the same release; use the env vars today. [Long-running queries and tasks](./docs/how-to/server-settings.md#long-running-queries-and-tasks).
+
 ### Added
 
 -   Release preparation checks current release notices and image/widget pins against the root package version in both full and fast verification, reporting stale versions and missing spots with file and line diagnostics.
@@ -30,7 +34,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Orchestrate and A2A check the runtime before charging and answer 503 `RUNTIME_UNAVAILABLE` with `Retry-After` ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
 -   Analyst on Postgres keeps each role's encrypted password and legacy workspace mapping in the application database, so restarts and extra instances reuse the same password. Existing `.enc` files are imported without changing the password and left untouched. [#526](https://github.com/cuttlely/cuttlely/issues/526).
 -   Analyst on Postgres names the missing grant when the application database user can create neither its private schema nor a table in `public` (PostgreSQL 15+ when that user does not own the database): grant CREATE on the database (`GRANT CREATE ON DATABASE`) or set `CUTTLELY_POSTGRES_URL` to a separate database. CREATE on schema `public` works instead only if that user also owns the Analyst schema (`analyst_<tag>`) or holds USAGE and CREATE on it WITH GRANT OPTION. The error keeps SQLSTATE `42501` and writes nothing.
--   A pause or cancel that lands while ETL restart recovery runs after a server start is no longer overwritten, and an ETL run that fails to start after a pause or cancel ends paused or cancelled instead of failed. [#539](https://github.com/cuttlely/cuttlely/issues/539).
+-   ETL restart recovery and launch failures use conditional status writes through `updateRunIf` so a concurrent pause or cancel is not overwritten. A launch failure adds an error event only when it writes `failed`; stop handling ends the run paused or cancelled without duplicate stop events. `pnpm etl:check` also runs the Postgres READ COMMITTED race suite when a test server is available. [#539](https://github.com/cuttlely/cuttlely/issues/539).
 
 ### Upgrade notes / breaking changes
 

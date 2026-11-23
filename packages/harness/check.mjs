@@ -82,6 +82,7 @@ const {
     readRouteJson,
     defaultRouteSpecialist,
     ROUTE_JSON_RETRY,
+    ROUTE_HISTORY_REMINDER,
     routeDiagnostics,
     publicRouteParse,
     runSteps,
@@ -3530,6 +3531,30 @@ async function routeRecoverTurn(chatId, routeReplies) {
             brokenAfterRetry.run.trace.route.parseError === 'invalid_json' &&
             brokenAfterRetry.run.trace.route.retried === true,
         JSON.stringify({ emptyFirst: emptyFirst.run.trace?.route, broken: brokenAfterRetry.run.trace?.route })
+    )
+}
+{
+    const routeUser = (turn) => {
+        const call = (turn.calls || []).find((entry) => String(entry.messages[0]?.content || '').includes('You route work'))
+        return String(plainChatMessages(call?.messages || []).at(-1)?.content || '')
+    }
+    const firstTurn = await routeRecoverTurn('route-history-reminder-1', [
+        JSON.stringify({ steps: [{ specialist: 'knowledge', task: 'Explain Vault HA.' }] })
+    ])
+    const firstUser = routeUser(firstTurn)
+    check(
+        'a first-turn router user message is byte-identical to main and does not include the follow-up reminder',
+        firstUser === longTask && !firstUser.includes(ROUTE_HISTORY_REMINDER),
+        JSON.stringify({ firstUser })
+    )
+    const followUp = await routeRecoverTurn('route-history-reminder-1', [
+        JSON.stringify({ steps: [{ specialist: 'knowledge', task: 'Explain Vault HA.' }] })
+    ])
+    const followUser = routeUser(followUp)
+    check(
+        'a follow-up router user message ends with the route-do-not-answer reminder',
+        followUser.endsWith(ROUTE_HISTORY_REMINDER) && followUser.startsWith(longTask),
+        JSON.stringify({ followUser: followUser.slice(-160) })
     )
 }
 

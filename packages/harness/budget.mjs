@@ -11,6 +11,14 @@ export function agentRunTimeoutMs(env = process.env) {
     return Number.isSafeInteger(n) && n >= 0 && n <= 3600000 ? n : DEFAULT_AGENT_RUN_TIMEOUT_MS
 }
 
+// Unset leaves the agent runtime's MCP and per-tool defaults in place.
+export function harnessToolTimeoutMs(env = process.env) {
+    const raw = env.CUTTLELY_HARNESS_TOOL_TIMEOUT_MS
+    if (raw == null || String(raw).trim() === '') return undefined
+    const n = Number(raw)
+    return Number.isSafeInteger(n) && n >= 1 && n <= 3660000 ? n : undefined
+}
+
 export function turnBudgetMs(override) {
     if (override != null && override !== '') return normalizeBudget(override)
     const raw = process.env.CUTTLELY_HARNESS_TURN_BUDGET_MS
