@@ -150,9 +150,9 @@ test('keep-warm recovers boot failures without a save and isolates a still-broke
         fs.writeFileSync(path.join(directory, 'hermes-supervisor.json'), JSON.stringify({ state, detail: 'private diagnostic omitted' }))
         const health = composePing(directory)
         assert.equal(health.code, code)
-        assert.match(health.body, /unavailable harnesses: still-broken/)
+        assert.match(health.body, /unavailable harnesses: 1$/)
         if (['restarting', 'degraded'].includes(state)) assert.match(health.body, new RegExp(`hermes ${state}`))
-        assert.doesNotMatch(health.body, /private diagnostic|temporary|missing_model/)
+        assert.doesNotMatch(health.body, /still-broken|private diagnostic|temporary|missing_model/)
         const strict = await responseFor(ping.getPing)
         assert.equal(strict.code, code)
         assert.equal(strict.body, health.body)
@@ -162,7 +162,7 @@ test('keep-warm recovers boot failures without a save and isolates a still-broke
     }
     beginBootPass()
     assert.equal((await responseFor(ping.getPing)).code, 503)
-    assert.match((await responseFor(ping.getPing)).body, /unavailable harnesses: still-broken/)
+    assert.match((await responseFor(ping.getPing)).body, /unavailable harnesses: 1$/)
     assert.equal((await responseFor(ping.getLive)).code, 503)
     assert.equal((await responseFor(ping.getLive)).body, 'boot recompile')
     process.env.CUTTLELY_STACK_RESTARTED = '1'
@@ -172,5 +172,5 @@ test('keep-warm recovers boot failures without a save and isolates a still-broke
     setDatabaseHealth({ check: async () => ({ ok: false, reason: 'connection refused' }) })
     for (const handler of [ping.getPing, ping.getLive]) assert.equal((await responseFor(handler)).code, 503)
     assert.equal((await responseFor(ping.getLive)).body, 'database unreachable: connection refused')
-    assert.match((await responseFor(ping.getPing)).body, /unavailable harnesses: still-broken/)
+    assert.match((await responseFor(ping.getPing)).body, /unavailable harnesses: 1$/)
 })

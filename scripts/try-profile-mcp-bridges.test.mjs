@@ -304,3 +304,30 @@ test('flow deletion stops sticky process groups before removing home and special
         fs.rmdirSync = rmdir
     }
 })
+
+test('flow deletion keeps files when a bridge survives and a later cleanup can finish', { skip: !linux }, async () => {
+    const flow = 'fixture-surviving-bridge'
+    const owner = 'user:fixture'
+    const scope = `try${tryIdForFlow(flow, owner)}`
+    tryFolders(scope, { sticky: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try-flow'), flow)
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try-owner'), owner)
+    const bridge = startBridge(scope)
+    assert.ok(await waitFor(() => groupMembers(bridge.pid) === 2))
+    const kill = process.kill
+    process.kill = function (pid, sig) {
+        if (pid === -bridge.pid && (sig === 'SIGTERM' || sig === 'SIGKILL')) throw new Error('fixture denies signal')
+        return kill.call(process, pid, sig)
+    }
+    try {
+        await assert.rejects(removeTryProfileForFlow(flow), /Could not stop .* MCP bridge/)
+        assert.equal(groupMembers(bridge.pid), 2)
+        assert.ok(fs.existsSync(path.join(profiles, scope, 'config.yaml')))
+        assert.ok(fs.existsSync(path.join(profiles, `${scope}--worker`)))
+    } finally {
+        process.kill = kill
+    }
+    await removeTryProfileForFlow(flow)
+    assert.equal(groupMembers(bridge.pid), 0)
+    assert.equal(fs.existsSync(path.join(profiles, scope)), false)
+})

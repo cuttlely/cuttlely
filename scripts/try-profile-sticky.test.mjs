@@ -338,7 +338,7 @@ test('gateway token ingestion keeps idle sticky tokens revoked and permits an ac
     assert.ok(fs.statSync(path.join(profiles, home)).isDirectory())
 })
 
-test('flow deletion preserves a legacy saved harness whose name matches the derived try id', async () => {
+test('turn admission and cleanup preserve a legacy saved harness whose name matches the derived try id', async () => {
     const flow = 'fixture-legacy-published'
     const home = homeFor(flow)
     fs.mkdirSync(path.join(dir, 'harnesses'), { recursive: true })
@@ -350,6 +350,11 @@ test('flow deletion preserves a legacy saved harness whose name matches the deri
     fs.writeFileSync(path.join(profiles, home, 'harness-try-keep'), home)
     assert.throws(() => compileTryProfile(draft(flow), tryIdForFlow(flow, 'user:fixture')), { code: 'name_taken' })
     await assert.rejects(resetTryProfileSession(tryIdForFlow(flow, 'user:fixture'), 'new-chat'), { code: 'name_taken' })
+    await assert.rejects(
+        runHarness({ name: 'fixture-team', chatId: 'new-chat', input: 'hello', record: { ...draft(flow), tryId: home.slice(3) } }),
+        { code: 'name_taken' }
+    )
+    await discardTryProfile(home.slice(3))
     await removeTryProfileForFlow(flow)
     assert.equal(read(home, 'config.yaml'), 'saved fixture')
     assert.equal(fs.existsSync(path.join(profiles, '.deleted', home)), false)
@@ -377,6 +382,8 @@ test('another gateway worker cannot retain access to a finished or replaced stic
     assert.equal(worker.profileTokenKnown(newToken), true)
     await discardTryProfile(id)
     assert.equal(worker.profileTokenKnown(newToken), false)
+    await removeTryProfileForFlow(flow)
+    assert.equal(worker.profileTokenKnown(newToken), false, 'removing a sticky home must not reactivate a cached token')
 })
 
 test('sticky ids require an owner and separate users can hold one flow at the same time', async () => {
@@ -562,7 +569,7 @@ test('KIWI memory pair matches main: the same Try chat keeps it, a new Try chat 
 })
 
 test('upgrade sweep removes old unique homes with state and stale markers, keeping sticky and saved homes', () => {
-    const homes = ['try0000000000000001', 'try0000000000000002', 'try0000000000000003']
+    const homes = ['try0000000000000001', 'try0000000000000002', 'try0000000000000003', 'try0000000000000004']
     const past = new Date(Date.now() - 11 * 60 * 1000)
     for (const name of homes) {
         const home = path.join(profiles, name)
@@ -571,13 +578,24 @@ test('upgrade sweep removes old unique homes with state and stale markers, keepi
         if (name.endsWith('2')) fs.writeFileSync(path.join(home, 'harness-try'), 'stale-unique-id')
         if (!name.endsWith('1')) fs.utimesSync(home, past, past)
     }
-    fs.writeFileSync(path.join(dir, 'harnesses', `${homes[2]}.json`), JSON.stringify({ name: homes[2], chief: { model }, specialists: [] }))
+    for (const [name, suffix] of [
+        [homes[2], '.json'],
+        [homes[3], '.json.deleting']
+    ]) {
+        const legacy = name.toUpperCase()
+        fs.writeFileSync(path.join(dir, 'harnesses', legacy + suffix), JSON.stringify({ name: legacy, chief: { model }, specialists: [] }))
+        fs.mkdirSync(path.join(profiles, `${name}--worker`))
+    }
     const swept = sweepAbandonedTryProfiles()
     for (const name of homes.slice(0, 2)) {
         assert.ok(swept.has(name))
         assert.equal(fs.existsSync(path.join(profiles, name)), false)
     }
-    assert.equal(read(homes[2], 'state.db'), 'old fake state')
+    for (const name of homes.slice(2)) {
+        assert.equal(read(name, 'state.db'), 'old fake state')
+        assert.ok(fs.statSync(path.join(profiles, `${name}--worker`)).isDirectory())
+        assert.throws(() => compileTryProfile(draft('collision'), name.slice(3)), { code: 'name_taken' })
+    }
     assert.equal(swept.has(homeFor('fixture-flow-a')), false)
     assert.ok(fs.existsSync(path.join(profiles, 'published-fixture')))
 })

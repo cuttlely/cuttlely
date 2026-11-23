@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## Upcoming · New in 1.7.13
+
+-   Run a chief directly and inspect its specialist steps. [Agent mode](./harness-agent-mode.md).
+-   Manage agent time limits and review when a saved change takes effect. [Server settings](./server-settings.md#long-running-queries-and-tasks).
+-   Review the one-time Analyst password migration before upgrading. [Upgrade guide](../upgrading.md#upgrading-to-1713).
+
 ## New in 1.7.12
 
 -   **Connect roster over the runtime's stdio framing.** Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. [Upgrade guide](../upgrading.md#upgrading-to-1712).

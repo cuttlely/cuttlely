@@ -44,6 +44,7 @@ const {
     compileProfile,
     compileProfileCached,
     compileTryProfile,
+    tryIdForFlow,
     forgetCompiledProfile,
     discardTryProfile,
     PROFILE_COMPILER_VERSION,
@@ -15014,6 +15015,10 @@ const bridgeGateway = http.createServer((req, res) => {
 })
 await new Promise((resolve) => bridgeGateway.listen(0, '127.0.0.1', resolve))
 const bridgePort = bridgeGateway.address().port
+// Drop the connection before any response. Unused loopback ports can time out on filtered hosts.
+const unavailableGateway = net.createServer((socket) => socket.destroy())
+await new Promise((resolve) => unavailableGateway.listen(0, '127.0.0.1', resolve))
+const unavailableGatewayUrl = `http://127.0.0.1:${unavailableGateway.address().port}/`
 let scriptedTools = []
 const scriptedGateway = http.createServer((req, res) => {
     const chunks = []
@@ -15043,7 +15048,7 @@ try {
     )
     const missingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-missing-'))
     await askAnalystBridge(
-        { ...hermesBridgeEnv, CUTTLELY_DATA_DIR: missingDir, CUTTLELY_HARNESS_GATEWAY_URL: 'http://127.0.0.1:9/' },
+        { ...hermesBridgeEnv, CUTTLELY_DATA_DIR: missingDir, CUTTLELY_HARNESS_GATEWAY_URL: unavailableGatewayUrl },
         { jsonrpc: '2.0', id: 2, method: 'tools/list' }
     )
     const missingStatus = JSON.parse(fs.readFileSync(path.join(missingDir, 'analyst-mcp.json'), 'utf8'))
@@ -15098,7 +15103,7 @@ try {
     scriptedTools = []
     await askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 8, method: 'tools/list' })
     await askAnalystBridge(
-        { ...otherEnv, CUTTLELY_HARNESS_GATEWAY_URL: 'http://127.0.0.1:9/' },
+        { ...otherEnv, CUTTLELY_HARNESS_GATEWAY_URL: unavailableGatewayUrl },
         { jsonrpc: '2.0', id: 9, method: 'tools/list' }
     )
     scriptedTools = [{ name: 'search_docs' }, { name: 'draft' }]
@@ -15177,6 +15182,7 @@ try {
     if (fallbackBefore) fs.writeFileSync(fallbackFile, fallbackBefore)
     else fs.rmSync(fallbackFile, { force: true })
 } finally {
+    await new Promise((resolve) => unavailableGateway.close(resolve))
     await new Promise((resolve) => bridgeGateway.close(resolve))
     await new Promise((resolve) => scriptedGateway.close(resolve))
     fs.rmSync(bridgeDir, { recursive: true, force: true })
@@ -16267,7 +16273,8 @@ await (async () => {
     await discardTryProfile(tryE)
     const afterDiscardE = await status(tokenE)
     const publishedAfter = await status(publishedToken)
-    const reserved = `try${'c'.repeat(16)}`
+    const legacyTryId = 'c0111510c0111510'
+    const reserved = `try${legacyTryId}`
     const planted = {
         name: reserved,
         workspaceId: 'w1',
@@ -16283,9 +16290,10 @@ await (async () => {
     }
     const { harnessStoreDir } = await import('./paths.mjs')
     fs.mkdirSync(harnessStoreDir(), { recursive: true })
-    fs.writeFileSync(path.join(harnessStoreDir(), `${reserved}.json`), JSON.stringify(planted))
-    const shadowed = compileTryProfile(draftRoster('c'.repeat(16)), 'c'.repeat(16))
+    const shadowed = compileTryProfile(draftRoster(legacyTryId), legacyTryId)
     const shadowedToken = readProfileEnv(`${reserved}--shell`).OPENAI_API_KEY
+    // Restore a legacy saved record after the Try has compiled. A fresh Try cannot compile over that record.
+    fs.writeFileSync(path.join(harnessStoreDir(), `${reserved}.json`), JSON.stringify(planted))
     const plantedToken = 'P'.repeat(43)
     gatewayApi.registerProfileToken({
         token: plantedToken,
@@ -16363,6 +16371,9 @@ await (async () => {
             compiledE.dir !== compiledD.dir,
         `draft ${draftTools.status} ${draftTools.names} live ${liveTools.status} ${liveTools.names} launch ${addedDuringTry}`
     )
+    gatewayApi.forgetProfileToken(plantedToken)
+    fs.unlinkSync(path.join(harnessStoreDir(), `${reserved}.json`))
+    await discardTryProfile(legacyTryId)
 })()
 
 await (async () => {
@@ -16759,7 +16770,8 @@ await (async () => {
         }
     }))
     const gateway = await openGateway()
-    const tryId = 'b'.repeat(16)
+    const tryOwner = 'user:sqlgate-fixture'
+    const tryId = tryIdForFlow('flow-sqlgate', tryOwner)
     const tryProfile = `try${tryId}`
     const inputs = []
     const runs = new Map()
@@ -16840,7 +16852,7 @@ await (async () => {
         baseUrl: 'http://127.0.0.1:9',
         fetchImpl,
         loadNode,
-        record: { ...getHarness('sqlgate'), tryId }
+        record: { ...getHarness('sqlgate'), tryId, tryOwner }
     })
     const cursor = latestAnalystCursor({ harness: 'sqlgate', chatId })
     const tryCursor = latestAnalystCursor({ harness: tryProfile, chatId })

@@ -146,7 +146,14 @@ jobs:
                   const manifests = ['package.json', 'packages/server/package.json', 'packages/cli/package.json', 'packages/chat-widget/package.json']
                   for (const file of manifests) assert.equal(JSON.parse(readFileSync(file, 'utf8')).version, version)
                   const changed = git('diff', '--name-only', source, release).split('\n').filter(Boolean).sort()
-                  const allowed = new Set([...manifests, 'CHANGELOG.md'])
+                  const { checkVersionConsistency, RELEASE_DOC_FILES, releaseDocText } = await import('./scripts/version-consistency.mjs')
+                  const previous = JSON.parse(git('show', `${source}:package.json`)).version
+                  for (const file of RELEASE_DOC_FILES) {
+                      const before = execFileSync('git', ['show', `${source}:${file}`], { encoding: 'utf8' })
+                      assert.equal(readFileSync(file, 'utf8'), releaseDocText(file, before, previous, version), `Unexpected release edit to ${file}`)
+                  }
+                  assert.deepEqual(checkVersionConsistency().errors, [])
+                  const allowed = new Set([...manifests, ...RELEASE_DOC_FILES, 'CHANGELOG.md'])
                   assert.ok(changed.includes('CHANGELOG.md'))
                   assert.ok(changed.every(file => allowed.has(file)), 'Unexpected files in the release commit')
                   const output = path.join(process.env.RUNNER_TEMP, 'release-preparation')

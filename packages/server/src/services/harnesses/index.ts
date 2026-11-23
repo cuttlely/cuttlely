@@ -35,7 +35,7 @@ import {
     finishBootPass,
     markBootIncomplete,
     openBootAfterCap,
-    registerUnavailableHarnessNames
+    registerUnavailableHarnessCount
 } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
@@ -479,7 +479,7 @@ function clearBootFailure(name: string) {
 export function unavailableHarnessNames(): string[] {
     return [...bootFailures.keys()].sort()
 }
-registerUnavailableHarnessNames(unavailableHarnessNames)
+registerUnavailableHarnessCount(() => bootFailures.size)
 
 /** A failed boot compile refuses a run with 503, not 500. */
 export function assertHarnessAvailable(name: string) {

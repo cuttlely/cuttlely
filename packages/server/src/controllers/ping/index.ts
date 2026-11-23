@@ -6,15 +6,15 @@ import {
     BOOT_RETRY_AFTER_SECONDS,
     bootPassBlocksPing,
     PROFILES_COMPILING,
-    unavailableHarnessNames
+    unavailableHarnessCount
 } from '../../services/harnesses/bootGate'
 import { runtimeState } from '../../utils/runtimeAvailability'
 
 function pingDetails(body: string, dataDir: string | undefined): string {
     const state = runtimeState(dataDir)
     if (state === 'restarting' || state === 'degraded') body += `; hermes ${state}`
-    const names = unavailableHarnessNames()
-    if (names.length) body += `; unavailable harnesses: ${names.join(', ')}`
+    const count = unavailableHarnessCount()
+    if (count) body += `; unavailable harnesses: ${count}`
     return body
 }
 

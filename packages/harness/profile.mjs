@@ -14,7 +14,16 @@ import { acquireTryProfileTurn, releaseTryProfileTurn, BUSY_MESSAGE } from './lo
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import { dataRoot, harnessStoreDir, repoRoot, hermesHome, hermesBaseUrl, hermesProfileId, profileDir } from './paths.mjs'
+import {
+    dataRoot,
+    harnessStoreDir,
+    repoRoot,
+    hermesHome,
+    hermesBaseUrl,
+    hermesProfileId,
+    profileDir,
+    savedHarnessProfileIds
+} from './paths.mjs'
 import {
     ANALYST_RULES_MAX_CHARS,
     ROUTING_SUMMARY_CHARS,
@@ -2631,7 +2640,7 @@ export function tryIdForFlow(chatflowId, ownerKey) {
 
 export function compileTryProfile(record, tryId) {
     const profileName = tryProfileName(tryId)
-    if (getHarness(profileName)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    if (savedHarnessProfileIds().has(profileName)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
     const stickyTry = Boolean(record.chatflowId && record.tryOwner) && tryId === tryIdForFlow(record.chatflowId, record.tryOwner)
     return compileProfile(record, { profileName, tryProfile: true, stickyTry })
 }
@@ -2714,7 +2723,7 @@ function clearTrySessionFiles(dir) {
 export async function resetTryProfileSession(tryId, chatId) {
     if (typeof chatId !== 'string' || !chatId.trim()) throw new HarnessError('bad_session', 'A try session requires a chat id.')
     const scope = tryProfileName(tryId)
-    if (getHarness(scope)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+    if (savedHarnessProfileIds().has(scope)) throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
     const root = path.join(hermesHome(), 'profiles')
     if (readMarker(path.join(root, scope, 'harness-try-keep')) !== scope) return
     const names = tryProfileNames(scope)
@@ -2756,6 +2765,11 @@ export async function withTryProfile(tryId, body, { wait = false } = {}) {
     let active = true
     try {
         sharedLock = await acquireTryProfileTurn(scope, { wait })
+        // Check before runHarnessBody writes the heartbeat or takes responsibility for teardown.
+        if (savedHarnessProfileIds().has(scope)) {
+            if (wait) return
+            throw new HarnessError('name_taken', 'This Try profile path belongs to a saved harness.')
+        }
         return await body(() => {
             if (!active) throw new HarnessError('bad_session', 'This try turn has already finished.')
             return discardTryProfileUnlocked(tryId)
@@ -2788,7 +2802,7 @@ function tryProfileNames(scope) {
     const entries = listDirNoFollow(root)
     if (!entries) return []
     const names = []
-    const saved = new Set(listHarnessNames())
+    const saved = savedHarnessProfileIds()
     for (const entry of entries) {
         if (!entry || entry === '.' || entry === '..') continue
         if (saved.has(entry)) continue
@@ -2809,7 +2823,7 @@ function readMarker(file) {
 
 function tryScopeEntries(scope) {
     const names = new Set(tryProfileNames(scope))
-    const saved = new Set(listHarnessNames())
+    const saved = savedHarnessProfileIds()
     const root = path.join(hermesHome(), 'profiles')
     const entries = listDirNoFollow(root)
     if (entries) {
@@ -3097,8 +3111,9 @@ export async function removeTryProfileForFlow(chatflowId) {
     }
     const root = path.join(hermesHome(), 'profiles')
     const removals = []
+    const saved = savedHarnessProfileIds()
     for (const scope of listDirNoFollow(root) || []) {
-        if (!/^try[a-f0-9]{16}$/.test(scope) || getHarness(scope)) continue
+        if (!/^try[a-f0-9]{16}$/.test(scope) || saved.has(scope)) continue
         const dir = path.join(root, scope)
         if (readMarker(path.join(dir, 'harness-try-flow')) !== chatflowId) continue
         let owner
@@ -3109,16 +3124,7 @@ export async function removeTryProfileForFlow(chatflowId) {
         }
         if (!owner || tryProfileName(tryIdForFlow(chatflowId, owner)) !== scope) continue
         if (readMarker(path.join(dir, 'harness-try-keep')) !== scope) continue
-        removals.push(
-            withTryProfile(
-                scope.slice(3),
-                () => {
-                    if (getHarness(scope)) return
-                    return discardTryProfileUnlocked(scope.slice(3), { remove: true })
-                },
-                { wait: true }
-            )
-        )
+        removals.push(withTryProfile(scope.slice(3), () => discardTryProfileUnlocked(scope.slice(3), { remove: true }), { wait: true }))
     }
     const results = await Promise.allSettled(removals)
     const failed = results.find((result) => result.status === 'rejected')
@@ -3127,10 +3133,11 @@ export async function removeTryProfileForFlow(chatflowId) {
 
 async function discardTryProfileUnlocked(tryId, { remove = false } = {}) {
     const scope = tryProfileName(tryId)
-    let bridgesStopped = false
+    let removeFiles = remove
+    let owned = [scope]
     try {
         const names = tryProfileNames(scope)
-        const owned = names.length ? names : [scope]
+        if (names.length) owned = names
         for (const entry of owned) {
             try {
                 markProfileDeleted(entry)
@@ -3139,18 +3146,18 @@ async function discardTryProfileUnlocked(tryId, { remove = false } = {}) {
             }
         }
         await closeTryRuntime(owned)
-        // The runtime close can leave a try's MCP bridges running. Stop them (and their process groups) before
-        // any folder goes, so none keeps running from a deleted folder.
-        bridgesStopped = await stopTryBridgesFor(scope, owned)
-        forgetTryTokens(scope)
         const sticky = readMarker(path.join(hermesHome(), 'profiles', scope, 'harness-try-keep')) === scope
-        if (!remove && !sticky) await removeTryDirectories(scope, owned)
+        removeFiles = remove || !sticky
     } finally {
         try {
-            // An error above still stops this try's bridges and retires its tokens before any removal.
-            if (!bridgesStopped) await stopTryBridgesFor(scope, [scope])
-            forgetTryTokens(scope)
-            if (remove) await removeTryDirectories(scope, tryScopeEntries(scope))
+            try {
+                // The runtime can exit without reaping its bridges. Preserve their files if they are still running.
+                const { left } = await stopTryProfileBridges([scope, ...owned, ...tryScopeEntries(scope)])
+                if (left.length) throw new Error(`Could not stop ${left.length} MCP bridge process(es) for Try profile ${scope}.`)
+            } finally {
+                forgetTryTokens(scope)
+            }
+            if (removeFiles) await removeTryDirectories(scope, remove ? tryScopeEntries(scope) : owned)
         } finally {
             compiledProfiles.delete(scope)
             endLiveTry(scope)
@@ -3170,16 +3177,6 @@ async function removeTryDirectories(scope, owned) {
     await settleTryDirectories(scope, owned)
     const left = await retryBusyTryDirectories(scope)
     warnTryDirectoriesLeft(left)
-}
-
-async function stopTryBridgesFor(scope, names) {
-    try {
-        const { left } = await stopTryProfileBridges([scope, ...names, ...tryScopeEntries(scope)])
-        if (left.length) console.warn(`[harness] try ${scope}: ${left.length} MCP bridge process(es) still running after stop`)
-    } catch (error) {
-        console.warn(`[harness] try ${scope}: MCP bridge stop failed: ${error?.message || error}`)
-    }
-    return true
 }
 
 export { noteLiveTry }

@@ -32,6 +32,28 @@ test('renewal extends only its owner, reads the live TTL, and ignores released r
     assert.equal(lease(held), undefined)
 })
 
+test('a short live lease renews and follows changes to and from never expires', (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1800000000000 })
+    t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
+    process.env.CUTTLELY_HARNESS_LOCK_MS = '1000'
+    const held = acquireTurn('lease', 'live-change')
+    const stop = startTurnRenewal(held)
+    try {
+        t.mock.timers.tick(333)
+        assert.equal(lease(held), Date.now() + 1000)
+        process.env.CUTTLELY_HARNESS_LOCK_MS = '0'
+        t.mock.timers.tick(333)
+        assert.equal(lease(held), Number.MAX_SAFE_INTEGER)
+        assert.throws(() => acquireTurn('lease', 'live-change'), { code: 'busy' })
+        process.env.CUTTLELY_HARNESS_LOCK_MS = '4000'
+        t.mock.timers.tick(1000)
+        assert.equal(lease(held), Date.now() + 4000)
+    } finally {
+        stop()
+        releaseTurn(held)
+    }
+})
+
 test('a zero TTL never expires and renewal makes no write', (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: 1800000000000 })
     t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
@@ -48,6 +70,7 @@ test('a zero TTL never expires and renewal makes no write', (t) => {
 for (const exit of ['abort', 'deadline', 'stop']) {
     test(`renewal stops on ${exit} even when the work has not settled`, (t) => {
         t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1800000000000 })
+        t.mock.method(performance, 'now', () => Date.now())
         process.env.CUTTLELY_HARNESS_LOCK_MS = '3000'
         t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
         const held = acquireTurn('lease', exit)

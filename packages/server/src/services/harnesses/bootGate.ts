@@ -18,15 +18,15 @@ export type BootPhase = 'idle' | 'running' | 'background' | 'incomplete' | 'done
 
 let phase: BootPhase = 'idle'
 
-// The harness service registers its boot-failure names here, so ping can name them without importing the service.
-let readUnavailableHarnessNames: () => string[] = () => []
+// The public readiness response reports only a count, without importing the harness service.
+let readUnavailableHarnessCount: () => number = () => 0
 
-export function registerUnavailableHarnessNames(read: () => string[]): void {
-    readUnavailableHarnessNames = read
+export function registerUnavailableHarnessCount(read: () => number): void {
+    readUnavailableHarnessCount = read
 }
 
-export function unavailableHarnessNames(): string[] {
-    return readUnavailableHarnessNames()
+export function unavailableHarnessCount(): number {
+    return readUnavailableHarnessCount()
 }
 
 export function bootPassPhase(): BootPhase {

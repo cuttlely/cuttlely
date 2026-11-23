@@ -127,18 +127,18 @@ export function acquireTurn(name, chatId) {
 
 // One owner-scoped write: an old worker cannot renew a replacement worker's lease.
 export function renewTurn(held) {
-    const ttl = lockTtlMs()
-    if (ttl === 0 || !held?.key || !held?.owner) return
+    if (!held?.key || !held?.owner) return
+    const expiry = expiresAt(Date.now())
     database()
-        .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ?')
-        .run(Date.now() + ttl, held.key, held.owner)
+        .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ? AND expires_at != ?')
+        .run(expiry, held.key, held.owner, expiry)
 }
 
 // Only the live turn owns this timer. Cancellation and its earliest hard deadline stop
 // renewal even if work never settles. With every deadline off (0), it renews until
 // cancellation or finally, as before. A zero lease still explicitly never expires.
 export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
-    const deadline = deadlineMs > 0 ? Date.now() + deadlineMs : 0
+    const deadline = deadlineMs > 0 ? performance.now() + deadlineMs : 0
     let timer
     let stopped = false
     let warned = false
@@ -149,12 +149,13 @@ export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
     }
     const schedule = () => {
         if (stopped) return
-        if (signal?.aborted || (deadline && Date.now() >= deadline)) return stop()
-        const interval = Math.max(1000, Math.floor(lockTtlMs() / 3))
+        if (signal?.aborted || (deadline && performance.now() >= deadline)) return stop()
+        const ttl = lockTtlMs()
+        const interval = ttl === 0 ? 1000 : Math.max(1, Math.floor(ttl / 3))
         timer = setTimeout(
             () => {
                 if (stopped) return
-                if (signal?.aborted || (deadline && Date.now() >= deadline)) return stop()
+                if (signal?.aborted || (deadline && performance.now() >= deadline)) return stop()
                 try {
                     renewTurn(held)
                 } catch {
@@ -165,7 +166,7 @@ export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
                 }
                 schedule()
             },
-            deadline ? Math.min(interval, deadline - Date.now()) : interval
+            deadline ? Math.min(interval, deadline - performance.now()) : interval
         )
         timer.unref()
     }

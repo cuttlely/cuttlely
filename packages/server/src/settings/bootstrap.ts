@@ -1,10 +1,7 @@
 // Imported first by every server command (commands/base.ts), so the admin settings file is in the environment
 // before any module reads it. packages/server/.env is loaded here first and counts as host-set.
-import dotenv from 'dotenv'
-import path from 'path'
+import './loadServerEnv'
 import { applyAdminSettings, StartState } from './apply'
-
-dotenv.config({ path: path.join(__dirname, '..', '..', '.env'), override: true })
 
 let state: StartState
 try {

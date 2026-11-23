@@ -6,7 +6,7 @@
 // Linux only (it reads /proc). Elsewhere every call finds nothing.
 import fs from 'node:fs'
 import path from 'node:path'
-import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
+import { dataRoot, hermesHome, savedHarnessProfileIds } from './paths.mjs'
 
 // The marker each try profile's MCP blocks carry in their env. Children of a bridge inherit it.
 export const TRY_PROFILE_DIR_ENV = 'CUTTLELY_TRY_PROFILE_DIR'
@@ -82,6 +82,7 @@ export function listProcesses() {
     const profiles = path.resolve(hermesHome(), 'profiles')
     const workspaces = path.resolve(dataRoot(), 'workspaces')
     const home = path.resolve(hermesHome())
+    const saved = savedHarnessProfileIds()
     const out = []
     for (const name of pids) {
         const pid = Number(name)
@@ -102,7 +103,8 @@ export function listProcesses() {
             if (at !== -1 && cmdline.some((arg) => arg.endsWith(`${path.sep}roster-mcp.mjs`))) entry = cmdline[at + 1] || ''
         }
         if (!entry) entry = entryUnder(profiles, cwd) || entryUnder(workspaces, cwd)
-        if (!isTryEntry(entry) || !(marked || tryOwned(entry))) continue
+        if (!isTryEntry(entry) || saved.has(entry) || saved.has(tryHomeOf(entry))) continue
+        if (!marked && !tryOwned(entry)) continue
         proc.entry = entry
         proc.cwdDeleted = deleted
     }
@@ -119,9 +121,7 @@ function tryOwned(entry) {
         if (/^CUTTLELY_GATEWAY_TRY=1$/m.test(readText(path.join(profiles, entry, '.env')))) return true
         return Boolean(home) && readText(path.join(profiles, home, 'harness-try')).trim() === home
     }
-    if (!home) return false
-    const store = harnessStoreDir()
-    return !fs.existsSync(path.join(store, `${home}.json`)) && !fs.existsSync(path.join(store, `${home}.json.deleting`))
+    return Boolean(home)
 }
 
 function ownAncestors(procs) {

@@ -53,7 +53,11 @@ describe('admin time limits', () => {
                 }
             }
         }))
-        jest.doMock('../utils/logger', () => ({ __esModule: true, default: {} }))
+        jest.doMock('../utils/logger', () => {
+            // Load the real logger configuration without constructing transports or writing logs.
+            jest.requireActual('../utils/config')
+            return { __esModule: true, default: {} }
+        })
         jest.doMock('../identity/initialOwner', () => ({ captureInitialOwnerEnvironment: jest.fn() }))
         try {
             let state: ServiceDeps['state']

@@ -36,6 +36,7 @@ const json = (body) => new Response(JSON.stringify(body), { headers: { 'content-
 for (const exit of ['finish', 'failure', 'cancel', 'run timeout']) {
     test(`${exit} deletes the turn row and stops all renewal writes`, async (t) => {
         t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1800000000000 })
+        t.mock.method(performance, 'now', () => Date.now())
         process.env.CUTTLELY_HARNESS_LOCK_MS = '3000'
         t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
         const name = `lease-${exit.replaceAll(' ', '-')}`
@@ -136,6 +137,7 @@ for (const limits of [
 ]) {
     test(`hung pre-run work cannot renew past budget=${limits.budgetMs}, run timeout=${limits.timeoutMs}`, async (t) => {
         t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1800000000000 })
+        t.mock.method(performance, 'now', () => Date.now())
         process.env.CUTTLELY_HARNESS_LOCK_MS = '3000'
         t.after(() => {
             delete process.env.CUTTLELY_HARNESS_LOCK_MS

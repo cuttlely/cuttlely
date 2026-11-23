@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +30,23 @@ export function hermesBaseUrl() {
 // prefix uses the lowercase id. Specialist and draft names are lowercase already.
 export function hermesProfileId(name) {
     return typeof name === 'string' ? name.toLowerCase() : name
+}
+
+// Saved names and rollbackable deletes both reserve their lowercase runtime directories.
+export function savedHarnessProfileIds() {
+    const ids = new Set()
+    let entries
+    try {
+        entries = fs.readdirSync(harnessStoreDir())
+    } catch (error) {
+        if (error.code === 'ENOENT') return ids
+        throw error
+    }
+    for (const entry of entries) {
+        const match = /^(.+)\.json(?:\.deleting)?$/.exec(entry)
+        if (match) ids.add(hermesProfileId(match[1]))
+    }
+    return ids
 }
 
 export function profileDir(name) {

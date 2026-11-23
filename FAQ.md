@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.12?
+### What's new in 1.7.13?
+
+The chief can delegate to specialists in agent mode. Try chats reuse an isolated profile, and long-running replies keep their chat lock. Operators can set runtime limits in Server settings. See [agent mode](./docs/how-to/harness-agent-mode.md) and the [upgrade guide](./docs/upgrading.md#upgrading-to-1713).
+
+### What changed in 1.7.12?
 
 Roster now connects over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. Use matching 1.7.12 server and widget packages. No schema migration is added. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
 
