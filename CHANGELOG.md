@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.13] - 2026-11-23
+
 ### Changed
 
 -   Analyst queries can use `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` up to 1 hour; the default stays 15 seconds. New `CUTTLELY_HARNESS_TOOL_TIMEOUT_MS` raises the specialist MCP tool-call limit, up to 3660000 ms; unset keeps the 300 s MCP default and 420 s Hermes per-tool default. When set, the stdio bridge wait and Hermes per-tool deadlines (`timeouts.tools.sequential_call` and `timeouts.tools.concurrent_batch`) follow the rounded tool timeout with a 60 s margin. This setting covers MCP tools. Shell and code timeouts have separate Server settings controls; the fixed 300 s code tool-call response wait still applies. A long-running remote HTTP MCP tool must use streamable HTTP (SSE) and send progress at least every 300 s; a server that replies with a single JSON response can't, so run that work as a pipeline job. The built-in Analyst and database tools run through the local bridge, not HTTP, so they're limited only by the tool and query settings. New `CUTTLELY_HERMES_HEALTH_TIMEOUT` sets the agent-runtime health probe wait (default 2 s, range 1–30 s). These limits are available in Admin, Server settings and through the host environment. [Long-running queries and tasks](./docs/how-to/server-settings.md#long-running-queries-and-tasks).
@@ -1198,7 +1200,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...HEAD
+[1.7.13]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...v1.7.13
 [1.7.12]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...v1.7.10

@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
 
-**即將發布** · **1.7.13 支援由 chief 在代理模式下直接向專家分派工作。** 預設仍使用路由模式。Try 對話會依流程和擁有者重複使用設定檔目錄。對於受監督的安裝，執行中的工作結束後才會套用已儲存的執行階段限制。[代理模式](../docs/how-to/harness-agent-mode.md) · [升級指南](../docs/upgrading.md#upgrading-to-1713)。
+**1.7.13 支援由 chief 在代理模式下直接向專家分派工作。** 預設仍使用路由模式。Try 對話會依流程和擁有者重複使用設定檔目錄。對於受監督的安裝，執行中的工作結束後才會套用已儲存的執行階段限制。[代理模式](../docs/how-to/harness-agent-mode.md) · [升級指南](../docs/upgrading.md#upgrading-to-1713)。
 
 **1.7.12 可讓 roster 透過 agent runtime 使用的 stdio 分幀格式進行連線。** roster 自 1.0 以來從未連線成功。每個混用模型的 harness 啟動約加快 60 秒（兩個約加快 2 分鐘），且 chief 的 `run_specialist` 工具會完成註冊。路由器流量維持不變。同時開始、恢復、暫停或取消 ETL 執行時，不再讓已取消或已暫停的執行繼續跑，也不會為同一條管道再啟動第二次執行。[ETL](../docs/how-to/etl.md) · [升級指南](../docs/upgrading.md#upgrading-to-1712)。
 
@@ -27,7 +27,7 @@ Node 20+ 和 Docker
 
 **1.7.10 在 agent runtime 復原期間仍可使用 UI。** 映像檔、Compose 和 Render 的健康檢查改為探測 `/api/v1/ping/live`；請一併更新自訂閘道與負載平衡器的探測路徑。[健康檢查](../docs/how-to/reverse-proxy.md#health-checks) · [升級指南](../docs/upgrading.md#upgrading-to-1710)。
 
-最新穩定版是 **1.7.12**。請鎖定映像檔 `1.7.12`，或安裝 `cuttlely@1.7.12`。[1.7.12 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.12) · [變更記錄](../CHANGELOG.md)。
+最新穩定版是 **1.7.13**。請鎖定映像檔 `1.7.13`，或安裝 `cuttlely@1.7.13`。[1.7.13 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13) · [變更記錄](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是從更早的版本升級，必須採取行動。** 請先備份資料庫、加密金鑰和設定，並在部署前閱讀[操作員的指定與復原](../docs/how-to/instance-operator.md)，以免被鎖在瀏覽器管理之外。完整檢查清單（包括以主機日誌一次性代碼提出的申請、`CUTTLELY_INSTANCE_OPERATOR`，以及存取金鑰強制執行預設維持關閉）見[升級注意事項](../docs/upgrading.md)（「1.7.0 security-exception upgrade」節）和[變更記錄](../CHANGELOG.md)。初始設定代碼只會建立第一個帳號，而且只有在主機已開啟本機登入時才有效（Docker 和 `npx cuttlely start` 預設會開啟）。它不能用來設定服務，也不會指定執行個體操作員。[登入](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 

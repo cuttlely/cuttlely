@@ -27,7 +27,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**次回** · **1.7.13 では、エージェントモードの chief が専門エージェントに直接作業を委任できます。** 既定はルーターモードです。Try チャットはフローと所有者ごとにプロファイルを再利用します。監視下の環境では、実行中の作業が終わると保存済みのランタイム制限が適用されます。[エージェントモード](./docs/how-to/harness-agent-mode.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1713)。
+**1.7.13 では、エージェントモードの chief が専門エージェントに直接作業を委任できます。** 既定はルーターモードです。Try チャットはフローと所有者ごとにプロファイルを再利用します。監視下の環境では、実行中の作業が終わると保存済みのランタイム制限が適用されます。[エージェントモード](./docs/how-to/harness-agent-mode.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1713)。
 
 **1.7.12 では、roster がエージェントランタイムの使う stdio フレーミングで接続します。** roster は 1.0 以降一度も接続できていませんでした。混在モデルの harness ごとに起動が約 60 秒速くなり（2 つある場合は約 2 分）、chief の `run_specialist` ツールが登録されます。ルーター経由のトラフィックは変わりません。ETL の開始、再開、一時停止、キャンセルが同時に行われても、キャンセル済みまたは一時停止済みの実行が動き続けたり、同じパイプラインで 2 つ目の実行が始まったりしなくなりました。[ETL](./docs/how-to/etl.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1712)。
 
@@ -41,7 +41,7 @@ Node 20+ と Docker
 
 **1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。 [モデルの費用見積もり](./docs/reference/model-list.md)には Together AI Kimi K3 の現在の標準料金を反映しました。
 
-最新の安定版は **1.7.12** です。イメージ `1.7.12` を指定するか、`cuttlely@1.7.12` をインストールしてください。[1.7.12 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.12) · [変更履歴](./CHANGELOG.md)。
+最新の安定版は **1.7.13** です。イメージ `1.7.13` を指定するか、`cuttlely@1.7.13` をインストールしてください。[1.7.13 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13) · [変更履歴](./CHANGELOG.md)。
 
 **1.7.0 はセキュリティ例外リリースです。以前のバージョンからアップグレードする場合は、作業が必要です。** データベース、暗号化キー、設定をバックアップし、ブラウザー管理から締め出されないように、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を読んでください。ホストログのワンタイムコードによる申請、`CUTTLELY_INSTANCE_OPERATOR`、アクセスキーの適用が既定でオフのままであることなど、チェックリストの全体は[アップグレード時の注意](./docs/upgrading.md)（「1.7.0 security-exception upgrade」の節）と[変更履歴](./CHANGELOG.md)にあります。セットアップコードが作成するのは最初のアカウントだけで、ホスト側のローカルサインインがあらかじめオンになっている必要があります（Docker と `npx cuttlely start` は既定でオンにします）。このコードでサービスを設定したり、インスタンスオペレーターを指定したりはできません。[サインイン](./docs/how-to/sign-in.md) · [最初の 10 分](#your-first-10-minutes)。
 
