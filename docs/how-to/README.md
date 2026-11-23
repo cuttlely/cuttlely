@@ -2,7 +2,7 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
-## Upcoming · New in 1.7.13
+## New in 1.7.13
 
 -   Run a chief directly and inspect its specialist steps. [Agent mode](./harness-agent-mode.md).
 -   Manage agent time limits and review when a saved change takes effect. [Server settings](./server-settings.md#long-running-queries-and-tasks).
