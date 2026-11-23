@@ -36,7 +36,12 @@ export function recordHostLimits(env: Env): void {
     const defaults = scriptDefaultKeys(env)
     for (const setting of limitSettings()) {
         const raw = env[setting.key]
-        if (!defaults.has(setting.key) && !isBlank(raw) && Number.isFinite(Number(raw))) values[setting.key] = Number(raw)
+        if (defaults.has(setting.key) || isBlank(raw)) continue
+        if (setting.boundedHost && !checkValue(setting, raw).ok) {
+            warnKey(setting.key)
+            continue
+        }
+        if (Number.isFinite(Number(raw))) values[setting.key] = Number(raw)
     }
     env[HOST_LIMITS_VAR] = JSON.stringify(values)
 }
@@ -124,6 +129,10 @@ function ensureHook(env: Env): void {
 /** Called once at start, before any runtime reader imports. */
 export function applyLimitSettings(env: Env, file: Record<string, string>): void {
     recordHostLimits(env)
-    for (const [key, value] of Object.entries(limitValuesToApply(env, file))) env[key] = value
+    const values = limitValuesToApply(env, file)
+    for (const setting of limitSettings()) {
+        if (setting.boundedHost && !(setting.key in values)) delete env[setting.key]
+    }
+    Object.assign(env, values)
     ensureHook(env)
 }

@@ -56,7 +56,13 @@ import { sourceAnswerFallback } from './source-answer-fallback.mjs'
 import { answerSelections, selectionContext } from './answer-context.mjs'
 import { priorAnswerInputs, answerInputIndex, stageAnswerInputs } from './answer-inputs.mjs'
 import { reportingCurrencySymbol } from './reporting-currency.mjs'
-import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
+import {
+    VERIFIED_QUERY_POLICY,
+    verifiedQueryCapture,
+    beginGuardedQueryTurns,
+    guardedQueryUsage,
+    guardedQueryLimit
+} from './verified-query-output.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
@@ -553,6 +559,7 @@ async function runTurnBody(
     }
 ) {
     assertCurrentRecord(harness)
+    const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
     const needsHermes = mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
     let roster = harness
@@ -613,6 +620,7 @@ async function runTurnBody(
         replay: replay === true,
         trustedOutputPreview: trustedOutputPreview === true
     }
+    beginGuardedQueryTurns(roster.specialists || [], chatId, context.turnId, sessionKey(name, chatId), sqlAttemptLimit)
     try {
         if (mode === 'agent') return await runAgentChief(context, input)
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
@@ -652,6 +660,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
         const specialist = context.roster.specialists.find((item) => item.name === step.name)
         return {
             ...step,
+            ...queryUsageFields(context, specialist),
             ...(step.status === 'running' ? { status: 'cancelled', ms: Math.max(0, Date.now() - step.startedAt) } : {}),
             model: publicModelLabel(specialist?.model),
             tools: [],
@@ -1538,10 +1547,17 @@ function specialistEventFields(context, specialist, sources, failed = false) {
     }
 }
 
+function queryUsageFields(context, specialist) {
+    if (specialist?.trustedOutputPolicy !== VERIFIED_QUERY_POLICY || !specialist.profileName) return {}
+    const usage = guardedQueryUsage(specialist.profileName, specialistSessionId(specialist.profileName, context.chatId, context.turnId))
+    return usage ? { adHocSqlAttempts: usage } : {}
+}
+
 function publicAgent(context, specialist, result) {
     const fields = specialistEventFields(context, specialist, result.sources, result.status === 'failed')
     return {
         name: result.name,
+        ...queryUsageFields(context, specialist),
         status: result.status,
         ms: result.ms,
         task: publicTask(result.publicTask ?? result.task),

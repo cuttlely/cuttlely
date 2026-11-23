@@ -8,7 +8,7 @@ import { recordRetrievedSources } from './retrieval-capture.mjs'
 import {
     guardedQueryEvidence,
     verifiedSourceTurn,
-    reserveGuardedQueryAttempt,
+    admitGuardedQueryAttempt,
     forgetGuardedQueryAttempts,
     VERIFIED_QUERY_POLICY
 } from './verified-query-output.mjs'
@@ -1308,30 +1308,23 @@ async function callTool(req, res, meta) {
     const specialist = record.specialists?.find((item) => item.name === meta.specialistName)
     const queryBinding = queryBindingFor(specialist, meta.profileName, body.name)
     const sourceTurn = typeof body.scope === 'string' ? body.scope : ''
-    if (
-        specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
-        body.name === 'query' &&
-        queryBinding?.nodeName === 'postgreSQLMCP' &&
-        !verifiedSourceTurn(meta.profileName, sourceTurn)
-    ) {
-        sendJson(res, 200, {
-            result: JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
-        })
-        return
-    }
-    if (
-        specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
-        body.name === 'query' &&
-        queryBinding?.nodeName === 'postgreSQLMCP' &&
-        !reserveGuardedQueryAttempt(meta.profileName, sourceTurn)
-    ) {
-        sendJson(res, 200, {
-            result: JSON.stringify({
-                error: 'The read-only SQL fallback allows at most two query calls per turn, including a correction or page.',
-                cuttlelyOutcome: 'expected'
+    if (specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY && body.name === 'query' && queryBinding?.nodeName === 'postgreSQLMCP') {
+        if (!verifiedSourceTurn(meta.profileName, sourceTurn)) {
+            sendJson(res, 200, {
+                result: JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
             })
-        })
-        return
+            return
+        }
+        const admission = admitGuardedQueryAttempt(meta.profileName, sourceTurn)
+        if (!admission.allowed) {
+            sendJson(res, 200, {
+                result: JSON.stringify({
+                    error: `Read-only SQL allowance exhausted for this specialist turn (limit ${admission.limit}). Corrections and pages count toward this limit.`,
+                    cuttlelyOutcome: 'expected'
+                })
+            })
+            return
+        }
     }
     const secureNames = secretNamesFor(meta.profileName, body.name)
     const captureId = isAnalystQueryTool(body.name)

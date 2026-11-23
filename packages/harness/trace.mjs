@@ -934,6 +934,7 @@ export function buildRunTrace({
             }))
         },
         specialists: (agents || []).map((agent) => ({
+            ...(agent.adHocSqlAttempts ? { adHocSqlAttempts: agent.adHocSqlAttempts } : {}),
             name: agent.name,
             task: publicTask(agent.task),
             status: agent.status || 'completed',

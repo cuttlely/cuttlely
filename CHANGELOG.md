@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+-   Operators can set 1–6 ad hoc SQL attempts per specialist turn under Server settings → Agent runtime. The default is 2. The trace shows usage and exhaustion. Saved queries use no ad hoc attempts. [#566](https://github.com/cuttlely/cuttlely/issues/566).
+
 ## [1.7.13] - 2026-11-23
 
 ### Changed

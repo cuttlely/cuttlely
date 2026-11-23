@@ -40,6 +40,28 @@ afterEach(() => {
 })
 
 describe('admin time limits', () => {
+    it('saves a live SQL allowance, validates every edit and retains the value across startup', async () => {
+        const key = 'CUTTLELY_HARNESS_MAX_AD_HOC_SQL_ATTEMPTS'
+        for (const raw of ['0', '-1', '2.5', '7', 'mistyped']) {
+            const invalid = fixture({ [key]: raw })
+            expect(row(await getView(invalid.start()), key)).toMatchObject({ source: 'default', effective: '2' })
+        }
+        const f = fixture({ [key]: '3' })
+        const service = f.start()
+        expect(row(await getView(service), key)).toMatchObject({ source: 'host', effective: '3' })
+        for (const raw of ['0', '-1', '2.5', '7']) {
+            await expect(saveChanges(service, { values: { [key]: raw } }, 'operator')).rejects.toMatchObject({ status: 400, key })
+        }
+        expect(f.env[key]).toBe('3')
+        const saved = await saveChanges(service, { values: { [key]: '4' } }, 'operator')
+        expect(row(saved, key)).toMatchObject({ source: 'panel', effective: '4', running: '4', changed: false })
+        expect(row(await getView(f.start()), key)).toMatchObject({ source: 'panel', effective: '4' })
+        expect(row(await saveChanges(service, { values: { [key]: '' } }, 'operator'), key)).toMatchObject({
+            source: 'host',
+            effective: '3'
+        })
+    })
+
     it('keeps saved limits after the base command loads, with matching running values', async () => {
         const f = fixture({ [RESTART]: '60000' })
         writeSettingsFile(f.dir, { [RESTART]: '90000' }, { key: KEY })

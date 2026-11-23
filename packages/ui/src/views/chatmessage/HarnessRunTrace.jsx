@@ -470,6 +470,11 @@ const HarnessRunTrace = ({ trace, question, enhancedStatus = true }) => {
                                         {live?.perSpecialist[specialist.name] || specialistWord(specialist.status)}
                                     </Typography>
                                     <Meta>{specialist.model}</Meta>
+                                    {specialist.adHocSqlAttempts && (
+                                        <Meta>{`Ad hoc SQL: ${specialist.adHocSqlAttempts.used}/${specialist.adHocSqlAttempts.limit}${
+                                            specialist.adHocSqlAttempts.exhausted ? ' (exhausted)' : ''
+                                        }`}</Meta>
+                                    )}
                                     <Meta>{formatDuration(specialist.ms)}</Meta>
                                     <Meta>{formatTokens(specialist.tokens)}</Meta>
                                     {specialist.fallback ? <Meta>{`Fell back to ${specialist.fallback}`}</Meta> : null}

@@ -74,6 +74,8 @@ export interface SettingDef {
     /** A saved value overrides the host. The field stays editable; limit entries use applies. */
     panelFirst?: boolean
     /** A time limit or cap: saved value, then the host, then the default. Also panelFirst. */
+    // Most legacy limits accept additional host values. Set this to enforce the same bounds on the host.
+    boundedHost?: boolean
     limit?: boolean
     /** How a saved limit takes effect. Live on the next use, or at the next restart. */
     applies?: 'live' | 'restart'
@@ -536,6 +538,26 @@ export const SETTINGS: SettingDef[] = [
     },
 
     // Agent runtime
+    {
+        key: 'CUTTLELY_HARNESS_MAX_AD_HOC_SQL_ATTEMPTS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Max ad hoc SQL attempts per specialist turn',
+        help: 'Counts native read-only fallback queries, including failed attempts, corrections and pages. Saved queries do not count. Each specialist gets its own allowance on the next turn.',
+        type: 'number',
+        integer: true,
+        unit: 'count',
+        min: 1,
+        max: 6,
+        boundedHost: true,
+        defaultLabel: '2 attempts',
+        defaultValue: '2',
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
+        risk: 'medium'
+    },
     {
         key: 'CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS',
         section: 'runtime',
