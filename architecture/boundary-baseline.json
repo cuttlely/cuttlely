@@ -2111,6 +2111,16 @@
             "to": "packages/server/src/utils/apiKey.ts"
         },
         {
+            "from": "packages/server/src/utils/tryOwner.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The Try owner helper only takes the IHarnessCaller type from the shared server interface and the shared AppError for a missing owner"
+        },
+        {
+            "from": "packages/server/src/utils/tryOwner.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The Try owner helper only takes the IHarnessCaller type from the shared server interface and the shared AppError for a missing owner"
+        },
+        {
             "from": "packages/server/src/utils/uploadFileCors.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
