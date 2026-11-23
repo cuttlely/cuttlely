@@ -6,6 +6,7 @@ import { turnBudgetMs } from './budget.mjs'
 import { HarnessError } from './errors.mjs'
 import { dataRoot } from './paths.mjs'
 import { sessionKey } from './session.mjs'
+import { processStartTicks } from './try-live.mjs'
 
 export const BUSY_MESSAGE = 'This chat already has a harness turn in progress.'
 
@@ -28,6 +29,12 @@ export function database() {
             session_key TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
             expires_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS try_profile_turns (
+            scope TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            started_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
@@ -125,4 +132,40 @@ export function releaseTurn(held) {
 
 export function turnBusyError() {
     return new HarnessError('busy', BUSY_MESSAGE)
+}
+
+// A fixed try path is shared by canvas and replay workers, possibly in different processes. Unlike the
+// chat lease, this mutex never expires while its owner is alive: a long turn must not be cut short.
+export async function acquireTryProfileTurn(scope) {
+    const owner = `${process.pid}:${randomUUID()}`
+    const startedAt = processStartTicks(process.pid)
+    for (;;) {
+        const acquired = immediate((db) => {
+            const row = db.prepare('SELECT owner, pid, started_at FROM try_profile_turns WHERE scope = ?').get(scope)
+            if (row) {
+                let alive = true
+                try {
+                    process.kill(row.pid, 0)
+                } catch (error) {
+                    alive = error?.code !== 'ESRCH'
+                }
+                const currentStart = processStartTicks(row.pid)
+                if (alive && (!row.started_at || !currentStart || row.started_at === currentStart)) return false
+                db.prepare('DELETE FROM try_profile_turns WHERE scope = ? AND owner = ?').run(scope, row.owner)
+            }
+            db.prepare('INSERT INTO try_profile_turns (scope, owner, pid, started_at) VALUES (?, ?, ?, ?)').run(
+                scope,
+                owner,
+                process.pid,
+                startedAt
+            )
+            return true
+        })
+        if (acquired) return { scope, owner }
+        await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+}
+
+export function releaseTryProfileTurn(held) {
+    database().prepare('DELETE FROM try_profile_turns WHERE scope = ? AND owner = ?').run(held.scope, held.owner)
 }

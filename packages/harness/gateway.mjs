@@ -201,7 +201,8 @@ export function registerProfileToken({
 
 // Whether a token is registered (used by the checks).
 export function profileTokenKnown(token) {
-    return Boolean(token) && tokens.has(token)
+    const meta = tokens.get(token)
+    return Boolean(meta) && tokenIsCurrent(token, meta)
 }
 
 export function forgetProfileToken(token) {
@@ -362,9 +363,18 @@ function savedHarnessState(name) {
 }
 
 // A canvas try home is removable only when it carries the try marker, is not a saved harness,
-// and has no live lock.
+// and has neither a sticky keep marker nor a live lock.
+function tryKeepMarker(home) {
+    try {
+        return readFileNoFollow(path.join(hermesHome(), 'profiles', home, 'harness-try-keep'))?.trim() === home
+    } catch {
+        return false
+    }
+}
+
 function abandonedTryHome(home) {
     if (!TRY_HOME.test(home || '')) return false
+    if (tryKeepMarker(home)) return false
     if (savedHarnessState(home) !== 'absent') return false
     if (!tryMarkerMatches(home) && !leftoverShell(home)) return false
     if (tryLockIsLive(home)) return false
@@ -391,6 +401,7 @@ function leftoverShell(entry) {
 // directory or try marker is already gone, as long as the home is not a saved harness and not locked.
 function abandonedChild(home) {
     if (!TRY_HOME.test(home || '')) return false
+    if (tryKeepMarker(home)) return false
     if (tryLockIsLive(home)) return false
     if (savedHarnessState(home) !== 'absent') return false
     if (tryMarkerMatches(home)) return true
@@ -484,6 +495,8 @@ function ingestProfileTokens(abandoned = new Set()) {
         const role = env.CUTTLELY_GATEWAY_ROLE || 'specialist'
         if (!['chief', 'specialist'].includes(role) || !harnessName || (role === 'specialist' && !specialistName)) continue
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
+        // Retained files must not reactivate a finished turn's tokens when a gateway worker starts.
+        if (env.CUTTLELY_GATEWAY_TRY === '1' && tryKeepMarker(harnessName) && !tryLockIsLive(harnessName)) continue
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
         // A harness being deleted gets no published token back from disk either.
@@ -601,8 +614,23 @@ async function readyToRun(meta) {
 }
 
 function assertStillValid(meta) {
-    for (const value of tokens.values()) if (value === meta) return
+    for (const [token, value] of tokens) if (value === meta && tokenIsCurrent(token, meta)) return
     throw new RevokedDuringRequest('Unauthorized')
+}
+
+// A worker may have loaded this token while another process owned the turn. Retained files alone do
+// not authorize a finished turn, or let its old bearer reach the next draft written at the same path.
+function tokenIsCurrent(token, meta) {
+    if (!meta.tryProfile || !tryKeepMarker(meta.harnessName)) return true
+    if (!tryLockIsLive(meta.harnessName)) return false
+    try {
+        const current = readEnvFile(path.join(hermesHome(), 'profiles', meta.profileName, '.env')).OPENAI_API_KEY || ''
+        const stored = Buffer.from(current)
+        const given = Buffer.from(token)
+        return stored.length === given.length && stored.length > 0 && crypto.timingSafeEqual(stored, given)
+    } catch {
+        return false
+    }
 }
 
 function lookupToken(presented) {
@@ -611,7 +639,7 @@ function lookupToken(presented) {
     let found = null
     for (const [token, meta] of tokens) {
         const buf = Buffer.from(token)
-        if (buf.length === given.length && buf.length > 0 && crypto.timingSafeEqual(buf, given)) found = meta
+        if (buf.length === given.length && buf.length > 0 && crypto.timingSafeEqual(buf, given) && tokenIsCurrent(token, meta)) found = meta
     }
     return found
 }

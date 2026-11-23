@@ -14,7 +14,7 @@ process.env.HERMES_HOME = process.env.CUTTLELY_HERMES_HOME
 const profiles = path.join(process.env.HERMES_HOME, 'profiles')
 const { listDirNoFollow } = await import('../packages/harness/contained-walk.mjs')
 const { startGateway, profileTokenKnown, sweepAbandonedTryProfiles } = await import('../packages/harness/gateway.mjs')
-const { compileProfile, compileTryProfile, discardTryProfile, markProfileDeleted, tryRuntime } = await import(
+const { compileProfile, compileTryProfile, discardTryProfile, markProfileDeleted, tryRuntime, tryIdForFlow } = await import(
     '../packages/harness/profile.mjs'
 )
 const { saveHarness } = await import('../packages/harness/store.mjs')
@@ -60,7 +60,7 @@ test('abandoned try sweep writes Hermes markers before removing parent and speci
     }
 })
 
-test('try teardown marks deletion before runtime close and retains the late-mkdir guard', async () => {
+test('legacy temporary try teardown marks deletion before runtime close and retains the late-mkdir guard', async () => {
     const id = '4567abcd'
     const names = fixture(`try${id}`)
     tryRuntime.closeProfiles = async (closed) => {
@@ -146,6 +146,7 @@ test('sweeping preserves live tries, saved harnesses and unmarked try-like direc
     const kept = [...fixture(live), ...fixture(saved), unmarked]
     fs.mkdirSync(path.join(profiles, unmarked))
     // Older saved records may already have a name now reserved for tries.
+    fs.mkdirSync(path.join(dir, 'harnesses'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'harnesses', `${saved}.json`), JSON.stringify({ name: saved }))
     noteLiveTry(live)
     try {
@@ -209,4 +210,38 @@ test('clearing a deletion marker preserves supported mixed-case harness names', 
     assert.equal(fs.existsSync(path.join(profiles, '.deleted', id)), false)
     assert.equal(fs.existsSync(path.join(profiles, '.deleted', record.name)), false)
     assert.ok(fs.statSync(path.join(profiles, 'markerteam', 'config.yaml')).isFile())
+})
+
+test('sticky teardown keeps real directories while marking them deleted for runtime scans', async () => {
+    const flow = 'tombstone-sticky-fixture'
+    const id = tryIdForFlow(flow)
+    const scope = `try${id}`
+    const model = { nodeName: 'chatXAI', inputs: { modelName: 'fixture-model' } }
+    const record = { name: 'sticky-fixture', chatflowId: flow, chief: { model }, specialists: [{ name: 'worker', model, shell: true }] }
+    compileTryProfile(record, id)
+    const names = [scope, `${scope}--worker`]
+    const stateFile = path.join(profiles, scope, 'state.db')
+    fs.writeFileSync(stateFile, 'fake runtime state')
+    const inode = fs.statSync(stateFile).ino
+    tryRuntime.closeProfiles = async (closed) => {
+        assert.deepEqual(new Set(closed), new Set(names))
+        for (const name of names) assertDeleted(name)
+    }
+    tryRuntime.afterFirstRemoval = () => assert.fail('a sticky turn attempted to remove its folders')
+    try {
+        await discardTryProfile(id)
+        for (const name of names) {
+            assertDeleted(name)
+            assert.ok(fs.statSync(path.join(profiles, name)).isDirectory())
+        }
+        assert.equal(fs.statSync(stateFile).ino, inode)
+        assert.equal(fs.readFileSync(path.join(profiles, scope, 'harness-try-keep'), 'utf8').trim(), scope)
+        compileTryProfile(record, id)
+        for (const name of names) assert.equal(fs.existsSync(path.join(profiles, '.deleted', name)), false)
+        assert.equal(fs.statSync(stateFile).ino, inode)
+    } finally {
+        tryRuntime.closeProfiles = null
+        tryRuntime.afterFirstRemoval = null
+        await discardTryProfile(id)
+    }
 })

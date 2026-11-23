@@ -9,6 +9,7 @@ import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
+import { acquireTryProfileTurn, releaseTryProfileTurn } from './lock.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
@@ -1592,7 +1593,9 @@ function issueProfileToken({
         : (Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)) ||
           // A profile compiled before the stamp existed keeps its token when the boot upgrade has matched its owner.
           (adoptUnstamped && previous.CUTTLELY_GATEWAY_CREATED === undefined)
+    // A later draft must not reactivate a bearer issued for an earlier turn.
     const reusable =
+        !tryProfile &&
         !refresh &&
         sameBase &&
         sameRecord &&
@@ -2454,8 +2457,13 @@ function compileProfileFiles(record, options = {}) {
         ensureChildDir(held.fd, dir, 'sessions', held.fds, anchor)
         // A try is this marker, not a name the store might also use.
         const tryMarker = path.join(dir, 'harness-try')
-        if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
-        else removeChild(held.fd, dir, 'harness-try')
+        if (tryProfile) {
+            writeIfChanged(tryMarker, `${profileName}\n`)
+            if (options.stickyTry) writeIfChanged(path.join(dir, 'harness-try-keep'), `${profileName}\n`)
+        } else {
+            removeChild(held.fd, dir, 'harness-try')
+            removeChild(held.fd, dir, 'harness-try-keep')
+        }
     } finally {
         closeFds(held.fds)
     }
@@ -2560,8 +2568,50 @@ export function tryProfileName(tryId) {
     return `try${id}`
 }
 
+// One home per canvas for Try it, playground and Publish replays. Saved profile names never use this id.
+export function tryIdForFlow(chatflowId) {
+    if (typeof chatflowId !== 'string' || !chatflowId.trim()) {
+        throw new HarnessError('bad_name', 'A sticky try profile requires a chatflow id.')
+    }
+    return crypto.createHash('sha256').update(`cuttlely-try-flow:${chatflowId}`).digest('hex').slice(0, 16)
+}
+
 export function compileTryProfile(record, tryId) {
-    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true })
+    const stickyTry = Boolean(record.chatflowId) && tryId === tryIdForFlow(record.chatflowId)
+    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true, stickyTry })
+}
+
+const tryTurns = new Map()
+
+// Hold the whole compile/run/discard lifecycle, including the runtime close. Only the callback receives
+// the owner's teardown function. Any other run/discard queues, even one started inside a run hook.
+export async function withTryProfile(tryId, body) {
+    const scope = tryProfileName(tryId)
+    const previous = tryTurns.get(scope) || Promise.resolve()
+    let release
+    const held = new Promise((resolve) => {
+        release = resolve
+    })
+    const tail = previous.then(() => held)
+    tryTurns.set(scope, tail)
+    await previous
+    let sharedLock
+    let active = true
+    try {
+        sharedLock = await acquireTryProfileTurn(scope)
+        return await body(() => {
+            if (!active) throw new HarnessError('bad_session', 'This try turn has already finished.')
+            return discardTryProfileUnlocked(tryId)
+        })
+    } finally {
+        active = false
+        try {
+            if (sharedLock) releaseTryProfileTurn(sharedLock)
+        } finally {
+            release()
+            if (tryTurns.get(scope) === tail) tryTurns.delete(scope)
+        }
+    }
 }
 
 // Tests stand in for the runtime close. The default asks the running runtime to drop the profile.
@@ -2871,10 +2921,24 @@ async function closeTryRuntime(names) {
     await closeProfiles(names)
 }
 
-// Close the runtime for this try and every specialist profile before any directory is removed.
-// Tokens leave the map before the unlink. A close can recreate log directories after it answers,
-// so removal retries until those directories stay gone. A directory that is still there is logged once.
-export async function discardTryProfile(tryId) {
+// Close the runtime, stop and wait for MCP process groups, then forget tokens on every turn. Sticky homes
+// keep their files: Hermes can retain open database/log handles, so unlinking creates a descriptor leak.
+export function discardTryProfile(tryId) {
+    return withTryProfile(tryId, () => discardTryProfileUnlocked(tryId))
+}
+
+// Canvas deletion is the only normal removal of a sticky home. It waits for admitted turns to finish and
+// uses the same bridge teardown before removing home, specialists and their workspaces.
+export function removeTryProfileForFlow(chatflowId) {
+    const id = tryIdForFlow(chatflowId)
+    return withTryProfile(id, () => {
+        // Legacy saved harnesses can predate the reserved try namespace. A hash match grants no ownership.
+        if (getHarness(tryProfileName(id))) return
+        return discardTryProfileUnlocked(id, { remove: true })
+    })
+}
+
+async function discardTryProfileUnlocked(tryId, { remove = false } = {}) {
     const scope = tryProfileName(tryId)
     let bridgesStopped = false
     try {
@@ -2892,23 +2956,33 @@ export async function discardTryProfile(tryId) {
         // any folder goes, so none keeps running from a deleted folder.
         bridgesStopped = await stopTryBridgesFor(scope, owned)
         forgetTryTokens(scope)
-        for (const entry of owned) removeOneTryDir(entry)
-        if (typeof tryRuntime.afterFirstRemoval === 'function') {
-            try {
-                tryRuntime.afterFirstRemoval(scope)
-            } catch {
-                // A recreate during the hook is removed by the settle loop.
-            }
-        }
-        await settleTryDirectories(scope, owned)
-        const left = await retryBusyTryDirectories(scope)
-        warnTryDirectoriesLeft(left)
+        const sticky = readMarker(path.join(hermesHome(), 'profiles', scope, 'harness-try-keep')) === scope
+        if (!remove && !sticky) await removeTryDirectories(scope, owned)
     } finally {
-        // An error above still stops this try's bridges.
-        if (!bridgesStopped) await stopTryBridgesFor(scope, [scope])
-        compiledProfiles.delete(scope)
-        endLiveTry(scope)
+        try {
+            // An error above still stops this try's bridges and retires its tokens before any removal.
+            if (!bridgesStopped) await stopTryBridgesFor(scope, [scope])
+            forgetTryTokens(scope)
+            if (remove) await removeTryDirectories(scope, tryScopeEntries(scope))
+        } finally {
+            compiledProfiles.delete(scope)
+            endLiveTry(scope)
+        }
     }
+}
+
+async function removeTryDirectories(scope, owned) {
+    for (const entry of owned) removeOneTryDir(entry)
+    if (typeof tryRuntime.afterFirstRemoval === 'function') {
+        try {
+            tryRuntime.afterFirstRemoval(scope)
+        } catch {
+            // A recreate during the hook is removed by the settle loop.
+        }
+    }
+    await settleTryDirectories(scope, owned)
+    const left = await retryBusyTryDirectories(scope)
+    warnTryDirectoriesLeft(left)
 }
 
 async function stopTryBridgesFor(scope, names) {

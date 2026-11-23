@@ -1083,6 +1083,12 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             }
             await purgeHarnessRuns(finished)
             try {
+                const profile = await loadHarness('profile.mjs')
+                await profile.removeTryProfileForFlow(chatflowId)
+            } catch (error) {
+                logger.warn(`[harness] try profile cleanup for deleted canvas ${chatflowId} failed: ${getErrorMessage(error)}`)
+            }
+            try {
                 const session = await loadHarness('session.mjs')
                 session.removeDraftSessions({ workspaceId, chatflowId })
             } catch (error) {
@@ -1831,7 +1837,7 @@ const startCanvasRun = async (
     })
 }
 
-// Publish check. Live and the draft each get their own try profile, the same one the canvas uses.
+// Publish check. Live and the draft take turns using the same fixed try profile as the canvas.
 // Nothing is written to run history, the session, or the analyst capture for this chat.
 const replayCheck = async (
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },

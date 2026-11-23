@@ -16,7 +16,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 const { runHarness } = await import('./run.mjs')
 const { saveHarness } = await import('./store.mjs')
 const { listRuns } = await import('./history.mjs')
-const { chiefInstructions, readProfileEnv, tryProfileName } = await import('./profile.mjs')
+const { chiefInstructions, readProfileEnv, tryProfileName, tryIdForFlow } = await import('./profile.mjs')
 const { estimateTokens } = await import('./context.mjs')
 const { closeQueueDb } = await import('./lock.mjs')
 const { agentTurn, beginAgentTurn, recordAgentStep, endAgentTurn } = await import('./agent-run-context.mjs')
@@ -611,7 +611,7 @@ for (const draft of [false, true])
                 flowOptions: { workspaceId: 'fixture-workspace', harnessCaller: { via: 'session' } },
                 fetchImpl: async (_url, options) => {
                     const body = JSON.parse(options.body)
-                    const soul = chiefInstructions({ ...record, name: draft ? tryProfileName(record.tryId) : name })
+                    const soul = chiefInstructions({ ...record, name: draft ? tryProfileName(tryIdForFlow(record.chatflowId)) : name })
                     bodies.push({ ...body, soul })
                     return new Response(JSON.stringify({ status: 'completed', output: 'Continued.' }))
                 }

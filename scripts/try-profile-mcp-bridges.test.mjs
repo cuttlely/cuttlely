@@ -1,4 +1,4 @@
-// A try turn's MCP bridges stop before its folders go, and the sweep stops try bridges a dead runtime left
+// A try turn's MCP bridges stop even when its folders stay, and the sweep stops bridges a dead runtime left
 // behind. Published profile bridges are never touched. Linux only (the stop reads /proc).
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -14,7 +14,7 @@ process.env.CUTTLELY_DATA_DIR = dir
 process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'hermes')
 process.env.HERMES_HOME = process.env.CUTTLELY_HERMES_HOME
 const profiles = path.join(process.env.HERMES_HOME, 'profiles')
-const { discardTryProfile, tryRuntime } = await import('../packages/harness/profile.mjs')
+const { discardTryProfile, removeTryProfileForFlow, tryIdForFlow, tryRuntime } = await import('../packages/harness/profile.mjs')
 const { TRY_PROFILE_DIR_ENV, sweepOrphanTryBridges } = await import('../packages/harness/try-bridges.mjs')
 const { endLiveTry, noteLiveTry } = await import('../packages/harness/try-live.mjs')
 const spawned = []
@@ -73,16 +73,17 @@ function bridgeCount() {
     return spawned.reduce((sum, child) => sum + groupMembers(child.pid), 0)
 }
 
-function tryFolders(scope) {
+function tryFolders(scope, { sticky = false } = {}) {
     fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
     fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
     fs.writeFileSync(path.join(profiles, scope, 'config.yaml'), 'mcp_servers: {}\n')
+    if (sticky) fs.writeFileSync(path.join(profiles, scope, 'harness-try-keep'), `${scope}\n`)
     fs.mkdirSync(path.join(profiles, `${scope}--worker`), { recursive: true })
     fs.writeFileSync(path.join(profiles, `${scope}--worker`, 'harness-parent'), `${scope}\n`)
     fs.mkdirSync(path.join(dir, 'workspaces', `${scope}--worker`), { recursive: true })
 }
 
-test('N try turns leave the bridge count where it started, and each folder goes after its bridges stop', { skip: !linux }, async () => {
+test('N sticky try turns reuse their folders and leave the bridge count where it started', { skip: !linux }, async () => {
     fs.mkdirSync(path.join(profiles, 'finance'), { recursive: true })
     const published = startBridge('finance')
     assert.ok(await waitFor(() => groupMembers(published.pid) === 2))
@@ -91,9 +92,9 @@ test('N try turns leave the bridge count where it started, and each folder goes 
     tryRuntime.closeProfiles = async () => {}
     try {
         for (let turn = 0; turn < 20; turn += 1) {
-            const id = (0xa0000000 + turn).toString(16)
+            const id = 'a0000000'
             const scope = `try${id}`
-            tryFolders(scope)
+            tryFolders(scope, { sticky: true })
             noteLiveTry(scope)
             const chief = startBridge(scope)
             const worker = startBridge(`${scope}--worker`)
@@ -113,9 +114,12 @@ test('N try turns leave the bridge count where it started, and each folder goes 
                 fs.rmdirSync = rmdir
             }
             assert.equal(removedWhileRunning, 0, 'a try folder was removed while its bridges still ran')
-            assert.equal(fs.existsSync(path.join(profiles, scope)), false)
-            assert.equal(fs.existsSync(path.join(profiles, `${scope}--worker`)), false)
-            assert.equal(fs.existsSync(path.join(dir, 'workspaces', `${scope}--worker`)), false)
+            assert.equal(fs.statSync(path.join(profiles, scope)).isDirectory(), true)
+            assert.equal(fs.readFileSync(path.join(profiles, scope, 'harness-try-keep'), 'utf8').trim(), scope)
+            assert.equal(fs.statSync(path.join(profiles, `${scope}--worker`)).isDirectory(), true)
+            assert.equal(fs.existsSync(path.join(dir, 'workspaces', `${scope}--worker`)), true)
+            assert.equal(fs.existsSync(path.join(profiles, scope, 'try.lock')), false)
+            assert.equal(bridgeCount(), before, `bridges survived turn ${turn + 1}`)
         }
     } finally {
         tryRuntime.closeProfiles = null
@@ -144,7 +148,7 @@ test(
         const goneBridge = startBridge(gone)
         // Its folder is still there, but the runtime that started it is dead (re-parented) and no try turn holds it.
         const stale = 'trybbbb0002'
-        tryFolders(stale)
+        tryFolders(stale, { sticky: true })
         // The server's try turn is still waiting on the dead runtime, so its lock is live.
         noteLiveTry(stale)
         const runtimeDir = path.join(dir, 'fake-runtime')
@@ -160,7 +164,7 @@ test(
          setInterval(() => {}, 1e9)`
         )
         const live = 'trybbbb0003'
-        tryFolders(live)
+        tryFolders(live, { sticky: true })
         noteLiveTry(live)
         const runtime = spawn(process.execPath, [runtimeScript, path.join(profiles, live)], { stdio: 'ignore' })
         const deadRuntime = spawn(process.execPath, [runtimeScript, path.join(profiles, stale)], { stdio: 'ignore' })
@@ -213,4 +217,46 @@ test('an empty try folder left after teardown is removed once it is 10 minutes o
     assert.equal(fs.existsSync(path.join(profiles, old)), false)
     assert.equal(swept.has(fresh), false)
     assert.ok(fs.existsSync(path.join(profiles, fresh)))
+})
+
+test('sticky bridges stop through the finally path when runtime close throws', { skip: !linux }, async () => {
+    const scope = 'tryeeee0001'
+    tryFolders(scope, { sticky: true })
+    const bridge = startBridge(`${scope}--worker`)
+    assert.ok(await waitFor(() => groupMembers(bridge.pid) === 2))
+    tryRuntime.closeProfiles = async () => {
+        throw new Error('fixture close failed')
+    }
+    try {
+        await assert.rejects(discardTryProfile(scope.slice(3)), /fixture close failed/)
+        assert.equal(groupMembers(bridge.pid), 0)
+        assert.ok(fs.statSync(path.join(profiles, scope)).isDirectory())
+    } finally {
+        tryRuntime.closeProfiles = null
+    }
+})
+
+test('flow deletion stops sticky process groups before removing home and specialist folders', { skip: !linux }, async () => {
+    const flow = 'fixture-deleted-flow'
+    const scope = `try${tryIdForFlow(flow)}`
+    tryFolders(scope, { sticky: true })
+    const bridges = [startBridge(scope), startBridge(`${scope}--worker`)]
+    assert.ok(await waitFor(() => bridges.every((child) => groupMembers(child.pid) === 2)))
+    const rmdir = fs.rmdirSync
+    let checked = false
+    fs.rmdirSync = function (target, ...args) {
+        if (fs.realpathSync(target).startsWith(path.join(profiles, scope))) {
+            for (const child of bridges) assert.equal(groupMembers(child.pid), 0, 'folder removed before bridge exit')
+            checked = true
+        }
+        return rmdir.call(fs, target, ...args)
+    }
+    try {
+        await removeTryProfileForFlow(flow)
+        assert.equal(checked, true)
+        assert.equal(fs.existsSync(path.join(profiles, scope)), false)
+        assert.equal(fs.existsSync(path.join(profiles, `${scope}--worker`)), false)
+    } finally {
+        fs.rmdirSync = rmdir
+    }
 })

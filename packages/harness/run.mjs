@@ -90,9 +90,10 @@ import {
     compileTryProfile,
     chiefInstructions,
     credentialIdsFor,
-    discardTryProfile,
     noteLiveTry,
     tryProfileName,
+    tryIdForFlow,
+    withTryProfile,
     analystTablesNote,
     analystBridgeQueryName,
     hasAnalystTool,
@@ -261,7 +262,7 @@ export function harnessForTurn(name, record) {
     return harness
 }
 
-async function runHarnessBody(args = {}) {
+async function runHarnessBody(args = {}, discardOwnedTry) {
     if (args.mode !== undefined && !['router', 'agent'].includes(args.mode)) {
         throw new HarnessError('bad_mode', 'mode must be "router" or "agent".')
     }
@@ -278,7 +279,7 @@ async function runHarnessBody(args = {}) {
         )
     }
     assertRuntimeAvailable()
-    // A publish-check replay keeps no run history. The try profile is still removed below.
+    // A publish-check replay keeps no run history. Its runtime and bridges are still closed below.
     const replay = args.replay === true
     let pending = null
     if (!replay) {
@@ -336,9 +337,9 @@ async function runHarnessBody(args = {}) {
         }
         if (args.record?.tryId) {
             try {
-                await discardTryProfile(args.record.tryId)
+                await discardOwnedTry()
             } catch (error) {
-                console.warn(`[harness] try profile was not removed: ${error.message}`)
+                console.warn(`[harness] try profile teardown failed: ${error.message}`)
             }
         }
         if (replay) {
@@ -432,6 +433,12 @@ export function setHarnessAvailabilityCheck(check) {
 }
 
 export async function runHarness(args = {}) {
+    if (args.record?.tryId) {
+        // Copy the draft: callers may reuse it for another turn. Both canvas entrypoints reach this gate.
+        const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId) : args.record.tryId
+        args = { ...args, record: { ...args.record, tryId } }
+        return withTryProfile(tryId, (discard) => guardHarnessRun(args.name, () => runHarnessBody(args, discard)))
+    }
     return guardHarnessRun(args?.name, () => runHarnessBody(args))
 }
 
