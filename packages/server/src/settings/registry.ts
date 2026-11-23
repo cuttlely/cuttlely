@@ -658,7 +658,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'runtime',
         group: 'Limits',
         label: 'Tool call time limit',
-        help: 'Sets the bridge wait to this value and the agent runtime per-tool limit to this value plus 60 seconds. Restart to apply.',
+        help: 'Sets the bridge wait and the agent runtime per-tool limit to this value plus 60 seconds. Restart to apply.',
         type: 'number',
         integer: true,
         unit: 'ms-as-seconds',
