@@ -72,8 +72,8 @@ export const ANALYST_ROLE = 'analyst_reader'
 export const ANALYST_SCHEMA = 'analyst'
 export const ANALYST_STATEMENT_TIMEOUT = '15s'
 export const ANALYST_STATEMENT_TIMEOUT_MS = 15000
-// Hard ceiling. The admin setting and a node override are both clamped to this.
-export const ANALYST_STATEMENT_TIMEOUT_MAX_MS = 120000
+// Hard ceiling. A host value above this uses the default; node overrides cannot exceed the configured limit.
+export const ANALYST_STATEMENT_TIMEOUT_MAX_MS = 3600000
 // A reused session client must outlast every later call. The per-call limit is SET statement_timeout.
 export const ANALYST_PG_QUERY_BACKSTOP_MS = ANALYST_STATEMENT_TIMEOUT_MAX_MS + 5000
 export const ANALYST_TIMEOUT_MESSAGE = 'canceling statement due to statement timeout'
@@ -117,8 +117,8 @@ function hostLimit(raw) {
     return { kind: 'number', n, raw: text }
 }
 
-// The admin setting is the ceiling. Unset keeps today's default. A host value above the hard maximum is
-// brought down to it, the same way the settings page refuses that value.
+// The admin setting is the ceiling. Unset keeps today's default. A host row cap above the hard maximum
+// uses the maximum; a host timeout above its maximum uses the default.
 export function analystConfiguredRowCap(env = process.env) {
     const parsed = hostLimit(env?.CUTTLELY_ANALYST_ROW_CAP)
     if (parsed.kind === 'unset') return ANALYST_ROW_CAP
@@ -136,7 +136,7 @@ export function analystConfiguredRowCap(env = process.env) {
 export function analystConfiguredTimeoutMs(env = process.env) {
     const parsed = hostLimit(env?.CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS)
     if (parsed.kind === 'unset') return ANALYST_STATEMENT_TIMEOUT_MS
-    if (parsed.kind === 'bad' || parsed.n <= 0) {
+    if (parsed.kind === 'bad' || parsed.n <= 0 || parsed.n > ANALYST_STATEMENT_TIMEOUT_MAX_MS) {
         warnAnalystLimit(
             'query timeout',
             parsed.raw,
@@ -152,7 +152,7 @@ export function analystConfiguredTimeoutMs(env = process.env) {
         )
         return ANALYST_TIMEOUT_MIN_MS
     }
-    return Math.min(parsed.n, ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+    return parsed.n
 }
 
 // A node or a single call may ask for fewer rows. It cannot ask for more than the admin ceiling.

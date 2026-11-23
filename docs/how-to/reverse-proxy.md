@@ -75,6 +75,8 @@ A proxy or gateway closes a stream that sends nothing for longer than its idle t
 -   Chat predictions, webhook responses and the webhook listener send a keep-alive comment every 30 seconds. An idle timeout of 120 seconds is enough for them.
 -   Harness streams, Harness chat on the canvas, and text-to-speech do not send keep-alive comments yet. A Harness specialist step can stay quiet until the agent run limit ends it. That limit is **Agent run time** in **Server Settings** (`CUTTLELY_HARNESS_RUN_TIMEOUT_MS`), 4 minutes by default. Set the idle timeout, and the nginx `proxy_read_timeout`, above that limit. If you raise the limit, or set it to 0 for no limit, raise the proxy timeouts to match.
 
+For the extended MCP tool limits in [Long-running queries and tasks](./server-settings.md#long-running-queries-and-tasks), set the proxy or load-balancer stream idle timeout (including nginx `proxy_read_timeout`) to at least 3720 s. This is separate from the upstream keep-alive reuse timeout.
+
 ## 3. Set proxy trust
 
 Set `TRUST_PROXY` to the number of trusted proxy hops between the client and Cuttlely. Use `1` when exactly one proxy is in front of the server. Unset or blank trusts no proxy headers. `true` trusts every proxy and is rarely the right choice.
