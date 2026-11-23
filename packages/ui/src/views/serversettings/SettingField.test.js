@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import SettingField from './SettingField'
+import AllSettingsPanel from './AllSettingsPanel'
 
 const bounded = {
     key: 'CUTTLELY_CHECK_COUNT_DEFAULT',
@@ -43,6 +44,35 @@ describe('SettingField', () => {
         }
         root = null
         document.body.innerHTML = ''
+    })
+
+    it.each(['idle', 'restart'])('shows the saved pending state in both settings views (%s)', async (pending) => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = { ...bounded, key: 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS', changed: true, limit: true, pending }
+        const label = pending === 'idle' ? 'Pending: applies when idle' : 'Pending: applies at the next restart'
+        for (const component of [SettingField, AllSettingsPanel]) {
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(component, {
+                            setting,
+                            drafts: {},
+                            onDraft: jest.fn(),
+                            settings: [setting],
+                            sections: [],
+                            keptOut: [],
+                            onOpen: jest.fn()
+                        })
+                    )
+                )
+            })
+            expect(document.body.textContent).toContain(label)
+            expect(document.body.textContent).not.toContain('Applies at restart')
+        }
     })
 
     it('shows a fixed cap as text with no editable control or host-lock hint', async () => {

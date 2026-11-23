@@ -4,6 +4,15 @@ import { DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS, errorEventDetails, providerRate
 import { SSEStreamer } from './SSEStreamer'
 
 describe('a failed prediction without streaming', () => {
+    test('a harness busy refusal retains 409 and the exact notice through execution wrappers and streams', () => {
+        const message = 'A reply is still in progress in this chat. Try again in a moment.'
+        const busy = Object.assign(new Error(message), { code: 'busy', harnessError: true })
+        for (const error of [busy, Object.assign(new Error('execution failed'), { cause: busy })]) {
+            expect(toPredictionError(error)).toMatchObject({ statusCode: 409, message, code: 'busy' })
+            expect(errorEventDetails(error)).toEqual({ status: 409, code: 'busy' })
+        }
+        expect(toPredictionError(Object.assign(new Error('database busy'), { code: 'busy' })).statusCode).toBe(500)
+    })
     test('preserves runtime unavailable status and retry through an execution wrapper', () => {
         const cause = Object.assign(new Error('private supervisor details'), { code: 'RUNTIME_UNAVAILABLE' })
         const error = Object.assign(new Error('execution failed'), { cause })

@@ -16,6 +16,11 @@ export function restartInPlaceAvailable(env: Env = process.env): boolean {
     return env[SUPERVISED_VAR] === '1'
 }
 
+/** Both supervision and a registered stop handler are needed for automatic settings application. */
+export function restartInPlaceReady(env: Env = process.env): boolean {
+    return restartInPlaceAvailable(env) && handler !== null
+}
+
 /** The start command registers how to stop cleanly and exit with RESTART_EXIT_CODE. */
 export function setRestartHandler(next: Handler | null): void {
     handler = next
@@ -29,12 +34,24 @@ export function restartRequested(): boolean {
  * Stops the server and exits so the start script starts it again. Returns false when restart in place is not
  * available. delayMs lets the HTTP answer reach the browser first.
  */
-export function requestRestart(options: { env?: Env; delayMs?: number; before?: () => Promise<unknown> } = {}): boolean {
+export function requestRestart(
+    options: {
+        env?: Env
+        delayMs?: number
+        before?: () => Promise<unknown>
+        /** Automatic idle application rechecks admission and the save debounce immediately before stopping. */
+        canRestart?: () => boolean
+    } = {}
+): boolean {
     if (!restartInPlaceAvailable(options.env) || !handler || requested) return false
     requested = true
     const run = handler
     const before = options.before
     setTimeout(() => {
+        if (options.canRestart && !options.canRestart()) {
+            requested = false
+            return
+        }
         // before: for example, let runs in progress finish. A failure there never blocks the restart.
         Promise.resolve(before ? before().catch(() => undefined) : undefined)
             .then(() => run())

@@ -30,6 +30,54 @@ async function type(t, text) {
 }
 
 describe('chat widget', () => {
+    for (const streaming of [false, true]) {
+        it(`keeps a busy question as not sent with a neutral notice and a working retry (${
+            streaming ? 'stream' : 'HTTP 409'
+        })`, async () => {
+            const message = 'A reply is still in progress in this chat. Try again in a moment.'
+            const t = setup(
+                {
+                    predict: (_body, count) =>
+                        count === 1
+                            ? streaming
+                                ? sseResponse([{ event: 'error', data: message, status: 409, code: 'busy' }])
+                                : json(409, { message })
+                            : sseResponse([{ event: 'token', data: 'Recovered' }])
+                },
+                { errorMessage: 'Custom failure' }
+            )
+            await type(t, 'Keep this question')
+            await until(() => t.$('.dc-notice') && !t.widget.busy)
+            assert.equal(t.$('.dc-notice').getAttribute('role'), 'status')
+            assert.ok(t.$('.dc-notice').textContent.startsWith(message))
+            assert.equal(t.$('.dc-error'), null)
+            assert.equal(t.$('.dc-not-sent').textContent, 'Not sent')
+            assert.equal(t.$('.dc-user-bubble').textContent, 'Keep this question')
+            assert.equal(t.widget.messages[0].notSent, true)
+            assert.equal(t.widget.messages[1].run, null)
+            const saved = JSON.parse(localStorage.getItem(`cuttlely-chat:v1:https://cuttlely.example:${FLOW}`))
+            assert.equal(saved.messages[0].notSent, true)
+            assert.equal(saved.messages[1].notice, message)
+            t.$('.dc-notice .dc-chip').click()
+            await until(() => t.$('.dc-md')?.textContent === 'Recovered' && !t.widget.busy)
+            assert.equal(t.$$('.dc-msg.user').length, 1)
+            assert.equal(t.$('.dc-not-sent'), null)
+            assert.deepEqual(
+                t.server.calls.filter((call) => call.path.includes('/prediction/')).map((call) => call.body.question),
+                ['Keep this question', 'Keep this question']
+            )
+            t.widget.destroy()
+        })
+    }
+
+    it('keeps other HTTP 409 conflicts as errors', async () => {
+        const t = setup({ predict: () => json(409, { message: 'Harness changed. Retry.' }) })
+        await type(t, 'Question')
+        await until(() => t.$('.dc-error') && !t.widget.busy)
+        assert.equal(t.$('.dc-notice'), null)
+        assert.equal(t.$('.dc-not-sent'), null)
+        t.widget.destroy()
+    })
     it('ignores tool and step events when disabled and keeps the Harness run card', async () => {
         const t = setup({ config: () => json(200, { showToolEvents: { status: false } }) })
         await until(() => t.widget.config)

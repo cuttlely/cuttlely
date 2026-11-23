@@ -11729,7 +11729,9 @@ await Promise.all(overlap)
 check(
     'a second turn for the same chat is rejected while the first is in flight',
     overlapErrors.length === 2 &&
-        overlapErrors.every((error) => error?.code === 'busy' && error.message === 'This chat already has a harness turn in progress.') &&
+        overlapErrors.every(
+            (error) => error?.code === 'busy' && error.message === 'A reply is still in progress in this chat. Try again in a moment.'
+        ) &&
         firstDone.text.startsWith('answer:') &&
         lockCalls.length === 2,
     JSON.stringify({ errors: overlapErrors.map((error) => ({ code: error?.code, message: error?.message })), calls: lockCalls.length })
@@ -11908,7 +11910,9 @@ try {
 }
 check(
     'a second queued turn for the same chat is rejected',
-    queueBusy?.code === 'busy' && queueBusy.message === 'This chat already has a harness turn in progress.' && queueInvokes === 1,
+    queueBusy?.code === 'busy' &&
+        queueBusy.message === 'A reply is still in progress in this chat. Try again in a moment.' &&
+        queueInvokes === 1,
     JSON.stringify({ code: queueBusy?.code, message: queueBusy?.message, invokes: queueInvokes })
 )
 releaseQueueHold()
@@ -15303,7 +15307,7 @@ await expectCase('a run started in the background keeps the id it returned, its 
     history.failQueuedRun(
         'background',
         refused.id,
-        Object.assign(new Error('This chat already has a harness turn in progress.'), { code: 'busy' })
+        Object.assign(new Error('A reply is still in progress in this chat. Try again in a moment.'), { code: 'busy' })
     )
     const refusedRow = history.getRun('background', refused.id)
     check(

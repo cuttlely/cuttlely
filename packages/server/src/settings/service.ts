@@ -4,6 +4,7 @@
 import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
+import { idleApplyStatus, pendingRestartLimits } from './applyWhenIdle'
 import { StartState } from './apply'
 import {
     DatabaseSummary,
@@ -57,6 +58,8 @@ export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     secret?: { set: boolean; unreadable: boolean }
     /** Saved, and different from what the server started with: applies at the next restart. */
     changed: boolean
+    pending?: 'idle' | 'restart'
+    pendingBlocked?: boolean
     /** The value the server behaves as if it had (plain settings only), for conditions. */
     effective?: string
     /** Non-secret limit fallback after clearing its saved value. */
@@ -182,14 +185,9 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const limits = limitSnapshot(env)
     const clearedLimits = resolveLimits(env, {})
     const startLimits = resolveLimits(env, state.ignored ? {} : state.atStart)
-    for (const setting of SETTINGS) {
-        if (
-            setting.limit &&
-            setting.applies === 'restart' &&
-            limits.get(setting.key)?.value !== (state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value)
-        )
-            changed.push(setting.key)
-    }
+    const pendingLimits = pendingRestartLimits(env, state)
+    changed.push(...pendingLimits.map(({ key }) => key))
+    const idleStatus = idleApplyStatus(env, state, pendingLimits)
     changed.sort()
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
@@ -235,6 +233,10 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.source = picked.source
             view.locked = false
             view.changed = changed.includes(setting.key)
+            if (setting.applies === 'restart' && view.changed) {
+                view.pending = idleStatus.pending
+                view.pendingBlocked = idleStatus.blocked
+            }
             view.value = picked.source === 'default' ? '' : picked.value
             view.effective = picked.value
             view.running =

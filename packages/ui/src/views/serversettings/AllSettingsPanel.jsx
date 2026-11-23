@@ -80,6 +80,24 @@ const AllSettingsPanel = ({ settings, sections, keptOut, query, onOpen }) => {
                                     <Typography variant='body2' sx={{ fontWeight: 500 }}>
                                         {setting.label}
                                     </Typography>
+                                    {setting.pending && (
+                                        <Chip
+                                            size='small'
+                                            variant='outlined'
+                                            color='warning'
+                                            label={
+                                                setting.pending === 'idle'
+                                                    ? 'Pending: applies when idle'
+                                                    : 'Pending: applies at the next restart'
+                                            }
+                                            sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
+                                        />
+                                    )}
+                                    {setting.pendingBlocked && (
+                                        <Typography variant='caption' color='warning.main'>
+                                            Idle application stopped; restart manually.
+                                        </Typography>
+                                    )}
                                     <Typography
                                         variant='caption'
                                         sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'text.disabled' }}

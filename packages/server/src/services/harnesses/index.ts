@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
+import { isDraining, isShuttingDown } from '../../settings/runs'
 import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
@@ -1274,7 +1275,7 @@ function httpHarnessError(error: unknown) {
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
     if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
-    if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
+    if (code === 'busy') return Object.assign(new AppError(StatusCodes.CONFLICT, message), { code: 'busy' })
     if (code === 'harness_changed') return new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
@@ -1587,6 +1588,7 @@ const startBackgroundRun = async (
         expectedChatflowId?: string
     }
 ) => {
+    if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting to apply new settings. Try again in a minute.')
     // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
     // drain that begins during the awaits below, instead of the drain seeing nothing in progress.
     let release = () => {}

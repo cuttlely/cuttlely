@@ -122,7 +122,7 @@ import {
     withPromptImages
 } from './images.mjs'
 import { prepareHarnessTurnUploads } from './uploads.mjs'
-import { acquireTurn, releaseTurn } from './lock.mjs'
+import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
@@ -386,6 +386,11 @@ async function runHarnessTurn({
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }
     const turnLock = acquireTurn(name, chatId)
+    const deadlines = [turnBudgetMs(budgetMs), timeoutMs ?? agentRunTimeoutMs()].filter((ms) => ms > 0)
+    const stopRenewal = startTurnRenewal(turnLock, {
+        signal: readClientSignal(signal),
+        deadlineMs: deadlines.length ? Math.min(...deadlines) : 0
+    })
     const analystScope = analystScopeKey(name, chatId)
     try {
         return await withAnalystScope(
@@ -419,6 +424,7 @@ async function runHarnessTurn({
             { workspace: harness.workspaceId }
         )
     } finally {
+        stopRenewal()
         releaseTurn(turnLock)
     }
 }

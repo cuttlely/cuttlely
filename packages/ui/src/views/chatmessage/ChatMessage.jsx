@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { EventStreamContentType, fetchEventSource } from '@microsoft/fetch-event-source'
 
 import {
+    Alert,
     Box,
     Button,
     Card,
@@ -88,7 +89,13 @@ import FileArtifact from '@/ui-component/artifacts/FileArtifact'
 import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
 import { isFileArtifact, resolveChatArtifacts, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
-import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
+import {
+    acceptChatSubmit,
+    harnessCanvasRunPath,
+    harnessResponseError,
+    harnessBusyNotice,
+    keepUnsentHarnessMessage
+} from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 
@@ -1117,7 +1124,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 const formData = predictionFormData(params, fullFiles)
                 if (isChatFlowAvailableToStream) {
                     formData.append('streaming', 'true')
-                    fetchResponseFromEventStream(chatflowid, formData)
+                    await fetchResponseFromEventStream(chatflowid, formData)
                 } else {
                     const response = await predictionApi.sendMessageWithFiles(chatflowid, formData)
                     if (response.data) {
@@ -1161,7 +1168,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     }
                 }
             } else if (isChatFlowAvailableToStream) {
-                fetchResponseFromEventStream(chatflowid, params)
+                await fetchResponseFromEventStream(chatflowid, params)
             } else {
                 const response = await predictionApi.sendMessageAndGetPrediction(chatflowid, params)
                 if (response.data) {
@@ -1206,11 +1213,21 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 }
             }
         } catch (error) {
-            handleError(error.response?.data?.message || error.message)
+            const notice = harnessBusyNotice(error)
+            if (notice) {
+                showHarnessBusy(input, notice)
+            } else handleError(error.response?.data?.message || error.message)
             return
         } finally {
             sendingRef.current = false
         }
+    }
+
+    const showHarnessBusy = (input, notice) => {
+        setMessages((current) => keepUnsentHarnessMessage(current, input, notice))
+        setLoading(false)
+        setAnalyzingUpload(false)
+        setUserInput(input)
     }
 
     const fetchHarnessRun = async (chatflowId, input) => {
@@ -1232,7 +1249,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 const type = response.headers.get('content-type') || ''
                 if (response.ok && type.includes('text/event-stream')) return
                 const text = await response.text()
-                throw new Error(text.slice(0, 300) || `Harness run failed (${response.status}).`)
+                throw harnessResponseError(response.status, text)
             },
             async onmessage(ev) {
                 const payload = JSON.parse(ev.data)
@@ -1251,7 +1268,13 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 if (eventName === 'token' || eventName === 'metadata') sawResult = true
                 if (eventName === 'error') {
                     sawError = true
-                    updateErrorMessage(data.message || 'The harness run failed.')
+                    const notice = harnessBusyNotice({
+                        status: payload.status,
+                        code: payload.code || data.code,
+                        message: data.message || data
+                    })
+                    if (notice) showHarnessBusy(input, notice)
+                    else updateErrorMessage(data.message || 'The harness run failed.')
                 }
                 if (eventName === 'abort') {
                     sawAbort = true
@@ -1309,6 +1332,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                       'x-request-from': 'internal'
                   },
             async onopen(response) {
+                if (!response.ok) throw harnessResponseError(response.status, await response.text())
                 if (response.ok && response.headers.get('content-type') === EventStreamContentType) {
                     //console.log('EventSource Open')
                 }
@@ -1372,10 +1396,18 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         sawResult = true
                         updateMetadata(payload.data, input)
                         break
-                    case 'error':
+                    case 'error': {
                         sawError = true
-                        updateErrorMessage(payload.data)
+                        const data = payload.data || {}
+                        const notice = harnessBusyNotice({
+                            status: payload.status,
+                            code: payload.code || data.code,
+                            message: data.message || data
+                        })
+                        if (notice) showHarnessBusy(input, notice)
+                        else updateErrorMessage(payload.data)
                         break
+                    }
                     case 'abort':
                         sawAbort = true
                         abortMessage(payload.data)
@@ -2973,9 +3005,16 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                                 </Box>
                                             ) : (
                                                 <>
-                                                    <MemoizedReactMarkdown chatflowid={chatflowid} isFullWidth={isDialog}>
-                                                        {message.message}
-                                                    </MemoizedReactMarkdown>
+                                                    {message.notSent && <Typography variant='caption'>Not sent</Typography>}
+                                                    {message.notice ? (
+                                                        <Alert severity='info' role='status'>
+                                                            {message.message}
+                                                        </Alert>
+                                                    ) : (
+                                                        <MemoizedReactMarkdown chatflowid={chatflowid} isFullWidth={isDialog}>
+                                                            {message.message}
+                                                        </MemoizedReactMarkdown>
+                                                    )}
                                                 </>
                                             )}
                                         </div>

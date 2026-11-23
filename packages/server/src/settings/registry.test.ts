@@ -55,6 +55,23 @@ describe('server settings registry', () => {
         }
     })
 
+    it('exposes the live chat lock lease instead of keeping it in start script plumbing', () => {
+        expect(isKeptOut('CUTTLELY_HARNESS_LOCK_MS')).toBe(false)
+        expect(settingFor('CUTTLELY_HARNESS_LOCK_MS')).toMatchObject({
+            section: 'runtime',
+            group: 'Limits',
+            limit: true,
+            panelFirst: true,
+            applies: 'live',
+            unit: 'ms-as-seconds',
+            integer: true,
+            min: 0,
+            max: 86400,
+            zeroLabel: 'Never expires'
+        })
+        expect(settingFor('CUTTLELY_HARNESS_LOCK_MS')?.defaultValue).toBeUndefined()
+    })
+
     it('every section has at least one setting', () => {
         for (const section of SECTIONS) expect(SETTINGS.some((setting) => setting.section === section.id)).toBe(true)
     })

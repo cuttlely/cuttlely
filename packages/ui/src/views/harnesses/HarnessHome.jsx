@@ -12,7 +12,7 @@ import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { baseURL } from '@/store/constant'
 import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
-import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
+import { harnessCanvasRunPath, harnessRunPath, harnessResponseError, harnessBusyNotice } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
 import HarnessSchedule from './HarnessSchedule'
 import { harnessOpenProblem } from '@/utils/harnessCard'
@@ -49,17 +49,6 @@ function latencyLabel(run) {
     return `${(run.latencyMs / 1000).toFixed(1)} s`
 }
 
-function messageFrom(response, fallback) {
-    if (!response) return fallback
-    try {
-        const body = JSON.parse(response)
-        if (body?.message) return body.message
-    } catch {
-        // A non-JSON body is shown as text.
-    }
-    return response.slice(0, 300) || fallback
-}
-
 const HarnessHome = () => {
     const { name } = useParams()
     const navigate = useNavigate()
@@ -70,6 +59,7 @@ const HarnessHome = () => {
     const [output, setOutput] = useState('')
     const [liveTrace, setLiveTrace] = useState(null)
     const [runError, setRunError] = useState('')
+    const [runNotice, setRunNotice] = useState('')
     const [running, setRunning] = useState(false)
     const [selectedId, setSelectedId] = useState(null)
     const chatIdRef = useRef('')
@@ -105,6 +95,7 @@ const HarnessHome = () => {
         setRunning(true)
         setOutput('')
         setRunError('')
+        setRunNotice('')
         setLiveTrace(emptyTrace(name))
         const controller = new AbortController()
         abortRef.current = controller
@@ -127,7 +118,7 @@ const HarnessHome = () => {
                 async onopen(response) {
                     if (response.ok && (response.headers.get('content-type') || '').includes('text/event-stream')) return
                     const text = await response.text()
-                    throw new Error(messageFrom(text, `Harness run failed (${response.status}).`))
+                    throw harnessResponseError(response.status, text)
                 },
                 onmessage(ev) {
                     const payload = JSON.parse(ev.data)
@@ -146,8 +137,18 @@ const HarnessHome = () => {
                         if (data.chatId) chatIdRef.current = data.chatId
                         if (data.run?.id) setSelectedId(data.run.id)
                     } else if (event === 'error') {
-                        setRunError(data.message || 'The harness run failed.')
-                        setLiveTrace((current) => failTrace(current, data.message || 'The harness run failed.'))
+                        const notice = harnessBusyNotice({
+                            status: payload.status,
+                            code: payload.code || data.code,
+                            message: data.message || data
+                        })
+                        if (notice) {
+                            setRunNotice(notice)
+                            setLiveTrace(null)
+                        } else {
+                            setRunError(data.message || 'The harness run failed.')
+                            setLiveTrace((current) => failTrace(current, data.message || 'The harness run failed.'))
+                        }
                         if (data.run?.id) setSelectedId(data.run.id)
                     }
                 },
@@ -157,9 +158,15 @@ const HarnessHome = () => {
             })
         } catch (error) {
             if (!controller.signal.aborted) {
-                const message = error?.message || 'The harness run failed.'
-                setRunError(message)
-                setLiveTrace((current) => failTrace(current, message))
+                const notice = harnessBusyNotice(error)
+                if (notice) {
+                    setRunNotice(notice)
+                    setLiveTrace(null)
+                } else {
+                    const message = error?.message || 'The harness run failed.'
+                    setRunError(message)
+                    setLiveTrace((current) => failTrace(current, message))
+                }
             }
         } finally {
             if (abortRef.current === controller) abortRef.current = null
@@ -243,6 +250,11 @@ const HarnessHome = () => {
                             )}
                         </Stack>
                         {liveTrace && <HarnessRunTrace trace={liveTrace} question={tryItTraceQuestion(submittedQuestion)} />}
+                        {runNotice && (
+                            <Alert severity='info' role='status'>
+                                {runNotice}
+                            </Alert>
+                        )}
                         {runError && <Alert severity='error'>{runError}</Alert>}
                         {(output || running) && (
                             <Box

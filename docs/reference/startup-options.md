@@ -63,6 +63,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`            | 240000                                                                          | 0 to 3600         | ms-as-seconds | Server settings, then the host | Yes     |
 | `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`        | 10                                                                              | 0 to 50           | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_EVIDENCE_BYTES`            | 40000                                                                           | 4096 to 262144    | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_HARNESS_LOCK_MS`                   | Turn time limit plus 5 seconds, or 2 minutes when the turn time limit is off    | 0 to 86400        | ms-as-seconds | Server settings, then the host | No      |
 | `CUTTLELY_HARNESS_TURN_BUDGET_MS`            | 45000                                                                           | 0 to 3600         | ms-as-seconds | Server settings, then the host | No      |
 | `CUTTLELY_HARNESS_MODEL_FALLBACK_MS`         | 8000                                                                            | 0 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS` | 4000                                                                            | 0 to 1000000      | tokens        | Host, then Server settings     | Yes     |

@@ -198,8 +198,11 @@ function notifySettingsWrite(dir: string): void {
 }
 
 /** Called after server.json is saved or removed. Listeners refresh their settings. */
-export function onSettingsFileWritten(listener: (dir: string) => void): void {
+export function onSettingsFileWritten(listener: (dir: string) => void): () => void {
     settingsWriteListeners.add(listener)
+    return () => {
+        settingsWriteListeners.delete(listener)
+    }
 }
 
 export function writeFileAtomic(dir: string, file: string, text: string): void {
