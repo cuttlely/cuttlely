@@ -4,7 +4,7 @@ import { EtlError, errorMessage } from './errors.mjs'
 import { embeddingFingerprint, LOCAL_STORE, stableStringify, storeFingerprint } from './graph.mjs'
 import { compareSegments } from './ignore.mjs'
 import { createEmbeddings, Embedder, retrying } from './embed.mjs'
-import { addEvent, DEFAULT_SETTINGS, emptyCounters, emptySteps, getRun, MIN_READS_FOR_RATIO, updateRun } from './runs.mjs'
+import { addEvent, DEFAULT_SETTINGS, emptyCounters, emptySteps, finishRunStop, getRun, MIN_READS_FOR_RATIO, updateRun } from './runs.mjs'
 import { fault, isCrash } from './faults.mjs'
 import { classifyStoreError, storeErrorStatus } from './store-errors.mjs'
 import { Ledger, summaryOf } from './ledger.mjs'
@@ -779,13 +779,7 @@ async function claimQueued(runId, write) {
             await write(t)
             return true
         }
-        if (current?.status === 'cancelling') {
-            await updateRun(runId, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
-            await addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.', t)
-        } else if (current?.status === 'pausing') {
-            await updateRun(runId, { status: 'paused' }, t)
-            await addEvent(runId, 'info', null, 'Paused at the last committed batch.', t)
-        }
+        await finishRunStop(runId, t)
         return false
     })
 }
