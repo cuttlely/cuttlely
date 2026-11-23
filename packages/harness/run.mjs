@@ -2105,7 +2105,9 @@ async function routeSteps(context, input, history) {
         system,
         memory: context.memoryBlock || '',
         history,
-        user: [input, context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
+        user: [input, context.selectionBlock, answerInputIndex(context.answerInputs), history?.length ? ROUTE_HISTORY_REMINDER : '']
+            .filter(Boolean)
+            .join('\n\n'),
         budget: chiefContextTokens()
     })
     noteTruncated(context, fitted.truncated)
@@ -2346,6 +2348,7 @@ export function parseSteps(content, specialists, input, chief) {
     return withFallbackStep(parsed.ok ? parsed.steps : [], specialists, chief, input)
 }
 
+export const ROUTE_HISTORY_REMINDER = 'Route this request; do not answer it. Reply with only the routing JSON.'
 export const ROUTE_JSON_RETRY =
     'Your last reply was not JSON. Do not answer the request. Reply with only the routing JSON: {"steps":[{"specialist":"NAME","task":"...","after":""}]} or {"clarification":"selection|entity|metric|period|region|record_type|comparison"} when essential input is unresolved.'
 const ROUTE_JSON_SCAN_CHARS = 20000
