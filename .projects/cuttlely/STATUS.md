@@ -2,6 +2,8 @@
 
 The candidate combines runtime self-recovery (#559), admin limits (#562), renewable chat locks and idle restart (#563), and Try profile reuse and bridge cleanup (#564) with the router follow-up change on main (#565). Focused verification covered the complete harness check, token retirement across workers, preservation of legacy saved profiles, and ten committed PostgreSQL stop races. The public health response gives an aggregate unavailable count. The logger shares the bootstrap environment load so saved limits retain precedence. Release preparation updates the current documentation pins alongside the package versions and checks the generated changes against the verified source.
 
+The Publish and Promote check runner serializes questions for a harness canvas so each Live and candidate replay gets its turn on the shared Try profile. Chatflow and agentflow checks retain the configured worker count. Saved harness requests also preserve the authenticated session owner when a specialist calls another harness canvas, including through an external worker.
+
 ## Chat lock renewal and idle limit application (1.7.13 preparation)
 
 Chat lease renewal stops on cancellation and enabled turn/run deadlines; busy replies retain HTTP 409 and the unsent message, with targeted lifecycle and process-restart regressions.
