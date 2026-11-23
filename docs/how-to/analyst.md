@@ -566,7 +566,7 @@ The node's checks refuse functions, operators and types that are not built in, b
 
 A lower row cap means less context. The specialist's prompt and the handoff Harness Prime reads contain that one page, not the rest of the table. The rows stay in the database. Say `show more` for the next page. A higher cap, up to 1000, puts more of the table into the prompt and costs more tokens. The server treats a value above 1000 as 1000, while a query timeout env value above 3600000 milliseconds falls back to the 15-second default and warns once. A positive query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number is ignored for either setting, the default is used, and the server logs that once. A page that does not fit the handoff budget shows only the rows that fit, and the next page starts at the following row.
 
-Use `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` for the extended query limit today. Admin Server Settings fields for these limits are coming in the same release. A longer query also needs larger surrounding agent and MCP limits: [Long-running queries and tasks](./server-settings.md#long-running-queries-and-tasks).
+Set the query timeout in **Admin**, **Server settings**, **Analyst**, or with `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`. A saved value comes first. A longer query also needs larger surrounding agent and MCP limits: [Long-running queries and tasks](./server-settings.md#long-running-queries-and-tasks).
 
 On the **Postgres (MCP)** node, **Limits** has **Most rows per query** and **Query time limit (seconds)**. Leave them empty to use the server settings. A number there can be lower. It cannot be higher than the server setting. The same two limits apply to auto storage and to a Postgres URL.
 

@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
-import { agentRunTimeoutMs, turnBudgetMs } from './budget.mjs'
+import { agentRunTimeoutMs, modelCallTimeoutMs, turnBudgetMs } from './budget.mjs'
 import {
     ANALYST_SUMMARY_LINE,
     analystPayloadsFor,
@@ -1653,7 +1653,7 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
             messages: request.messages,
             tools: request.tools,
             json: request.json,
-            timeoutMs: Math.min(context.limit || 120000, 120000),
+            timeoutMs: Math.min(context.limit || modelCallTimeoutMs(), modelCallTimeoutMs()),
             onDelta: request.onDelta,
             signal,
             callbacks: context.traceCallbacks

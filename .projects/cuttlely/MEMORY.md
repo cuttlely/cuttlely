@@ -313,3 +313,7 @@ A rejection diagnostic staged only with a batch can disappear when the error lim
 ## Pause and cancel skip the pipeline lock
 
 Pause and cancel do not take the pipeline lock. A resume that reads the run and later writes `queued` can overwrite a cancel that committed in between. Do the eligibility read, the checks, the `queued` write and the resume event inside one store transaction, and start `pump()` only after it commits.
+
+## Multiplex terminal timeouts need profile policy
+
+An API-server Hermes process serves routed profiles under a complete terminal scope. `TERMINAL_TIMEOUT` on the process does not enter that scope. A configured command timeout must also be in the specialist profile's `terminal.timeout`; omit it when unset to retain existing defaults. The foreground maximum is different: it is read once from `TERMINAL_MAX_FOREGROUND_TIMEOUT` at tool-module import. Verify both paths without booting a service with `scripts/hermes-terminal-limits.test.mjs` and the generated-profile fixture.

@@ -7,6 +7,8 @@ import { IconArrowBackUp, IconKey, IconLock, IconPointFilled } from '@tabler/ico
 
 import { UNIT_LABELS, currentValue, describeValue, fromDisplay, isSwitchOn, limitedByLabel, toDisplay, numberWarning } from './model'
 
+import { SOURCE_LABELS } from './AllSettingsPanel'
+
 const CUSTOM = '__custom__'
 
 /** The history cap names its source as panel, env, or default. The API still says host for the environment. */
@@ -60,7 +62,17 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                             sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
                         />
                     )}
-                    {setting.locked && (
+                    {setting.limit && (
+                        <Chip
+                            size='small'
+                            label={SOURCE_LABELS[setting.source] ?? setting.source}
+                            variant={setting.source === 'default' ? 'outlined' : 'filled'}
+                            color={setting.source === 'panel' ? 'primary' : 'default'}
+                            data-testid={`source-${setting.key}`}
+                            sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
+                        />
+                    )}
+                    {setting.locked && !setting.fixed && (
                         <Tooltip
                             title={`Set outside Cuttlely${
                                 setting.hostHint ? ` (${setting.hostHint})` : ''
@@ -182,6 +194,7 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
 }
 
 const Control = ({ setting, value, edited, disabled, onDraft, error }) => {
+    if (setting.fixed) return <Typography data-testid={`fixed-${setting.key}`}>{setting.defaultLabel}</Typography>
     switch (setting.type) {
         case 'switch':
             return <SwitchControl setting={setting} value={value} disabled={disabled} onDraft={onDraft} />
@@ -314,7 +327,7 @@ const NumberControl = ({ setting, value, disabled, onDraft, error }) => {
             inputProps={{
                 min: setting.range?.min ?? setting.min,
                 max: setting.range?.max ?? setting.max,
-                step: setting.runtime ? '1' : 'any'
+                step: setting.runtime || setting.integer ? '1' : 'any'
             }}
             InputProps={unit ? { endAdornment: <InputAdornment position='end'>{unit}</InputAdornment> } : undefined}
         />
@@ -492,6 +505,9 @@ const settingShape = PropTypes.shape({
     max: PropTypes.number,
     range: PropTypes.shape({ min: PropTypes.number, max: PropTypes.number }),
     runtime: PropTypes.bool,
+    limit: PropTypes.bool,
+    fixed: PropTypes.bool,
+    integer: PropTypes.bool,
     placeholder: PropTypes.string,
     secret: PropTypes.object,
     zeroLabel: PropTypes.string,

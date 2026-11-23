@@ -24,7 +24,7 @@ let hooked = false
 let cache: { at: number; stamp: string; values: Map<string, ResolvedAccount> } | null = null
 
 function panelFirstSettings(): SettingDef[] {
-    return SETTINGS.filter((setting) => setting.panelFirst)
+    return SETTINGS.filter((setting) => setting.panelFirst && !setting.limit && !setting.fixed)
 }
 
 function warnKey(key: string): void {

@@ -56,7 +56,8 @@ describe('checking values from the page', () => {
         expect(queryTimeout.unit).toBe('ms-as-seconds')
         expect(checkValue(queryTimeout, '15000')).toEqual({ ok: true, value: '15000' })
         expect(checkValue(queryTimeout, '120000').ok).toBe(true)
-        expect(checkValue(queryTimeout, '121000').ok).toBe(false)
+        expect(checkValue(queryTimeout, '3600000').ok).toBe(true)
+        expect(checkValue(queryTimeout, '3601000').ok).toBe(false)
         expect(checkValue(queryTimeout, '500').ok).toBe(false)
     })
 

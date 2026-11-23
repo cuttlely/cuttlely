@@ -76,6 +76,7 @@ export function describeChanges(
     const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
     const changes: HistoryChange[] = []
     for (const key of keys) {
+        if (settingFor(key)?.fixed) continue
         const from = before[key] ?? ''
         const to = after[key] ?? ''
         if (from === to) continue
@@ -90,6 +91,7 @@ export function describeChanges(
 }
 
 function redact(entry: HistoryEntry): HistoryEntry {
+    if (entry.changes) entry.changes = entry.changes.filter((change) => !settingFor(change.key)?.fixed)
     for (const change of entry.changes ?? []) {
         if (isSecretSettingKey(change.key) || change.secret) {
             delete change.from

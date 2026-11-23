@@ -18,12 +18,13 @@ import { SettingsBusyError, withSettingsLock } from './lock'
 import { listReadOnlyStatus } from './readOnly'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { limitSnapshot, resolveLimits } from './limits'
 import { accountLinkSnapshot } from './accountLinks'
 import { flagSnapshot, invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
-import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
+import { removeSettingsFile, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
 import { checkValue } from './validate'
 import { readOrdinarySignInReadiness } from '../identity/authenticationState'
 import { signInOptionsBody } from '../identity/signInOptions'
@@ -58,6 +59,9 @@ export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     changed: boolean
     /** The value the server behaves as if it had (plain settings only), for conditions. */
     effective?: string
+    /** Non-secret limit fallback after clearing its saved value. */
+    clearValue?: string
+    clearSource?: 'host' | 'default'
 }
 
 export interface SettingsView {
@@ -173,8 +177,20 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
     const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => {
         const setting = settingFor(key)
-        return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
+        return !setting?.fixed && !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
     })
+    const limits = limitSnapshot(env)
+    const clearedLimits = resolveLimits(env, {})
+    const startLimits = resolveLimits(env, state.ignored ? {} : state.atStart)
+    for (const setting of SETTINGS) {
+        if (
+            setting.limit &&
+            setting.applies === 'restart' &&
+            limits.get(setting.key)?.value !== (state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value)
+        )
+            changed.push(setting.key)
+    }
+    changed.sort()
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
@@ -196,7 +212,14 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.effective = effectiveValue(row)
             view.running = atStartResolved[index].value
         }
-        if (setting.envOnly) {
+        if (setting.fixed) {
+            view.source = 'default'
+            view.locked = true
+            view.changed = false
+            view.value = setting.defaultValue ?? ''
+            view.effective = view.value
+            view.running = view.value
+        } else if (setting.envOnly) {
             const set = !isBlank(env[setting.key])
             view.source = set ? 'host' : 'default'
             view.locked = true
@@ -207,6 +230,21 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             delete view.boundedBy
             delete view.range
             view.secret = { set, unreadable: false }
+        } else if (setting.limit) {
+            const picked = limits.get(setting.key)!
+            view.source = picked.source
+            view.locked = false
+            view.changed = changed.includes(setting.key)
+            view.value = picked.source === 'default' ? '' : picked.value
+            view.effective = picked.value
+            view.running =
+                setting.applies === 'live'
+                    ? env[setting.key] ?? setting.defaultValue ?? ''
+                    : state.limitsAtStart?.[setting.key] ?? startLimits.get(setting.key)?.value
+            const cleared = clearedLimits.get(setting.key)!
+            view.clearValue = cleared.value
+            view.clearSource = cleared.source === 'host' ? 'host' : 'default'
+            if (setting.min !== undefined && setting.max !== undefined) view.range = { min: setting.min, max: setting.max }
         } else if (setting.panelFirst) {
             const picked = accountLinkSnapshot(env).get(setting.key)
             if (picked) {
@@ -537,8 +575,7 @@ async function writeValuesLocked(
 }
 
 function restoreSettingsFile(dir: string, previousRaw: string | null): void {
-    const file = path.join(dir, SETTINGS_FILE)
-    if (previousRaw === null) fs.rmSync(file, { force: true })
+    if (previousRaw === null) removeSettingsFile(dir)
     else writeFileAtomic(dir, SETTINGS_FILE, previousRaw)
 }
 
@@ -553,7 +590,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const file = path.join(state.dir, SETTINGS_FILE)
             const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
             const restored = preserveRollout(state.rawAtStart ?? null, readStoredValues(state.dir))
-            if (restored === null) fs.rmSync(file, { force: true })
+            if (restored === null) removeSettingsFile(state.dir)
             else writeFileAtomic(state.dir, SETTINGS_FILE, restored)
             const next = readSettingsFile(state.dir, key).values
             const changes = describeChanges(before, next, deps.env)
@@ -597,7 +634,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
     const after = readSettingsFile(state.dir, key)
     if (after.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         // Not a usable file: put the working one back, byte for byte, and leave the set-aside copy where it is.
-        if (current === null) fs.rmSync(file, { force: true })
+        if (current === null) removeSettingsFile(state.dir)
         else writeFileAtomic(state.dir, SETTINGS_FILE, current)
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }

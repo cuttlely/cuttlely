@@ -5,6 +5,8 @@
 // A runtime limit with a bad host value uses the saved value, then the default.
 // Access-key rollout is stricter: an invalid nonempty host mode retains 503; invalid saved modes resolve off.
 // Invite and mail settings marked panelFirst are the exception: a saved value overrides the host.
+// A limit is panelFirst: saved value, then the host, then the default. applies says live or restart.
+// A fixed entry is display-only: no environment value is read and it cannot be saved.
 // SMTP_PASSWORD is envOnly: the page shows whether it is set and never stores it.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
 // READ_ONLY_SETTINGS is the exact env-only list whose status the API may report.
@@ -69,8 +71,14 @@ export interface SettingDef {
     warnings?: { zero?: string; above?: { value: number; message: string } }
     /** Read on each use: host, then the settings file, then the default. No restart. */
     runtime?: boolean
-    /** A saved value overrides the host. Read on each use. The field stays editable. */
+    /** A saved value overrides the host. The field stays editable; limit entries use applies. */
     panelFirst?: boolean
+    /** A time limit or cap: saved value, then the host, then the default. Also panelFirst. */
+    limit?: boolean
+    /** How a saved limit takes effect. Live on the next use, or at the next restart. */
+    applies?: 'live' | 'restart'
+    /** Display only. Fixed in this version; no environment variable is read. */
+    fixed?: true
     /** Read from the environment only. The page shows set or not set and cannot save it. */
     envOnly?: boolean
     /** Plain text that must be one email address. */
@@ -529,12 +537,149 @@ export const SETTINGS: SettingDef[] = [
 
     // Agent runtime
     {
+        key: 'CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Model call time limit',
+        help: 'How long one model call may take. A shorter turn or agent run time limit still applies. Applies on the next call.',
+        type: 'number',
+        integer: true,
+        unit: 'ms-as-seconds',
+        min: 1,
+        max: 3600,
+        defaultLabel: '2 minutes',
+        defaultValue: '120000',
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_HERMES_STREAM_STALE_SECONDS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Silent model stream limit',
+        help: 'How long a model stream may stay silent before the agent runtime stops waiting. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 5,
+        max: 3600,
+        defaultLabel: '45 seconds',
+        defaultValue: '45',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_HERMES_TERMINAL_TIMEOUT',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Shell command time limit',
+        help: 'How long one shell command may run. The agent runtime per-tool limit also applies. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 1,
+        max: 3600,
+        defaultLabel: '180 seconds',
+        defaultValue: '180',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Longest shell command in the foreground',
+        help: 'Longer commands move to the background. The agent runtime per-tool limit also applies. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 1,
+        max: 3600,
+        defaultLabel: '600 seconds',
+        defaultValue: '600',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_HERMES_CODE_TIMEOUT',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Code run time limit',
+        help: 'How long one code run may take. The agent runtime per-tool limit also applies. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 1,
+        max: 3600,
+        defaultLabel: '300 seconds',
+        defaultValue: '300',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Code tool-call response wait',
+        help: 'How long code execution waits for a tool-call response. Fixed in this version.',
+        type: 'number',
+        unit: 'seconds',
+        defaultLabel: '300 seconds',
+        defaultValue: '300',
+        fixed: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_FIXED_HERMES_MCP_HTTP_READ',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'HTTP MCP data wait',
+        help: 'How long an HTTP-connected MCP server may stay silent. Fixed in this version. A remote HTTP MCP tool that runs longer than 300 s must use streamable HTTP (SSE) and send progress at least every 300 s; otherwise run that work as a pipeline job. A higher tool call time limit does not lift this wait.',
+        type: 'number',
+        unit: 'seconds',
+        defaultLabel: '300 seconds',
+        defaultValue: '300',
+        fixed: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Tool call time limit',
+        help: 'Sets the bridge wait and the agent runtime per-tool limit to this value plus 60 seconds. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'ms-as-seconds',
+        min: 1,
+        max: 3660,
+        defaultLabel: 'Not set: the agent runtime waits 300 seconds for a tool, the bridge 130 seconds',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'medium'
+    },
+    {
         key: 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS',
         section: 'runtime',
         group: 'Limits',
         label: 'Agent run time',
         help: 'How long to wait for one specialist run, including a nested specialist task. 0 means unlimited. A shorter turn time limit still applies. Restart to apply.',
         type: 'number',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         integer: true,
         unit: 'ms-as-seconds',
         min: 0,
@@ -584,8 +729,13 @@ export const SETTINGS: SettingDef[] = [
         section: 'runtime',
         group: 'Limits',
         label: 'Turn time limit',
-        help: 'How long one agent team turn may run before unfinished specialists stop.',
+        help: 'How long one agent team turn may run before unfinished specialists stop. Applies to the next turn.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
         unit: 'ms-as-seconds',
         min: 0,
         max: 3600,
@@ -753,11 +903,16 @@ export const SETTINGS: SettingDef[] = [
         section: 'analyst',
         group: 'Limits',
         label: 'Query timeout',
-        help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds.',
+        help: 'How long one analyst statement may run before it stops, up to 1 hour. A node can ask for less time, never more. Applies to the next query.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
         unit: 'ms-as-seconds',
         min: 1,
-        max: 120,
+        max: 3600,
         defaultLabel: '15 seconds',
         defaultValue: '15000',
         risk: 'medium'
@@ -1872,12 +2027,34 @@ export const SETTINGS: SettingDef[] = [
         risk: 'low'
     },
     {
+        key: 'CUTTLELY_HERMES_HEALTH_TIMEOUT',
+        section: 'advanced',
+        group: 'Agent runtime health',
+        label: 'Health check timeout',
+        help: 'Seconds to wait for one agent runtime health check. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'seconds',
+        min: 1,
+        max: 30,
+        defaultLabel: '2 seconds',
+        defaultValue: '2',
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
+        risk: 'low'
+    },
+    {
         key: 'CUTTLELY_HERMES_HEALTH_GRACE',
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Grace period after a start',
-        help: 'Missed health checks in this window do not count.',
+        help: 'Missed health checks in this window do not count. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         unit: 'seconds',
         min: 0,
         max: 3600,
@@ -1890,8 +2067,12 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Misses before a restart',
-        help: 'Health checks in a row that must fail before a restart.',
+        help: 'Health checks in a row that must fail before a restart. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         min: 1,
         max: 100,
         defaultLabel: '3',
@@ -1903,8 +2084,12 @@ export const SETTINGS: SettingDef[] = [
         section: 'advanced',
         group: 'Agent runtime health',
         label: 'Continuous misses before a restart',
-        help: 'Seconds of failed checks before a restart. 0 restarts on the miss count alone.',
+        help: 'Seconds of failed checks before a restart. 0 restarts on the miss count alone. Restart to apply.',
         type: 'number',
+        integer: true,
+        limit: true,
+        panelFirst: true,
+        applies: 'restart',
         unit: 'seconds',
         min: 0,
         max: 3600,
@@ -2256,7 +2441,7 @@ export function readOnlyDef(key: string): ReadOnlyDef | undefined {
 }
 
 export function isReadOnly(key: string): boolean {
-    return READ_ONLY_BY_KEY.has(key)
+    return READ_ONLY_BY_KEY.has(key) || settingFor(key)?.fixed === true
 }
 
 const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]))

@@ -7,6 +7,7 @@
 import dotenv from 'dotenv'
 import fs from 'fs'
 import path from 'path'
+import { HOST_LIMITS_VAR, limitValuesToApply, recordHostLimits } from './limits'
 import { APPLIED_VAR, IGNORE_VAR, ROLLED_BACK_VAR, isOnValue } from './apply'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, fileValuesToApply, hostSetKeys } from './resolve'
 import { beginStart } from './safeboot'
@@ -21,8 +22,9 @@ export function startRecords(processEnv: Env, dotenvText: string | null, log: (l
     delete env[APPLIED_VAR]
     delete env[ROLLED_BACK_VAR]
     if (dotenvText) Object.assign(env, dotenv.parse(dotenvText))
+    recordHostLimits(env)
     const hostKeys = hostSetKeys(env)
-    const records = [`${HOST_KEYS_VAR}=${[...hostKeys].sort().join(',')}`]
+    const records = [`${HOST_KEYS_VAR}=${[...hostKeys].sort().join(',')}`, `${HOST_LIMITS_VAR}=${env[HOST_LIMITS_VAR]}`]
     if (isOnValue(env[IGNORE_VAR])) {
         log('Server settings file ignored (CUTTLELY_IGNORE_ADMIN_SETTINGS is on).')
         return records
@@ -32,7 +34,10 @@ export function startRecords(processEnv: Env, dotenvText: string | null, log: (l
     const boot = beginStart(dir, key)
     if (boot.message) log(boot.message)
     const read = readSettingsFile(dir, key)
-    for (const [name, value] of Object.entries(fileValuesToApply(env, read.values, hostKeys))) {
+    for (const [name, value] of Object.entries({
+        ...fileValuesToApply(env, read.values, hostKeys),
+        ...limitValuesToApply(env, read.values)
+    })) {
         if (!/^[A-Z][A-Z0-9_]*$/.test(name) || value.includes('\0')) continue
         records.push(`${name}=${value}`)
     }

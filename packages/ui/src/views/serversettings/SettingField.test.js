@@ -45,6 +45,79 @@ describe('SettingField', () => {
         document.body.innerHTML = ''
     })
 
+    it('shows a fixed cap as text with no editable control or host-lock hint', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(SettingField, {
+                        setting: {
+                            key: 'CUTTLELY_FIXED_HERMES_CODE_RPC_WAIT',
+                            label: 'Code tool-call response wait',
+                            help: 'Fixed in this version.',
+                            type: 'number',
+                            fixed: true,
+                            locked: true,
+                            value: '300',
+                            defaultLabel: '300 seconds'
+                        },
+                        drafts: {},
+                        onDraft: jest.fn()
+                    })
+                )
+            )
+        })
+        expect(document.body.textContent).toContain('300 seconds')
+        expect(document.body.textContent).toContain('Fixed in this version.')
+        expect(document.body.textContent).not.toContain('Locked')
+        expect(document.querySelector('input')).toBeNull()
+        expect(document.querySelector('button')).toBeNull()
+    })
+
+    it('shows an unset optional number and the existing source chip for editable limits', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            key: 'CUTTLELY_HARNESS_TOOL_TIMEOUT_MS',
+            label: 'Tool call time limit',
+            help: 'Restart to apply.',
+            type: 'number',
+            unit: 'ms-as-seconds',
+            limit: true,
+            integer: true,
+            min: 1,
+            max: 3660,
+            value: '',
+            effective: '',
+            defaultLabel: 'Not set: runtime 300 seconds, bridge 130 seconds',
+            source: 'default',
+            locked: false
+        }
+        for (const [source, label, value] of [
+            ['default', 'Default', ''],
+            ['panel', 'Saved here', '300000'],
+            ['host', 'Host', '60000']
+        ]) {
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(SettingField, { setting: { ...setting, source, value }, drafts: {}, onDraft: jest.fn() })
+                    )
+                )
+            })
+            expect(document.querySelector('[data-testid="source-CUTTLELY_HARNESS_TOOL_TIMEOUT_MS"]').textContent).toBe(label)
+            expect(document.querySelector('input').value).toBe(value === '' ? '' : String(Number(value) / 1000))
+            expect(document.querySelector('input').disabled).toBe(false)
+        }
+    })
+
     it('shows which host limit bounded the value, and leaves the field editable', async () => {
         const container = document.createElement('div')
         document.body.appendChild(container)

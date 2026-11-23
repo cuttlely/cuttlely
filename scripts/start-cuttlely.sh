@@ -89,6 +89,20 @@ if [[ -f "$SETTINGS_ENV_CLI" ]]; then
     done < <(node "$SETTINGS_ENV_CLI" start || true)
 fi
 
+# Terminal caps must be on the runtime process before its tool module is imported.
+export_hermes_terminal_limits() {
+    local source target value
+    for source in CUTTLELY_HERMES_TERMINAL_TIMEOUT CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND; do
+        target=TERMINAL_TIMEOUT
+        if [[ "$source" == CUTTLELY_HERMES_TERMINAL_MAX_FOREGROUND ]]; then target=TERMINAL_MAX_FOREGROUND_TIMEOUT; fi
+        value="${!source:-}"
+        if [[ "$value" =~ ^[0-9]{1,4}$ ]] && (( 10#$value >= 1 && 10#$value <= 3600 )); then
+            export "$target=$((10#$value))"
+        fi
+    done
+}
+export_hermes_terminal_limits
+
 # A local install gets the local account and its password form by default, and so does Docker
 # (CUTTLELY_INSTALL=docker, set by compose). Render, WorkOS on a source install, or a CUTTLELY_LOCAL_ADMIN
 # value (here or in packages/server/.env) decides for itself. Blank counts as not set, like compose passes it.

@@ -1,3 +1,4 @@
+import { limitValuesToApply } from './limits'
 import { HOST_KEYS_VAR, effectiveValue, fileValuesToApply, hostSetKeys, isShown, resolveSettings } from './resolve'
 import { settingFor } from './registry'
 
@@ -62,7 +63,7 @@ describe('server settings resolver', () => {
         expect(effectiveValue({ key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS', value: '60000', source: 'file' })).toBe('60000')
     })
 
-    it('keeps an unlimited specialist wait, with the usual host lock and restart precedence', () => {
+    it('keeps an unlimited specialist wait on the separate saved-first limit path', () => {
         const key = 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS'
         expect(effectiveValue(pick(resolveSettings({ env: {}, file: {} }), key))).toBe('240000')
         expect(pick(resolveSettings({ env: {}, file: { [key]: '0' } }), key)).toEqual({ key, value: '0', source: 'file' })
@@ -73,7 +74,9 @@ describe('server settings resolver', () => {
         })
         expect(hostSetKeys({ [key]: '0' }).has(key)).toBe(true)
         expect(fileValuesToApply({ [key]: '0' }, { [key]: '300000' })).toEqual({})
-        expect(fileValuesToApply({}, { [key]: '0' })).toEqual({ [key]: '0' })
+        expect(fileValuesToApply({}, { [key]: '0' })).toEqual({})
+        expect(limitValuesToApply({}, { [key]: '0' })).toEqual({ [key]: '0' })
+        expect(limitValuesToApply({ [key]: '0' }, { [key]: '300000' })).toEqual({ [key]: '300000' })
     })
 
     it('passes the agent runtime concurrency limit to the start script, with the host winning', () => {
