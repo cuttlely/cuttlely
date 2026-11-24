@@ -127,8 +127,7 @@ let configured: { dir: string; store: PostgresSettings } | undefined
 export function initPostgresSettings(dir: string, env: Record<string, string | undefined>): void {
     const url = env[POSTGRES_SETTINGS_URL]?.trim()
     if (!url) return
-    const target = URL.parse(url)
-    if (!target || !['postgres:', 'postgresql:'].includes(target.protocol) || target.pathname.length < 2) {
+    if (!/^postgres(?:ql)?:\/\//i.test(url) || !URL.canParse(url) || new URL(url).pathname.length < 2) {
         throw new Error('Set CUTTLELY_SERVER_SETTINGS_POSTGRES_URL to the connection URL of a Postgres database.')
     }
     const secret = encryptionKeyOverwrite(env)
