@@ -17,6 +17,7 @@
 -   `packages/etl/execute.mjs`: `claimQueued` makes every write before a run starts (the name-change reset, the bad pipeline failure and the `running` write) conditional on the stored status still being `queued`, in one `tx`. A run that is no longer queued starts no work; `cancelling` settles to `cancelled` and `pausing` to `paused`.
 -   `packages/etl/check/{store,run-control,pipeline-lock}.mjs`: transactions on the one connection, pause and cancel against a finishing job, start, resume and delete of one pipeline never interleaving, run-control checks 8 and 9 for a cancel during or before resume, 10 to 13 for a cancel or pause after the runner reads a queued run and before it is `running`, RC-R1 to RC-R4 for restart recovery and RC-L1 to RC-L4 for launch failure, and the claim races for a pause or cancel committed after the claim reads a queued run. Included in `pnpm etl:check`.
 -   `packages/etl/check/run-control-races.mjs`: pause, cancel and resume races where another writer commits after the request reads the run. Shared by `pnpm etl:check` and `packages/etl/check/run-control-postgres.test.mjs`.
+-   `packages/etl/check/{store-gate,store-postgres}.test.mjs` and `packages/etl/check/pg-source.mjs`: the store gate and the internal Postgres backend's schema, identity and SQL parity tests, with the shared test Postgres source. Included in `pnpm etl:check`.
 -   `CHANGELOG.md` under `## [Unreleased]`: the ETL start, resume, pause and cancel fixes and the 409 conflict responses.
 
 ## 1.7.11 release
