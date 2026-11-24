@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Pausing, cancelling or resuming a knowledge pipeline run, and starting a queued run, now change the run's status only if it hasn't changed since it was read, the same way restart recovery already does. A stop or finish that lands at the same moment is kept, and the request reports the run's current status instead of overwriting it. There's no change in behavior with the default store.
+
 ## [1.7.13] - 2026-11-23
 
 ### Changed

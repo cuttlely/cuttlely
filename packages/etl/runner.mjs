@@ -111,41 +111,77 @@ function refuseFinishing(run) {
     if (!ACTIVE_STATUSES.includes(run.status)) throw new EtlError('bad_state', `This run already ${run.status}.`, 409)
 }
 
+// A refused request returns its EtlError from the transaction instead of throwing it, so the transaction commits:
+// the refusal comes before the request's own write, and a rollback would also undo a write another writer made inside
+// the same SQLite transaction. Only EtlError is returned; database and hook errors still roll the transaction back.
+async function decide(step) {
+    try {
+        return await step()
+    } catch (error) {
+        if (error instanceof EtlError) return error
+        throw error
+    }
+}
+
+async function refusableTx(body) {
+    const refused = await etlStore.tx(body)
+    if (refused instanceof EtlError) throw refused
+}
+
 // The run read, the job lookup and the status write share one transaction, so a job's last status write lands either
-// before it (and is seen here) or after it.
+// before it (and is seen here) or after it. The write is conditional on the status read: at READ COMMITTED another
+// writer can commit after the read, and then the request decides again from the status that writer left.
 export async function pauseRun(runId) {
-    await etlStore.tx(async (t) => {
-        const run = await requireRun(runId, t)
-        const job = active.get(runId)
-        if (job) {
-            refuseFinishing(run)
-            job.control.stopRequested = 'pause'
-            await updateRun(runId, { status: 'pausing' }, t)
-            await addEvent(runId, 'info', null, 'Pausing after the batches in flight commit.', t)
-        } else if (run.status === 'queued') {
-            await updateRun(runId, { status: 'paused' }, t)
-        } else {
-            throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
+    await refusableTx(async (t) => {
+        for (;;) {
+            const decision = await decide(async () => {
+                const run = await requireRun(runId, t)
+                await fault({ faults: runnerFaults }, 'pauseAfterRead', run, t)
+                const job = active.get(runId)
+                if (job) refuseFinishing(run)
+                else if (run.status !== 'queued') throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
+                return { run, job }
+            })
+            if (decision instanceof EtlError) return decision
+            const { run, job } = decision
+            if (job) {
+                if (!(await updateRunIf(runId, [run.status], { status: 'pausing' }, t))) continue
+                job.control.stopRequested = 'pause'
+                await addEvent(runId, 'info', null, 'Pausing after the batches in flight commit.', t)
+            } else {
+                if (!(await updateRunIf(runId, [run.status], { status: 'paused' }, t))) continue
+            }
+            return
         }
     })
     return getRun(runId)
 }
 
 export async function cancelRun(runId) {
-    await etlStore.tx(async (t) => {
-        const run = await requireRun(runId, t)
-        const job = active.get(runId)
-        if (job) {
-            refuseFinishing(run)
-            job.control.stopRequested = 'cancel'
-            job.control.abort.abort()
-            await updateRun(runId, { status: 'cancelling' }, t)
-            await addEvent(runId, 'info', null, 'Cancelling after the batches in flight finish.', t)
-        } else if (['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status)) {
-            await updateRun(runId, { status: 'cancelled', finishedAt: new Date().toISOString() }, t)
-            await addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.', t)
-        } else {
-            throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
+    await refusableTx(async (t) => {
+        for (;;) {
+            const decision = await decide(async () => {
+                const run = await requireRun(runId, t)
+                await fault({ faults: runnerFaults }, 'cancelAfterRead', run, t)
+                const job = active.get(runId)
+                if (job) refuseFinishing(run)
+                else if (!['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status)) {
+                    throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
+                }
+                return { run, job }
+            })
+            if (decision instanceof EtlError) return decision
+            const { run, job } = decision
+            if (job) {
+                if (!(await updateRunIf(runId, [run.status], { status: 'cancelling' }, t))) continue
+                job.control.stopRequested = 'cancel'
+                job.control.abort.abort()
+                await addEvent(runId, 'info', null, 'Cancelling after the batches in flight finish.', t)
+            } else {
+                if (!(await updateRunIf(runId, [run.status], { status: 'cancelled', finishedAt: new Date().toISOString() }, t))) continue
+                await addEvent(runId, 'info', null, 'Cancelled. Nothing was deleted.', t)
+            }
+            return
         }
     })
     return getRun(runId)
@@ -163,20 +199,30 @@ export async function resumeRun(runId) {
 // Pause and cancel do not take the pipeline lock, so the read, the checks and the 'queued' write share one transaction:
 // a cancel lands wholly before it (and the resume is refused) or wholly after it (and cancels the queued run).
 async function resumeUnlocked(runId) {
-    await etlStore.tx(async (t) => {
-        const run = await requireRun(runId, t)
-        if (!['paused', 'failed'].includes(run.status)) throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
-        refuseWhileDeleting(run.pipelineId)
-        const other = await activeRunFor(run.pipelineId, t)
-        if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
-        await updateRun(runId, { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt }, t)
-        await addEvent(
-            runId,
-            'info',
-            null,
-            run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.',
-            t
-        )
+    await refusableTx(async (t) => {
+        for (;;) {
+            const run = await decide(async () => {
+                const run = await requireRun(runId, t)
+                await fault({ faults: runnerFaults }, 'resumeAfterRead', run, t)
+                if (!['paused', 'failed'].includes(run.status))
+                    throw new EtlError('bad_state', `A ${run.status} run cannot be resumed.`, 409)
+                refuseWhileDeleting(run.pipelineId)
+                const other = await activeRunFor(run.pipelineId, t)
+                if (other && other.id !== runId) throw new EtlError('run_active', `Run ${other.id.slice(0, 8)} is ${other.status}.`, 409)
+                return run
+            })
+            if (run instanceof EtlError) return run
+            const fields = { status: 'queued', error: null, attempt: run.status === 'failed' ? run.attempt + 1 : run.attempt }
+            if (!(await updateRunIf(runId, [run.status], fields, t))) continue
+            await addEvent(
+                runId,
+                'info',
+                null,
+                run.status === 'failed' ? 'Retrying from the last checkpoint.' : 'Resuming from the last checkpoint.',
+                t
+            )
+            return
+        }
     })
     await pump()
     return getRun(runId)
