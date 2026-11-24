@@ -8,6 +8,7 @@
     "exports": {
         "./api.mjs": "./api.mjs",
         "./check.mjs": "./check.mjs",
+        "./store-postgres.mjs": "./store-postgres.mjs",
         "./check/correctness.mjs": "./check/correctness.mjs",
         "./check/failure.mjs": "./check/failure.mjs",
         "./check/hardening.mjs": "./check/hardening.mjs",

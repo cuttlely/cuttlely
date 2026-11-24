@@ -4,9 +4,13 @@
 // waits while one is open or queued. Inside `tx(fn)` use the handle `fn` receives: a module-level call there waits for
 // the transaction it is part of and never returns.
 import { db, stmt } from './db.mjs'
+import { EtlError } from './errors.mjs'
 
 let queue = Promise.resolve()
 let held = 0
+let backend = null
+let gateOpen = true
+let gateReason = null
 
 function release() {
     held -= 1
@@ -41,48 +45,113 @@ function statements(live) {
     }
 }
 
+function checkGate() {
+    if (!gateOpen) {
+        throw new EtlError('store_moving', 'ETL is moving to the application database. Try again in a minute.', 503, 30)
+    }
+}
+
+export function useBackend(newBackend) {
+    backend = newBackend
+}
+
+export function backendName() {
+    return backend ? 'postgres' : 'sqlite'
+}
+
+export const gate = {
+    closed: () => !gateOpen,
+    close: (reason) => {
+        gateOpen = false
+        gateReason = reason || null
+    },
+    open: () => {
+        gateOpen = true
+        gateReason = null
+    }
+}
+
+export async function drained() {
+    while (held > 0) {
+        await queue
+    }
+}
+
 const standalone = statements(() => {})
 
+async function executeOnBackend(method, ...args) {
+    if (backend) {
+        held += 1
+        const result = queue.then(() => backend[method](...args))
+        queue = result.then(
+            (value) => {
+                release()
+                return value
+            },
+            (error) => {
+                release()
+                throw error
+            }
+        )
+        return result
+    } else {
+        return standalone[method](...args)
+    }
+}
+
 export async function all(sql, params) {
+    checkGate()
     if (held) await free()
-    return standalone.all(sql, params)
+    return executeOnBackend('all', sql, params)
 }
 
 export async function get(sql, params) {
+    checkGate()
     if (held) await free()
-    return standalone.get(sql, params)
+    return executeOnBackend('get', sql, params)
 }
 
 export async function run(sql, params) {
+    checkGate()
     if (held) await free()
-    return standalone.run(sql, params)
+    return executeOnBackend('run', sql, params)
 }
 
 export async function exec(sql) {
+    checkGate()
     if (held) await free()
-    return standalone.exec(sql)
+    return executeOnBackend('exec', sql)
 }
 
 async function transaction(fn) {
-    const handle = db()
-    let open = true
-    const t = statements(() => {
-        if (!open) throw new Error('This ETL transaction has already ended.')
-    })
-    handle.exec('BEGIN IMMEDIATE')
-    try {
-        const result = await fn(t)
-        handle.exec('COMMIT')
-        return result
-    } catch (error) {
-        handle.exec('ROLLBACK')
-        throw error
-    } finally {
-        open = false
+    if (backend) {
+        return backend.tx(fn)
+    } else {
+        const handle = db()
+        let open = true
+        const t = statements(() => {
+            if (!open) throw new Error('This ETL transaction has already ended.')
+        })
+        handle.exec('BEGIN IMMEDIATE')
+        try {
+            const result = await fn(t)
+            handle.exec('COMMIT')
+            return result
+        } catch (error) {
+            handle.exec('ROLLBACK')
+            throw error
+        } finally {
+            open = false
+        }
     }
 }
 
 export function tx(fn) {
+    try {
+        checkGate()
+    } catch (error) {
+        return Promise.reject(error)
+    }
     held += 1
     const result = queue.then(() => transaction(fn))
     queue = result.then(release, release)
