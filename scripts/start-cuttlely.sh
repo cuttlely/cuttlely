@@ -434,8 +434,7 @@ kill_hermes_pid() {
 }
 start_hermes_once() {
     # This connection grants access to host authority. Keep it in the Node server and workers.
-    local CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
-    export -n CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
+    local -x CUTTLELY_SERVER_SETTINGS_POSTGRES_URL=''
     if ! "$NODE_BIN" "$ROOT/scripts/sweep-try-profiles.mjs" >/dev/null 2>&1; then
         echo "Hermes pre-start try-profile sweep failed; continuing runtime start." >&2
     fi
