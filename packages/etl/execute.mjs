@@ -4,7 +4,17 @@ import { EtlError, errorMessage } from './errors.mjs'
 import { embeddingFingerprint, LOCAL_STORE, stableStringify, storeFingerprint } from './graph.mjs'
 import { compareSegments } from './ignore.mjs'
 import { createEmbeddings, Embedder, retrying } from './embed.mjs'
-import { addEvent, DEFAULT_SETTINGS, emptyCounters, emptySteps, finishRunStop, getRun, MIN_READS_FOR_RATIO, updateRun } from './runs.mjs'
+import {
+    addEvent,
+    DEFAULT_SETTINGS,
+    emptyCounters,
+    emptySteps,
+    finishRunStop,
+    getRun,
+    MIN_READS_FOR_RATIO,
+    updateRun,
+    updateRunIf
+} from './runs.mjs'
 import { fault, isCrash } from './faults.mjs'
 import { classifyStoreError, storeErrorStatus } from './store-errors.mjs'
 import { Ledger, summaryOf } from './ledger.mjs'
@@ -771,11 +781,13 @@ function parseFingerprint(text) {
 // The runner reads a run as queued before it launches it, and pause and cancel do not wait for the launch. Every write
 // before the run is running goes through claimQueued: it re-reads the status in the same transaction and writes only
 // while the run is still queued. A pause or cancel that reached the job first left 'pausing' or 'cancelling', and is
-// finished here the way a stopped run is; one that found no job left 'paused' or 'cancelled', which stays.
-async function claimQueued(runId, write) {
+// finished here the way a stopped run is; one that found no job left 'paused' or 'cancelled', which stays. The claim is
+// a write conditional on 'queued', so a stop committed after the read is finished here instead of overwritten.
+async function claimQueued(runId, write, ctx) {
     return etlStore.tx(async (t) => {
         const current = await getRun(runId, t)
-        if (current?.status === 'queued') {
+        await fault(ctx, 'claimAfterRead', current, t)
+        if (current?.status === 'queued' && (await updateRunIf(runId, ['queued'], { status: 'queued' }, t))) {
             await write(t)
             return true
         }
@@ -799,18 +811,22 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         const target = storeFingerprint(version.spec.store, pipeline.name)
         const earlier = (await etlStore.all('SELECT name FROM run_names WHERE run_id = ?', [run.id])).map((row) => row.name)
         if (earlier.some((name) => storeFingerprint(version.spec.store, name) !== target)) {
-            const claimed = await claimQueued(run.id, async (t) => {
-                await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
-                await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
-                await updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() }, t)
-                await addEvent(
-                    run.id,
-                    'info',
-                    'store',
-                    "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one.",
-                    t
-                )
-            })
+            const claimed = await claimQueued(
+                run.id,
+                async (t) => {
+                    await t.run('DELETE FROM records WHERE pipeline_id = ?', [pipeline.id])
+                    await t.run('DELETE FROM sources WHERE pipeline_id = ?', [pipeline.id])
+                    await updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() }, t)
+                    await addEvent(
+                        run.id,
+                        'info',
+                        'store',
+                        "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one.",
+                        t
+                    )
+                },
+                ctx
+            )
             run = await getRun(run.id)
             if (!claimed) return run
         }
@@ -832,12 +848,14 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         await state.event('error', null, errorMessage(error), q)
     }
     if (problems.length) {
-        await claimQueued(run.id, (t) => fail(new EtlError('bad_pipeline', problems.join(' ')), t))
+        await claimQueued(run.id, (t) => fail(new EtlError('bad_pipeline', problems.join(' ')), t), ctx)
         return getRun(run.id)
     }
     const spec = version.spec
-    const claimed = await claimQueued(run.id, (t) =>
-        updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null }, t)
+    const claimed = await claimQueued(
+        run.id,
+        (t) => updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null }, t),
+        ctx
     )
     if (!claimed) return getRun(run.id)
     await etlStore.run('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)', [

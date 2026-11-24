@@ -213,6 +213,10 @@ test('run control: real Postgres READ COMMITTED races', { timeout: 90000, skip: 
             externalCommits += 1
         }
     })
-    assert.equal(externalCommits, 10, 'Six recovery stops and four launch stops commit between the runner read and write.')
+    assert.equal(
+        externalCommits,
+        15,
+        'Six recovery stops, four launch stops and five run-control stops commit between the runner read and write.'
+    )
     t.diagnostic(`${checks} shared checks passed with ${externalCommits} independent stop commits.`)
 })
