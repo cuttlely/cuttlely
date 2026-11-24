@@ -61,6 +61,12 @@ API credentials, passwords, and the AuthKit setup-test seal are write-only. Afte
 
 If the encryption key changes, a saved secret shows **Saved, but this server cannot read it**; enter it again. With filesystem settings storage, it counts as unset and startup continues. Postgres settings storage requires the original installation key to read the store during startup.
 
+### Inspect records before credential-key rotation
+
+From a built checkout, run `pnpm keys:inventory` with the deployment's environment on a trusted host. It uses read-only database connections and reports counts and fixed status codes. On a supported SQLite or Postgres installation, it inspects credential, custom MCP and webhook ciphertext, settings and recovery copies, Analyst role secrets, and key-derived proofs in saved Live and draft flows. It also reads the dedicated Postgres settings store when configured. Access-key digests require reissue and pinned-query and AuthKit proofs require retesting.
+
+A blocked report means the inspection could not read or identify part of the current installation. The report is an inventory. Continue to use the current encryption key until a migration and rollback workflow is available.
+
 ## Test connection
 
 **Analyst**, **Storage** and **Models & keys** have a **Test connection** card that tries the values on the page before you save:

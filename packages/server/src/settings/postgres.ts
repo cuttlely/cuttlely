@@ -7,7 +7,7 @@ import type { SettingsRequest } from './postgres-worker'
 
 export const POSTGRES_SETTINGS_URL = 'CUTTLELY_SERVER_SETTINGS_POSTGRES_URL'
 const PRIVATE_FILES = ['instance-operator.json', 'operator-claim.json', 'operator-installation.json']
-const SETTINGS_FILES = new Set([
+export const POSTGRES_SETTINGS_FILES = new Set([
     ...PRIVATE_FILES,
     'server.json',
     'server.last-good.json',
@@ -40,7 +40,7 @@ export class PostgresSettings {
         if (request.op !== 'release' && this.retryAfter > Date.now()) throw new SettingsStorageError()
         if (!this.worker) {
             const worker = new Worker(path.join(__dirname, 'postgres-worker.js'), {
-                workerData: { ...this.options, files: [...SETTINGS_FILES], privateFiles: PRIVATE_FILES }
+                workerData: { ...this.options, files: [...POSTGRES_SETTINGS_FILES], privateFiles: PRIVATE_FILES }
             })
             worker.on('error', () => undefined)
             worker.on('exit', () => {
@@ -138,6 +138,6 @@ export function initPostgresSettings(dir: string, env: Record<string, string | u
 }
 
 export function postgresSettings(dir: string, file?: string): PostgresSettings | undefined {
-    if (!configured || configured.dir !== path.resolve(dir) || (file && !SETTINGS_FILES.has(file))) return undefined
+    if (!configured || configured.dir !== path.resolve(dir) || (file && !POSTGRES_SETTINGS_FILES.has(file))) return undefined
     return configured.store
 }

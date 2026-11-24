@@ -1,9 +1,9 @@
 // Runs the asynchronous Postgres driver off the thread that reads settings during CLI bootstrap.
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { parentPort, workerData, MessagePort } from 'worker_threads'
 import { readPrivateFile } from './privateFile'
+import { POSTGRES_SETTINGS_MARKER as marker, postgresSettingsCodec } from './postgresCodec'
 
 const { Pool } = require('pg')
 const { url, secret, dir, files, privateFiles } = workerData as {
@@ -23,8 +23,7 @@ const pool = new Pool({
     max: 4
 })
 pool.on('error', () => undefined)
-const key = Buffer.from(hkdfSync('sha256', secret, '', 'Cuttlely service settings Postgres v1', 32))
-const marker = 'backend-version'
+const { seal, unseal } = postgresSettingsCodec(secret)
 const lockKey = '1945290148, 577'
 
 type Client = {
@@ -40,19 +39,6 @@ export type SettingsRequest =
     | { op: 'take' | 'release'; token: string }
     | { op: 'read' | 'remove'; file: string; token?: string }
     | { op: 'write'; file: string; text: string; token?: string }
-
-function seal(file: string, text: string): Buffer {
-    const iv = randomBytes(12)
-    const cipher = createCipheriv('aes-256-gcm', key, iv).setAAD(Buffer.from(file))
-    const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()])
-    return Buffer.concat([iv, cipher.getAuthTag(), encrypted])
-}
-
-function unseal(file: string, value: Buffer): string {
-    const cipher = createDecipheriv('aes-256-gcm', key, value.subarray(0, 12))
-    cipher.setAAD(Buffer.from(file)).setAuthTag(value.subarray(12, 28))
-    return Buffer.concat([cipher.update(value.subarray(28)), cipher.final()]).toString('utf8')
-}
 
 async function put(client: Client, file: string, text: string): Promise<void> {
     await client.query(
