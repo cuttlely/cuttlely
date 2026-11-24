@@ -2,6 +2,8 @@
 import { createHash, randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { readSettingsText, removeSavedSettings } from '../settings/fileIO'
+import { postgresSettings } from '../settings/postgres'
 import { appendHistory } from '../settings/history'
 import { withNamedLockSync } from '../settings/lock'
 import { settingsDir } from '../settings/store'
@@ -30,21 +32,6 @@ export function operatorNotice(reason: string): void {
     if (reason === lastNotice) return
     lastNotice = reason
     if (reason) logger.warn(`[instance operator] ${reason}`)
-}
-
-export function readPrivateOperatorFile(file: string): string {
-    const link = fs.lstatSync(file)
-    if (!link.isFile() || link.isSymbolicLink()) throw new Error('unsafe binding')
-    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))
-    try {
-        const stat = fs.fstatSync(fd)
-        if (!stat.isFile() || stat.size > 4096 || stat.ino !== link.ino || stat.dev !== link.dev) throw new Error('unsafe binding')
-        if (process.platform !== 'win32' && ((stat.mode & 0o777) !== 0o600 || stat.uid !== process.geteuid?.()))
-            throw new Error('unsafe permissions')
-        return fs.readFileSync(fd, 'utf8')
-    } finally {
-        fs.closeSync(fd)
-    }
 }
 
 export type ManagedOperator =
@@ -105,6 +92,11 @@ export function readOperatorBinding(env: Env): OperatorIdentity | null {
 }
 
 function atomicBinding(dir: string, raw: string, create = false, name = OPERATOR_BINDING_FILE): void {
+    const postgres = postgresSettings(dir, name)
+    if (postgres) {
+        postgres.write(name, raw)
+        return
+    }
     const temp = path.join(dir, `.${name}.${randomUUID()}.tmp`)
     try {
         const fd = fs.openSync(temp, 'wx', 0o600)
@@ -136,7 +128,7 @@ export function writeOperatorBinding(identity: OperatorIdentity, env: Env): void
 /** The caller must hold OPERATOR_BINDING_LOCK. Null means missing; unsafe files throw. */
 export function operatorBindingSnapshot(env: Env): string | null {
     try {
-        return readPrivateOperatorFile(path.join(settingsDir(env), OPERATOR_BINDING_FILE))
+        return readSettingsText(settingsDir(env), OPERATOR_BINDING_FILE, true)
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
         throw error
@@ -154,7 +146,6 @@ export function publishOperator(
 ): void {
     if (operatorBindingSnapshot(env) !== previous) throw new Error('operator binding changed')
     const dir = settingsDir(env)
-    const file = path.join(dir, OPERATOR_BINDING_FILE)
     const before = managedOperator(env)
     const audit = {
         eventId: randomUUID(),
@@ -179,7 +170,7 @@ export function publishOperator(
             outcome: 'ok'
         })
     } catch (error) {
-        if (previous === null) fs.unlinkSync(file)
+        if (previous === null) removeSavedSettings(dir, OPERATOR_BINDING_FILE)
         else atomicBinding(dir, previous)
         throw error
     }
@@ -188,14 +179,20 @@ export function publishOperator(
 
 /** Stable host-side installation identity, independent of the replaceable application database. Lock required. */
 export function operatorInstallation(env: Env): string {
-    const file = path.join(settingsDir(env), 'operator-installation.json')
+    const dir = settingsDir(env)
+    const name = 'operator-installation.json'
+    const file = path.join(dir, name)
     try {
-        const value = JSON.parse(readPrivateOperatorFile(file))
+        const value = JSON.parse(readSettingsText(dir, name, true))
         if (typeof value.id !== 'string' || !/^[a-f0-9-]{36}$/.test(value.id)) throw new Error('invalid installation')
         return value.id
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         const id = randomUUID()
+        if (postgresSettings(dir, name)) {
+            atomicBinding(dir, JSON.stringify({ id }), true, name)
+            return id
+        }
         const fd = fs.openSync(file, 'wx', 0o600)
         try {
             fs.writeFileSync(fd, JSON.stringify({ id }))

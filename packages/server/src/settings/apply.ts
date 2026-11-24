@@ -3,8 +3,8 @@
 // When the start script already applied ordinary settings (CUTTLELY_SETTINGS_APPLIED=1), only their record is kept.
 import { applyLimitSettings, recordHostLimits, resolveLimits } from './limits'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, hostSetKeys, fileValuesToApply, isBlank } from './resolve'
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText } from './fileIO'
+import { SettingsStorageError } from './postgres'
 import { beginStart } from './safeboot'
 import { SETTINGS_FILE, encryptionKeySync, readSettingsFile, settingsDir } from './store'
 
@@ -58,8 +58,9 @@ export function isOnValue(value: string | undefined): boolean {
 /** start: this is a server start (not a CLI command), so it counts toward safe boot unless the start script already counted it. */
 function readRaw(dir: string): string | null {
     try {
-        return fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
-    } catch {
+        return readSettingsText(dir, SETTINGS_FILE)
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return null
     }
 }

@@ -10,6 +10,7 @@ import path from 'path'
 import { HOST_LIMITS_VAR, limitValuesToApply, recordHostLimits } from './limits'
 import { APPLIED_VAR, IGNORE_VAR, ROLLED_BACK_VAR, isOnValue } from './apply'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, fileValuesToApply, hostSetKeys } from './resolve'
+import { initPostgresSettings, POSTGRES_SETTINGS_URL } from './postgres'
 import { beginStart } from './safeboot'
 import { encryptionKeySync, readSettingsFile, settingsDir } from './store'
 
@@ -22,6 +23,7 @@ export function startRecords(processEnv: Env, dotenvText: string | null, log: (l
     delete env[APPLIED_VAR]
     delete env[ROLLED_BACK_VAR]
     if (dotenvText) Object.assign(env, dotenv.parse(dotenvText))
+    initPostgresSettings(settingsDir(env), env)
     recordHostLimits(env)
     const hostKeys = hostSetKeys(env)
     const records = [`${HOST_KEYS_VAR}=${[...hostKeys].sort().join(',')}`, `${HOST_LIMITS_VAR}=${env[HOST_LIMITS_VAR]}`]
@@ -63,6 +65,13 @@ if (require.main === module) {
         const records = startRecords(process.env, dotenvText, (line) => process.stderr.write(`${line}\n`))
         process.stdout.write(records.map((record) => `${record}\0`).join(''))
     } catch (error) {
+        const host = { ...process.env, ...dotenv.parse(dotenvText ?? '') }
+        if (host[POSTGRES_SETTINGS_URL]?.trim()) {
+            process.stderr.write(
+                'Postgres server settings could not be loaded. Check the host connection and installation encryption key.\n'
+            )
+            process.exit(3)
+        }
         process.stderr.write(
             `Server settings could not be read (${error instanceof Error ? error.name : 'error'}). Starting without them.\n`
         )
