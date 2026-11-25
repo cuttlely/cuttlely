@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
-**即将发布** · **1.7.14 新增分阶段轮换安装加密密钥和持久化实例操作员设置。** 可以调整 Analyst 的 SQL 尝试次数。[升级指南](../docs/upgrading.md#upgrading-to-1714)。
+**1.7.14 新增分阶段轮换安装加密密钥和持久化实例操作员设置。** 可以调整 Analyst 的 SQL 尝试次数。[升级指南](../docs/upgrading.md#upgrading-to-1714)。
 
 **1.7.13 支持由 chief 在智能体模式下直接向专家分派任务。** 默认仍使用路由模式。Try 对话按流程和所有者复用配置目录。对于受监督的安装，正在执行的工作结束后才会应用已保存的运行时限制。[智能体模式](../docs/how-to/harness-agent-mode.md) · [升级指南](../docs/upgrading.md#upgrading-to-1713)。
 
@@ -29,7 +29,7 @@ Node 20+ 和 Docker
 
 **1.7.10 在 agent runtime 恢复期间仍可使用 UI。** 镜像、Compose 和 Render 的健康检查改为探测 `/api/v1/ping/live`；请一并更新自定义网关与负载均衡器的探测路径。[健康检查](../docs/how-to/reverse-proxy.md#health-checks) · [升级指南](../docs/upgrading.md#upgrading-to-1710)。
 
-最新稳定版是 **1.7.13**。请固定镜像 `1.7.13`，或安装 `cuttlely@1.7.13`。[1.7.13 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13) · [更新日志](../CHANGELOG.md)。
+最新稳定版是 **1.7.14**。请固定镜像 `1.7.14`，或安装 `cuttlely@1.7.14`。[1.7.14 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.14) · [更新日志](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是从更早的版本升级，必须采取行动。** 请先备份数据库、加密密钥和设置，并在部署前阅读[操作员的指定与恢复](../docs/how-to/instance-operator.md)，以免被锁在浏览器管理之外。完整检查清单（包括以主机日志一次性代码提出的申请、`CUTTLELY_INSTANCE_OPERATOR`，以及访问密钥强制执行默认保持关闭）见[升级注意事项](../docs/upgrading.md)（“1.7.0 security-exception upgrade”节）和[更新日志](../CHANGELOG.md)。初始设置代码只会创建第一个账号，而且只有在主机已开启本地登录时才有效（Docker 和 `npx cuttlely start` 默认会开启）。它不能用来配置服务，也不会指定实例操作员。[登录](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 
