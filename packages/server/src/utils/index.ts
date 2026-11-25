@@ -50,9 +50,9 @@ import { AES, enc } from 'crypto-js'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
 import {
     isCredentialEnvelope,
-    openWithActiveGeneration,
+    openApplicationRecord,
     parseAuthenticatedCredential,
-    sealWithActiveGeneration
+    sealApplicationRecord
 } from '../settings/credentialEnvelope'
 import type { RecordContext } from '../settings/credentialEnvelope'
 
@@ -1465,10 +1465,10 @@ export const getEncryptionKey = async (): Promise<string> => {
  * @param {ICredentialDataDecrypted} plainDataObj
  * @returns {Promise<string>}
  */
-export const encryptCredentialData = async (plainDataObj: ICredentialDataDecrypted, context?: RecordContext): Promise<string> => {
+export const encryptCredentialData = async (plainDataObj: ICredentialDataDecrypted, context: RecordContext): Promise<string> => {
     const encryptKey = await getEncryptionKey()
     const plaintext = JSON.stringify(plainDataObj)
-    return sealWithActiveGeneration(plaintext, encryptKey, context) ?? AES.encrypt(plaintext, encryptKey).toString()
+    return sealApplicationRecord(plaintext, encryptKey, context)
 }
 
 /**
@@ -1488,7 +1488,7 @@ export const decryptCredentialData = async (
         isCredentialEnvelope(encryptedData) ||
         (process.env.CUTTLELY_CREDENTIAL_GENERATION && !encryptedData.startsWith('FlowiseCredential_'))
     ) {
-        const plaintext = openWithActiveGeneration(encryptedData, await getEncryptionKey(), context)
+        const plaintext = openApplicationRecord(encryptedData, await getEncryptionKey(), context)
         const record = parseAuthenticatedCredential(plaintext)
         return componentCredentialName && componentCredentials
             ? redactCredentialWithPasswordType(componentCredentialName, record, componentCredentials)
@@ -1632,9 +1632,9 @@ export const transformToCredentialEntity = async (body: ICredentialReqBody, id?:
     }
 
     if (body.plainDataObj) {
-        const rowId = id ?? (process.env.CUTTLELY_CREDENTIAL_GENERATION ? uuidv4() : undefined)
-        const encryptedData = await encryptCredentialData(body.plainDataObj, rowId ? ['credential', rowId] : undefined)
-        if (rowId) credentialBody.id = rowId
+        const rowId = id ?? uuidv4()
+        const encryptedData = await encryptCredentialData(body.plainDataObj, ['credential', rowId])
+        credentialBody.id = rowId
         credentialBody.encryptedData = encryptedData
     }
 

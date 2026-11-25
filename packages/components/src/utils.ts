@@ -628,10 +628,10 @@ export const getPinnedQueryKey = async (): Promise<Buffer> => {
  * @returns {Promise<ICommonObject>}
  */
 type CredentialContext = readonly [string, string]
-const { isCredentialEnvelope, openWithActiveGeneration, sealWithActiveGeneration, parseAuthenticatedCredential } = loadRepositoryScript<{
+const { isCredentialEnvelope, openApplicationRecord, sealApplicationRecord, parseAuthenticatedCredential } = loadRepositoryScript<{
     isCredentialEnvelope(value: unknown): boolean
-    openWithActiveGeneration(ciphertext: string, key: string, context?: CredentialContext): string | undefined
-    sealWithActiveGeneration(plaintext: string, key: string, context?: CredentialContext): string | undefined
+    openApplicationRecord(ciphertext: string, key: string, context?: CredentialContext): string
+    sealApplicationRecord(plaintext: string, key: string, context: CredentialContext): string
     parseAuthenticatedCredential(plaintext: string | undefined): Record<string, unknown>
 }>('credential-envelope.cjs')
 
@@ -645,7 +645,7 @@ export const decryptCredentialData = async (
         isCredentialEnvelope(encryptedData) ||
         (process.env.CUTTLELY_CREDENTIAL_GENERATION && !encryptedData.startsWith('FlowiseCredential_'))
     ) {
-        const plaintext = openWithActiveGeneration(encryptedData, await getEncryptionKey(), context)
+        const plaintext = openApplicationRecord(encryptedData, await getEncryptionKey(), context)
         return parseAuthenticatedCredential(plaintext)
     }
     let decryptedDataStr: string
@@ -1637,7 +1637,7 @@ export const refreshOAuth2Token = async (
                     encrypt: async (plain) => {
                         const text = JSON.stringify(plain)
                         const key = await getEncryptionKey()
-                        return sealWithActiveGeneration(text, key, ['credential', credentialId]) ?? AES.encrypt(text, key).toString()
+                        return sealApplicationRecord(text, key, ['credential', credentialId])
                     }
                 })
             } catch {

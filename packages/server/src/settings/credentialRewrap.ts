@@ -1,6 +1,7 @@
 import { createDecipheriv, createHash } from 'crypto'
 import { TextDecoder } from 'util'
 import type { CredentialEnvelope, RecordContext } from './credentialEnvelope'
+import { isCredentialEnvelope, openApplicationRecord } from './credentialEnvelope'
 
 const LEGACY_PREFIX = Buffer.from('Salted__')
 const LEGACY_ENCODING = /^U2FsdGVkX1[A-Za-z0-9+/]+={0,2}$/
@@ -40,6 +41,12 @@ export function readLegacyCredential(ciphertext: unknown, passphrase: string): s
     }
 }
 
+export function readUnrotatedCredential(ciphertext: unknown, passphrase: string, context: RecordContext): string {
+    if (typeof ciphertext === 'string' && isCredentialEnvelope(ciphertext))
+        return openApplicationRecord(ciphertext, passphrase, context, {})
+    return readLegacyCredential(ciphertext, passphrase)
+}
+
 /** Rewrap a validated record in memory and check the result before giving it to the staging writer. */
 export function rewrapCredentialRecord(
     ciphertext: unknown,
@@ -50,7 +57,7 @@ export function rewrapCredentialRecord(
 ): string {
     if (typeof ciphertext !== 'string') throw new Error('The encrypted record has an invalid format.')
     const plaintext =
-        'passphrase' in source ? readLegacyCredential(ciphertext, source.passphrase) : source.envelope.open(ciphertext, context)
+        'passphrase' in source ? readUnrotatedCredential(ciphertext, source.passphrase, context) : source.envelope.open(ciphertext, context)
     validate(plaintext)
     const staged = destination.seal(plaintext, context)
     if (destination.open(staged, context) !== plaintext) throw new Error('The staged encrypted record could not be verified.')

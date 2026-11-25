@@ -173,7 +173,7 @@ describe('customMcpServersService', () => {
                 'org-1'
             )
 
-            expect(mockEncrypt).toHaveBeenCalledWith({ headers: { 'X-Key': 'secret' } }, undefined)
+            expect(mockEncrypt).toHaveBeenCalledWith({ headers: { 'X-Key': 'secret' } }, ['custom-mcp', expect.any(String)])
         })
 
         it('should not encrypt authConfig when it is not an object', async () => {

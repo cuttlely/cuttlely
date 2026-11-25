@@ -95,6 +95,24 @@ function openWithActiveGeneration(ciphertext, passphrase, context, env = process
     return activeCodec(passphrase, generation).open(ciphertext, context)
 }
 
+function unrotatedContext(context) {
+    if (!context) throw invalidEnvelope()
+    return ['unrotated', ...context]
+}
+
+function sealApplicationRecord(plaintext, passphrase, context, env = process.env) {
+    const generation = env.CUTTLELY_CREDENTIAL_GENERATION
+    return generation
+        ? activeCodec(passphrase, generation).seal(plaintext, context)
+        : activeCodec(passphrase, newCredentialGeneration()).seal(plaintext, unrotatedContext(context))
+}
+
+function openApplicationRecord(ciphertext, passphrase, context, env = process.env) {
+    const generation = env.CUTTLELY_CREDENTIAL_GENERATION
+    if (generation) return activeCodec(passphrase, generation).open(ciphertext, context)
+    return activeCodec(passphrase, credentialEnvelopeGeneration(ciphertext)).open(ciphertext, unrotatedContext(context))
+}
+
 function parseAuthenticatedCredential(plaintext) {
     try {
         const result = JSON.parse(plaintext)
@@ -112,5 +130,7 @@ module.exports = {
     credentialEnvelopeGeneration,
     sealWithActiveGeneration,
     openWithActiveGeneration,
+    sealApplicationRecord,
+    openApplicationRecord,
     parseAuthenticatedCredential
 }

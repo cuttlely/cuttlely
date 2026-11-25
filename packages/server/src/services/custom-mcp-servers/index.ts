@@ -98,7 +98,7 @@ const createCustomMcpServer = async (requestBody: any, orgId: string): Promise<a
     try {
         const appServer = getRunningExpressApp()
         const newRecord = new CustomMcpServer()
-        const id = process.env.CUTTLELY_CREDENTIAL_GENERATION ? randomUUID() : undefined
+        const id = randomUUID()
         if (requestBody.serverUrl) await assertSafeServerUrl(requestBody.serverUrl)
 
         // Encrypt authConfig if present
@@ -106,12 +106,12 @@ const createCustomMcpServer = async (requestBody: any, orgId: string): Promise<a
             if (requestBody.authType === CustomMcpServerAuthType.CUSTOM_HEADERS) {
                 assertValidHeaders((requestBody.authConfig as Record<string, any>).headers)
             }
-            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig, id ? ['custom-mcp', id] : undefined)
+            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig, ['custom-mcp', id])
         } else {
             requestBody.authConfig = null // explicitly set to null to avoid saving non-decrypted values or empty objects/strings in the database
         }
         Object.assign(newRecord, requestBody)
-        if (id) newRecord.id = id
+        newRecord.id = id
 
         const record = appServer.AppDataSource.getRepository(CustomMcpServer).create(newRecord)
         const dbResponse = await appServer.AppDataSource.getRepository(CustomMcpServer).save(record)

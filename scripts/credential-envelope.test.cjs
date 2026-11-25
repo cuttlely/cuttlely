@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { forCredentialGeneration, isCredentialEnvelope, newCredentialGeneration } = require('./credential-envelope.cjs')
+const {
+    forCredentialGeneration,
+    isCredentialEnvelope,
+    newCredentialGeneration,
+    openApplicationRecord,
+    sealApplicationRecord
+} = require('./credential-envelope.cjs')
 
 test('binds plaintext to the selected key generation and the exact record', () => {
     const generation = newCredentialGeneration()
@@ -28,4 +34,17 @@ test('binds plaintext to the selected key generation and the exact record', () =
     assert.throws(() => codec.open([version, label, tampered.toString('base64url')].join(':'), context), {
         code: 'CREDENTIAL_ENVELOPE_INVALID'
     })
+})
+
+test('authenticates new application records without configuring a rotation', () => {
+    const key = 'fixture key'
+    const context = ['credential', 'one']
+    const original = sealApplicationRecord('fixture', key, context, {})
+    const nextEnv = { CUTTLELY_CREDENTIAL_GENERATION: newCredentialGeneration() }
+    assert.equal(openApplicationRecord(original, key, context, {}), 'fixture')
+    assert.throws(() => openApplicationRecord(original, key, ['credential', 'other'], {}))
+    assert.throws(() => openApplicationRecord(original, key, context, nextEnv))
+    const rotated = sealApplicationRecord('fixture', key, context, nextEnv)
+    assert.equal(openApplicationRecord(rotated, key, context, nextEnv), 'fixture')
+    assert.throws(() => openApplicationRecord(rotated, key, context, {}))
 })

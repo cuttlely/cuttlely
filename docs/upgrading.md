@@ -12,6 +12,8 @@ Back up the application database, settings, installation key and data directory.
 
 Keep your existing installation key for a normal upgrade. To rotate it, first restore an isolated copy and follow the [staging and rollback procedure](./how-to/server-settings.md#rotate-the-installation-encryption-key). Rotation retires modern inbound access-key digests on the staged copy. Plan to issue replacements before reopening traffic and to retest pinned queries and AuthKit. Access-key enforcement remains off by default.
 
+New application credential, MCP auth and webhook records use authenticated encryption immediately. A previous Cuttlely version cannot read those new records. To downgrade, restore the pre-upgrade backup and its original key together.
+
 ## Upgrading to 1.7.13
 
 Analyst on Postgres now keeps each role's encrypted password and legacy workspace mapping in the application database. Provisioning imports existing `.enc` files unchanged and leaves them untouched; new passwords are stored only in the database. Back up the application database, encryption key and settings before upgrading.

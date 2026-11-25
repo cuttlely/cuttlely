@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { AES } from 'crypto-js'
-import { forCredentialGeneration, newCredentialGeneration } from './credentialEnvelope'
+import { forCredentialGeneration, newCredentialGeneration, sealApplicationRecord } from './credentialEnvelope'
 import { acceptStagedCredentialGeneration, CredentialStageDatabase, stageApplicationCredentialRecords } from './credentialStage'
 
 const oldKey = 'legacy test key'
@@ -19,6 +19,7 @@ function fixture(webhook: string) {
     const original = legacy({ token: 'model fixture' })
     credentials.run('credential-1', original)
     credentials.run('credential-2', 'FlowiseCredential_fixture')
+    credentials.run('credential-3', sealApplicationRecord('{"token":"already authenticated"}', oldKey, ['credential', 'credential-3']))
     db.prepare('INSERT INTO custom_mcp_server VALUES (?, ?)').run('mcp-1', legacy({ headers: { example: 'fixture' } }))
     db.prepare('INSERT INTO custom_mcp_server VALUES (?, NULL)').run('mcp-2')
     db.prepare('INSERT INTO chat_flow VALUES (?, ?)').run('flow-1', webhook)
@@ -40,14 +41,15 @@ test('rewraps application records in one transaction and leaves external referen
     const next = forCredentialGeneration('next test key', generation)
     try {
         await expect(stageApplicationCredentialRecords(source, { passphrase: oldKey }, next, generation)).resolves.toEqual({
-            staged: 3,
+            staged: 4,
             external: 1
         })
-        const [credential, external] = await source.select('SELECT "encryptedData" AS value FROM credential ORDER BY id')
+        const [credential, external, authenticated] = await source.select('SELECT "encryptedData" AS value FROM credential ORDER BY id')
         const [mcp, empty] = await source.select('SELECT "authConfig" AS value FROM custom_mcp_server ORDER BY id')
         const [webhook] = await source.select('SELECT "webhookSecret" AS value FROM chat_flow')
         expect(JSON.parse(next.open(String(credential.value), ['credential', 'credential-1']))).toEqual({ token: 'model fixture' })
         expect(external.value).toBe('FlowiseCredential_fixture')
+        expect(next.open(String(authenticated.value), ['credential', 'credential-3'])).toBe('{"token":"already authenticated"}')
         expect(empty.value).toBeNull()
         expect(JSON.parse(next.open(String(mcp.value), ['custom-mcp', 'mcp-1']))).toEqual({ headers: { example: 'fixture' } })
         expect(JSON.parse(next.open(String(webhook.value), ['chat-webhook', 'flow-1']))).toEqual({ secret: 'webhook fixture' })

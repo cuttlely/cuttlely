@@ -12,6 +12,8 @@ export const {
     credentialEnvelopeGeneration,
     sealWithActiveGeneration,
     openWithActiveGeneration,
+    openApplicationRecord,
+    sealApplicationRecord,
     parseAuthenticatedCredential
 } = require('../../../../scripts/credential-envelope.cjs') as {
     forCredentialGeneration(passphrase: string, generation: string): CredentialEnvelope
@@ -20,5 +22,12 @@ export const {
     credentialEnvelopeGeneration(value: unknown): string
     sealWithActiveGeneration(plaintext: string, passphrase: string, context?: RecordContext): string | undefined
     openWithActiveGeneration(ciphertext: string, passphrase: string, context?: RecordContext): string | undefined
+    openApplicationRecord(
+        ciphertext: string,
+        passphrase: string,
+        context: RecordContext | undefined,
+        env?: Record<string, string | undefined>
+    ): string
+    sealApplicationRecord(plaintext: string, passphrase: string, context: RecordContext): string
     parseAuthenticatedCredential(plaintext: string | undefined): Record<string, unknown>
 }

@@ -4,7 +4,7 @@ import path from 'path'
 import { parseFlow, queriesOnFlow, unreadableQueryNodes } from '../services/import-verify/stamps'
 import { fileValuesToApply, hostSetKeys } from '../settings/resolve'
 import { settingFor } from '../settings/registry'
-import { readLegacyCredential } from '../settings/credentialRewrap'
+import { readUnrotatedCredential } from '../settings/credentialRewrap'
 import { forCredentialGeneration } from '../settings/credentialEnvelope'
 import type { RecordContext } from '../settings/credentialEnvelope'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
@@ -220,7 +220,7 @@ export async function inventoryCredentialKey(host: Env): Promise<KeyInventory> {
             if (typeof ciphertext !== 'string') throw new Error('Invalid encrypted record')
             return codec
                 ? codec.open(ciphertext, context)
-                : readLegacyCredential(ciphertext, context[0] === 'analyst-role' ? key.trim() : key)
+                : readUnrotatedCredential(ciphertext, context[0] === 'analyst-role' ? key.trim() : key, context)
         }
         try {
             const docs = await settingsDocuments(host, key)
