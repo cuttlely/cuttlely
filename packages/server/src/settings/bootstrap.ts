@@ -3,8 +3,10 @@
 import './loadServerEnv'
 import { applyAdminSettings, StartState } from './apply'
 import { initPostgresSettings, postgresSettings } from './postgres'
+import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { settingsDir } from './store'
 
+if (requiresEncryptionKeyOverride(process.env)) guardedEncryptionKeyOverwrite(process.env)
 const dir = settingsDir()
 initPostgresSettings(dir, process.env)
 
@@ -12,7 +14,7 @@ let state: StartState
 try {
     state = applyAdminSettings(process.env, { start: process.argv[2] === 'start' })
 } catch (error) {
-    if (postgresSettings(dir)) throw error
+    if (postgresSettings(dir) || process.env.CUTTLELY_CREDENTIAL_GENERATION) throw error
     state = {
         dir: '',
         ignored: false,

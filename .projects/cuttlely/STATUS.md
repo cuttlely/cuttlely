@@ -1,3 +1,13 @@
+## Installation encryption key
+
+The opt-in startup guard refuses a missing host override and verifies the supplied key against the application database. Rotation stages an offline restore, binds encrypted records to their generation and identity, retires modern access-key digests on the staged copy, and retains the original deployment for rollback. A replacement restart requires the matching generation marker. [Operator procedure](../../docs/how-to/server-settings.md#rotate-the-installation-encryption-key).
+
+## Ad hoc SQL allowance for a specialist turn
+
+The Agent runtime setting for [#566](https://github.com/cuttlely/cuttlely/issues/566) defaults to two attempts and accepts whole numbers from one to six. The gateway counts native read-only fallback queries against each specialist’s allowance. A saved query leaves it available. The turn lease keeps its original limit and usage visible across the server and external worker processes. The specialist trace reports attempts used, the effective limit and exhaustion.
+
+Local PostgreSQL checks used the Server settings save path, a scripted model, the real harness gateway and native query tool. With a limit of two, the third reconciliation query was refused. At four, the third query returned the difference independently calculated from the snapshots. Tests also cover concurrent admission, profile revocation, saved calls, empty results, and settings edits during a turn.
+
 ## 1.7.13 release
 
 The annotated tag `v1.7.13` points to `4722923d` ([release PR #569](https://github.com/cuttlely/cuttlely/pull/569)). The [preparation run](https://github.com/cuttlely/cuttlely/actions/runs/45216230643) passed all 29 full verification steps on `0862eba3` and started the candidate image. The [tagged image workflow](https://github.com/cuttlely/cuttlely/actions/runs/45226518618) published the image. The public [GitHub release](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13), [npm launcher](https://www.npmjs.com/package/cuttlely/v/1.7.13), and [npm chat widget](https://www.npmjs.com/package/@cuttlely/chat/v/1.7.13) all use this version.

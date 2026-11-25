@@ -56,7 +56,7 @@ test('profiles keep defaults when unset, apply the tool setting, and recompile i
         assert.equal(profileOutdated(record), false)
     }
     try {
-        assert.equal(PROFILE_COMPILER_VERSION, '11')
+        assert.equal(PROFILE_COMPILER_VERSION, '12')
         const initial = compileProfileCached(record)
         inspect(initial)
         assert.strictEqual(compileProfileCached(record), initial)

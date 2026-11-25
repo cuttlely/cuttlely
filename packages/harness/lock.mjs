@@ -30,6 +30,15 @@ export function database() {
             owner TEXT NOT NULL,
             expires_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS guarded_query_turns (
+            profile TEXT NOT NULL,
+            source_turn TEXT NOT NULL,
+            session_key TEXT REFERENCES turns(session_key) ON DELETE SET NULL,
+            attempt_limit INTEGER NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (profile, source_turn)
+        );
+        CREATE INDEX IF NOT EXISTS guarded_query_session ON guarded_query_turns(session_key);
         CREATE TABLE IF NOT EXISTS try_profile_turns (
             scope TEXT PRIMARY KEY,
             owner TEXT NOT NULL,

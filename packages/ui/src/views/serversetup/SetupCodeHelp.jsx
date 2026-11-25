@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material'
 
 import { setupCodeHelp } from './model'
 
-/** Docker command as code, so the help text does not show backtick characters. */
+/** Setup log commands rendered as code. */
 const SetupCodeHelp = ({ serviceName }) => {
     const help = setupCodeHelp(serviceName)
     return (
@@ -11,6 +11,10 @@ const SetupCodeHelp = ({ serviceName }) => {
             {help.before}{' '}
             <Box component='code' sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                 {help.command}
+            </Box>{' '}
+            ·{' '}
+            <Box component='code' sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                npx cuttlely logs
             </Box>{' '}
             {help.after}
         </Typography>

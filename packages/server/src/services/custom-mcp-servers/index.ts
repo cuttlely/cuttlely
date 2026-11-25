@@ -5,6 +5,7 @@ import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { encryptCredentialData, decryptCredentialData } from '../../utils'
+import { randomUUID } from 'crypto'
 import { MCPToolkit, checkDenyList, isValidURL, validateCustomHeaders } from '@cuttlely/components'
 import { getAppVersion } from '../../utils'
 import logger from '../../utils/logger'
@@ -97,6 +98,7 @@ const createCustomMcpServer = async (requestBody: any, orgId: string): Promise<a
     try {
         const appServer = getRunningExpressApp()
         const newRecord = new CustomMcpServer()
+        const id = randomUUID()
         if (requestBody.serverUrl) await assertSafeServerUrl(requestBody.serverUrl)
 
         // Encrypt authConfig if present
@@ -104,11 +106,12 @@ const createCustomMcpServer = async (requestBody: any, orgId: string): Promise<a
             if (requestBody.authType === CustomMcpServerAuthType.CUSTOM_HEADERS) {
                 assertValidHeaders((requestBody.authConfig as Record<string, any>).headers)
             }
-            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig)
+            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig, ['custom-mcp', id])
         } else {
             requestBody.authConfig = null // explicitly set to null to avoid saving non-decrypted values or empty objects/strings in the database
         }
         Object.assign(newRecord, requestBody)
+        newRecord.id = id
 
         const record = appServer.AppDataSource.getRepository(CustomMcpServer).create(newRecord)
         const dbResponse = await appServer.AppDataSource.getRepository(CustomMcpServer).save(record)
@@ -180,7 +183,7 @@ const getCustomMcpServerById = async (id: string, workspaceId: string): Promise<
         const result: ICustomMcpServerResponse = { ...dbResponse, authConfig: undefined, serverUrl: maskServerUrl(dbResponse.serverUrl) }
         if (dbResponse.authConfig) {
             try {
-                const decrypted = await decryptCredentialData(dbResponse.authConfig)
+                const decrypted = await decryptCredentialData(dbResponse.authConfig, undefined, undefined, ['custom-mcp', dbResponse.id])
                 if (decrypted && typeof decrypted === 'object') {
                     // Mask sensitive header values — only expose keys
                     const masked = { ...decrypted } as Record<string, any>
@@ -238,7 +241,10 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
         } else if (requestBody.authConfig && typeof requestBody.authConfig === 'object') {
             if (requestBody.authConfig.headers && typeof requestBody.authConfig.headers === 'object' && record.authConfig) {
                 try {
-                    const existingDecrypted = await decryptCredentialData(record.authConfig)
+                    const existingDecrypted = await decryptCredentialData(record.authConfig, undefined, undefined, [
+                        'custom-mcp',
+                        record.id
+                    ])
                     if (existingDecrypted?.headers && typeof existingDecrypted.headers === 'object') {
                         const mergedHeaders: Record<string, string> = {}
                         for (const [key, value] of Object.entries(requestBody.authConfig.headers as Record<string, string>)) {
@@ -257,13 +263,13 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
                         requestBody.authConfig = { ...requestBody.authConfig, headers: mergedHeaders }
                     }
                 } catch (err) {
-                    if (err instanceof AppError) throw err
+                    if (err instanceof AppError || process.env.CUTTLELY_CREDENTIAL_GENERATION) throw err
                 }
             }
             if (requestBody.authType === CustomMcpServerAuthType.CUSTOM_HEADERS) {
                 assertValidHeaders((requestBody.authConfig as Record<string, any>).headers)
             }
-            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig)
+            requestBody.authConfig = await encryptCredentialData(requestBody.authConfig, ['custom-mcp', record.id])
         }
 
         const updateRecord = new CustomMcpServer()
@@ -310,7 +316,7 @@ const authorizeCustomMcpServer = async (id: string, workspaceId: string): Promis
         let headers: Record<string, string> = {}
         if (record.authType === CustomMcpServerAuthType.CUSTOM_HEADERS && record.authConfig) {
             try {
-                const decrypted = await decryptCredentialData(record.authConfig)
+                const decrypted = await decryptCredentialData(record.authConfig, undefined, undefined, ['custom-mcp', record.id])
                 if (decrypted && typeof decrypted === 'object') {
                     // Support CUSTOM_HEADERS format: { headers: { key: value } }
                     if (decrypted.headers && typeof decrypted.headers === 'object') {

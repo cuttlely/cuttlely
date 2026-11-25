@@ -132,7 +132,7 @@ class HarnessSpecialist_Harness implements INode {
                 optional: true,
                 additionalParams: true,
                 description:
-                    'Applies only with Trusted outputs. Passthrough keeps ordinary answers/files for independently stamped unmapped queries, or non-data clarifications without files. The guarded SQL option also accepts native, read-only query evidence with turn identity and statement hash, with at most two query calls per turn. Mapped factual output is never replaced by model output.'
+                    'Applies only with Trusted outputs. Passthrough keeps ordinary answers/files for independently stamped unmapped queries, or non-data clarifications without files. The guarded SQL option also accepts native, read-only query evidence with turn identity and statement hash, with a server-set allowance per specialist turn (default 2). Corrections and pages count; saved queries do not. Mapped factual output is never replaced by model output.'
             },
             {
                 label: 'Interpret protected evidence',

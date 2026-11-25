@@ -233,6 +233,7 @@ describe('HarnessRunTrace', () => {
             specialists: [
                 {
                     name: 'analyst',
+                    adHocSqlAttempts: { used: 4, limit: 4, exhausted: true },
                     status: 'completed',
                     tools: [
                         {
@@ -258,6 +259,7 @@ describe('HarnessRunTrace', () => {
         const html = renderToStaticMarkup(
             createElement(Provider, { store }, createElement(ThemeProvider, { theme }, createElement(HarnessRunTrace, { trace })))
         )
+        expect(html).toContain('Ad hoc SQL: 4/4 (exhausted)')
         expect(html).toContain('40 rows')
         expect(html).not.toContain('Say show more')
         expect(html).not.toContain('/harnesses/')

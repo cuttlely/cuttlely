@@ -9,14 +9,14 @@ interface SettingAliasModule {
 
 const nodeRequire = createRequire(__filename)
 
-function loadSettingAlias(): SettingAliasModule {
+export function loadRepositoryScript<T>(script: 'setting-alias.cjs' | 'credential-envelope.cjs'): T {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'scripts', 'setting-alias.cjs')
-        if (fs.existsSync(candidate)) return nodeRequire(candidate) as SettingAliasModule
+        const candidate = path.join(dir, 'scripts', script)
+        if (fs.existsSync(candidate)) return nodeRequire(candidate) as T
         dir = path.dirname(dir)
     }
-    throw new Error('Setting alias helper was not found in this checkout.')
+    throw new Error('Required repository script was not found in this checkout.')
 }
 
-export const encryptionKeyOverwrite = loadSettingAlias().encryptionKeyOverwrite
+export const encryptionKeyOverwrite = loadRepositoryScript<SettingAliasModule>('setting-alias.cjs').encryptionKeyOverwrite

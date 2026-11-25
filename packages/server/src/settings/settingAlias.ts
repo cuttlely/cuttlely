@@ -15,6 +15,8 @@ export interface SettingAliasModule {
     partnerIsSet(env: NodeJS.ProcessEnv | Record<string, string | undefined> | undefined, key: string, ignored?: Iterable<string>): boolean
     encryptionKeyConflict(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): string | undefined
     encryptionKeyOverwrite(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): string | undefined
+    guardedEncryptionKeyOverwrite(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): string | undefined
+    requiresEncryptionKeyOverride(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): boolean
     fileSizeLimit(env?: NodeJS.ProcessEnv | Record<string, string | undefined>, fallback?: string): string
     telemetryDisabled(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): boolean
     ENCRYPTION_KEY_CONFLICT: string
@@ -39,6 +41,8 @@ export const aliasNames = alias.aliasNames
 export const partnerIsSet = alias.partnerIsSet
 export const encryptionKeyConflict = alias.encryptionKeyConflict
 export const encryptionKeyOverwrite = alias.encryptionKeyOverwrite
+export const guardedEncryptionKeyOverwrite = alias.guardedEncryptionKeyOverwrite
+export const requiresEncryptionKeyOverride = alias.requiresEncryptionKeyOverride
 export const fileSizeLimit = alias.fileSizeLimit
 export const telemetryDisabled = alias.telemetryDisabled
 export const ENCRYPTION_KEY_CONFLICT = alias.ENCRYPTION_KEY_CONFLICT

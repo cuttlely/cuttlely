@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
-const { existsSync, mkdtempSync, rmSync } = require('node:fs')
+const { existsSync, mkdirSync, mkdtempSync, rmSync } = require('node:fs')
 const { createRequire } = require('node:module')
 const { tmpdir } = require('node:os')
 const path = require('node:path')
@@ -13,6 +13,113 @@ const urlKey = 'CUTTLELY_SERVER_SETTINGS_POSTGRES_URL'
 const key = 'test-installation-key-for-settings'
 const appUrl = 'https://settings.example'
 const owner = { userId: 'fixture-owner', database: 'a'.repeat(64) }
+
+test(
+    'rotation stages PostgreSQL application, settings and Analyst records with the replacement key',
+    { skip: !process.env.CUTTLELY_TEST_PG_REQUIRED && !process.env.PGPASSWORD },
+    async () => {
+        const { Client } = serverRequire('pg')
+        const { AES } = serverRequire('crypto-js')
+        const { stageCredentialRotation } = serverRequire('./dist/security/keyRotationStage')
+        const { forCredentialGeneration } = serverRequire('./dist/settings/credentialEnvelope')
+        const { postgresSettingsCodec } = serverRequire('./dist/settings/postgresCodec')
+        const config = {
+            host: process.env.CUTTLELY_TEST_PG_HOST || 'localhost',
+            port: Number(process.env.CUTTLELY_TEST_PG_PORT || 5432),
+            user: process.env.CUTTLELY_TEST_PG_USER || 'postgres',
+            password: process.env.CUTTLELY_TEST_PG_PASSWORD || process.env.PGPASSWORD
+        }
+        const app = 'cuttlely_rotation_app_' + randomUUID().replaceAll('-', '')
+        const settings = 'cuttlely_rotation_settings_' + randomUUID().replaceAll('-', '')
+        const stageRoot = path.join(tmpdir(), 'cuttlely-rotation-' + randomUUID())
+        const dataDir = path.join(stageRoot, 'data')
+        const secrets = path.join(stageRoot, 'secrets')
+        const replacement = 'test-only replacement postgres key'
+        const originalRole = { role: 'analyst_reader_0123456789', password: 'test-only unchanged analyst password' }
+        const oldCodec = postgresSettingsCodec(key)
+        const previous = JSON.stringify({ version: 1, keyCheck: AES.encrypt('server-settings-key-check', key).toString(), values: {} })
+        const admin = new Client({ ...config, database: 'postgres' })
+
+        const inDatabase = async (database, run) => {
+            const connection = new Client({ ...config, database })
+            try {
+                await connection.connect()
+                await run(connection)
+            } finally {
+                await connection.end()
+            }
+        }
+        await admin.connect()
+        try {
+            mkdirSync(stageRoot, { mode: 0o700 })
+            mkdirSync(path.join(dataDir, 'settings'), { recursive: true })
+            mkdirSync(secrets)
+            await admin.query(`CREATE DATABASE ${app}`)
+            await admin.query(`CREATE DATABASE ${settings}`)
+            await inDatabase(app, async (client) => {
+                await client.query(`
+                    CREATE TABLE credential (id TEXT PRIMARY KEY, "encryptedData" TEXT);
+                    CREATE TABLE custom_mcp_server (id TEXT PRIMARY KEY, "authConfig" TEXT);
+                    CREATE TABLE chat_flow (id TEXT PRIMARY KEY, "flowData" TEXT, "webhookSecret" TEXT);
+                    CREATE TABLE flow_version_state ("draftFlowData" TEXT);
+                    CREATE TABLE apikey (id TEXT PRIMARY KEY, "disabledAt" TIMESTAMPTZ, "expiresAt" TIMESTAMPTZ);
+                    CREATE TABLE apikey_credential (digest TEXT, "principalId" TEXT, "revokedAt" TIMESTAMPTZ, "expiresAt" TIMESTAMPTZ);
+                    CREATE SCHEMA cuttlely_analyst_admin;
+                    CREATE TABLE cuttlely_analyst_admin.role_secret (role TEXT PRIMARY KEY, ciphertext TEXT);
+                `)
+                await client.query('INSERT INTO cuttlely_analyst_admin.role_secret VALUES ($1, $2)', [
+                    originalRole.role,
+                    AES.encrypt(JSON.stringify(originalRole), key).toString()
+                ])
+            })
+            await inDatabase(settings, async (client) => {
+                await client.query('CREATE TABLE public.cuttlely_server_settings (name TEXT PRIMARY KEY, payload BYTEA)')
+                for (const [name, value] of [
+                    ['backend-version', '1'],
+                    ['server.json', previous]
+                ]) {
+                    await client.query('INSERT INTO public.cuttlely_server_settings VALUES ($1, $2)', [name, oldCodec.seal(name, value)])
+                }
+            })
+            const url = new URL(`postgres://localhost:${config.port}/${settings}`)
+            url.username = config.user
+            if (config.password) url.password = config.password
+            if (config.host.startsWith('/')) url.searchParams.set('host', config.host)
+            else url.hostname = config.host
+            const report = await stageCredentialRotation({
+                DATABASE_TYPE: 'postgres',
+                DATABASE_NAME: app,
+                DATABASE_HOST: config.host,
+                DATABASE_PORT: String(config.port),
+                DATABASE_USER: config.user,
+                DATABASE_PASSWORD: config.password,
+                CUTTLELY_DATA_DIR: dataDir,
+                SECRETKEY_PATH: secrets,
+                CUTTLELY_SECRETKEY_OVERWRITE: key,
+                CUTTLELY_ROTATION_NEW_KEY: replacement,
+                CUTTLELY_ROTATION_STAGING_ROOT: stageRoot,
+                [urlKey]: url.href
+            })
+            assert.equal(report.phase, 'ready')
+            assert.deepEqual(report.database, { staged: 1, external: 0 })
+            const codec = forCredentialGeneration(replacement, report.generation)
+            await inDatabase(app, async (client) => {
+                const row = (await client.query('SELECT ciphertext FROM cuttlely_analyst_admin.role_secret')).rows[0]
+                assert.deepEqual(JSON.parse(codec.open(row.ciphertext, ['analyst-role', originalRole.role])), originalRole)
+            })
+            await inDatabase(settings, async (client) => {
+                const row = (await client.query("SELECT payload FROM public.cuttlely_server_settings WHERE name = 'server.json'")).rows[0]
+                const next = JSON.parse(postgresSettingsCodec(replacement, report.generation).unseal('server.json', row.payload))
+                assert.equal(codec.open(next.keyCheck, ['server-settings', 'key-check']), 'server-settings-key-check')
+            })
+        } finally {
+            await admin.query(`DROP DATABASE IF EXISTS ${settings}`)
+            await admin.query(`DROP DATABASE IF EXISTS ${app}`)
+            await admin.end()
+            rmSync(stageRoot, { recursive: true, force: true })
+        }
+    }
+)
 
 test(
     'Postgres settings preserve operator state, settings and safe boot when the filesystem is replaced',

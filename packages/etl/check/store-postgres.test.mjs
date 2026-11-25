@@ -345,9 +345,9 @@ test('DDL creation: schema and all tables are created', { skip: skipReason }, as
 
         // Check triggers exist
         const triggers = await source.client.query(
-            `SELECT tgname FROM pg_trigger t 
-             JOIN pg_class c ON t.tgrelid = c.oid 
-             JOIN pg_namespace n ON c.relnamespace = n.oid 
+            `SELECT tgname FROM pg_trigger t
+             JOIN pg_class c ON t.tgrelid = c.oid
+             JOIN pg_namespace n ON c.relnamespace = n.oid
              WHERE n.nspname = $1 AND c.relname = 'pipelines'`,
             [ETL_SCHEMA]
         )

@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## Upcoming · New in 1.7.14
+
+-   Keep operator authority and saved settings when an ephemeral container is replaced. [Operator storage](./instance-operator.md#keep-authority-and-settings-when-a-container-is-replaced).
+-   Stage a replacement encryption key on an isolated restore, then verify it before reopening traffic. [Key rotation](./server-settings.md#rotate-the-installation-encryption-key).
+-   Configure the SQL attempt allowance for each specialist turn. [Server settings](./server-settings.md).
+
 ## New in 1.7.13
 
 -   Run a chief directly and inspect its specialist steps. [Agent mode](./harness-agent-mode.md).

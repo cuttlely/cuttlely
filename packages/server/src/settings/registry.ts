@@ -74,6 +74,8 @@ export interface SettingDef {
     /** A saved value overrides the host. The field stays editable; limit entries use applies. */
     panelFirst?: boolean
     /** A time limit or cap: saved value, then the host, then the default. Also panelFirst. */
+    // Most legacy limits accept additional host values. Set this to enforce the same bounds on the host.
+    boundedHost?: boolean
     limit?: boolean
     /** How a saved limit takes effect. Live on the next use, or at the next restart. */
     applies?: 'live' | 'restart'
@@ -536,6 +538,26 @@ export const SETTINGS: SettingDef[] = [
     },
 
     // Agent runtime
+    {
+        key: 'CUTTLELY_HARNESS_MAX_AD_HOC_SQL_ATTEMPTS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Max ad hoc SQL attempts per specialist turn',
+        help: 'Counts native read-only fallback queries, including failed attempts, corrections and pages. Saved queries do not count. Each specialist gets its own allowance on the next turn.',
+        type: 'number',
+        integer: true,
+        unit: 'count',
+        min: 1,
+        max: 6,
+        boundedHost: true,
+        defaultLabel: '2 attempts',
+        defaultValue: '2',
+        limit: true,
+        panelFirst: true,
+        applies: 'live',
+        runtime: true,
+        risk: 'medium'
+    },
     {
         key: 'CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS',
         section: 'runtime',
@@ -2231,6 +2253,16 @@ export const KEPT_OUT: KeptOutGroup[] = [
         group: 'Postgres server settings',
         keys: ['CUTTLELY_SERVER_SETTINGS_POSTGRES_URL'],
         why: 'This host-only connection is needed to read saved settings and operator authority before startup.'
+    },
+    {
+        group: 'Installation key rotation',
+        keys: [
+            'CUTTLELY_REQUIRE_KEY_OVERRIDE',
+            'CUTTLELY_CREDENTIAL_GENERATION',
+            'CUTTLELY_ROTATION_STAGING_ROOT',
+            'CUTTLELY_ROTATION_NEW_KEY'
+        ],
+        why: 'Key enrollment and rotation are host operations. Saved settings cannot select or stage a key generation.'
     },
     {
         group: 'First owner from host configuration',

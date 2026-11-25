@@ -151,7 +151,7 @@ const SignInPage = () => {
                     )}
                     <Stack sx={{ gap: 1, alignItems: 'center' }}>
                         <Logo height={40} />
-                        <Typography variant='h1'>Sign In</Typography>
+                        <Typography variant='h1'>Sign in</Typography>
                     </Stack>
                     <Stack sx={{ width: '100%', flexDirection: 'column', alignItems: 'left', justifyContent: 'center', gap: 2 }}>
                         {options.authKit && (
@@ -191,7 +191,7 @@ const SignInPage = () => {
                                     <LoadingButton
                                         loading={loading}
                                         variant='contained'
-                                        style={{ borderRadius: 12, height: 40 }}
+                                        style={{ borderRadius: 12, height: 40, textTransform: 'none' }}
                                         type='submit'
                                     >
                                         Sign in

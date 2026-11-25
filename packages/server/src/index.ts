@@ -24,6 +24,7 @@ import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from './metrics/tracing'
 import { installHttpLocalhostReader } from './settings/httpLocalhost'
+import { InstallationKeyGuardError, verifyInstallationKey } from './settings/keyGuard'
 import errorHandlerMiddleware from './middlewares/errors'
 import { NodesPool } from './NodesPool'
 import type { QueueManager } from './queue/QueueManager'
@@ -115,6 +116,7 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
+            await verifyInstallationKey(this.AppDataSource, (message) => logger.warn(message))
             markDatabaseOpened()
             logger.info('📦 [server]: Data Source initialized successfully')
 
@@ -225,6 +227,7 @@ export class App {
 
             logger.info('🎉 [server]: All initialization steps completed successfully!')
         } catch (error) {
+            if (error instanceof InstallationKeyGuardError) throw error
             this.initError = error
             if (!logUnsupportedFlowiseUpgrade(error, logger)) {
                 logger.error('❌ [server]: Error during Data Source initialization:', error)

@@ -6,11 +6,21 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Ephemeral deployments can keep Instance Operator authority and saved server settings in a dedicated PostgreSQL database. [#577](https://github.com/cuttlely/cuttlely/issues/577).
+-   Installations can opt in to requiring a nonblank host encryption key and verifying it against the application database at startup. [#527](https://github.com/cuttlely/cuttlely/issues/527).
+-   Operators can stage installation-key rotation on an isolated restore and cut over to authenticated, record-bound encryption. The staged copy retires modern access-key digests and requires fresh verification proofs. [Credential key rotation](docs/how-to/server-settings.md#rotate-the-installation-encryption-key).
 -   The ETL store gained an internal Postgres backend and store gate that are not yet selectable. There is no change in behavior with the default SQLite store.
 
 ### Changed
 
+-   Operators can set 1–6 ad hoc SQL attempts per specialist turn under Server settings → Agent runtime. The default is 2. The trace shows usage and exhaustion. Saved queries use no ad hoc attempts. [#566](https://github.com/cuttlely/cuttlely/issues/566).
+
 -   Pausing, cancelling or resuming a knowledge pipeline run, and starting a queued run, now change the run's status only if it hasn't changed since it was read, the same way restart recovery already does. A stop or finish that lands at the same moment is kept, and the request reports the run's current status instead of overwriting it. There's no change in behavior with the default store.
+
+### Fixed
+
+-   The setup page shows `npx cuttlely logs` as a way to find the setup code, and the local sign-in page uses **Sign in** consistently. [#533](https://github.com/cuttlely/cuttlely/issues/533).
+-   Import & verify shows the result status once in its alert. [#534](https://github.com/cuttlely/cuttlely/issues/534).
 
 ## [1.7.13] - 2026-11-23
 

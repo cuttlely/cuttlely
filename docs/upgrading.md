@@ -6,6 +6,14 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
 
+## Upgrading to 1.7.14
+
+Back up the application database, settings, installation key and data directory. Use matching server and widget packages. The instance operator can keep authority and saved settings in a separate PostgreSQL database on an ephemeral host. [Operator storage and recovery](./how-to/instance-operator.md#keep-authority-and-settings-when-a-container-is-replaced).
+
+Keep your existing installation key for a normal upgrade. To rotate it, first restore an isolated copy and follow the [staging and rollback procedure](./how-to/server-settings.md#rotate-the-installation-encryption-key). Rotation retires modern inbound access-key digests on the staged copy. Plan to issue replacements before reopening traffic and to retest pinned queries and AuthKit. Access-key enforcement remains off by default.
+
+New application credential, MCP auth and webhook records use authenticated encryption immediately. A previous Cuttlely version cannot read those new records. To downgrade, restore the pre-upgrade backup and its original key together.
+
 ## Upgrading to 1.7.13
 
 Analyst on Postgres now keeps each role's encrypted password and legacy workspace mapping in the application database. Provisioning imports existing `.enc` files unchanged and leaves them untouched; new passwords are stored only in the database. Back up the application database, encryption key and settings before upgrading.

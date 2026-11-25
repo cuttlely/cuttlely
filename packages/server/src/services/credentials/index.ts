@@ -128,7 +128,8 @@ const getCredentialById = async (credentialId: string, workspaceId: string): Pro
         const decryptedCredentialData = await decryptCredentialData(
             credential.encryptedData,
             credential.credentialName,
-            appServer.nodesPool.componentCredentials
+            appServer.nodesPool.componentCredentials,
+            ['credential', credential.id]
         )
         const returnCredential: ICredentialReturnResponse = {
             ...credential,
@@ -163,9 +164,12 @@ const updateCredential = async (credentialId: string, requestBody: any, workspac
         if (!credential) {
             throw new AppError(StatusCodes.NOT_FOUND, `Credential ${credentialId} not found`)
         }
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         requestBody.plainDataObj = mergeCredentialUpdate(decryptedCredentialData, requestBody.plainDataObj)
-        const updateCredential = await transformToCredentialEntity(requestBody)
+        const updateCredential = await transformToCredentialEntity(requestBody, credential.id)
         updateCredential.workspaceId = workspaceId
         await appServer.AppDataSource.getRepository(Credential).merge(credential, updateCredential)
         const dbResponse = await appServer.AppDataSource.getRepository(Credential).save(credential)

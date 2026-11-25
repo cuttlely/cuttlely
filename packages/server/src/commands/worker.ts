@@ -15,6 +15,7 @@ import { UsageCacheManager } from '../UsageCacheManager'
 import { ossIdentity } from '../identity/ossPlatform'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from '../metrics/tracing'
 import { installHttpLocalhostReader } from '../settings/httpLocalhost'
+import { verifyInstallationKey } from '../settings/keyGuard'
 
 interface CustomListener extends QueueEventsListener {
     abort: (args: { id: string }, id: string) => void
@@ -77,6 +78,7 @@ export default class Worker extends BaseCommand {
         // Init database
         const appDataSource = getDataSource()
         await appDataSource.initialize()
+        await verifyInstallationKey(appDataSource, (message) => logger.warn(message))
         await runSupportedMigrations(appDataSource)
         await registerAppCredentialSource(appDataSource)
 

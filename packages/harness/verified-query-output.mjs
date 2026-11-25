@@ -1,23 +1,63 @@
+import { existsSync } from 'node:fs'
+import { database, immediate, queueDbPath } from './lock.mjs'
+import { specialistSessionId } from './specialist-run.mjs'
 import { sqlTraceFields } from './analyst-capture.mjs'
 
 export const VERIFIED_QUERY_POLICY = 'verified-query-passthrough'
 const EMPTY_SQL_HASH = sqlTraceFields('').sqlHash
-const attempts = new Map()
 
-// Native fallback work is bounded independently of the model's instructions.
-// Profile revocation clears its counters; the bounded map also drops old turns.
+export function guardedQueryLimit(env = process.env) {
+    const raw = String(env.CUTTLELY_HARNESS_MAX_AD_HOC_SQL_ATTEMPTS ?? '').trim()
+    return /^0*[1-6](?:\.0+)?$/.test(raw) ? Number(raw) : 2
+}
+
+// Retain completed turns for late calls. Active leases are never evicted by other traffic.
+function pruneFinished(db) {
+    db.prepare(
+        'DELETE FROM guarded_query_turns WHERE rowid IN (SELECT rowid FROM guarded_query_turns WHERE session_key IS NULL ORDER BY rowid DESC LIMIT -1 OFFSET 2000)'
+    ).run()
+}
+
+// The worker and tool gateway can be different processes. The existing chat lease protects
+// this snapshot until the turn finishes or its owner is replaced after a crash.
+export function beginGuardedQueryTurns(specialists, chatId, turnId, sessionKey, limit = guardedQueryLimit()) {
+    const guarded = specialists.filter((item) => item.profileName && item.trustedOutputPolicy === VERIFIED_QUERY_POLICY)
+    if (!guarded.length) return
+    immediate((db) => {
+        pruneFinished(db)
+        const insert = db.prepare('INSERT INTO guarded_query_turns (profile, source_turn, session_key, attempt_limit) VALUES (?, ?, ?, ?)')
+        for (const { profileName } of guarded) insert.run(profileName, specialistSessionId(profileName, chatId, turnId), sessionKey, limit)
+    })
+}
+
+export function guardedQueryUsage(profileName, sourceTurn) {
+    const row = database()
+        .prepare('SELECT used, attempt_limit AS allowance FROM guarded_query_turns WHERE profile = ? AND source_turn = ?')
+        .get(profileName, sourceTurn)
+    return row ? { used: row.used, limit: row.allowance, exhausted: row.used >= row.allowance } : null
+}
+
+export function admitGuardedQueryAttempt(profileName, sourceTurn) {
+    return immediate((db) => {
+        // Standalone gateway callers have no managed turn. Their first call fixes the allowance.
+        const inserted = db
+            .prepare('INSERT OR IGNORE INTO guarded_query_turns (profile, source_turn, attempt_limit) VALUES (?, ?, ?)')
+            .run(profileName, sourceTurn, guardedQueryLimit())
+        if (inserted.changes) pruneFinished(db)
+        const changed = db
+            .prepare('UPDATE guarded_query_turns SET used = used + 1 WHERE profile = ? AND source_turn = ? AND used < attempt_limit')
+            .run(profileName, sourceTurn)
+        return { allowed: changed.changes === 1, ...guardedQueryUsage(profileName, sourceTurn) }
+    })
+}
+
+// Preserve the boolean interface for existing direct harness callers.
 export function reserveGuardedQueryAttempt(profileName, sourceTurn) {
-    const key = `${profileName}\0${sourceTurn}`
-    const count = attempts.get(key) || 0
-    if (count >= 2) return false
-    attempts.set(key, count + 1)
-    if (attempts.size > 2000) attempts.delete(attempts.keys().next().value)
-    return true
+    return admitGuardedQueryAttempt(profileName, sourceTurn).allowed
 }
 
 export function forgetGuardedQueryAttempts(profileName) {
-    const prefix = `${profileName}\0`
-    for (const key of attempts.keys()) if (key.startsWith(prefix)) attempts.delete(key)
+    if (existsSync(queueDbPath())) database().prepare('DELETE FROM guarded_query_turns WHERE profile = ?').run(profileName)
 }
 
 export function verifiedSourceTurn(profileName, sourceTurn) {

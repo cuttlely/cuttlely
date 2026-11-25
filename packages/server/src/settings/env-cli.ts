@@ -12,6 +12,7 @@ import { APPLIED_VAR, IGNORE_VAR, ROLLED_BACK_VAR, isOnValue } from './apply'
 import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, fileValuesToApply, hostSetKeys } from './resolve'
 import { initPostgresSettings, POSTGRES_SETTINGS_URL } from './postgres'
 import { beginStart } from './safeboot'
+import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { encryptionKeySync, readSettingsFile, settingsDir } from './store'
 
 type Env = Record<string, string | undefined>
@@ -23,6 +24,7 @@ export function startRecords(processEnv: Env, dotenvText: string | null, log: (l
     delete env[APPLIED_VAR]
     delete env[ROLLED_BACK_VAR]
     if (dotenvText) Object.assign(env, dotenv.parse(dotenvText))
+    if (requiresEncryptionKeyOverride(env)) guardedEncryptionKeyOverwrite(env)
     initPostgresSettings(settingsDir(env), env)
     recordHostLimits(env)
     const hostKeys = hostSetKeys(env)
@@ -66,6 +68,10 @@ if (require.main === module) {
         process.stdout.write(records.map((record) => `${record}\0`).join(''))
     } catch (error) {
         const host = { ...process.env, ...dotenv.parse(dotenvText ?? '') }
+        if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENCRYPTION_KEY_OVERRIDE_REQUIRED') {
+            process.stderr.write(`${error.message}\n`)
+            process.exit(3)
+        }
         if (host[POSTGRES_SETTINGS_URL]?.trim()) {
             process.stderr.write(
                 'Postgres server settings could not be loaded. Check the host connection and installation encryption key.\n'

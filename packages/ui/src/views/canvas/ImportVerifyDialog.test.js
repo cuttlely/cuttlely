@@ -105,6 +105,7 @@ describe('Import & verify canvas', () => {
             click('Import & verify')
             await new Promise((resolve) => setTimeout(resolve, 20))
         })
+        expect(document.querySelector('[role="alert"]').textContent).toBe('Needs attention.')
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith(
             'flow-1',
             expect.stringContaining('"api"'),

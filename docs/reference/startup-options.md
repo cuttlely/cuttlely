@@ -56,6 +56,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `DATABASE_SSL`                               | false                                                                           | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_REJECT_UNAUTHORIZED`               | false                                                                           | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_SSL_KEY_BASE64`                    | not shown                                                                       | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_HARNESS_MAX_AD_HOC_SQL_ATTEMPTS`   | 2                                                                               | 1 to 6            | count         | Server settings, then the host | No      |
 | `CUTTLELY_HARNESS_MODEL_CALL_TIMEOUT_MS`     | 120000                                                                          | 1 to 3600         | ms-as-seconds | Server settings, then the host | No      |
 | `CUTTLELY_HERMES_STREAM_STALE_SECONDS`       | 45                                                                              | 5 to 3600         | seconds       | Server settings, then the host | Yes     |
 | `CUTTLELY_HERMES_TERMINAL_TIMEOUT`           | 180                                                                             | 1 to 3600         | seconds       | Server settings, then the host | Yes     |

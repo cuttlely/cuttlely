@@ -48,7 +48,7 @@ export async function settingsDocuments(env: Env, key: string): Promise<Map<stri
         return docs
     }
     return withPostgres({ connectionString: url }, async (rows) => {
-        const { unseal } = postgresSettingsCodec(key)
+        const { unseal } = postgresSettingsCodec(key, env.CUTTLELY_CREDENTIAL_GENERATION)
         const docs = new Map<string, string>()
         let verified = false
         for (const { name, payload } of await rows('SELECT name, payload FROM public.cuttlely_server_settings')) {
@@ -65,20 +65,7 @@ export async function settingsDocuments(env: Env, key: string): Promise<Map<stri
 
 export async function scanApplicationDatabase<T>(env: Env, work: (rows: Rows, postgres: boolean) => Promise<T>): Promise<T> {
     if (env.DATABASE_TYPE === 'postgres') {
-        const ssl = env.DATABASE_SSL_KEY_BASE64
-            ? { rejectUnauthorized: env.DATABASE_REJECT_UNAUTHORIZED === 'true', ca: Buffer.from(env.DATABASE_SSL_KEY_BASE64, 'base64') }
-            : env.DATABASE_SSL === 'true' || undefined
-        return withPostgres(
-            {
-                host: env.DATABASE_HOST,
-                port: parseInt(env.DATABASE_PORT || '5432'),
-                user: env.DATABASE_USER,
-                password: env.DATABASE_PASSWORD,
-                database: env.DATABASE_NAME,
-                ssl
-            },
-            (rows) => work(rows, true)
-        )
+        return withPostgres(applicationPostgresOptions(env), (rows) => work(rows, true))
     }
     const home = env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] ?? process.cwd()
     const file = path.resolve(env.DATABASE_PATH ?? path.join(home, '.cuttlely'), 'database.sqlite')
@@ -88,5 +75,18 @@ export async function scanApplicationDatabase<T>(env: Env, work: (rows: Rows, po
         return await work(async (sql) => client.prepare(sql).all(), false)
     } finally {
         client.close()
+    }
+}
+
+export function applicationPostgresOptions(env: Env) {
+    return {
+        host: env.DATABASE_HOST,
+        port: parseInt(env.DATABASE_PORT || '5432'),
+        user: env.DATABASE_USER,
+        password: env.DATABASE_PASSWORD,
+        database: env.DATABASE_NAME,
+        ssl: env.DATABASE_SSL_KEY_BASE64
+            ? { rejectUnauthorized: env.DATABASE_REJECT_UNAUTHORIZED === 'true', ca: Buffer.from(env.DATABASE_SSL_KEY_BASE64, 'base64') }
+            : env.DATABASE_SSL === 'true' || undefined
     }
 }

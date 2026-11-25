@@ -6,9 +6,10 @@ import { readPrivateFile } from './privateFile'
 import { POSTGRES_SETTINGS_MARKER as marker, postgresSettingsCodec } from './postgresCodec'
 
 const { Pool } = require('pg')
-const { url, secret, dir, files, privateFiles } = workerData as {
+const { url, secret, generation, dir, files, privateFiles } = workerData as {
     url: string
     secret: string
+    generation?: string
     dir: string
     files: string[]
     privateFiles: string[]
@@ -23,7 +24,7 @@ const pool = new Pool({
     max: 4
 })
 pool.on('error', () => undefined)
-const { seal, unseal } = postgresSettingsCodec(secret)
+const { seal, unseal } = postgresSettingsCodec(secret, generation)
 const lockKey = '1945290148, 577'
 
 type Client = {

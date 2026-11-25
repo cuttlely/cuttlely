@@ -103,7 +103,7 @@ router.post('/authorize/:credentialId', async (req: Request, res: Response, next
         }
 
         // Decrypt the credential data to get OAuth configuration
-        const decryptedData = await decryptCredentialData(credential.encryptedData)
+        const decryptedData = await decryptCredentialData(credential.encryptedData, undefined, undefined, ['credential', credential.id])
 
         const {
             clientId,
@@ -221,7 +221,7 @@ router.get('/callback', async (req: Request, res: Response) => {
             return res.status(404).send(errorHtml)
         }
 
-        const decryptedData = await decryptCredentialData(credential.encryptedData)
+        const decryptedData = await decryptCredentialData(credential.encryptedData, undefined, undefined, ['credential', credential.id])
 
         const { clientId, clientSecret, accessTokenUrl, redirect_uri, scope } = decryptedData
 
@@ -310,7 +310,7 @@ router.get('/callback', async (req: Request, res: Response) => {
         }
 
         // Encrypt the updated credential data
-        const encryptedData = await encryptCredentialData(updatedCredentialData)
+        const encryptedData = await encryptCredentialData(updatedCredentialData, ['credential', credential.id])
 
         // Update the credential in the database
         await credentialRepository.update(credential.id, {
@@ -400,7 +400,7 @@ router.post(
                 })
             }
 
-            const decryptedData = await decryptCredentialData(credential.encryptedData)
+            const decryptedData = await decryptCredentialData(credential.encryptedData, undefined, undefined, ['credential', credential.id])
 
             const { clientId, clientSecret, refresh_token, accessTokenUrl, scope } = decryptedData
 
@@ -467,7 +467,7 @@ router.post(
                 updatedCredentialData.expires_at = expiryTime.toISOString()
             }
 
-            const encryptedData = await encryptCredentialData(updatedCredentialData)
+            const encryptedData = await encryptCredentialData(updatedCredentialData, ['credential', credential.id])
             const appServer = getRunningExpressApp()
             await appServer.AppDataSource.getRepository(Credential).update(credential.id, {
                 encryptedData,
