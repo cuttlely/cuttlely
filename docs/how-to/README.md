@@ -2,7 +2,7 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
-## Upcoming · New in 1.7.15
+## New in 1.7.15
 
 -   Install on ephemeral disks, update an existing PostgreSQL service, or migrate a SQLite installation. Compare PostgreSQL-only with an optional S3-compatible bucket. [Upgrade and rollback](./postgres-side-stores.md).
 
