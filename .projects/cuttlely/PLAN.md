@@ -40,6 +40,8 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 Version 1.7.14 includes the internal PostgreSQL ETL backend and store gate. Backend selection and consolidation of the remaining stores are still open. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
 
+The [disk storage inventory](../../docs/reference/disk-storage-inventory.md) maps application, workflow and runtime SQLite files, server settings and credentials to their writers and retention requirements. Compare a private metadata inventory before and after each overall upgrade test. The ETL store gate queues already-admitted writes before draining and allows subsequent calls after a failed statement. A regression covers both behaviors.
+
 -   **1.7.12 release (published).** Published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. Release notes are dated `## [1.7.12] - 2026-11-21` and cover the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Runtime admission was still open at this release and shipped in 1.7.13 ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
 
 -   **1.7.11 release (published).** Published as `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)), tagged `v1.7.11`. Release notes are dated `## [1.7.11] - 2026-11-21` and cover the startup tools/list fix from #543 (`4afa3009aa11709673f9e0207263fa081faf526e`, #542). Runtime admission was still open at this release and shipped in 1.7.13 ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
