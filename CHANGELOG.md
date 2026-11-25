@@ -10,6 +10,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Pausing, cancelling or resuming a knowledge pipeline run, and starting a queued run, now change the run's status only if it hasn't changed since it was read, the same way restart recovery already does. A stop or finish that lands at the same moment is kept, and the request reports the run's current status instead of overwriting it. There's no change in behavior with the default store.
 
+### Fixed
+
+-   The setup page shows `npx cuttlely logs` as a way to find the setup code, and the local sign-in page uses **Sign in** consistently. [#533](https://github.com/cuttlely/cuttlely/issues/533).
+-   Import & verify shows the result status once in its alert. [#534](https://github.com/cuttlely/cuttlely/issues/534).
+
 ## [1.7.13] - 2026-11-23
 
 ### Changed

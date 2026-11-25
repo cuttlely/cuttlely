@@ -270,7 +270,13 @@ const ImportVerifyDialog = ({
                     ) : null}
                     {record && (
                         <Alert severity={record.status === 'ready' ? 'success' : record.status === 'attention' ? 'warning' : 'info'}>
-                            <strong>{title}.</strong> {record.summary || progressLine(record)}
+                            {record.summary?.startsWith(`${title}.`) ? (
+                                record.summary
+                            ) : (
+                                <>
+                                    <strong>{title}.</strong> {record.summary || progressLine(record)}
+                                </>
+                            )}
                         </Alert>
                     )}
                     {unresolved.map((slot) => (
