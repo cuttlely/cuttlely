@@ -3,8 +3,10 @@
 import './loadServerEnv'
 import { applyAdminSettings, StartState } from './apply'
 import { initPostgresSettings, postgresSettings } from './postgres'
+import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { settingsDir } from './store'
 
+if (requiresEncryptionKeyOverride(process.env)) guardedEncryptionKeyOverwrite(process.env)
 const dir = settingsDir()
 initPostgresSettings(dir, process.env)
 

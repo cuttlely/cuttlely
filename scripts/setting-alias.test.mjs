@@ -5,6 +5,7 @@ import {
     encryptionKeyConflict,
     encryptionKeyOverwrite,
     fileSizeLimit,
+    guardedEncryptionKeyOverwrite,
     partnerIsSet,
     readSettingAlias,
     telemetryDisabled
@@ -12,6 +13,17 @@ import {
 
 const OLD_KEY = 'existing-name-value'
 const NEW_KEY = 'product-name-value'
+
+test('the opt-in encryption key guard refuses missing or blank overrides without printing values', () => {
+    const guard = { CUTTLELY_REQUIRE_KEY_OVERRIDE: 'true' }
+    for (const key of [undefined, '', '  ']) {
+        assert.throws(() => guardedEncryptionKeyOverwrite({ ...guard, CUTTLELY_SECRETKEY_OVERWRITE: key }), {
+            code: 'ENCRYPTION_KEY_OVERRIDE_REQUIRED'
+        })
+    }
+    assert.equal(guardedEncryptionKeyOverwrite({ ...guard, FLOWISE_SECRETKEY_OVERWRITE: OLD_KEY }), OLD_KEY)
+    assert.equal(guardedEncryptionKeyOverwrite({}), undefined)
+})
 
 test('encryption key: existing name only, product name only, both equal, both different', () => {
     assert.equal(encryptionKeyOverwrite({ FLOWISE_SECRETKEY_OVERWRITE: OLD_KEY }), OLD_KEY)

@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Installations can opt in to requiring a nonblank host encryption key and verifying it against the application database at startup. [#527](https://github.com/cuttlely/cuttlely/issues/527).
+
 ### Changed
 
 -   Operators can set 1–6 ad hoc SQL attempts per specialist turn under Server settings → Agent runtime. The default is 2. The trace shows usage and exhaustion. Saved queries use no ad hoc attempts. [#566](https://github.com/cuttlely/cuttlely/issues/566).

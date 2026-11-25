@@ -66,6 +66,7 @@ services:
             # Absent is omitted; explicit empty/none/JSON is preserved.
             CUTTLELY_INSTANCE_OPERATOR:
             CUTTLELY_SERVER_SETTINGS_POSTGRES_URL:
+            CUTTLELY_REQUIRE_KEY_OVERRIDE:
             # Blank is off. true lets every active user who already has a password sign in when AuthKit is off.
             CUTTLELY_LOCAL_USERS: ${CUTTLELY_LOCAL_USERS:-}
             # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).

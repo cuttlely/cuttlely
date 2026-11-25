@@ -65,6 +65,20 @@ function encryptionKeyOverwrite(env) {
     return readSettingAlias(env, SECRET_KEY_ALIAS, SECRET_KEY_EXISTING)
 }
 
+function requiresEncryptionKeyOverride(env) {
+    return /^(1|true)$/i.test(env?.CUTTLELY_REQUIRE_KEY_OVERRIDE?.trim() ?? '')
+}
+
+function guardedEncryptionKeyOverwrite(env) {
+    const key = encryptionKeyOverwrite(env)
+    if (requiresEncryptionKeyOverride(env) && !key?.trim()) {
+        const error = new Error('CUTTLELY_REQUIRE_KEY_OVERRIDE requires a nonblank installation encryption-key override.')
+        error.code = 'ENCRYPTION_KEY_OVERRIDE_REQUIRED'
+        throw error
+    }
+    return key
+}
+
 function fileSizeLimit(env, fallback = '50mb') {
     return readSettingAlias(env, FILE_SIZE_ALIAS, FILE_SIZE_EXISTING) || fallback
 }
@@ -89,6 +103,8 @@ module.exports = {
     partnerIsSet,
     encryptionKeyConflict,
     encryptionKeyOverwrite,
+    requiresEncryptionKeyOverride,
+    guardedEncryptionKeyOverwrite,
     fileSizeLimit,
     telemetryDisabled
 }

@@ -27,7 +27,7 @@ import {
     safeOrderKeys,
     stripPageColumns
 } from './analyst-page.mjs'
-import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
+import { encryptionKeyConflict, guardedEncryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
 import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 import {
     SCOPE_NONE_LEFT,
@@ -657,7 +657,7 @@ async function encryptionKey(env) {
     const conflict = encryptionKeyConflict(env)
     if (conflict) throw new Error(conflict)
     // Trim, as this reader already did. The server keeps the raw overwrite, including spaces.
-    const overwrite = clean(encryptionKeyOverwrite(env))
+    const overwrite = clean(guardedEncryptionKeyOverwrite(env))
     if (overwrite) return overwrite
     if (clean(env.SECRETKEY_STORAGE_TYPE).toLowerCase() === 'aws') {
         throw new Error(

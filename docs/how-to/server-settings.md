@@ -67,6 +67,8 @@ From a built checkout, run `pnpm keys:inventory` with the deployment's environme
 
 A blocked report means the inspection could not read or identify part of the current installation. The report is an inventory. Continue to use the current encryption key until a migration and rollback workflow is available.
 
+On an installation with a host-supplied encryption key, set `CUTTLELY_REQUIRE_KEY_OVERRIDE=true` on the server and queue workers to refuse a missing or blank override. Back up the application database and confirm that credentials work with the current key before enabling the guard. The first guarded start records an encrypted verifier in the application database using the supplied key. Later starts refuse a different key. If the guard is off, a mismatch with an existing verifier produces a warning. Recover by restoring the original key from your deployment secret or backup.
+
 ## Test connection
 
 **Analyst**, **Storage** and **Models & keys** have a **Test connection** card that tries the values on the page before you save:
