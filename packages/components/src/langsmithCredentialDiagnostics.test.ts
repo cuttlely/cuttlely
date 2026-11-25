@@ -23,9 +23,11 @@ describe('langSmithClientConfig with quoted keys', () => {
 
     it('handles a long run of nested quotes in linear time', () => {
         const raw = '"'.repeat(200_000) + 'k' + '"'.repeat(200_000)
-        const started = Date.now()
+        // This checks the normalization work, independently of time the CI scheduler deschedules the worker.
+        const started = process.cpuUsage()
         expect(langSmithClientConfig(raw, undefined)?.apiKey).toBe('k')
-        expect(Date.now() - started).toBeLessThan(1000)
+        const elapsed = process.cpuUsage(started)
+        expect(elapsed.user + elapsed.system).toBeLessThan(1_000_000)
     })
 
     it.each(['""', '" "', '"\'\'"', '\' " " \''])('gives no client for %s', (raw) => {

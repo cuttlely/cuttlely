@@ -230,7 +230,7 @@ describe('POST /api/v1/oauth2-credential/refresh/:credentialId', () => {
         expect(wire).not.toContain(refreshToken)
         expect(wire).not.toContain(providerSecret)
         expect(wire).not.toContain('client-secret-value')
-        expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ access_token: accessToken }))
+        expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ access_token: accessToken }), ['credential', 'cred-1'])
         expect(update).toHaveBeenCalledWith('cred-1', expect.objectContaining({ encryptedData: 'encrypted' }))
         expect(mockDecrypt.mock.invocationCallOrder[0]).toBeLessThan(mockSecureAxiosRequest.mock.invocationCallOrder[0])
     })
