@@ -1,3 +1,7 @@
+import { publishedSessionScope } from './session-scope.mjs'
+import { assertStorageReady } from './side-store-maintenance.mjs'
+import { dropDraftPostgres, harnessUsesPostgres, openHarnessPostgres } from './side-store-postgres.mjs'
+import { SESSION_SCHEMA } from './side-store-schema.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -65,43 +69,23 @@ function dbPath(harnessName, scope, create) {
 const connections = new Map()
 
 function connection(harnessName, { create, scope }) {
-    const file = dbPath(harnessName, scope, create)
+    assertStorageReady()
+    const postgres = harnessUsesPostgres()
+    const diskPath = dbPath(harnessName, scope, postgres ? false : create)
+    const identity = postgres && scope === undefined ? publishedSessionScope(harnessName) : 'draft:' + scope
+    const file = postgres ? identity : diskPath
     const cached = connections.get(file)
     if (cached) {
-        if (fs.existsSync(file)) return cached
+        if (postgres || fs.existsSync(file)) return cached
         closeConnection(file)
     }
-    if (!create && !fs.existsSync(file)) return null
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    const db = new DatabaseSync(file)
-    db.exec(`
-        PRAGMA journal_mode = WAL;
+    if (!postgres && !create && !fs.existsSync(file)) return null
+    if (!postgres) fs.mkdirSync(path.dirname(file), { recursive: true })
+    const db = postgres ? openHarnessPostgres(identity) : new DatabaseSync(file)
+    if (!postgres)
+        db.exec(`PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_key TEXT PRIMARY KEY,
-            harness_name TEXT NOT NULL,
-            chat_id TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_key TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS messages_session ON messages (session_key, id);
-        CREATE TABLE IF NOT EXISTS memory (
-            session_key TEXT PRIMARY KEY,
-            summary TEXT NOT NULL,
-            pins TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS answer_context (
-            session_key TEXT PRIMARY KEY,
-            selections TEXT NOT NULL
-        );
-    `)
+        ${SESSION_SCHEMA}`)
     const entry = {
         db,
         ensure: db.prepare(
@@ -121,7 +105,7 @@ function connection(harnessName, { create, scope }) {
              ON CONFLICT(session_key) DO UPDATE SET summary = excluded.summary, pins = excluded.pins, updated_at = excluded.updated_at`
         ),
         userTurns: db.prepare(
-            `SELECT m.content AS content, m.created_at AS createdAt, m.id AS id
+            `SELECT m.content AS content, m.created_at AS "createdAt", m.id AS id
              FROM messages m
              JOIN sessions s ON s.session_key = m.session_key
              WHERE s.harness_name = ? AND m.role = 'user'
@@ -149,7 +133,13 @@ export function closeSessions() {
 
 // Called only after the owning canvas delete commits. This state is never served by the runtime.
 export function removeDraftSessions(canvas) {
+    assertStorageReady()
     const scope = draftSessionScope(canvas)
+    if (harnessUsesPostgres()) {
+        closeConnection('draft:' + scope)
+        dropDraftPostgres(scope)
+        return
+    }
     const file = dbPath('', scope, false)
     closeConnection(file)
     fs.rmSync(path.dirname(file), { recursive: true, force: true })
@@ -309,7 +299,7 @@ export function listUserTurns(harnessName, { limit = 2000 } = {}) {
     const cap = Number.isFinite(limit) ? Math.min(5000, Math.max(1, Math.floor(limit))) : 2000
     if (!entry.userTurns) {
         entry.userTurns = entry.db.prepare(
-            `SELECT m.content AS content, m.created_at AS createdAt, m.id AS id
+            `SELECT m.content AS content, m.created_at AS "createdAt", m.id AS id
              FROM messages m
              JOIN sessions s ON s.session_key = m.session_key
              WHERE s.harness_name = ? AND m.role = 'user'

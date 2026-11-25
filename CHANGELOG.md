@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Instance Operators on PostgreSQL can inventory, back up, verify and move ETL, vector, agent team and Dashflows stores from Server Settings. [Upgrade and rollback guide](docs/how-to/postgres-side-stores.md).
+
 ## [1.7.14] - 2026-11-25
 
 ### Added

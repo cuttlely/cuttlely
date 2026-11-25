@@ -11,7 +11,7 @@ import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
 import { registerAppCredentialSource } from './utils/credentialSource'
-import { registerAppStoreSource } from './utils/appStoreSource'
+import { closeSideStores, registerAppStoreSource, sideStoreAdmission } from './utils/appStoreSource'
 import { initAuthSecrets } from './identity/authSecrets'
 import { applyAuthKitSwitchOnBoot } from './identity/production'
 import { applyInitialOwnerOnBoot } from './identity/initialOwner'
@@ -227,7 +227,7 @@ export class App {
 
             logger.info('🎉 [server]: All initialization steps completed successfully!')
         } catch (error) {
-            if (error instanceof InstallationKeyGuardError) throw error
+            if (error instanceof InstallationKeyGuardError || (error as { code?: string })?.code === 'STORAGE_START_FAILED') throw error
             this.initError = error
             if (!logUnsupportedFlowiseUpgrade(error, logger)) {
                 logger.error('❌ [server]: Error during Data Source initialization:', error)
@@ -267,6 +267,7 @@ export class App {
 
         // While shutting down, new requests get 503 with Retry-After (settings/runs.ts shutdownDrain).
         this.app.use(refuseWhileShuttingDown)
+        this.app.use(sideStoreAdmission)
 
         // Parse cookies
         this.app.use(cookieParser())
@@ -550,6 +551,7 @@ export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void
     if (serverApp) await serverApp.stopApp()
     await shutdownCuttlelyTraces()
     try {
+        await closeSideStores()
         if (serverApp?.AppDataSource.isInitialized) await serverApp.AppDataSource.destroy()
     } catch (error) {
         logger.error(`❌[server]: Closing the database failed: ${error}`)

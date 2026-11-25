@@ -1,3 +1,5 @@
+import { storagePaused } from './side-store-maintenance.mjs'
+import { SCHEDULE_SCHEMA } from './side-store-schema.mjs'
 import { HarnessError } from './errors.mjs'
 import { assertTimeZone, nextCronRun } from './cron.mjs'
 import { database, immediate } from './lock.mjs'
@@ -9,25 +11,8 @@ export const SCHEDULE_INPUT_LIMIT = 4000
 const STATUSES = new Set(['active', 'paused'])
 
 function ensure(db) {
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS harness_schedules (
-            harness_name TEXT PRIMARY KEY,
-            workspace_id TEXT NOT NULL,
-            cron TEXT NOT NULL,
-            timezone TEXT NOT NULL,
-            input TEXT NOT NULL,
-            owner_id TEXT NOT NULL,
-            status TEXT NOT NULL,
-            next_run_at INTEGER,
-            last_run_id TEXT,
-            last_run_at INTEGER,
-            last_result TEXT,
-            last_reason TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS harness_schedules_due ON harness_schedules (status, next_run_at);
-    `)
+    if (db.dialect === 'postgres') return
+    db.exec(SCHEDULE_SCHEMA)
 }
 
 function iso(ms) {
@@ -189,7 +174,7 @@ export function releaseClaim(name, { dueAt, claimedNext = null, lastResult = nul
         changes = db
             .prepare(
                 `UPDATE harness_schedules SET next_run_at = ?, last_result = ?, last_reason = ?, updated_at = ?
-                 WHERE harness_name = ? AND status = 'active' AND next_run_at IS ?`
+                 WHERE harness_name = ? AND status = 'active' AND next_run_at IS NOT DISTINCT FROM ?`
             )
             .run(Date.parse(dueAt), lastResult, lastReason, now.getTime(), harnessName, claimedNext).changes
     })
@@ -206,7 +191,7 @@ export function recordScheduleTick(name, { claimedNext = null, runId = null, res
             `UPDATE harness_schedules
              SET last_result = ?, last_reason = ?, updated_at = ?,
                  last_run_id = COALESCE(?, last_run_id), last_run_at = CASE WHEN ? IS NULL THEN last_run_at ELSE ? END
-             WHERE harness_name = ? AND next_run_at IS ?`
+             WHERE harness_name = ? AND next_run_at IS NOT DISTINCT FROM ?`
         ).run(
             String(result || '').slice(0, 32),
             reason ? String(reason).slice(0, 300) : null,
@@ -244,6 +229,7 @@ export function recordScheduledRunSettled(name, runId, result) {
 const OPEN_RUNS = new Set(['queued', 'running'])
 const inFlight = new Set()
 let ticking = false
+export const scheduleBusy = () => ticking
 
 /**
  * Starts every due, active schedule once. Each due time is claimed first, so only one process acts on it. A schedule
@@ -263,6 +249,7 @@ export async function tickSchedules({
     log = () => {},
     stopping = () => false
 } = {}) {
+    if (storagePaused()) return
     if (ticking) return []
     ticking = true
     const outcomes = []

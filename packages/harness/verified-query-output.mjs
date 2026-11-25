@@ -1,3 +1,4 @@
+import { harnessUsesPostgres } from './side-store-postgres.mjs'
 import { existsSync } from 'node:fs'
 import { database, immediate, queueDbPath } from './lock.mjs'
 import { specialistSessionId } from './specialist-run.mjs'
@@ -13,8 +14,10 @@ export function guardedQueryLimit(env = process.env) {
 
 // Retain completed turns for late calls. Active leases are never evicted by other traffic.
 function pruneFinished(db) {
+    const key = db.dialect === 'postgres' ? 'position' : 'rowid'
+    const limit = db.dialect === 'postgres' ? '' : 'LIMIT -1'
     db.prepare(
-        'DELETE FROM guarded_query_turns WHERE rowid IN (SELECT rowid FROM guarded_query_turns WHERE session_key IS NULL ORDER BY rowid DESC LIMIT -1 OFFSET 2000)'
+        `DELETE FROM guarded_query_turns WHERE ${key} IN (SELECT ${key} FROM guarded_query_turns WHERE session_key IS NULL ORDER BY ${key} DESC ${limit} OFFSET 2000)`
     ).run()
 }
 
@@ -41,7 +44,9 @@ export function admitGuardedQueryAttempt(profileName, sourceTurn) {
     return immediate((db) => {
         // Standalone gateway callers have no managed turn. Their first call fixes the allowance.
         const inserted = db
-            .prepare('INSERT OR IGNORE INTO guarded_query_turns (profile, source_turn, attempt_limit) VALUES (?, ?, ?)')
+            .prepare(
+                'INSERT INTO guarded_query_turns (profile, source_turn, attempt_limit) VALUES (?, ?, ?) ON CONFLICT(profile, source_turn) DO NOTHING'
+            )
             .run(profileName, sourceTurn, guardedQueryLimit())
         if (inserted.changes) pruneFinished(db)
         const changed = db
@@ -57,7 +62,8 @@ export function reserveGuardedQueryAttempt(profileName, sourceTurn) {
 }
 
 export function forgetGuardedQueryAttempts(profileName) {
-    if (existsSync(queueDbPath())) database().prepare('DELETE FROM guarded_query_turns WHERE profile = ?').run(profileName)
+    if (harnessUsesPostgres() || existsSync(queueDbPath()))
+        database().prepare('DELETE FROM guarded_query_turns WHERE profile = ?').run(profileName)
 }
 
 export function verifiedSourceTurn(profileName, sourceTurn) {

@@ -7,11 +7,13 @@ import { INode, INodeData, INodeOutputsValue, INodeParams, IndexingResult } from
 import { getBaseClasses } from '@cuttlely/components/utils'
 import { loadEtlModule } from '@cuttlely/components/etl-engine'
 
+type SearchHit = { pageContent: string; metadata: Record<string, any>; score: number }
+
 type LocalStore = {
     collection: string
-    upsert(ids: string[], vectors: Float32Array[], docs: { pageContent: string; metadata: Record<string, any> }[]): void
-    delete(ids: string[]): void
-    search(vector: Float32Array, k: number): { pageContent: string; metadata: Record<string, any>; score: number }[]
+    upsert(ids: string[], vectors: Float32Array[], docs: { pageContent: string; metadata: Record<string, any> }[]): void | Promise<void>
+    delete(ids: string[]): void | Promise<unknown>
+    search(vector: Float32Array, k: number): SearchHit[] | Promise<SearchHit[]>
 }
 
 // Content-addressed ids make a repeated upsert of the same documents overwrite instead of duplicate.
@@ -25,11 +27,15 @@ function contentId(collection: string, doc: Document): string {
 
 export class CuttlelyLocalVectorStore extends VectorStore {
     declare FilterType: object
-    store: LocalStore
+    private readonly currentStore: () => LocalStore
 
-    constructor(embeddings: Embeddings, store: LocalStore) {
+    get store(): LocalStore {
+        return this.currentStore()
+    }
+
+    constructor(embeddings: Embeddings, store: LocalStore | (() => LocalStore)) {
         super(embeddings, {})
-        this.store = store
+        this.currentStore = typeof store === 'function' ? store : () => store
     }
 
     _vectorstoreType(): string {
@@ -38,7 +44,7 @@ export class CuttlelyLocalVectorStore extends VectorStore {
 
     async addVectors(vectors: number[][], documents: Document[], options?: { ids?: string[] }): Promise<string[]> {
         const ids = options?.ids?.length ? options.ids : documents.map((doc) => contentId(this.store.collection, doc))
-        this.store.upsert(
+        await this.store.upsert(
             ids,
             vectors.map((vector) => Float32Array.from(vector)),
             documents.map((doc) => ({ pageContent: doc.pageContent, metadata: doc.metadata || {} }))
@@ -52,13 +58,12 @@ export class CuttlelyLocalVectorStore extends VectorStore {
     }
 
     async delete(params?: { ids?: string[] }): Promise<void> {
-        if (params?.ids?.length) this.store.delete(params.ids)
+        if (params?.ids?.length) await this.store.delete(params.ids)
     }
 
     async similaritySearchVectorWithScore(query: number[], k: number): Promise<[Document, number][]> {
-        return this.store
-            .search(Float32Array.from(query), k)
-            .map((hit) => [new Document({ pageContent: hit.pageContent, metadata: hit.metadata }), hit.score] as [Document, number])
+        const hits = await this.store.search(Float32Array.from(query), k)
+        return hits.map((hit) => [new Document({ pageContent: hit.pageContent, metadata: hit.metadata }), hit.score] as [Document, number])
     }
 }
 
@@ -160,7 +165,7 @@ async function openVectorStore(nodeData: INodeData): Promise<CuttlelyLocalVector
     const collection = (nodeData.inputs?.collection as string) || ''
     if (!collection.trim()) throw new Error('Name the Local Vector Store collection, for example the ETL pipeline name.')
     const stores = await loadEtlModule('stores.mjs')
-    return new CuttlelyLocalVectorStore(embeddings, stores.LocalVectorStore.open(collection))
+    return new CuttlelyLocalVectorStore(embeddings, () => stores.LocalVectorStore.open(collection))
 }
 
 module.exports = { nodeClass: EtlLocalVectorStore_VectorStores }

@@ -1,3 +1,6 @@
+import { assertStorageReady } from './side-store-maintenance.mjs'
+import { harnessUsesPostgres, openHarnessPostgres, tryProfileLease, releaseProfileLease } from './side-store-postgres.mjs'
+import { QUEUE_SCHEMA } from './side-store-schema.mjs'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,54 +20,20 @@ export function queueDbPath() {
 }
 
 export function database() {
+    assertStorageReady()
+    if (cached && (cached.dialect === 'postgres') !== harnessUsesPostgres()) closeQueueDb()
     if (cached) return cached
+    if (harnessUsesPostgres()) {
+        cached = openHarnessPostgres('queue')
+        return cached
+    }
     const file = queueDbPath()
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const db = new DatabaseSync(file)
-    db.exec(`
-        PRAGMA journal_mode = WAL;
+    db.exec(`PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         PRAGMA busy_timeout = 5000;
-        CREATE TABLE IF NOT EXISTS turns (
-            session_key TEXT PRIMARY KEY,
-            owner TEXT NOT NULL,
-            expires_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS guarded_query_turns (
-            profile TEXT NOT NULL,
-            source_turn TEXT NOT NULL,
-            session_key TEXT REFERENCES turns(session_key) ON DELETE SET NULL,
-            attempt_limit INTEGER NOT NULL,
-            used INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (profile, source_turn)
-        );
-        CREATE INDEX IF NOT EXISTS guarded_query_session ON guarded_query_turns(session_key);
-        CREATE TABLE IF NOT EXISTS try_profile_turns (
-            scope TEXT PRIMARY KEY,
-            owner TEXT NOT NULL,
-            pid INTEGER NOT NULL,
-            started_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS jobs (
-            id TEXT PRIMARY KEY,
-            session_key TEXT NOT NULL,
-            status TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            result TEXT,
-            error_code TEXT,
-            error_message TEXT,
-            cancel_requested INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS jobs_claim ON jobs (status, created_at);
-        CREATE TABLE IF NOT EXISTS job_events (
-            job_id TEXT NOT NULL,
-            seq INTEGER NOT NULL,
-            event TEXT NOT NULL,
-            PRIMARY KEY (job_id, seq)
-        );
-    `)
+        ${QUEUE_SCHEMA}`)
     cached = db
     return db
 }
@@ -97,7 +66,7 @@ function expiresAt(now) {
 
 function isConstraint(error) {
     const code = String(error?.code || '')
-    return code.includes('CONSTRAINT') || /unique|constraint/i.test(String(error?.message || ''))
+    return code === '23505' || code.includes('CONSTRAINT') || /unique|constraint/i.test(String(error?.message || ''))
 }
 
 export function immediate(fn) {
@@ -196,7 +165,15 @@ export function turnBusyError() {
 // A fixed try path is shared by canvas and replay workers, possibly in different processes. Unlike the
 // chat lease, this mutex never expires while its owner is alive: a long turn must not be cut short.
 export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
+    assertStorageReady()
     const owner = `${process.pid}:${randomUUID()}`
+    if (harnessUsesPostgres()) {
+        while (!tryProfileLease(scope, owner)) {
+            if (!wait) throw new HarnessError('busy', BUSY_MESSAGE)
+            await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        return { scope, owner, postgres: true }
+    }
     const startedAt = processStartTicks(process.pid)
     for (;;) {
         const acquired = immediate((db) => {
@@ -227,5 +204,6 @@ export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
 }
 
 export function releaseTryProfileTurn(held) {
+    if (held?.postgres) return releaseProfileLease(held.owner)
     database().prepare('DELETE FROM try_profile_turns WHERE scope = ? AND owner = ?').run(held.scope, held.owner)
 }

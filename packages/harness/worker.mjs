@@ -1,3 +1,4 @@
+import { startWorkerStorage } from './worker-storage.mjs'
 import { bootHarnessNodePool } from './node-pool.mjs'
 import { queueMode, setWorkerContext, startWorkerLoop } from './queue.mjs'
 
@@ -8,6 +9,7 @@ if (queueMode() !== 'external') {
     process.exit(1)
 }
 
+const closeStorage = await startWorkerStorage()
 const booted = await bootHarnessNodePool()
 if (booted.ready) {
     setWorkerContext(booted.contextFor)
@@ -22,4 +24,8 @@ const worker = startWorkerLoop()
 const shutdown = () => worker.stop()
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
-await worker.finished
+try {
+    await worker.finished
+} finally {
+    await closeStorage?.()
+}

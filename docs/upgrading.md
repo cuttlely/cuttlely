@@ -1,5 +1,7 @@
 # Upgrading Cuttlely
 
+PostgreSQL hosts can move application-owned SQLite side stores from Server Settings. [Operator upgrade and rollback guide](./how-to/postgres-side-stores.md).
+
 An upgrade has three steps: back up, upgrade, and check. If something goes wrong, you roll back by restoring the backup and starting the version you had before.
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.

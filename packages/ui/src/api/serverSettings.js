@@ -26,6 +26,8 @@ const getOperator = () => client.get('/server-settings/operator')
 const operatorAction = (action, body) => client.post(`/server-settings/operator/${action}`, body)
 
 export default {
+    storageStatus: () => client.get('/server-settings/storage'),
+    changeStorage: (action, body) => client.post('/server-settings/storage/' + action, body, { timeout: 0 }),
     getOperator,
     operatorAction,
     getSettings,

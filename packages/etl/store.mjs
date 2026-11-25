@@ -51,6 +51,29 @@ export function useBackend(newBackend) {
     backend = newBackend
 }
 
+export function postgresVectorCollection(collection) {
+    checkGate()
+    return backend?.vectors?.(collection)
+}
+
+export function sharedExecution() {
+    return Boolean(backend?.tryLease)
+}
+export function tryLease(key) {
+    checkGate()
+    return backend.tryLease(key)
+}
+async function pipelineWork(id, fn) {
+    if (!sharedExecution()) return fn()
+    let release
+    while (!(release = await tryLease('pipeline:' + id))) await new Promise((resolve) => setTimeout(resolve, 50))
+    try {
+        return await fn()
+    } finally {
+        await release()
+    }
+}
+
 export function backendName() {
     return backend ? 'postgres' : 'sqlite'
 }
@@ -134,7 +157,7 @@ const pipelineLocks = new Map()
 
 export function withPipelineLock(pipelineId, fn) {
     const key = String(pipelineId)
-    const result = (pipelineLocks.get(key) || Promise.resolve()).then(() => fn())
+    const result = (pipelineLocks.get(key) || Promise.resolve()).then(() => pipelineWork(key, fn))
     const settled = result.then(
         () => {},
         () => {}

@@ -16,6 +16,8 @@ SECRETS = {"jwt-issuer", "jwt-audience", "setup-instance.id", ".env"}
 CONFIG = {".conf", ".ini", ".toml", ".json", ".jsonl", ".yaml", ".yml", ".cfg"}
 
 def category(path):
+    if "side-store-backups" in path.parts:
+        return "side-store upgrade backup; retain for recovery"
     name = path.name.lower()
     normalized = path.as_posix().lower()
     base = re.sub(r"-(wal|shm|journal)$|\.migrated$", "", name)
