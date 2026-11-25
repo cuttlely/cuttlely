@@ -38,9 +38,9 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 ## Next concrete tasks
 
-Version 1.7.14 includes the internal PostgreSQL ETL backend and store gate. The upgrade branch adds verified backend selection for ETL, vectors, published/draft sessions, the queue and Dashflows. The [operator guide](../../docs/how-to/postgres-side-stores.md) covers the default-off switch, multi-instance maintenance, retained SQLite files and rollback. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
+PostgreSQL application storage includes the verified SQLite primary copy, ETL and vector stores, agent teams, settings and credentials, uploads, and current and historical flow versions. The [operator guide](../../docs/how-to/postgres-side-stores.md) covers fresh installs, existing PostgreSQL installs, SQLite migration, optional S3-compatible file storage, host-file dependencies and rollback. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
 
-Branch tests exercised interruption and resume, empty-volume access from another process, incremental indexing with zero new embeddings, and operator upgrade and rollback through the Server Settings UI.
+The [empty-disk regression](../../scripts/storage-replacement.test.mjs) passed locally and on a disposable hosted service for fresh PostgreSQL, existing PostgreSQL and migrated SQLite installations. Each replacement signed in, ran a prediction using a synthetic model, and used a saved credential and an attachment from a separate worker process. The S3-compatible upload and read checks used a local endpoint. The [migration tests](../../packages/etl/check/upgrade-control.test.mjs) also cover a missing object, a digest mismatch and a changed bucket.
 
 The [disk storage inventory](../../docs/reference/disk-storage-inventory.md) maps application, workflow and runtime SQLite files, server settings and credentials to their writers and retention requirements. Compare a private metadata inventory before and after each overall upgrade test. The ETL store gate queues already-admitted writes before draining and allows subsequent calls after a failed statement. A regression covers both behaviors.
 
