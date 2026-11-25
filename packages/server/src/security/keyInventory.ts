@@ -4,8 +4,9 @@ import path from 'path'
 import { parseFlow, queriesOnFlow, unreadableQueryNodes } from '../services/import-verify/stamps'
 import { fileValuesToApply, hostSetKeys } from '../settings/resolve'
 import { settingFor } from '../settings/registry'
+import { readLegacyCredential } from '../settings/credentialRewrap'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
-import { decryptSecret, encryptionKeySync, LAST_GOOD_FILE, SETTINGS_FILE } from '../settings/store'
+import { encryptionKeySync, LAST_GOOD_FILE, SETTINGS_FILE } from '../settings/store'
 import { PREVIOUS_DATABASE_FILE } from '../settings/database-summary'
 import { ROLLED_BACK_FILE } from '../settings/safeboot'
 import { AUTHKIT_PROOF_FILE } from '../settings/authkit-proof'
@@ -14,7 +15,6 @@ import { Env, Rows, optionalFile, scanApplicationDatabase, settingsDocuments } f
 const settingsFiles = [SETTINGS_FILE, LAST_GOOD_FILE, ROLLED_BACK_FILE, PREVIOUS_DATABASE_FILE]
 const digest = /^[a-f0-9]{64}$/
 const roleName = /^analyst_reader(?:_[a-f0-9]{10})?$/
-const saltedCiphertext = /^U2FsdGVkX1[A-Za-z0-9+/]+={0,2}$/
 const counts = () => ({ readable: 0, external: 0, unreadable: 0, requiresReissue: 0, requiresRetest: 0 })
 type Counts = ReturnType<typeof counts>
 
@@ -48,16 +48,6 @@ function json(text: string): Record<string, unknown> {
     return record(JSON.parse(text))
 }
 
-/** A strict legacy reader for diagnosis. Legacy CBC can demonstrate readability, not authenticity. */
-function decrypt(value: unknown, key: string): string {
-    if (typeof value !== 'string' || !saltedCiphertext.test(value)) throw new Error('Unknown ciphertext')
-    const bytes = Buffer.from(value, 'base64')
-    if (bytes.toString('base64') !== value || bytes.length < 32 || bytes.length % 16 !== 0) throw new Error('Invalid ciphertext')
-    const plain = decryptSecret(value, key)
-    if (plain === null) throw new Error('Unreadable ciphertext')
-    return plain
-}
-
 function inspect(counter: Counts, read: () => void): void {
     try {
         read()
@@ -79,7 +69,7 @@ function inspectSettings(docs: Map<string, string>, key: string, result: KeyInve
         try {
             const doc = json(raw)
             if (doc.version !== 1) throw new Error('Unknown settings format')
-            if (doc.keyCheck !== undefined && decrypt(doc.keyCheck, key) !== 'server-settings-key-check')
+            if (doc.keyCheck !== undefined && readLegacyCredential(doc.keyCheck, key) !== 'server-settings-key-check')
                 throw new Error('Wrong settings key')
             for (const [name, value] of Object.entries(record(doc.values))) {
                 const setting = settingFor(name)
@@ -88,7 +78,7 @@ function inspectSettings(docs: Map<string, string>, key: string, result: KeyInve
                 } else {
                     inspect(result.consumers.serverSettingsSecrets, () => {
                         if (setting?.type !== 'secret' || !doc.keyCheck) throw new Error('Unknown or unverified settings secret')
-                        const plain = decrypt(record(value).secret, key)
+                        const plain = readLegacyCredential(record(value).secret, key)
                         if (file === SETTINGS_FILE) active[name] = plain
                     })
                 }
@@ -110,7 +100,7 @@ function inspectSettings(docs: Map<string, string>, key: string, result: KeyInve
 }
 
 function checkAnalystRole(value: unknown, role: unknown, key: string): void {
-    const info = json(decrypt(value, key.trim()))
+    const info = json(readLegacyCredential(value, key.trim()))
     if (typeof role !== 'string' || !roleName.test(role) || info.role !== role || typeof info.password !== 'string' || !info.password) {
         throw new Error('Invalid Analyst role secret')
     }
@@ -162,19 +152,19 @@ async function inspectApplicationRows(rows: Rows, postgres: boolean, key: string
         if (typeof encryptedData === 'string' && /^FlowiseCredential_[A-Za-z0-9/_+=.@-]+$/.test(encryptedData)) c.credentials.external++
         else
             inspect(c.credentials, () => {
-                json(decrypt(encryptedData, key))
+                json(readLegacyCredential(encryptedData, key))
             })
     }
     for (const { authConfig } of await rows('SELECT "authConfig" FROM custom_mcp_server WHERE "authConfig" IS NOT NULL')) {
         if (!optionalSecret(authConfig))
             inspect(c.customMcpAuth, () => {
-                json(decrypt(authConfig, key))
+                json(readLegacyCredential(authConfig, key))
             })
     }
     for (const { flowData, webhookSecret } of await rows('SELECT "flowData", "webhookSecret" FROM chat_flow')) {
         if (!optionalSecret(webhookSecret))
             inspect(c.webhookSecrets, () => {
-                const value = json(decrypt(webhookSecret, key))
+                const value = json(readLegacyCredential(webhookSecret, key))
                 if (typeof value.secret !== 'string' || !value.secret) throw new Error('Invalid webhook secret')
             })
         inspectCanvas(flowData, c.pinnedQueryProofs)

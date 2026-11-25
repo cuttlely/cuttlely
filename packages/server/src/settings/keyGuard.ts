@@ -1,29 +1,22 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
 import type { DataSource } from 'typeorm'
+import { forCredentialGeneration, credentialEnvelopeGeneration, newCredentialGeneration } from './credentialEnvelope'
 import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { encryptionKeySync } from './store'
 
 const TABLE = 'cuttlely_installation_key'
-const LABEL = Buffer.from('cuttlely-installation-key-v1')
-const MARKER = /^[a-f0-9]{56}:[a-f0-9]{32}:[a-f0-9]+$/
+const LABEL = 'cuttlely-installation-key-v1'
+const CONTEXT = ['installation', 'encryption-key'] as const
 
 export class InstallationKeyGuardError extends Error {}
 
 function sealMarker(key: string): string {
-    const salt = randomBytes(16)
-    const iv = randomBytes(12)
-    const cipher = createCipheriv('aes-256-gcm', scryptSync(key, salt, 32), iv)
-    const data = Buffer.concat([cipher.update(LABEL), cipher.final()])
-    return [Buffer.concat([salt, iv]), cipher.getAuthTag(), data].map((part) => part.toString('hex')).join(':')
+    return forCredentialGeneration(key, newCredentialGeneration()).seal(LABEL, CONTEXT)
 }
 
 function matchesMarker(marker: unknown, key: string): boolean {
-    if (typeof marker !== 'string' || marker.length !== 90 + LABEL.length * 2 || !MARKER.test(marker)) return false
-    const [header, tag, data] = marker.split(':').map((part) => Buffer.from(part, 'hex'))
+    if (typeof marker !== 'string') return false
     try {
-        const decipher = createDecipheriv('aes-256-gcm', scryptSync(key, header.subarray(0, 16), 32), header.subarray(16))
-        decipher.setAuthTag(tag)
-        return Buffer.concat([decipher.update(data), decipher.final()]).equals(LABEL)
+        return forCredentialGeneration(key, credentialEnvelopeGeneration(marker)).open(marker, CONTEXT) === LABEL
     } catch {
         return false
     }
