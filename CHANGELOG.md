@@ -12,6 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Upgrade notes / breaking changes
 
 -   **Back up before deploying on an ephemeral host.** Preserve the entire original data directory, database, installation key and any separate settings store. Deploying an image or changing environment settings can replace the only copy of local data.
+-   **Existing Dashflows PostgreSQL pilot:** if `CUTTLELY_APP_DATABASE_STORES=1` is already set, supply the existing installation key and full PostgreSQL bootstrap settings on every host before updating. The flag now also selects durable server settings on a host-configured PostgreSQL installation. Missing host configuration can stop startup.
 -   A new PostgreSQL installation can activate database storage at first boot. Existing PostgreSQL installations require a verified side-store upgrade. Existing SQLite installations also require the primary application copy before switching. An ordinary SQLite update still needs its persistent volume. [Choose the procedure for your installation](docs/upgrading.md#upgrading-to-1715).
 -   After cutover, web servers and workers require the same durable services and host-provided key. Runtime-only sessions can restart empty. Missing legacy ETL inputs may require re-upload, and a SQLite Analyst workspace requires rerunning the analysis. Rollback restores the cutover snapshot. Preserve newer work separately before restoring. [Replacement test and rollback](docs/how-to/postgres-side-stores.md#prove-that-a-replacement-can-serve-traffic).
 
