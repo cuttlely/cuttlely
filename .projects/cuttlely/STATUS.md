@@ -1,3 +1,11 @@
+## 1.7.14 release
+
+The annotated tag `v1.7.14` points to the merged version commit `4ec0dca2`. Its tree matches the prepared candidate. The preparation run passed 29 verification steps on `2b7f28ed` and started the candidate image. The tagged workflow started the final image and published it. The tagged image and the registry’s `latest` image have the same digest. [Version PR #582](https://github.com/cuttlely/cuttlely/pull/582) · [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/45547335762) · [Image workflow](https://github.com/cuttlely/cuttlely/actions/runs/45554633679) · [GitHub release](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.14)
+
+The two npm packages publish 1.7.14 as `latest`. Their public tarballs match the registry integrity metadata and the READMEs at the release tag. [CLI launcher](https://www.npmjs.com/package/cuttlely/v/1.7.14) · [Chat widget](https://www.npmjs.com/package/@cuttlely/chat/v/1.7.14)
+
+The public website serves the 1.7.14 release and upgrade guidance. A hosted upgrade from 1.7.13 reported 1.7.14 with the database and agent runtime up and Analyst ready. The first isolated prediction failed. A fresh authenticated prediction completed a read-only Analyst query with `trustedOutputComplete=true`.
+
 ## Installation encryption key
 
 The opt-in startup guard refuses a missing host override and verifies the supplied key against the application database. Rotation stages an offline restore, binds encrypted records to their generation and identity, retires modern access-key digests on the staged copy, and retains the original deployment for rollback. A replacement restart requires the matching generation marker. [Operator procedure](../../docs/how-to/server-settings.md#rotate-the-installation-encryption-key).

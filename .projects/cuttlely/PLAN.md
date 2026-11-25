@@ -2,6 +2,8 @@
 
 ## Current release work
 
+Version 1.7.14 ships the staged installation-key rotation, optional startup key guard, configurable specialist SQL attempts, setup and sign-in fixes, and a single status in the import verification alert. [Release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.14) · [Verification and deployment](./STATUS.md#1714-release)
+
 Version [1.7.13](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13) is published at `4722923d`. It includes runtime recovery, admin limits, renewable chat locks, Try profile cleanup and direct chief execution in agent mode. Router mode remains the default. [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/45216230643) and [tagged image publication](https://github.com/cuttlely/cuttlely/actions/runs/45226518618) are complete.
 
 Closing a multiplexed profile releases its log and MCP stderr handles while siblings keep serving. Orchestrate and A2A refuse unavailable runtime execution before charging. Both tracked issues are closed. [Runtime cleanup #536](https://github.com/cuttlely/cuttlely/issues/536) · [Runtime admission #540](https://github.com/cuttlely/cuttlely/issues/540).
@@ -36,7 +38,7 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 ## Next concrete tasks
 
-For [credential-key rotation #570](https://github.com/cuttlely/cuttlely/issues/570), the release candidate stages SQLite or PostgreSQL restores with authenticated records and accepts a replacement generation only after inventory passes. The original deployment is retained for rollback. Version publication follows full verification and the protected release process.
+Version 1.7.14 includes the internal PostgreSQL ETL backend and store gate. Backend selection and consolidation of the remaining stores are still open. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
 
 -   **1.7.12 release (published).** Published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. Release notes are dated `## [1.7.12] - 2026-11-21` and cover the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Runtime admission was still open at this release and shipped in 1.7.13 ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
 
