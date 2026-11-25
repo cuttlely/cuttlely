@@ -1023,7 +1023,7 @@ export const SETTINGS: SettingDef[] = [
         type: 'select',
         options: [
             { value: 'local', label: 'This server' },
-            { value: 's3', label: 'S3 or compatible' },
+            { value: 's3', label: 'Amazon S3 or compatible (including IBM Cloud Object Storage)' },
             { value: 'gcs', label: 'Google Cloud Storage' },
             { value: 'azure', label: 'Azure Blob Storage' }
         ],
@@ -1081,7 +1081,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'storage',
         group: 'S3',
         label: 'Endpoint',
-        help: 'Only for S3-compatible services such as MinIO or R2.',
+        help: 'Use the bucket’s HTTPS endpoint for IBM Cloud Object Storage, MinIO or R2. Leave empty for the AWS regional endpoint.',
         type: 'text',
         defaultLabel: 'AWS',
         placeholder: 'https://...',

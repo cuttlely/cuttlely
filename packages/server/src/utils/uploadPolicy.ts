@@ -18,6 +18,8 @@ export interface UploadQuestionPart {
 }
 
 export interface UploadPolicy {
+    canCreatePredictionAttachment(): boolean
+    createPredictionAttachment(scope: { workspace: string; flow: string; chat: string }, parts: string[]): string
     uploadHasText(buffer: Buffer): boolean
     describeSpreadsheet(filename: string, buffer: Buffer): Promise<UploadShape>
     shouldStubUpload(input: { filename?: string; size?: number; rows?: number | null }): boolean

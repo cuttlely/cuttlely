@@ -72,7 +72,10 @@ if (require.main === module) {
             process.stderr.write(`${error.message}\n`)
             process.exit(3)
         }
-        if (host[POSTGRES_SETTINGS_URL]?.trim()) {
+        if (
+            host[POSTGRES_SETTINGS_URL]?.trim() ||
+            (host.DATABASE_TYPE === 'postgres' && ['1', 'true'].includes(host.CUTTLELY_APP_DATABASE_STORES || ''))
+        ) {
             process.stderr.write(
                 'Postgres server settings could not be loaded. Check the host connection and installation encryption key.\n'
             )

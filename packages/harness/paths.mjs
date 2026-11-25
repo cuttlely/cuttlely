@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+import { recordEntries } from './record-files.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -37,7 +37,7 @@ export function savedHarnessProfileIds() {
     const ids = new Set()
     let entries
     try {
-        entries = fs.readdirSync(harnessStoreDir())
+        entries = recordEntries()
     } catch (error) {
         if (error.code === 'ENOENT') return ids
         throw error

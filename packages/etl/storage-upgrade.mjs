@@ -1,3 +1,10 @@
+import { verifiedHostFiles } from './host-files.mjs'
+import { selectPredictionFiles } from '../harness/prediction-files.mjs'
+import { uploadsRoot } from './paths.mjs'
+import { selectEtlUploads } from './stored-uploads.mjs'
+import { openPostgresFiles } from './postgres-files.mjs'
+import { uploadEntries, inventoryUploads, copyUploads, matchingDurableUploads } from './migrate-uploads.mjs'
+import { copyHarnessRecords, harnessRecordInventory } from './migrate-harness-records.mjs'
 import { dataRoot } from '../harness/paths.mjs'
 import { publishedSessionScope } from '../harness/session-scope.mjs'
 import fs from 'node:fs'
@@ -19,7 +26,7 @@ import { hasActiveRuns } from './runner.mjs'
 import { LocalVectorStore } from './stores.mjs'
 import { missingPrivilege, openPostgresEtlStore } from './store-postgres.mjs'
 import { copyEtlSnapshot, copyHarnessSnapshot, copyVectorSnapshot, snapshotSqlite, sqliteFingerprint } from './migrate-postgres.mjs'
-import { discover, fileFor, inspectStore, inspectRuntime } from './upgrade-inventory.mjs'
+import { discover, etlDependencyContext, fileFor, inspectStore, inspectRuntime } from './upgrade-inventory.mjs'
 
 const control = 'cuttlely_storage.upgrade'
 const lock = "hashtextextended('cuttlely-side-store-instances',516)"
@@ -43,7 +50,14 @@ export async function startStorageUpgrade({
     log = console,
     config = harnessPgConfig(),
     enabled = appDatabaseStoresOn(),
-    worker = false
+    worker = false,
+    inspectDependencies,
+    fileRoots,
+    selectFiles,
+    predictionFiles,
+    blobTarget = 'postgres',
+    versionHistory,
+    newPostgresApplication = false
 }) {
     const member = await source.session()
     const q = async (sql, params = []) => (await member.execute(sql, params)).rows
@@ -95,27 +109,70 @@ export async function startStorageUpgrade({
     }
     async function activate() {
         closeStores()
+        await versionHistory?.select(state.phase === 'postgres' ? source : null)
         if (state.phase === 'postgres') {
             useBackend({ ...(await openPostgresEtlStore(source)), tryLease })
             configureHarnessPostgres(config)
+            const files = await openPostgresFiles(source)
+            selectEtlUploads(files, state.uploads, state.etlUploadRoot)
+            selectPredictionFiles(predictionFiles || files)
+            selectFiles?.(files)
             setDashStore(await openPostgresDashStore(source))
             if (!state.pilot) await registerSideSchema((sql, params = []) => member.execute(sql, params), 'cuttlely_dashflows')
         } else {
             useBackend(null)
             configureHarnessPostgres(null)
+            selectEtlUploads(null)
+            selectPredictionFiles(predictionFiles || null)
+            selectFiles?.(null)
             if (state.pilot) setDashStore(await openPostgresDashStore(source))
         }
     }
     async function status() {
-        const { stores, local } = discover()
+        const {
+            stores,
+            local,
+            temporary: runtimeCaches,
+            unresolved
+        } = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
         const inventory = stores.map(inspectStore)
-        const requiredBytes = inventory.filter((s) => !s.retired).reduce((n, s) => n + s.bytes * 2, 0)
+        const records = state.phase === 'sqlite' ? harnessRecordInventory() : state.records || []
+        const uploads = state.phase === 'sqlite' ? uploadEntries(fileRoots) : state.uploads || []
+        const uploadBytes = uploads.reduce((n, entry) => n + entry.bytes, 0)
+        const recordBytes = records.reduce((n, record) => n + record.bytes, 0)
+        const versions = state.phase === 'sqlite' ? await versionHistory?.inspect() : state.versions
+        const versionBytes = versions?.bytes || 0
+        const requiredBytes =
+            versionBytes * 2 + uploadBytes + recordBytes + inventory.filter((s) => !s.retired).reduce((n, s) => n + s.bytes * 2, 0)
+        const { dependencies, rebuildable = [] } = inspectDependencies
+            ? await inspectDependencies(await etlDependencyContext(source, state))
+            : { dependencies: [] }
+        const temporary = [
+            ...(predictionFiles
+                ? [
+                      'Existing S3 objects stay in the selected bucket. Before upgrading, copy durable local uploads to their organization-scoped bucket keys. Temporary multipart requests must be sent again.'
+                  ]
+                : []),
+            'If the node manifest is missing, Cuttlely scans the installed node packages at startup. The first startup can take longer.',
+            'SQLite Analyst workspaces start empty in PostgreSQL. The first Analyst query creates the workspace. Rerun the chatflow or analysis to rebuild its tables.',
+            'If a pre-migration ETL upload is missing, upload its source file again in the affected pipeline and rerun it.',
+            ...runtimeCaches,
+            ...rebuildable
+        ]
+        if (!state.pilot && inventory.some((item) => item.kind === 'dash' && !item.retired && item.counts.dash_flow_query_cache > 0))
+            temporary.push('Dashflows refills its query cache on the next refresh. The configured data source must be reachable.')
         return {
             available: true,
+            dependencies,
+            unresolved,
+            temporary,
             enabled,
             phase: state.phase,
             busy: working,
             requiredBytes,
+            harnessRecords: records.length,
+            uploads: uploads.length,
+            versions,
             stores: inventory,
             local: local.map(inspectRuntime),
             report: state.report || {},
@@ -133,6 +190,8 @@ export async function startStorageUpgrade({
         return Number(schema.oid)
     }
     async function preflight(info, capacity) {
+        if (info.dependencies.length || info.unresolved.length)
+            refuse('Resolve the local storage dependencies listed in Server Settings before upgrading.')
         if (info.stores.some((s) => s.busy) || hasActiveRuns())
             refuse('Wait for active ETL runs, harness turns, queued jobs and refreshes to finish.')
         const missing = await missingPrivilege(source)
@@ -309,12 +368,38 @@ export async function startStorageUpgrade({
                         sha256: await sum(backup)
                     })
                 }
+                // A public-only restore must retain evidence that this install also needs its side schemas.
+                await q('CREATE TABLE IF NOT EXISTS public.cuttlely_storage_installation (id integer PRIMARY KEY CHECK(id=1))')
+                await q('INSERT INTO public.cuttlely_storage_installation VALUES (1) ON CONFLICT DO NOTHING')
                 await q('CREATE SCHEMA IF NOT EXISTS cuttlely_storage')
                 await q('CREATE TABLE IF NOT EXISTS cuttlely_storage.owned_schema (name TEXT PRIMARY KEY, oid OID NOT NULL UNIQUE)')
                 await q(`CREATE TABLE IF NOT EXISTS ${control} (id INTEGER PRIMARY KEY CHECK(id=1), state JSONB NOT NULL)`)
-                await save({ ...state, phase: 'copying', files, report: {}, dashPrepared: false })
+                await save({
+                    ...state,
+                    phase: 'copying',
+                    files,
+                    versions: info.versions || null,
+                    records: harnessRecordInventory(),
+                    hostFiles: [...verifiedHostFiles().values()].sort(),
+                    blobTarget,
+                    etlUploadRoot: path.resolve(uploadsRoot()),
+                    uploads: await inventoryUploads(source, fileRoots),
+                    report: {},
+                    dashPrepared: false
+                })
             }
             if (state.phase === 'copying' || state.phase === 'retiring') {
+                if (
+                    discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) }).unresolved.length ||
+                    (inspectDependencies && (await inspectDependencies(await etlDependencyContext(source, state))).dependencies.length)
+                )
+                    refuse('Resolve the listed local storage dependencies before resuming.')
+                const records = harnessRecordInventory()
+                if (
+                    records.length !== state.records?.length ||
+                    records.some(({ entry, sha256 }, i) => entry !== state.records[i].entry || sha256 !== state.records[i].sha256)
+                )
+                    refuse('Use the original saved agent team records to finish the upgrade.')
                 for (const entry of state.files) {
                     const file = fileFor(entry)
                     let fingerprint
@@ -345,13 +430,47 @@ export async function startStorageUpgrade({
             }
             if (state.phase === 'copying') {
                 const report = { keptOnDisk: discover().local }
+                let verifiedUploads = state.uploads
+                if (versionHistory) {
+                    const expected = (state.versions === undefined ? await versionHistory.inspect() : state.versions)?.head || null
+                    await versionHistory.copy(source, expected)
+                    report.versionHistory = { head: expected }
+                } else if (state.versions?.head) refuse('Resume from the application server to migrate its version history.')
                 if (state.pilot) report.dashflowsPilot = 'Already using PostgreSQL'
                 if (state.files.some((entry) => entry.kind === 'dash')) report.dashflowsQueryCache = 'Rebuilt on demand'
                 for (const entry of state.files) {
                     const key = [entry.kind, entry.name].filter(Boolean).join('/')
                     report[key] = await copy(entry)
                 }
-                await save({ ...state, phase: 'retiring', report })
+                if (fileRoots || state.uploads?.length) {
+                    const actual = await inventoryUploads(source, fileRoots)
+                    if (!matchingDurableUploads(actual, state.uploads)) refuse('Use the original upload files to finish the upgrade.')
+                    const accepted = new Map(state.uploads?.map((entry) => [JSON.stringify(entry.key), entry.sha256]))
+                    const verified = actual.filter(
+                        (entry) => entry.root !== 'etlUploads' || accepted.get(JSON.stringify(entry.key)) === entry.sha256
+                    )
+                    if (predictionFiles) {
+                        for (const entry of verified.filter((item) => item.root === 'blobs')) {
+                            const hash = createHash('sha256')
+                            try {
+                                for await (const part of predictionFiles.stream(entry.key)) hash.update(part)
+                            } catch {
+                                refuse(
+                                    'Copy the original file to the selected bucket at key ' + entry.key.slice(1).join('/') + ' and resume.'
+                                )
+                            }
+                            if (hash.digest('hex') !== entry.sha256)
+                                refuse('The bucket object differs from the source at key ' + entry.key.slice(1).join('/'))
+                        }
+                    }
+                    const postgresFiles = predictionFiles ? verified.filter((item) => item.root === 'etlUploads') : verified
+                    await copyUploads(await openPostgresFiles(source), fileRoots, postgresFiles)
+                    verifiedUploads = verified
+                    report.uploads = { count: verified.length }
+                }
+                await copyHarnessRecords(source, state.records)
+                report.harnessRecords = { count: state.records.length }
+                await save({ ...state, uploads: verifiedUploads, phase: 'retiring', report })
             }
             if (state.phase === 'retiring') {
                 const files = []
@@ -359,9 +478,36 @@ export async function startStorageUpgrade({
                     unguard(fileFor(entry))
                     files.push({ ...entry, retained: await retire(entry) })
                 }
-                await save({ ...state, phase: 'postgres', files, upgradedAt: new Date().toISOString() })
+                // Capture the tables that must be restored together before a replacement is allowed to recreate schemas.
+                await openPostgresEtlStore(source)
+                await openPostgresFiles(source)
+                await openPostgresDashStore(source)
+                const durable = await q(
+                    "SELECT schemaname || '.' || tablename AS name FROM pg_tables WHERE schemaname = ANY($1) ORDER BY 1",
+                    [['cuttlely_etl', 'cuttlely_files', 'cuttlely_versions', 'cuttlely_dashflows', 'cuttlely_storage']]
+                )
+                await save({
+                    ...state,
+                    phase: 'postgres',
+                    files,
+                    requiredTables: durable.map((row) => row.name),
+                    upgradedAt: new Date().toISOString()
+                })
                 log.info('Verified PostgreSQL side-store upgrade ' + JSON.stringify(state.report))
             } else if (action === 'rollback') {
+                const originals = harnessRecordInventory()
+                if (
+                    state.records &&
+                    (originals.length !== state.records.length ||
+                        originals.some(({ entry, sha256 }, i) => entry !== state.records[i].entry || sha256 !== state.records[i].sha256))
+                )
+                    refuse('Rollback requires the original saved agent team records with their verified checksums.')
+                if (state.uploads?.length) {
+                    if (!fileRoots) refuse('Rollback requires the original upload directory.')
+                    const actual = await inventoryUploads(source, fileRoots)
+                    if (!matchingDurableUploads(actual, state.uploads))
+                        refuse('Rollback requires all original upload files with their verified checksums.')
+                }
                 const retainedFiles = new Map()
                 for (const entry of state.files) {
                     const file = fileFor(entry)
@@ -407,7 +553,7 @@ export async function startStorageUpgrade({
                         if (!row.nspname) continue // A deleted draft has no schema left to archive.
                         if (
                             row.nspname !== row.name ||
-                            !/^cuttlely_(etl|dashflows|harness_queue|vec_[0-9a-f]{48}|session_[0-9a-f]{44})$/.test(row.name)
+                            !/^cuttlely_(etl|dashflows|files|versions|harness_queue|vec_[0-9a-f]{48}|session_[0-9a-f]{44})$/.test(row.name)
                         )
                             refuse('An owned PostgreSQL schema changed identity. Inspect it before rollback.')
                         await tx.query('ALTER SCHEMA ' + row.name + ' RENAME TO cuttlely_retired_' + row.oid)
@@ -436,8 +582,23 @@ export async function startStorageUpgrade({
         if (!(await q('SELECT pg_try_advisory_lock_shared(' + lock + ') AS ok'))[0].ok)
             refuse('Another instance is upgrading storage. Retry after it finishes.')
         if ((await q('SELECT to_regclass($1) AS control', [control]))[0].control) {
-            state = (await q(`SELECT state FROM ${control} WHERE id=1`))[0]?.state || state
+            const saved = (await q(`SELECT state FROM ${control} WHERE id=1`))[0]?.state
+            if (!saved || !['sqlite', 'copying', 'retiring', 'postgres', 'restoring'].includes(saved.phase) || !Array.isArray(saved.files))
+                refuse('The PostgreSQL storage upgrade record is missing or invalid. Restore the verified database backup.')
+            if (!enabled && saved.phase !== 'sqlite')
+                refuse('Restore CUTTLELY_APP_DATABASE_STORES on the host before starting this PostgreSQL installation.')
+            if (saved.phase === 'postgres' && saved.requiredTables) {
+                const missing = await q('SELECT name FROM unnest($1::text[]) name WHERE to_regclass(name) IS NULL', [saved.requiredTables])
+                if (missing.length)
+                    refuse('The PostgreSQL backup is missing required storage tables. Restore the complete installation database.')
+            }
+            if (saved.phase !== 'sqlite' && saved.blobTarget && saved.blobTarget !== blobTarget)
+                refuse('Restore the verified file storage provider, endpoint, region and bucket on this member before starting.')
+            if (saved.phase !== 'sqlite') verifiedHostFiles(saved.hostFiles)
+            state = saved
         } else {
+            if ((await q("SELECT to_regclass('public.cuttlely_storage_installation') AS installed"))[0].installed)
+                refuse('The installation is missing its PostgreSQL storage control table. Restore the verified database backup.')
             const pilot = (await q("SELECT to_regclass('cuttlely_dashflows.dash_flow_store_meta') AS pilot"))[0].pilot
             state.pilot = Boolean(enabled && pilot && !fs.existsSync(defaultDashFile()))
             if (enabled && !pilot && fs.existsSync(defaultDashFile() + '.migrated'))
@@ -450,6 +611,22 @@ export async function startStorageUpgrade({
         if (state.phase === 'postgres' && discover().stores.some((item) => fs.existsSync(fileFor(item)))) {
             refuse('This volume still contains live SQLite side stores. Reconnect the verified volume or use an empty data mount.')
         }
+        // A brand-new application can select PostgreSQL before the first user or worker writes a local side store.
+        // A populated application or source directory goes through the operator's verified migration instead.
+        if (newPostgresApplication && enabled && !worker && state.phase === 'sqlite' && !state.upgradedAt && !state.pilot) {
+            const inventory = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
+            if (
+                !inventory.stores.length &&
+                !inventory.unresolved.length &&
+                !harnessRecordInventory().length &&
+                !uploadEntries(fileRoots).length &&
+                !(await versionHistory?.inspect())
+            ) {
+                await transition('upgrade', { availableBytes: 0 })
+            }
+        }
+        if (worker && (progressing(state.phase) || (enabled && state.phase !== 'postgres')))
+            refuse('Start the web application and complete its storage upgrade before starting this worker.')
         maintenance(progressing(state.phase))
         if (!progressing(state.phase)) await activate()
         return {

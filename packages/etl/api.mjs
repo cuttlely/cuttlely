@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { pipeline as streamPipeline } from 'node:stream/promises'
+import { storeEtlUpload } from './stored-uploads.mjs'
 import { etlDir } from './db.mjs'
 import { EtlError } from './errors.mjs'
 import { repoRoot } from '@cuttlely/harness/paths.mjs'
@@ -117,7 +118,11 @@ export async function saveUpload(readable, fileName, { workspaceId, pipelineId }
         String(fileName || 'upload.bin')
             .replace(UPLOAD_NAME, '_')
             .slice(-120) || 'upload.bin'
-    const dir = path.join(workspaceUploadsRoot(pipeline.workspaceId), pipelineDirName(pipeline.id), crypto.randomUUID())
+    if (safe === '.' || safe === '..') throw new EtlError('bad_source', 'Choose a regular upload filename.')
+    const id = crypto.randomUUID()
+    const stored = await storeEtlUpload(readable, [pipelineDirName(pipeline.workspaceId), pipelineDirName(pipeline.id), id, safe])
+    if (stored) return stored
+    const dir = path.join(workspaceUploadsRoot(pipeline.workspaceId), pipelineDirName(pipeline.id), id)
     fs.mkdirSync(dir, { recursive: true })
     const target = path.join(dir, safe)
     await streamPipeline(readable, fs.createWriteStream(target))

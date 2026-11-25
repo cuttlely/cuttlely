@@ -61,7 +61,8 @@ export const getStoragePath = (): string => {
  * Get the storage type - local or cloud
  */
 export const getStorageType = (): string => {
-    return process.env.STORAGE_TYPE ? process.env.STORAGE_TYPE : 'local'
+    if (['s3', 'azure', 'gcs'].includes(process.env.STORAGE_TYPE || '')) return process.env.STORAGE_TYPE as string
+    return StorageProviderFactory.getProvider().getStorageType()
 }
 
 export const removeFilesFromStorage = async (...paths: string[]): Promise<StorageSizeResult> => {

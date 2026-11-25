@@ -1,3 +1,4 @@
+import { resolveEtlUpload, readEtlUpload } from './stored-uploads.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -128,7 +129,14 @@ async function fileList(inputs, { workspaceId } = {}) {
     const entries = splitList(inputs.paths)
     if (!entries.length) throw new EtlError('bad_source', 'Streaming Files needs at least one file or folder path.')
     const include = splitList(inputs.include)
-    const resolved = entries.map((entry) => checkPath(entry, { workspaceId }))
+    const uploaded = []
+    const localEntries = []
+    for (const entry of entries) {
+        const stored = await resolveEtlUpload(entry, workspaceId)
+        if (stored) uploaded.push(stored)
+        else localEntries.push(entry)
+    }
+    const resolved = localEntries.map((entry) => checkPath(entry, { workspaceId }))
     for (const abs of resolved) checkUploadAccess(abs, workspaceId)
     const readable = (file) => {
         try {
@@ -139,8 +147,8 @@ async function fileList(inputs, { workspaceId } = {}) {
         }
     }
     const roots = entryRoots(resolved, { workspaceId })
-    const files = []
-    for (const [i, entry] of entries.entries()) {
+    const files = uploaded
+    for (const [i, entry] of localEntries.entries()) {
         const abs = resolved[i]
         const root = roots[i]
         let stat
@@ -359,6 +367,11 @@ function textDocs(file, inputs) {
 }
 
 function fileDocs(file, inputs) {
+    if (file.storedKey) return (options) => readEtlUpload(file, (local) => localFileDocs(local, inputs)(options))
+    return localFileDocs(file, inputs)
+}
+
+function localFileDocs(file, inputs) {
     const format = formatFor(file.abs, inputs.format)
     if (format === 'csv' || format === 'tsv') return csvDocs(file, inputs, format)
     if (format === 'jsonl') return jsonlDocs(file, inputs)

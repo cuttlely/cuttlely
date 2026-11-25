@@ -1,65 +1,35 @@
-// Standalone workers register with the same migration lock as web instances.
+// An external worker must select the same stores as the web process before claiming a job.
 import { createRequire } from 'node:module'
-import { harnessPgConfig } from './side-store-identity.mjs'
-import { startStorageUpgrade } from '../etl/storage-upgrade.mjs'
+
+const server = createRequire(new URL('../server/package.json', import.meta.url))
+
+export function loadWorkerSettings() {
+    server('./dist/settings/bootstrap.js')
+}
 
 export async function startWorkerStorage() {
     if (process.env.DATABASE_TYPE?.toLowerCase() !== 'postgres') return
-    const { Pool } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
-    const config = harnessPgConfig()
-    const pool = new Pool(config)
-    pool.on('error', () => {})
-    const session = async () => {
-        const c = await pool.connect()
-        let failed
-        let notify
-        const onError = (error) => {
-            failed = error
-            notify?.()
-        }
-        c.on('error', onError)
-        return {
-            execute: async (sql, params = []) => {
-                const r = await c.query(sql, params)
-                return { rows: r.rows, fields: r.fields, affected: r.rowCount }
-            },
-            onLost: (fn) => {
-                notify = fn
-                if (failed) fn()
-            },
-            release: (err) => {
-                c.off('error', onError)
-                c.release(err || failed)
-            }
+    const { getDataSource } = server('./dist/DataSource.js')
+    const { verifyInstallationKey } = server('./dist/settings/keyGuard.js')
+    const { registerAppCredentialSource } = server('./dist/utils/credentialSource.js')
+    const { registerAppStoreSource, closeSideStores } = server('./dist/utils/appStoreSource.js')
+    const { applicationFileStorage } = server('./dist/utils/index.js')
+    const dataSource = getDataSource()
+    await dataSource.initialize()
+    const close = async () => {
+        try {
+            await closeSideStores()
+        } finally {
+            await dataSource.destroy()
         }
     }
-    const source = {
-        dialect: 'postgres',
-        session,
-        query: async (sql, args) => (await pool.query(sql, args)).rows,
-        transaction: async (work) => {
-            const c = await session()
-            try {
-                await c.execute('BEGIN')
-                const v = await work({ query: async (sql, args) => (await c.execute(sql, args)).rows })
-                await c.execute('COMMIT')
-                return v
-            } finally {
-                c.release(true)
-            }
-        }
-    }
-    let member
     try {
-        member = await startStorageUpgrade({ source, config, worker: true })
-        if (member.paused()) throw new Error('Storage upgrade in progress. Restart this worker after it completes.')
-        return async () => {
-            await member.close()
-            await pool.end()
-        }
+        await verifyInstallationKey(dataSource, (message) => console.warn(message))
+        await registerAppStoreSource(dataSource, console, undefined, { worker: true, ...applicationFileStorage() })
+        await registerAppCredentialSource(dataSource)
+        return close
     } catch (error) {
-        await member?.close()
-        await pool.end()
+        await close()
         throw error
     }
 }

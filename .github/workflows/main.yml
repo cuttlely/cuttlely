@@ -191,7 +191,7 @@ jobs:
               env:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
-              run: node --test scripts/server-settings-postgres.test.cjs
+              run: node --test scripts/server-settings-postgres.test.cjs scripts/storage-copy-application.test.cjs scripts/storage-replacement.test.mjs
             - name: Harness LangSmith tracing regressions
               run: >-
                   pnpm --dir packages/components exec jest --runInBand --forceExit --coverage=false

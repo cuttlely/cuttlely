@@ -209,7 +209,8 @@ const deleteChatflow = async (
             throw error
         }
         if (harnessCascade) await harnessCascade.commit()
-        void flowVersionsService.recordFlowDeletion(chatflow, actor)
+        const deletedVersion = flowVersionsService.recordFlowDeletion(chatflow, actor)
+        if (flowVersionsService.usesPostgresHistory()) await deletedVersion
         // The flow's draft and Publish instantly setting go with it. A leftover row is harmless, so a failure here
         // does not stop the delete.
         await flowDraftsService
@@ -533,6 +534,7 @@ const saveChatflow = async (
         ...(actor ? { author: actor } : {})
     })
     record?.onVersionQueued?.(recorded)
+    if (flowVersionsService.usesPostgresHistory()) await recorded
     // Live create only. A draft save does not come through here.
     await auditPinnedQuerySave({
         flowId: dbResponse.id,
@@ -896,6 +898,7 @@ const updateChatflow = async (
         ...(options.actor ? { author: options.actor } : {})
     })
     options.onVersionQueued?.(recorded)
+    if (flowVersionsService.usesPostgresHistory()) await recorded
     // Live update only. A draft save does not come through here.
     await auditPinnedQuerySave({
         flowId: dbResponse.id,

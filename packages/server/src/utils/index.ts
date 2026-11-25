@@ -45,7 +45,7 @@ import {
     applyModelRetryBudget
 } from '@cuttlely/components'
 import { withNodeSpan } from '../metrics/tracing'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { AES, enc } from 'crypto-js'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
 import {
@@ -1996,6 +1996,26 @@ export const getUploadPath = (): string => {
 
 export function generateId() {
     return uuidv4()
+}
+
+export function applicationFileStorage() {
+    const home = path.join(getUserHome(), '.cuttlely')
+    const fileRoots = {
+        blobs: process.env.BLOB_STORAGE_PATH || path.join(home, 'storage'),
+        uploads: path.join(process.env.BLOB_STORAGE_PATH || home, 'uploads')
+    }
+    if (process.env.STORAGE_TYPE === 's3') {
+        const endpoint = process.env.S3_ENDPOINT_URL?.trim().replace(/\/$/, '') || 'aws'
+        const location = [endpoint, process.env.S3_STORAGE_REGION, process.env.S3_STORAGE_BUCKET_NAME]
+        return {
+            fileRoots,
+            blobTarget: 's3/' + createHash('sha256').update(JSON.stringify(location)).digest('hex'),
+            predictionFiles: { stream: StorageProviderFactory.readS3PredictionFile }
+        }
+    }
+    if (process.env.STORAGE_TYPE && !['local', 'postgres'].includes(process.env.STORAGE_TYPE))
+        return { blobTarget: process.env.STORAGE_TYPE }
+    return { fileRoots, blobTarget: 'postgres', selectFiles: StorageProviderFactory.setApplicationFiles }
 }
 
 export const getMulterStorage = () => {

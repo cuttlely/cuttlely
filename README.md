@@ -27,7 +27,7 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**Upcoming** · **1.7.15 lets operators move agent team conversations, schedules, ETL pipelines and vectors into PostgreSQL.** [Upgrade and disk requirements](./docs/upgrading.md#upgrading-to-1715).
+**Upcoming** · **1.7.15 can recover your installation on empty application disks using PostgreSQL, with an optional S3-compatible bucket for uploaded files. Back up existing installations before migrating.** [Upgrade and disk requirements](./docs/upgrading.md#upgrading-to-1715).
 
 **1.7.14 adds staged installation-key rotation and durable operator settings.** Tune the Analyst SQL attempt limit and keep simultaneous pipeline stop and resume operations consistent. [Upgrade guide](./docs/upgrading.md#upgrading-to-1714).
 

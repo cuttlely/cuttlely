@@ -129,6 +129,7 @@ export function postgresHarnessDdl(scope) {
               AGENT_SCHEMA,
               SCHEDULE_SCHEMA,
               HISTORY_SCHEMA,
+              'CREATE TABLE IF NOT EXISTS harness_records (entry TEXT PRIMARY KEY, content TEXT NOT NULL)',
               'ALTER TABLE run_history ADD COLUMN IF NOT EXISTS mode TEXT, ADD COLUMN IF NOT EXISTS api_key_id TEXT',
               'ALTER TABLE guarded_query_turns ADD COLUMN IF NOT EXISTS position BIGINT GENERATED ALWAYS AS IDENTITY'
           ]

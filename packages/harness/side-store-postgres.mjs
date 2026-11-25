@@ -3,9 +3,14 @@ import { HarnessError } from './errors.mjs'
 
 let worker
 let config
+let records
+export function harnessRecordDatabase() {
+    return (records ??= openHarnessPostgres('queue'))
+}
 export function configureHarnessPostgres(options) {
     if (worker) void worker.terminate()
     worker = undefined
+    records = undefined
     config = options
 }
 export function harnessUsesPostgres() {

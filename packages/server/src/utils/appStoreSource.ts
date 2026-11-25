@@ -1,3 +1,4 @@
+import { applicationStorageDependencies } from '../settings/storageDependencies'
 import fs from 'fs'
 import { SettingsError } from '../settings/service'
 import type { NextFunction, Request, Response } from 'express'
@@ -89,7 +90,7 @@ export function makeAppStoreSource(dataSource: DataSource): AppStoreSource {
     }
 }
 
-async function loadStoreModule(pkg: string, file: string) {
+export async function loadStoreModule(pkg: string, file: string) {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
         const candidates = [path.join(dir, 'packages', pkg, file), path.join(dir, pkg, file)]
@@ -102,18 +103,37 @@ async function loadStoreModule(pkg: string, file: string) {
 
 // Runs in initDatabase, before the server listens and before the Dash Flows scheduler starts.
 // PostgreSQL members check durable upgrade state before selecting their side stores.
-export async function registerAppStoreSource(
+export async function registerAppStoreSource<FileStore = unknown>(
     dataSource: DataSource,
     log: Log,
-    loadModule = () => loadStoreModule('harness', 'dashflows-postgres.mjs')
+    loadModule = () => loadStoreModule('harness', 'dashflows-postgres.mjs'),
+    options: {
+        versionHistory?: {
+            inspect(): Promise<{ head: string; bytes: number } | null>
+            copy(source: AppStoreSource, expected: string | null): Promise<void>
+            select(source: AppStoreSource | null): Promise<void>
+        }
+        worker?: boolean
+        newPostgresApplication?: boolean
+        fileRoots?: { blobs: string; uploads: string }
+        selectFiles?: (store: FileStore | null) => void
+    } = {}
 ): Promise<unknown> {
     const source = makeAppStoreSource(dataSource)
     if (source.dialect === 'postgres') {
         try {
             const { startStorageUpgrade } = await loadStoreModule('etl', 'storage-upgrade.mjs')
-            coordinator = await startStorageUpgrade({ source, log })
+            coordinator = await startStorageUpgrade({
+                source,
+                log,
+                ...options,
+                inspectDependencies: (etl: Parameters<typeof applicationStorageDependencies>[1]) =>
+                    applicationStorageDependencies((sql) => source.query(sql), etl)
+            })
             return
-        } catch {
+        } catch (error) {
+            if (error instanceof Error && (error as Error & { status?: number }).status === 409)
+                throw Object.assign(error, { code: 'STORAGE_START_FAILED' })
             throw Object.assign(new Error('Storage selection failed. Restore PostgreSQL connectivity and restart.'), {
                 code: 'STORAGE_START_FAILED'
             })

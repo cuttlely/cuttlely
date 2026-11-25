@@ -1,6 +1,6 @@
 import express from 'express'
 import vectorsController from '../../controllers/vectors'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { authorizeVectorUpsert } from '../../utils/authorizeUpsert'
 
 const router = express.Router()
@@ -11,13 +11,13 @@ router.post(
     ['/upsert/', '/upsert/:id'],
     vectorsController.getRateLimiterMiddleware,
     authorizeVectorUpsert(false),
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     vectorsController.upsertVectorMiddleware
 )
 router.post(
     ['/internal-upsert/', '/internal-upsert/:id'],
     authorizeVectorUpsert(true),
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     vectorsController.createInternalUpsert
 )
 

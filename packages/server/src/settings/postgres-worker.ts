@@ -6,16 +6,17 @@ import { readPrivateFile } from './privateFile'
 import { POSTGRES_SETTINGS_MARKER as marker, postgresSettingsCodec } from './postgresCodec'
 
 const { Pool } = require('pg')
-const { url, secret, generation, dir, files, privateFiles } = workerData as {
-    url: string
+const { connection, secret, generation, dir, files, localFiles, privateFiles } = workerData as {
+    connection: Record<string, unknown>
     secret: string
     generation?: string
     dir: string
     files: string[]
+    localFiles: string[]
     privateFiles: string[]
 }
 const pool = new Pool({
-    connectionString: url,
+    ...connection,
     application_name: 'Cuttlely server settings',
     connectionTimeoutMillis: 1500,
     keepAlive: true,
@@ -36,7 +37,7 @@ type Client = {
 const sessions = new Map<string, { client: Client; onError: () => void }>()
 
 export type SettingsRequest =
-    | { op: 'init' }
+    | { op: 'init' | 'probe' }
     | { op: 'take' | 'release'; token: string }
     | { op: 'read' | 'remove'; file: string; token?: string }
     | { op: 'write'; file: string; text: string; token?: string }
@@ -58,7 +59,7 @@ async function initialize(): Promise<void> {
             const current = await client.query("SELECT to_regclass('public.cuttlely_server_settings') AS present")
             if (!current.rows[0].present) {
                 await client.query('CREATE TABLE public.cuttlely_server_settings (name text PRIMARY KEY, payload bytea NOT NULL)')
-                for (const file of files) {
+                for (const file of localFiles) {
                     const local = path.join(dir, file)
                     let text: string
                     try {
@@ -118,6 +119,12 @@ async function release(token: string): Promise<void> {
 }
 
 async function execute(request: SettingsRequest): Promise<unknown> {
+    if (request.op === 'probe') {
+        const result = await pool.query(
+            "SELECT to_regclass('public.cuttlely_server_settings') IS NOT NULL OR to_regclass('public.cuttlely_storage_installation') IS NOT NULL OR to_regclass('cuttlely_storage.upgrade') IS NOT NULL AS durable"
+        )
+        return result.rows[0].durable
+    }
     if (request.op === 'init') return initialize()
     if (request.op === 'take') return take(request.token)
     if (request.op === 'release') return release(request.token)

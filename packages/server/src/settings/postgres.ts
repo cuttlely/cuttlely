@@ -2,12 +2,17 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { randomUUID } from 'crypto'
 import path from 'path'
 import { MessageChannel, receiveMessageOnPort, Worker } from 'worker_threads'
+import { applicationPostgresOptions } from './applicationPostgres'
 import { encryptionKeyOverwrite } from './settingAlias'
 import type { SettingsRequest } from './postgres-worker'
 
 export const POSTGRES_SETTINGS_URL = 'CUTTLELY_SERVER_SETTINGS_POSTGRES_URL'
 const PRIVATE_FILES = ['instance-operator.json', 'operator-claim.json', 'operator-installation.json']
+// This document is initialized from SECRETKEY_PATH under the settings lock. It never has a settings-directory counterpart.
+export const AUTH_SECRETS_DOCUMENT = 'auth-secrets.json'
+export const AUTHORITY_DOCUMENTS = new Set([AUTH_SECRETS_DOCUMENT, 'session-grants.json', 'setup-instance.id', 'setup-issuer.json'])
 export const POSTGRES_SETTINGS_FILES = new Set([
+    ...AUTHORITY_DOCUMENTS,
     ...PRIVATE_FILES,
     'server.json',
     'server.last-good.json',
@@ -34,13 +39,18 @@ export class PostgresSettings {
     private readonly context = new AsyncLocalStorage<Lease>()
     private retryAfter = 0
 
-    constructor(private readonly options: { url: string; secret: string; generation?: string; dir: string }) {}
+    constructor(private readonly options: { connection: Record<string, unknown>; secret: string; generation?: string; dir: string }) {}
 
     private request<T>(request: SettingsRequest): T {
         if (request.op !== 'release' && this.retryAfter > Date.now()) throw new SettingsStorageError()
         if (!this.worker) {
             const worker = new Worker(path.join(__dirname, 'postgres-worker.js'), {
-                workerData: { ...this.options, files: [...POSTGRES_SETTINGS_FILES], privateFiles: PRIVATE_FILES }
+                workerData: {
+                    ...this.options,
+                    files: [...POSTGRES_SETTINGS_FILES],
+                    localFiles: [...POSTGRES_SETTINGS_FILES].filter((file) => !AUTHORITY_DOCUMENTS.has(file)),
+                    privateFiles: PRIVATE_FILES
+                }
             })
             worker.on('error', () => undefined)
             worker.on('exit', () => {
@@ -68,6 +78,14 @@ export class PostgresSettings {
             return reply.result as T
         } finally {
             port1.close()
+        }
+    }
+
+    hasDurableSettings(): boolean {
+        try {
+            return this.request<boolean>({ op: 'probe' })
+        } finally {
+            void this.worker?.terminate()
         }
     }
 
@@ -124,15 +142,36 @@ export class PostgresSettings {
 
 let configured: { dir: string; store: PostgresSettings } | undefined
 
-export function initPostgresSettings(dir: string, env: Record<string, string | undefined>): void {
+export function settingsPostgresConnection(env: Record<string, string | undefined>): Record<string, unknown> | undefined {
     const url = env[POSTGRES_SETTINGS_URL]?.trim()
-    if (!url) return
-    if (!/^postgres(?:ql)?:\/\//i.test(url) || !URL.canParse(url) || new URL(url).pathname.length < 2) {
-        throw new Error('Set CUTTLELY_SERVER_SETTINGS_POSTGRES_URL to the connection URL of a Postgres database.')
+    if (url) {
+        if (!/^postgres(?:ql)?:\/\//i.test(url) || !URL.canParse(url) || new URL(url).pathname.length < 2)
+            throw new Error('Set CUTTLELY_SERVER_SETTINGS_POSTGRES_URL to the connection URL of a Postgres database.')
+        return { connectionString: url }
+    }
+    if (env.DATABASE_TYPE === 'postgres' && ['1', 'true'].includes(env.CUTTLELY_APP_DATABASE_STORES || '')) {
+        if (!env.DATABASE_HOST || !env.DATABASE_NAME || !env.DATABASE_USER)
+            throw new Error('Supply the application PostgreSQL host, database and user on the host for durable settings.')
+        return applicationPostgresOptions(env)
+    }
+    return undefined
+}
+
+export function initPostgresSettings(dir: string, env: Record<string, string | undefined>): void {
+    const connection = settingsPostgresConnection(env)
+    if (!connection) {
+        if (env.DATABASE_TYPE === 'postgres' && env.DATABASE_HOST && env.DATABASE_NAME && env.DATABASE_USER) {
+            const probe = new PostgresSettings({ connection: applicationPostgresOptions(env), secret: '', dir })
+            if (probe.hasDurableSettings())
+                throw new Error(
+                    'Restore the PostgreSQL settings connection or CUTTLELY_APP_DATABASE_STORES before starting this installation.'
+                )
+        }
+        return
     }
     const secret = encryptionKeyOverwrite(env)
     if (!secret?.trim()) throw new Error('Postgres server settings require CUTTLELY_SECRETKEY_OVERWRITE to be set on the host.')
-    const store = new PostgresSettings({ url, secret, generation: env.CUTTLELY_CREDENTIAL_GENERATION, dir })
+    const store = new PostgresSettings({ connection, secret, generation: env.CUTTLELY_CREDENTIAL_GENERATION, dir })
     store.initialize()
     configured = { dir: path.resolve(dir), store }
 }

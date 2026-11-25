@@ -4,7 +4,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 
 ## Upcoming · New in 1.7.15
 
--   Move agent team conversations, schedules, ETL, vectors and Dashflows into the application PostgreSQL database. [Upgrade and rollback](./postgres-side-stores.md).
+-   Install on ephemeral disks, update an existing PostgreSQL service, or migrate a SQLite installation. Compare PostgreSQL-only with an optional S3-compatible bucket. [Upgrade and rollback](./postgres-side-stores.md).
 
 ## New in 1.7.14
 

@@ -6,11 +6,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Instance Operators on PostgreSQL can inventory, back up, verify and move ETL, vector, agent team and Dashflows stores from Server Settings. [Upgrade and rollback guide](docs/how-to/postgres-side-stores.md).
+-   PostgreSQL installations can recover on empty web and worker disks, including saved users, credentials, settings, teams, current and older flow versions, ETL and managed files. Large application attachments can use a private S3-compatible bucket, including IBM Cloud Object Storage. [Storage modes](docs/how-to/postgres-side-stores.md#choose-a-storage-mode).
+-   The Instance Operator can inventory file dependencies, migrate the original SQLite application and verify the side-store cutover. [Migration guide](docs/how-to/postgres-side-stores.md).
 
-### Upgrade notes
+### Upgrade notes / breaking changes
 
--   The PostgreSQL side-store upgrade requires operator activation, including on fresh installs. Keep the volume for file-backed uploads, agent team definitions, runtime state, Git history and rollback copies. Switching the primary database to an empty PostgreSQL database requires a separate transfer of existing application data. [Upgrade instructions](docs/upgrading.md#upgrading-to-1715).
+-   **Back up before deploying on an ephemeral host.** Preserve the entire original data directory, database, installation key and any separate settings store. Deploying an image or changing environment settings can replace the only copy of local data.
+-   A new PostgreSQL installation can activate database storage at first boot. Existing PostgreSQL installations require a verified side-store upgrade. Existing SQLite installations also require the primary application copy before switching. An ordinary SQLite update still needs its persistent volume. [Choose the procedure for your installation](docs/upgrading.md#upgrading-to-1715).
+-   After cutover, web servers and workers require the same durable services and host-provided key. Runtime-only sessions can restart empty. Missing legacy ETL inputs may require re-upload, and a SQLite Analyst workspace requires rerunning the analysis. Rollback restores the cutover snapshot. Preserve newer work separately before restoring. [Replacement test and rollback](docs/how-to/postgres-side-stores.md#prove-that-a-replacement-can-serve-traffic).
 
 ## [1.7.14] - 2026-11-25
 

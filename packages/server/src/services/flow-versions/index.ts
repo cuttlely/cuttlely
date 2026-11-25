@@ -7,6 +7,10 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import {
     actorFromUser,
     configureVersioning,
+    prepareVersionHistory,
+    selectVersionHistory,
+    inspectVersionHistory,
+    usesPostgresHistory,
     diffVersion,
     flushVersions,
     getGithub,
@@ -139,6 +143,10 @@ export type {
 } from '@cuttlely/versioning'
 
 export default {
+    prepareVersionHistory,
+    selectVersionHistory,
+    inspectVersionHistory,
+    usesPostgresHistory,
     isVersioningEnabled,
     versionAuthor,
     actorFromUser,

@@ -8,6 +8,12 @@ For timeout and streaming concepts that also apply to managed gateways, see the 
 
 These steps were checked against [`render.yaml`](../../render.yaml) and Render's documentation. No deploy was made for this guide, so there are no screenshots of the Dashboard.
 
+## Deploying on ephemeral storage
+
+The supplied Blueprint attaches a disk. To operate a diskless service with 1.7.15, use a durable PostgreSQL database and set the database connection, `CUTTLELY_APP_DATABASE_STORES=1` and a stable `CUTTLELY_SECRETKEY_OVERWRITE` on every web service and worker before first boot. Optionally configure a private S3-compatible bucket for application files. The service still needs writable temporary space.
+
+For an existing service, back up the original volume and encryption key **before** changing environment variables or deploying an image. An ephemeral filesystem can disappear on that very deploy. Recover the backup onto temporary persistent storage if necessary, perform the applicable migrations there, and rehearse with empty web and worker directories. A new empty PostgreSQL database alone cannot recover an existing SQLite application. [Choose the matching migration and verify recovery](./postgres-side-stores.md).
+
 ## What the Blueprint creates
 
 | Resource               | Value in `render.yaml`                                                                                                                                                                                                                                                      |

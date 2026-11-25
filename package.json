@@ -36,6 +36,7 @@
         "hash-password:windows": "cd packages/server/bin && run hash-password",
         "hash-password:default": "cd packages/server/bin && ./run hash-password",
         "settings": "run-script-os",
+        "storage:copy-application": "node packages/server/dist/settings/copySqliteApplicationCli.js",
         "keys:inventory": "pnpm --filter @cuttlely/server keys:inventory",
         "keys:stage-rotation": "pnpm --filter @cuttlely/server keys:stage-rotation",
         "settings:windows": "cd packages/server/bin && run settings",

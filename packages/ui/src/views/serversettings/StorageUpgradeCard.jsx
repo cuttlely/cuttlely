@@ -55,6 +55,12 @@ export default function StorageUpgradeCard() {
                             Storage status: {storagePhase[state.phase] || state.phase}. ETL, vector collections and agent team stores can
                             share the application PostgreSQL database.
                         </Typography>
+                        {state.versions && (
+                            <Typography>
+                                Flow version history · {Math.ceil(state.versions.bytes / 1024)} KiB at revision{' '}
+                                {state.versions.head.slice(0, 12)}
+                            </Typography>
+                        )}
                         {state.stores.map((s) => (
                             <details key={s.kind + '/' + (s.name || '')}>
                                 <summary>
@@ -72,6 +78,45 @@ export default function StorageUpgradeCard() {
                                 </ul>
                             </details>
                         ))}
+                        {state.temporary?.length > 0 && (
+                            <Alert severity='info'>
+                                Temporary data Cuttlely can rebuild
+                                <ul>
+                                    {state.temporary.map((message) => (
+                                        <li key={message}>{message}</li>
+                                    ))}
+                                </ul>
+                            </Alert>
+                        )}
+                        {state.unresolved?.length > 0 && (
+                            <Alert severity='warning'>
+                                These paths depend on the current disk. Supply immutable inputs on each host using the verified file
+                                manifest, move mutable data to a durable service, or retire the dependency before cutover.
+                                <ul>
+                                    {state.unresolved.map((location) => (
+                                        <li key={location}>{location}</li>
+                                    ))}
+                                </ul>
+                            </Alert>
+                        )}
+                        {state.dependencies?.length > 0 && (
+                            <Alert severity='warning'>
+                                Resolve these local dependencies before moving storage.
+                                <ul>
+                                    {state.dependencies.map((item, i) => (
+                                        <li key={i}>
+                                            Team {item.workspace} · Flow {item.flow} ({item.revision}) · {item.node} · {item.input} ·{' '}
+                                            {item.location}
+                                            <div>{item.resolution}</div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Alert>
+                        )}
+                        <Alert severity='info'>
+                            If this host loses its local disk, the agent runtime starts fresh sessions. Runtime-only messages and
+                            undelivered replies or task results can be lost. Clients can start a new conversation at the same endpoint.
+                        </Alert>
                         {state.local.length > 0 && (
                             <details>
                                 <summary>Agent runtime databases kept on disk</summary>
@@ -125,6 +170,7 @@ export default function StorageUpgradeCard() {
                             disabled={
                                 busy ||
                                 !confirmed ||
+                                (!rollback && (state.dependencies?.length > 0 || state.unresolved?.length > 0)) ||
                                 (!rollback && !state.enabled) ||
                                 (needsCapacity && (!capacity || Number(capacity) * 1048576 < state.requiredBytes))
                             }

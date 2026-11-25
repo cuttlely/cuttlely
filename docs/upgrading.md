@@ -8,9 +8,9 @@ On the starting page after an in-place restart, liveness can already answer 200 
 
 ## Upgrading to 1.7.15
 
-On a new PostgreSQL install, enable `CUTTLELY_APP_DATABASE_STORES=1` and select **Server Settings → Database → Upgrade storage** before starting workloads to write side-store data to PostgreSQL from the first run. Existing PostgreSQL installations use the same action with their original volume attached. Switching the primary database from SQLite to an empty PostgreSQL database starts a fresh application. Transfer existing users, workspaces, flows and credentials separately if you need them.
+For a new installation on disposable disks, supply the PostgreSQL connection, a stable installation key and `CUTTLELY_APP_DATABASE_STORES=1` through the host before first startup. PostgreSQL stores the installation, managed files and flow version history. You can select a private S3-compatible bucket for application uploads. Supply that same configuration to every web server and worker.
 
-Keep persistent storage for disk-backed uploads, flow-version repositories, agent team definitions, agent runtime state, local keys and settings, and retained recovery files. Rolling back restores the SQLite data as it stood at cutover. Later writes stay in PostgreSQL. [Operator guide](./how-to/postgres-side-stores.md) · [Disk inventory](./reference/disk-storage-inventory.md).
+For an existing PostgreSQL installation, retain the original volume, drain writers and run **Server Settings → Database → Upgrade storage**. For SQLite, first take an off-host backup, run the verified application copy on the original disk and switch to its PostgreSQL destination with the existing encryption key. Then complete the side-store upgrade. Verify sign-in, saved credentials, workflows and files on a replacement before releasing the original volume. Local runtime sessions and temporary work can restart empty. [Operator guide](./how-to/postgres-side-stores.md) · [Disk inventory](./reference/disk-storage-inventory.md).
 
 ## Upgrading to 1.7.14
 

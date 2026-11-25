@@ -1,7 +1,6 @@
 // Version history for every canvas. Each successful save writes the flow as
-// files to the local versions repo and commits it. This never blocks or fails
-// a save: commits run in the background, one at a time, and a failure is
-// logged and kept for the status route.
+// versioned files and commits it. Local-only history runs in the background.
+// In PostgreSQL mode the server waits for durable history before acknowledging a save.
 import { VersionActor, actorFromUser, versionAuthor } from './author'
 import fs from 'fs'
 import os from 'os'
@@ -14,6 +13,7 @@ import { VersionKind, VersionStore } from './store'
 import { GithubSync } from './github'
 import { VersioningDeps } from './ports'
 import { VersionedFlow } from './types'
+import { PostgresHistory, versionInventory, type HistorySource } from './postgresHistory'
 
 export type { VersionedFlow } from './types'
 export type { CredentialStorage, VersionLog, VersioningDeps } from './ports'
@@ -60,6 +60,7 @@ export function getGithub(): GithubSync {
         const { githubCredentials, log } = requireDeps()
         github = new GithubSync({
             store: getStore,
+            withStorage: (work) => (history ? history.withGithubState(work) : work()),
             enabled: isVersioningEnabled,
             credentials: githubCredentials,
             log: (message) => log.warn(message)
@@ -121,10 +122,50 @@ export function getStore(): VersionStore {
     return store
 }
 
+let history: PostgresHistory | null = null
+
+export function inspectVersionHistory() {
+    return versionInventory(versionsDir())
+}
+
+export function prepareVersionHistory(source: HistorySource, expected: string | null) {
+    return enqueue(() => new PostgresHistory(source, getStore()).open(expected, false))
+}
+
+export function selectVersionHistory(source: HistorySource | null) {
+    return enqueue(async () => {
+        const next = source ? new PostgresHistory(source, getStore()) : null
+        await next?.open(undefined, isVersioningEnabled())
+        history = next
+    })
+}
+
+export function usesPostgresHistory() {
+    return history !== null
+}
+
+function recordRevision(id: string, change: (repo: VersionStore) => Promise<string | null>) {
+    return enqueue(async () => {
+        try {
+            const sha = history ? await history.write(change) : await change(getStore())
+            if (sha) {
+                lastCommit = sha
+                copyToGithub()
+            }
+            return sha
+        } catch (error) {
+            fail(id, error)
+            if (history) throw error
+            return null
+        }
+    })
+}
+
 export function resetForTests(): void {
     if (github) github.stop()
     github = null
     store = null
+    history = null
     queue = Promise.resolve()
     lastCommit = null
     lastError = null
@@ -226,45 +267,33 @@ export function recordFlowVersion(saved: VersionedFlow, options: RecordOptions =
         flowData: saved.flowData,
         workspaceId: saved.workspaceId
     }
-    return enqueue(async () => {
-        try {
-            const repo = getStore()
-            await repo.ensure()
-            const lookup = options.lookupCredentials || credentialNames
-            const names = await lookup(flow.flowData, flow.workspaceId)
-            const files: FlowFiles = serializeFlow(
-                { id: flow.id, name: flow.name, type: flow.type, category: flow.category },
-                flow.flowData,
-                { credentialRef: (id) => names.get(id) }
-            )
-            const hits = scanForSecrets(files)
-            if (hits.length) {
-                const where = hits.map((hit) => `${hit.file} (${hit.pattern})`).join(', ')
-                return fail(flow.id, `Not saved to history: secret-shaped text in ${where}. Move it to a credential.`)
-            }
-            const before = repo.readFlow(flow.id)
-            const summary = summarizeChange(before, files, flow.name)
-            const hidden = hiddenSecretsIn(files).reduce((sum, item) => sum + item.count, 0)
-            const kind: VersionKind = options.kind || (before ? 'save' : 'create')
-            const paths = repo.writeFlow(flow.id, flow.name, files)
-            const sha = await repo.commit(paths, {
-                flowId: flow.id,
-                name: flow.name,
-                kind,
-                title: options.title || withPrefix(options.titlePrefix, summary.title),
-                details: hidden ? [...summary.details, hiddenSecretNote(hidden)] : summary.details,
-                author: versionAuthor(options.author),
-                hidden,
-                promotedFrom: options.promotedFrom
-            })
-            if (sha) {
-                lastCommit = sha
-                copyToGithub()
-            }
-            return sha
-        } catch (error) {
-            return fail(flow.id, error)
+    return recordRevision(flow.id, async (repo) => {
+        await repo.ensure()
+        const lookup = options.lookupCredentials || credentialNames
+        const names = await lookup(flow.flowData, flow.workspaceId)
+        const files: FlowFiles = serializeFlow({ id: flow.id, name: flow.name, type: flow.type, category: flow.category }, flow.flowData, {
+            credentialRef: (id) => names.get(id)
+        })
+        const hits = scanForSecrets(files)
+        if (hits.length) {
+            const where = hits.map((hit) => `${hit.file} (${hit.pattern})`).join(', ')
+            return fail(flow.id, `Not saved to history: secret-shaped text in ${where}. Move it to a credential.`)
         }
+        const before = repo.readFlow(flow.id)
+        const summary = summarizeChange(before, files, flow.name)
+        const hidden = hiddenSecretsIn(files).reduce((sum, item) => sum + item.count, 0)
+        const kind: VersionKind = options.kind || (before ? 'save' : 'create')
+        const paths = repo.writeFlow(flow.id, flow.name, files)
+        return repo.commit(paths, {
+            flowId: flow.id,
+            name: flow.name,
+            kind,
+            title: options.title || withPrefix(options.titlePrefix, summary.title),
+            details: hidden ? [...summary.details, hiddenSecretNote(hidden)] : summary.details,
+            author: versionAuthor(options.author),
+            hidden,
+            promotedFrom: options.promotedFrom
+        })
     })
 }
 
@@ -282,26 +311,16 @@ export function hiddenSecretNote(count: number): string {
 
 export function recordFlowDeletion(flow: Pick<VersionedFlow, 'id' | 'name'>, author?: VersionActor | null): Promise<string | null> {
     if (!isVersioningEnabled() || !flow?.id) return Promise.resolve(null)
-    return enqueue(async () => {
-        try {
-            const repo = getStore()
-            await repo.ensure()
-            const paths = repo.removeFlow(flow.id)
-            const sha = await repo.commit(paths, {
-                flowId: flow.id,
-                name: flow.name,
-                kind: 'delete',
-                title: `Deleted ${flow.name}`,
-                author: versionAuthor(author)
-            })
-            if (sha) {
-                lastCommit = sha
-                copyToGithub()
-            }
-            return sha
-        } catch (error) {
-            return fail(flow.id, error)
-        }
+    return recordRevision(flow.id, async (repo) => {
+        await repo.ensure()
+        const paths = repo.removeFlow(flow.id)
+        return repo.commit(paths, {
+            flowId: flow.id,
+            name: flow.name,
+            kind: 'delete',
+            title: `Deleted ${flow.name}`,
+            author: versionAuthor(author)
+        })
     })
 }
 
@@ -532,7 +551,11 @@ export function lastErrorFor(flowId: string): string | null {
 
 // Waits for queued commits. Used by tests and before reads that must see the latest save.
 export function flushVersions(): Promise<void> {
-    return queue.then(() => undefined)
+    return history
+        ? enqueue(async () => {
+              await history?.refresh()
+          })
+        : queue.then(() => undefined)
 }
 
 export {

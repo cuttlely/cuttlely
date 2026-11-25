@@ -1,7 +1,9 @@
+import { runtimeDependencies, verifiedHostFiles } from './host-files.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { dataRoot, hermesHome } from '../harness/paths.mjs'
+import { pipelineDirName, samplesRoot, uploadsRoot, realPath } from './paths.mjs'
 import { etlDir, SCHEMA_VERSION } from './db.mjs'
 
 function problem(message) {
@@ -36,9 +38,36 @@ export function fileFor({ kind, name }) {
     problem('Unknown storage inventory entry.')
 }
 
-export function discover() {
+const cacheSources = new Map([
+    ['schema_columns.json', 'the schema shipped with the agent runtime'],
+    ['tool_discovery_cache.json', 'the installed runtime tools']
+])
+
+export function discover({ inspectCaches = false, hostFiles = new Map() } = {}) {
     const items = [{ kind: 'etl' }, { kind: 'queue' }, { kind: 'dash' }]
     const local = []
+    const temporary = []
+    const unresolved = []
+    function inspectCache(home, prefix) {
+        if (!inspectCaches) return
+        for (const { target, label } of runtimeDependencies(home, prefix)) {
+            if (!hostFiles.has(path.resolve(target))) unresolved.push(label)
+        }
+        const cache = path.join(home, 'cache')
+        const stat = fs.lstatSync(cache, { throwIfNoEntry: false })
+        if (!stat) return
+        if (!stat.isDirectory()) {
+            unresolved.push(prefix + 'cache')
+            return
+        }
+        for (const entry of fs.readdirSync(cache, { withFileTypes: true })) {
+            const location = prefix + 'cache/' + entry.name
+            const source = entry.isFile() && cacheSources.get(entry.name)
+            if (source) temporary.push(location + ' is rebuilt from ' + source + ' on next use.')
+            else unresolved.push(location)
+        }
+    }
+    inspectCache(hermesHome(), '')
     for (const entry of children(path.join(etlDir(), 'vectors'))) {
         const match = /^(.+)\.sqlite(?:\.migrated)?$/.exec(entry.name)
         if (!match) continue
@@ -53,6 +82,7 @@ export function discover() {
             if (entry.isSymbolicLink()) problem('Resolve the linked session directory before upgrading.')
             if (!entry.isDirectory()) continue
             const folder = path.join(dir, entry.name)
+            if (kind === 'profile') inspectCache(folder, 'profiles/' + entry.name + '/')
             if (plain(path.join(folder, 'sessions.sqlite')) || plain(path.join(folder, 'sessions.sqlite.migrated')))
                 items.push({ kind, name: entry.name })
             if (kind === 'profile' && plain(path.join(folder, 'state.db'))) local.push('profile/' + entry.name + '/state.db')
@@ -62,7 +92,44 @@ export function discover() {
     const stores = items.filter((item) => plain(fileFor(item)) || plain(fileFor(item) + '.migrated'))
     const profiles = stores.filter((item) => item.kind === 'profile').map((item) => item.name.toLowerCase())
     if (new Set(profiles).size !== profiles.length) problem('Resolve case-colliding harness profiles before upgrading.')
-    return { stores, local }
+    return { stores, local, temporary, unresolved }
+}
+
+export async function etlDependencyContext(source, state, hostFiles = verifiedHostFiles(state.hostFiles)) {
+    const sql = (schema) => `SELECT p.id AS flow, p.workspace_id AS workspace, 'ETL version ' || v.version AS revision, v.flow_data AS graph
+        FROM ${schema}pipeline_versions v JOIN ${schema}pipelines p ON p.id=v.pipeline_id`
+    let canvases = []
+    if (state.phase === 'postgres') {
+        canvases = await source.query(sql('cuttlely_etl.'))
+    } else {
+        const live = fileFor({ kind: 'etl' })
+        const original = [live, live + '.migrated'].find((file) => plain(file))
+        if (original) {
+            const db = new DatabaseSync(original, { readOnly: true })
+            try {
+                if (db.prepare("SELECT 1 FROM sqlite_schema WHERE name='pipeline_versions'").get()) canvases = db.prepare(sql('')).all()
+            } finally {
+                db.close()
+            }
+        }
+    }
+    const sample = realPath(samplesRoot())
+    return {
+        canvases,
+        hostFile(input) {
+            return typeof input === 'string' && path.isAbsolute(input) && hostFiles.has(path.resolve(input))
+        },
+        etlSource(input, workspace) {
+            if (path.isAbsolute(input) && hostFiles.has(path.resolve(input))) return 'host'
+            if (!workspace || input.split(/[\\/]/).includes('..')) return 'external'
+            const prefix = 'cuttlely-etl-upload/'
+            const root = state.etlUploadRoot || path.resolve(uploadsRoot())
+            const relative = input.startsWith(prefix) ? input.slice(prefix.length).split('/') : path.relative(root, input).split(path.sep)
+            if (relative.length === 4 && relative[0] === pipelineDirName(workspace) && /^[a-f0-9-]{36}$/.test(relative[2])) return 'upload'
+            if (path.isAbsolute(input) && realPath(input).startsWith(sample + path.sep) && fs.existsSync(input)) return 'sample'
+            return 'external'
+        }
+    }
 }
 
 export function inspectStore(item) {

@@ -6,6 +6,8 @@ The full server needs the Python agent runtime that ships in the Docker image, s
 
 Requires Node.js 20 or newer, and Docker.
 
+The launcher normally keeps SQLite and files in a Docker volume. Back up that volume and the original installation key before updating. For a host with disposable application storage, 1.7.15 can recover from PostgreSQL alone or with a private S3-compatible bucket. Migrate the original database and local files before replacing an existing SQLite installation. [Storage modes and migration procedures](https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/postgres-side-stores.md).
+
 ## Start
 
 ```bash

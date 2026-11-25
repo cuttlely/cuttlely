@@ -2,7 +2,7 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
-Version **1.7.15** adds an operator-controlled PostgreSQL upgrade for agent team and ETL side stores. The upgrade verifies copied data and retains SQLite originals for rollback. [Upgrade and disk requirements](./upgrading.md#upgrading-to-1715).
+Version **1.7.15** adds recovery on empty application disks using PostgreSQL, optionally with S3-compatible file storage. A fresh installation can opt in at first boot. Existing installations have separate procedures for the SQLite application copy and the PostgreSQL side-store cutover. Back up local data and the original installation key before replacing the first instance. [Upgrade and disk requirements](./upgrading.md#upgrading-to-1715).
 
 Version **1.7.13** adds direct chief delegation in agent mode, isolates reusable Try profiles by flow and owner, and lets operators configure agent time limits. Harnesses retry after boot failures, and chat locks renew during long turns. Read the [Analyst upgrade notes](./upgrading.md#upgrading-to-1713) before switching instances.
 
