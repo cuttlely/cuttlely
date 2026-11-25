@@ -314,6 +314,10 @@ A rejection diagnostic staged only with a batch can disappear when the error lim
 
 Pause and cancel do not take the pipeline lock. A resume that reads the run and later writes `queued` can overwrite a cancel that committed in between. Do the eligibility read, the checks, the `queued` write and the resume event inside one store transaction, and start `pump()` only after it commits.
 
+## A thrown refusal rolls back the other writer's write on SQLite
+
+The SQLite race checks make the other writer's commit inside the request's own transaction, because a second write would wait on the store lock. A refusal thrown inside `tx` then rolls that write back, and the check sees the old status. Return the refusal from the `tx` callback and throw it after the commit. Catch only `EtlError` that way; database and hook errors must still roll back.
+
 ## Multiplex terminal timeouts need profile policy
 
 An API-server Hermes process serves routed profiles under a complete terminal scope. `TERMINAL_TIMEOUT` on the process does not enter that scope. A configured command timeout must also be in the specialist profile's `terminal.timeout`; omit it when unset to retain existing defaults. The foreground maximum is different: it is read once from `TERMINAL_MAX_FOREGROUND_TIMEOUT` at tool-module import. Verify both paths without booting a service with `scripts/hermes-terminal-limits.test.mjs` and the generated-profile fixture.

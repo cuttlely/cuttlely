@@ -43,11 +43,11 @@ Failed sign-ins before lockout, the idle session lifetime, the absolute session 
 
 ## Where a value comes from
 
-| Order | Source                                                                                                                                                          | On the page                                    |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| 1     | The host: Docker's `.env` and compose file, Render's **Environment** page or Blueprint, the shell that starts Cuttlely, and `packages/server/.env` from source. | **Locked**, with where to change it            |
-| 2     | Server settings, saved in `settings/server.json` in Cuttlely's data folder                                                                                      | Editable                                       |
-| 3     | The built-in default                                                                                                                                            | Editable; the default is named under the field |
+| Order | Source                                                                                                                                                                  | On the page                                    |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 1     | The host: Docker's `.env` and compose file, Render's **Environment** page or Blueprint, the shell that starts Cuttlely, and `packages/server/.env` from source.         | **Locked**, with where to change it            |
+| 2     | Server settings, saved in the data folder or in [configured Postgres settings storage](./instance-operator.md#keep-authority-and-settings-when-a-container-is-replaced) | Editable                                       |
+| 3     | The built-in default                                                                                                                                                    | Editable; the default is named under the field |
 
 A blank value counts as not set. For ordinary startup settings, a value set by the host wins. The agent team fields in **Time limits and caps** use a saved value first. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host. Invite and mail settings are the other exception: a value saved here overrides the host, the field stays editable, and the change applies to the next invite or message. The mail password is not one of those: it stays in the environment, and the page only shows whether it is set.
 
@@ -59,7 +59,13 @@ A blank value counts as not set. For ordinary startup settings, a value set by t
 
 API credentials, passwords, and the AuthKit setup-test seal are write-only. After saving, the field says that a value is saved and never shows it again; type a new one to replace it, or clear it to remove it. They are encrypted with the same value that protects Credentials. They never appear in an answer from the server, the review, History, the log, or **Copy as .env**.
 
-If the encryption key changes, a saved secret shows **Saved, but this server cannot read it**; enter it again. It counts as not set. Starting never fails over it.
+If the encryption key changes, a saved secret shows **Saved, but this server cannot read it**; enter it again. With filesystem settings storage, it counts as unset and startup continues. Postgres settings storage requires the original installation key to read the store during startup.
+
+### Inspect records before credential-key rotation
+
+From a built checkout, run `pnpm keys:inventory` with the deployment's environment on a trusted host. It uses read-only database connections and reports counts and fixed status codes. On a supported SQLite or Postgres installation, it inspects credential, custom MCP and webhook ciphertext, settings and recovery copies, Analyst role secrets, and key-derived proofs in saved Live and draft flows. It also reads the dedicated Postgres settings store when configured. Access-key digests require reissue and pinned-query and AuthKit proofs require retesting.
+
+A blocked report means the inspection could not read or identify part of the current installation. The report is an inventory. Continue to use the current encryption key until a migration and rollback workflow is available.
 
 ## Test connection
 

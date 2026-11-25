@@ -2,7 +2,9 @@
 // worked come back. A start counts as finished when the server is listening (markStartFinished).
 import { preserveRollout } from './accessRollout'
 import fs from 'fs'
-import path from 'path'
+import { readSettingsText, removeSavedSettings } from './fileIO'
+import { withSettingsLockSync } from './lock'
+import { postgresSettings, SettingsStorageError } from './postgres'
 import { appendHistory, describeChanges } from './history'
 import { removeSettingsFile, LAST_GOOD_FILE, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic } from './store'
 
@@ -16,19 +18,21 @@ interface BootState {
     startedAt?: string
 }
 
-function readText(file: string): string | null {
+function readText(dir: string, file: string): string | null {
     try {
-        return fs.readFileSync(file, 'utf8')
-    } catch {
+        return readSettingsText(dir, file)
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return null
     }
 }
 
 export function readBootState(dir: string): BootState {
     try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(dir, BOOT_FILE), 'utf8'))
+        const parsed = JSON.parse(readSettingsText(dir, BOOT_FILE))
         return { pending: Number.isFinite(parsed.pending) ? Number(parsed.pending) : 0, startedAt: parsed.startedAt }
-    } catch {
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return { pending: 0 }
     }
 }
@@ -48,12 +52,13 @@ export interface BeginResult {
  * MAX_FAILED_STARTS starts in a row did not finish. Does nothing when there is no settings folder.
  */
 export function beginStart(dir: string, key: string | null, now = new Date()): BeginResult {
-    const settingsPath = path.join(dir, SETTINGS_FILE)
-    if (!fs.existsSync(dir)) return { rolledBack: false }
+    const postgres = postgresSettings(dir)
+    if (postgres && !postgres.locked) return withSettingsLockSync(dir, () => beginStart(dir, key, now))
+    if (!postgres && !fs.existsSync(dir)) return { rolledBack: false }
     const state = readBootState(dir)
     let result: BeginResult = { rolledBack: false }
-    const current = readText(settingsPath)
-    const lastGood = readText(path.join(dir, LAST_GOOD_FILE))
+    const current = readText(dir, SETTINGS_FILE)
+    const lastGood = readText(dir, LAST_GOOD_FILE)
     if (state.pending >= MAX_FAILED_STARTS && current !== null && current !== lastGood) {
         const before = readSettingsFile(dir, key).values
         writeFileAtomic(dir, ROLLED_BACK_FILE, current)
@@ -97,17 +102,19 @@ export function finishStart(dir: string, ready: boolean): StartOutcome {
         markStartFinished(dir)
         return 'finished'
     }
-    if (!fs.existsSync(dir)) return 'stay'
-    const current = readText(path.join(dir, SETTINGS_FILE))
-    const lastGood = readText(path.join(dir, LAST_GOOD_FILE))
+    if (!postgresSettings(dir) && !fs.existsSync(dir)) return 'stay'
+    const current = readText(dir, SETTINGS_FILE)
+    const lastGood = readText(dir, LAST_GOOD_FILE)
     return current !== null && current !== lastGood ? 'stop' : 'stay'
 }
 
 /** The server is up: the current file becomes the last good copy and the failed-start count resets. */
 export function markStartFinished(dir: string): void {
-    if (!fs.existsSync(dir)) return
-    const current = readText(path.join(dir, SETTINGS_FILE))
+    const postgres = postgresSettings(dir)
+    if (postgres && !postgres.locked) return withSettingsLockSync(dir, () => markStartFinished(dir))
+    if (!postgres && !fs.existsSync(dir)) return
+    const current = readText(dir, SETTINGS_FILE)
     if (current !== null) writeFileAtomic(dir, LAST_GOOD_FILE, current)
-    else fs.rmSync(path.join(dir, LAST_GOOD_FILE), { force: true })
+    else removeSavedSettings(dir, LAST_GOOD_FILE)
     writeBootState(dir, { pending: 0 })
 }

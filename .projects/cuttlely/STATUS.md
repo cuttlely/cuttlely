@@ -10,6 +10,10 @@ The annotated tag `v1.7.13` points to `4722923d` ([release PR #569](https://gith
 
 Runtime self-recovery, configurable limits, renewable chat locks and idle restart ship with reusable Try profiles, MCP bridge cleanup, router follow-up and ETL stop-race fixes. Focused checks covered token retirement across workers, preservation of saved profiles, and ten committed PostgreSQL stop races. Harness Publish and Promote checks run one question at a time on the shared Try profile. Other supported flows keep their configured concurrency. Saved harness requests carry the authenticated session owner into nested harness calls, including through an external worker. Live checks on 1.7.13 confirmed one specialist per routed task, same-chat recall, and fresh-chat isolation. The release smoke test did not include an extended Try-profile load soak.
 
+## Render compute for light QA
+
+The Render Blueprint specifies Standard (`1c-2g`) for a light QA trial. Start at `2c-4g` for general use. Concurrent evaluations and browser specialists may need `2c-8g`. Verify the applied compute plan separately from the application deploy.
+
 ## Chat lock renewal and idle limit application (1.7.13 preparation)
 
 Chat lease renewal stops on cancellation and enabled turn/run deadlines; busy replies retain HTTP 409 and the unsent message, with targeted lifecycle and process-restart regressions.
@@ -69,7 +73,9 @@ A Try or playground turn compiles a try profile (`try<id>`, `try<id>--<specialis
 -   Restart recovery skips a run that is gone or has a job, then writes from the fresh status: `pausing` → `paused`, `cancelling` → `cancelled`, `running` → `queued` with the restart event, `queued` unchanged. Only runs it leaves `queued` are returned as resumed.
 -   Launch failure: `queued` or `running` → `failed` with the error and `finishedAt`; `cancelling` → `cancelled`; `pausing` → `paused`; any other status keeps its status. The error event is written only when the conditional update to `failed` applies.
 
-Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 434 cases, with the same 12 pending cases, and then runs `packages/etl/check/run-control-postgres.test.mjs` for the same races on a real Postgres at READ COMMITTED. That suite skips with a clear message when no Postgres is available, and CI requires it in the build job and the analyst-postgres 14–18 matrix. `CHANGELOG.md` records the fix under `## [Unreleased]`.
+Checks RC-R1 to RC-R4 (recovery) and RC-L1 to RC-L4 (launch failure) are in `packages/etl/check/run-control.mjs`. `pnpm etl:check` passes 448 cases, with the same 12 pending cases, and then runs `packages/etl/check/run-control-postgres.test.mjs` for the same races on a real Postgres at READ COMMITTED. That suite skips with a clear message when no Postgres is available, and CI requires it in the build job and the analyst-postgres 14–18 matrix. `CHANGELOG.md` records the fix under `## [Unreleased]`.
+
+`pauseRun`, `cancelRun`, `resumeUnlocked` and the claim in `claimQueued` write a run's status only if it is still the status they read. When another writer commits in between, the request reads again and decides from the new status. A refusal is returned from the store transaction and thrown after it commits, so a refused request writes nothing and undoes nothing. The pause, cancel and resume races are in `packages/etl/check/run-control-races.mjs`, shared by `pnpm etl:check` and the Postgres suite, which expects 15 independent stop commits. The claim races run on SQLite only, in `packages/etl/check/run-control.mjs`.
 
 ## Missing model credential answers 422 outside Iteration (#239, 1.7.13)
 

@@ -175,6 +175,7 @@
             "packages/ui/src/views/authentication/RecoveryWarningBanner.test.js",
             "packages/ui/src/views/authentication/RecoveryWarningBanner.jsx",
             "packages/server/src/settings/**",
+            "packages/server/src/security/keyInventory*.ts",
             "packages/server/src/routes/server-settings/**",
             "packages/server/src/routes/server-setup/**",
             "packages/ui/src/views/serversettings/**",
@@ -1006,6 +1007,7 @@
             "name": "Admin panel and server settings",
             "paths": [
                 "packages/server/src/settings/**",
+                "packages/server/src/security/keyInventory*.ts",
                 "packages/server/src/routes/server-settings/**",
                 "packages/server/src/routes/server-setup/**",
                 "packages/ui/src/views/serversettings/**",

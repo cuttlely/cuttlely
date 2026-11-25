@@ -3,8 +3,8 @@
 // Each append rewrites the file under its own lock, so two saves cannot drop a row that is still inside the cap.
 // Secret values never go in. A secret change is recorded as "changed" and nothing else.
 import { ACCESS_ROLLOUT_KEY, rolloutState } from './accessRollout'
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText } from './fileIO'
+import { POSTGRES_SETTINGS_URL, SettingsStorageError } from './postgres'
 import { withNamedLockSync } from './lock'
 import { settingFor } from './registry'
 import { invalidateRuntimeCache, runtimeNumber } from './runtime'
@@ -14,6 +14,7 @@ const SECRET_PARTS = new Set(['SECRET', 'PASSWORD', 'TOKEN', 'CREDENTIAL', 'SECR
 
 /** A known setting uses its registry type. An unknown name is secret when a name part is a secret word. */
 export function isSecretSettingKey(key: string): boolean {
+    if (key === POSTGRES_SETTINGS_URL) return true
     const setting = settingFor(key)
     if (setting) return setting.type === 'secret'
     const parts = key.toUpperCase().split('_').filter(Boolean)
@@ -105,8 +106,9 @@ function redact(entry: HistoryEntry): HistoryEntry {
 function readLines(dir: string): HistoryEntry[] {
     let raw: string
     try {
-        raw = fs.readFileSync(path.join(dir, HISTORY_FILE), 'utf8')
-    } catch {
+        raw = readSettingsText(dir, HISTORY_FILE)
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return []
     }
     const entries: HistoryEntry[] = []
@@ -145,11 +147,11 @@ export function historyKeepLimit(env: Record<string, string | undefined> = proce
 
 function readRawLines(dir: string): string[] {
     try {
-        return fs
-            .readFileSync(path.join(dir, HISTORY_FILE), 'utf8')
+        return readSettingsText(dir, HISTORY_FILE)
             .split('\n')
             .filter((line) => line.trim())
-    } catch {
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return []
     }
 }

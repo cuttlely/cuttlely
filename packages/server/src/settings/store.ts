@@ -1,6 +1,6 @@
-// The admin settings file: <CUTTLELY_DATA_DIR>/settings/server.json (owner-only permissions).
+// Admin settings use an owner-only file by default or the host-configured Postgres settings store.
 // Secret values are encrypted with the same key and cipher as Credentials and are never written in plain text.
-// A file that cannot be read never stops start-up: it is ignored, and the reason is kept for the Server settings page.
+// Filesystem read and format problems are reported in the Server settings page. Postgres access errors fail startup.
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -8,6 +8,8 @@ import { AES, enc } from 'crypto-js'
 import { isKeptOut, settingFor } from './registry'
 import { encryptionKeyOverwrite } from './settingAlias'
 import { isBlank } from './resolve'
+import { readSettingsText, removeSavedSettings } from './fileIO'
+import { postgresSettings, SettingsStorageError } from './postgres'
 
 export const SETTINGS_FILE = 'server.json'
 export const LAST_GOOD_FILE = 'server.last-good.json'
@@ -82,11 +84,11 @@ export function decryptSecret(cipher: string, key: string): string | null {
 
 export function readSettingsFile(dir: string, key: string | null, file = SETTINGS_FILE): ReadResult {
     const result: ReadResult = { exists: false, values: {}, unreadable: [], problems: [] }
-    const full = path.join(dir, file)
     let raw: string
     try {
-        raw = fs.readFileSync(full, 'utf8')
+        raw = readSettingsText(dir, file)
     } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
             result.problems.push(`The settings file could not be opened (${(error as NodeJS.ErrnoException).code}).`)
         return result
@@ -184,9 +186,10 @@ export function writeSettingsFile(
 /** The stored (still encrypted) entries of the file, for keeping secrets this key cannot read. */
 export function readStoredValues(dir: string, file = SETTINGS_FILE): Record<string, StoredValue> {
     try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as SettingsFile
+        const parsed = JSON.parse(readSettingsText(dir, file)) as SettingsFile
         return parsed && typeof parsed.values === 'object' && parsed.values ? parsed.values : {}
-    } catch {
+    } catch (error) {
+        if (error instanceof SettingsStorageError) throw error
         return {}
     }
 }
@@ -206,6 +209,12 @@ export function onSettingsFileWritten(listener: (dir: string) => void): () => vo
 }
 
 export function writeFileAtomic(dir: string, file: string, text: string): void {
+    const postgres = postgresSettings(dir, file)
+    if (postgres) {
+        postgres.write(file, text)
+        if (file === SETTINGS_FILE) notifySettingsWrite(dir)
+        return
+    }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     const target = path.join(dir, file)
     const temp = path.join(dir, `.${file}.${process.pid}.${Date.now()}.tmp`)
@@ -221,14 +230,14 @@ export function writeFileAtomic(dir: string, file: string, text: string): void {
 
 /** Removing the saved file also returns live settings to the host or default. */
 export function removeSettingsFile(dir: string): void {
-    fs.rmSync(path.join(dir, SETTINGS_FILE), { force: true })
+    removeSavedSettings(dir, SETTINGS_FILE)
     notifySettingsWrite(dir)
 }
 
 /** Copies the current file to the last-good copy, byte for byte. */
 export function saveLastGood(dir: string): boolean {
     try {
-        const text = fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
+        const text = readSettingsText(dir, SETTINGS_FILE)
         writeFileAtomic(dir, LAST_GOOD_FILE, text)
         return true
     } catch {

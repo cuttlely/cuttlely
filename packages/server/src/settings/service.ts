@@ -2,8 +2,7 @@
 // the server: a secret is shown as set or not set. Runtime settings apply on the next use. Every other change
 // applies at the next start.
 import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollout'
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText, removeSavedSettings, savedSettingsExist } from './fileIO'
 import { idleApplyStatus, pendingRestartLimits } from './applyWhenIdle'
 import { StartState } from './apply'
 import {
@@ -326,7 +325,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
         },
         ignored: state.ignored,
         rolledBack: Boolean(state.rolledBack),
-        retryAvailable: fs.existsSync(path.join(state.dir, ROLLED_BACK_FILE)),
+        retryAvailable: savedSettingsExist(state.dir, ROLLED_BACK_FILE),
         runs: { inProgress: runsInProgress(), waitSeconds: Math.round(waitLimitMs(env) / 1000) },
         authKit: authKitView(state.dir, resolved, hostKeys, read.key),
         database: {
@@ -552,8 +551,7 @@ async function writeValuesLocked(
     for (const name of read.unreadable) if (name in normalized) before[name] = '(unreadable)'
     const changes = describeChanges(before, next, deps.env)
     if (changes.length) {
-        const file = path.join(state.dir, SETTINGS_FILE)
-        const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+        const previousRaw = savedSettingsExist(state.dir, SETTINGS_FILE) ? readSettingsText(state.dir, SETTINGS_FILE) : null
         await deps.authorize?.()
         writeSettingsFile(state.dir, next, { key, by, preserve })
         invalidateRuntimeCache()
@@ -589,8 +587,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const { state } = deps
             const key = await deps.key()
             const before = readSettingsFile(state.dir, key).values
-            const file = path.join(state.dir, SETTINGS_FILE)
-            const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+            const previousRaw = savedSettingsExist(state.dir, SETTINGS_FILE) ? readSettingsText(state.dir, SETTINGS_FILE) : null
             const restored = preserveRollout(state.rawAtStart ?? null, readStoredValues(state.dir))
             if (restored === null) removeSettingsFile(state.dir)
             else writeFileAtomic(state.dir, SETTINGS_FILE, restored)
@@ -625,12 +622,11 @@ export async function retryRolledBack(deps: ServiceDeps, by: string, actorId?: s
 
 async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
     const { state } = deps
-    const kept = path.join(state.dir, ROLLED_BACK_FILE)
-    if (!fs.existsSync(kept)) throw new SettingsError(404, 'NOTHING_TO_RETRY', 'There are no set-aside settings to try again.')
+    if (!savedSettingsExist(state.dir, ROLLED_BACK_FILE))
+        throw new SettingsError(404, 'NOTHING_TO_RETRY', 'There are no set-aside settings to try again.')
     const key = await deps.key()
-    const raw = fs.readFileSync(kept, 'utf8')
-    const file = path.join(state.dir, SETTINGS_FILE)
-    const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+    const raw = readSettingsText(state.dir, ROLLED_BACK_FILE)
+    const current = savedSettingsExist(state.dir, SETTINGS_FILE) ? readSettingsText(state.dir, SETTINGS_FILE) : null
     const before = readSettingsFile(state.dir, key).values
     writeFileAtomic(state.dir, SETTINGS_FILE, preserveRollout(raw, readStoredValues(state.dir)) ?? raw)
     const after = readSettingsFile(state.dir, key)
@@ -655,7 +651,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         invalidateRuntimeCache()
         throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
     }
-    fs.rmSync(kept, { force: true })
+    removeSavedSettings(state.dir, ROLLED_BACK_FILE)
     return getView(deps)
 }
 

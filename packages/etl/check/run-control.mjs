@@ -692,6 +692,49 @@ async function stopThenExecute(id, action) {
     }
 }
 
+// The claim that starts a queued run writes only while the run is still queued. A pause or cancel committed after its
+// read is finished as a stop, and the run never starts.
+for (const [stop, target, message] of [
+    ['pausing', 'paused', 'Paused at the last committed batch.'],
+    ['cancelling', 'cancelled', 'Cancelled. Nothing was deleted.']
+]) {
+    const name = `claim race queued/${stop}`
+    const id = `run-control-claim-${stop}`
+    let fired = 0
+    try {
+        api.configureRunner({
+            contextFor: () => ({
+                workspaceId: WS,
+                faults: {
+                    claimAfterRead: async (current, t) => {
+                        if (fired) return
+                        fired += 1
+                        check(`${name}: hook follows the status read`, current?.status === 'queued')
+                        await updateRun(current.id, { status: stop }, t)
+                    }
+                }
+            })
+        })
+        await savePipeline(id)
+        const started = await api.startRun(id, { settings: SETTINGS })
+        await api.waitForIdle()
+        const after = await getRun(started.id)
+        const stops = (await listEvents(started.id)).filter((event) => event.message === message)
+        check(
+            `${name}: the claim yields and the stop finishes as ${target} with one event`,
+            fired === 1 &&
+                after.status === target &&
+                !after.startedAt &&
+                (target === 'cancelled' ? Boolean(after.finishedAt) : !after.finishedAt) &&
+                stops.length === 1 &&
+                !isActive(started.id),
+            JSON.stringify({ fired, after, stops })
+        )
+    } finally {
+        api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    }
+}
+
 // The same conditional-write cases also run against a real READ COMMITTED Postgres fixture.
 const { checkRunControlRaces } = await import('./run-control-races.mjs')
 await checkRunControlRaces({ check, writeDuringRead: (t, write) => write(t) })
