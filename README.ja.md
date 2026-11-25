@@ -27,6 +27,8 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
+**次回** · **1.7.14 では、インストール暗号鍵の段階的なローテーションと、オペレーター設定の永続化が可能になります。** Analyst の SQL 試行回数を調整できます。[アップグレードガイド](./docs/upgrading.md#upgrading-to-1714)。
+
 **1.7.13 では、エージェントモードの chief が専門エージェントに直接作業を委任できます。** 既定はルーターモードです。Try チャットはフローと所有者ごとにプロファイルを再利用します。監視下の環境では、実行中の作業が終わると保存済みのランタイム制限が適用されます。[エージェントモード](./docs/how-to/harness-agent-mode.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1713)。
 
 **1.7.12 では、roster がエージェントランタイムの使う stdio フレーミングで接続します。** roster は 1.0 以降一度も接続できていませんでした。混在モデルの harness ごとに起動が約 60 秒速くなり（2 つある場合は約 2 分）、chief の `run_specialist` ツールが登録されます。ルーター経由のトラフィックは変わりません。ETL の開始、再開、一時停止、キャンセルが同時に行われても、キャンセル済みまたは一時停止済みの実行が動き続けたり、同じパイプラインで 2 つ目の実行が始まったりしなくなりました。[ETL](./docs/how-to/etl.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1712)。

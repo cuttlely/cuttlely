@@ -27,6 +27,8 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
+**Upcoming** · **1.7.14 adds staged installation-key rotation and durable operator settings.** Tune the Analyst SQL attempt limit and keep simultaneous pipeline stop and resume operations consistent. [Upgrade guide](./docs/upgrading.md#upgrading-to-1714).
+
 **1.7.13 lets a chief delegate directly to specialists in agent mode.** Router mode stays the default. Try chats reuse a profile per flow and owner, and supervised installations apply saved runtime limits once work is idle. [Agent mode](./docs/how-to/harness-agent-mode.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1713).
 
 **1.7.12 connects roster over the stdio framing the agent runtime uses.** Roster had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Starting, resuming, pausing and cancelling ETL runs at the same moment no longer leaves a cancelled or paused run running or starts a second run for one pipeline. [ETL](./docs/how-to/etl.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1712).
