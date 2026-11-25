@@ -441,6 +441,70 @@ function nodeProblem() {
     return ''
 }
 
+export function checkDistPreflight(steps, skip, fast, rootPath = ROOT) {
+    const buildStep = steps.find((step) => step.name === 'build')
+    if (!buildStep) return { ok: true }
+
+    const buildSkipped = skip.has('build') || (fast && buildStep.fast === false)
+
+    if (!buildSkipped) return { ok: true }
+
+    const filterArgs = buildStep.args.filter((arg) => arg.startsWith('--filter='))
+    const packageNames = filterArgs.map((arg) => arg.replace(/^--filter=/, '').replace(/^\.\//, ''))
+
+    const packagesDir = path.join(rootPath, 'packages')
+    const packageDirs = fs.readdirSync(packagesDir).filter((name) => {
+        const stat = fs.statSync(path.join(packagesDir, name))
+        return stat.isDirectory()
+    })
+
+    const nameToDir = new Map()
+    for (const dir of packageDirs) {
+        const pkgJsonPath = path.join(packagesDir, dir, 'package.json')
+        if (!fs.existsSync(pkgJsonPath)) continue
+        try {
+            const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+            if (pkgJson.name) {
+                nameToDir.set(pkgJson.name, dir)
+            }
+        } catch {
+            continue
+        }
+    }
+
+    const missing = []
+    for (const pkgName of packageNames) {
+        const dir = nameToDir.get(pkgName)
+        if (!dir) continue
+
+        let found = false
+        for (const outDir of ['dist', 'build']) {
+            const outPath = path.join(packagesDir, dir, outDir)
+            if (!fs.existsSync(outPath)) continue
+
+            const stat = fs.statSync(outPath)
+            if (!stat.isDirectory()) continue
+
+            const contents = fs.readdirSync(outPath)
+            if (contents.length > 0) {
+                found = true
+                break
+            }
+        }
+
+        if (!found) {
+            missing.push(pkgName)
+        }
+    }
+
+    if (missing.length > 0) {
+        const message = `Build output is missing for ${missing.join(', ')}. Run pnpm build first.`
+        return { ok: false, missing, message }
+    }
+
+    return { ok: true }
+}
+
 function parseArgs(argv) {
     let fast = false
     const skip = new Set()
@@ -453,6 +517,7 @@ function parseArgs(argv) {
             console.log(
                 '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, version-consistency, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
+            console.log('--fast skips the build step, so it needs a prior pnpm build.')
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(
                 'unit runs server Jest, then packages/components/nodes/load-coverage.test.ts with --coverage=false so its load budget is enforced (module evaluation, separate from the cold-compile ceiling).'
@@ -617,6 +682,16 @@ function main() {
         writeReport(report)
         process.exit(1)
     }
+
+    const distCheck = checkDistPreflight(STEPS, parsed.skip, parsed.fast)
+    if (!distCheck.ok) {
+        console.error(distCheck.message)
+        report.ok = false
+        report.error = distCheck.message
+        writeReport(report)
+        process.exit(1)
+    }
+
     for (const step of STEPS) {
         if (parsed.skip.has(step.name)) {
             console.log(`\n==> ${step.name} skip (--skip)`)

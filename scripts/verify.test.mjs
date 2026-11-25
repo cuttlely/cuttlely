@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { STEPS, jestMaxWorkers, nodeLoadBudgetJestArgs, runStepCommand, timingTable, unitJestArgs } from './verify.mjs'
+import { STEPS, checkDistPreflight, jestMaxWorkers, nodeLoadBudgetJestArgs, runStepCommand, timingTable, unitJestArgs } from './verify.mjs'
 
 const KEY = 'CUTTLELY_VERIFY_JEST_WORKERS'
 const previous = process.env[KEY]
@@ -178,5 +178,189 @@ describe('verify retryOnSignal', () => {
         assert.equal(result.signal, null)
         assert.equal(result.status, 0)
         assert.ok(fs.existsSync(marker))
+    })
+})
+
+describe('dist preflight', () => {
+    it('passes when all dist directories are present and non-empty', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-dist-'))
+        try {
+            const packagesDir = path.join(root, 'packages')
+            fs.mkdirSync(packagesDir, { recursive: true })
+
+            fs.mkdirSync(path.join(packagesDir, 'server'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'package.json'), JSON.stringify({ name: '@cuttlely/server' }))
+            fs.mkdirSync(path.join(packagesDir, 'server', 'dist'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'dist', 'index.js'), '')
+
+            fs.mkdirSync(path.join(packagesDir, 'ui'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'package.json'), JSON.stringify({ name: '@cuttlely/ui' }))
+            fs.mkdirSync(path.join(packagesDir, 'ui', 'dist'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'dist', 'bundle.js'), '')
+
+            const steps = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: ['exec', 'turbo', 'run', 'build', '--filter=@cuttlely/server', '--filter=@cuttlely/ui']
+                }
+            ]
+            const skip = new Set(['build'])
+            const fast = false
+
+            const result = checkDistPreflight(steps, skip, fast, root)
+            assert.equal(result.ok, true)
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('reports exactly the missing packages when dist is missing', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-dist-'))
+        try {
+            const packagesDir = path.join(root, 'packages')
+            fs.mkdirSync(packagesDir, { recursive: true })
+
+            fs.mkdirSync(path.join(packagesDir, 'server'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'package.json'), JSON.stringify({ name: '@cuttlely/server' }))
+
+            fs.mkdirSync(path.join(packagesDir, 'ui'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'package.json'), JSON.stringify({ name: '@cuttlely/ui' }))
+            fs.mkdirSync(path.join(packagesDir, 'ui', 'dist'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'dist', 'bundle.js'), '')
+
+            const steps = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: ['exec', 'turbo', 'run', 'build', '--filter=@cuttlely/server', '--filter=@cuttlely/ui']
+                }
+            ]
+            const skip = new Set(['build'])
+            const fast = false
+
+            const result = checkDistPreflight(steps, skip, fast, root)
+            assert.equal(result.ok, false)
+            assert.deepEqual(result.missing, ['@cuttlely/server'])
+            assert.match(result.message, /@cuttlely\/server/)
+            assert.match(result.message, /pnpm build/)
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('follows the build step filter args as the single source of truth', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-dist-'))
+        try {
+            const packagesDir = path.join(root, 'packages')
+            fs.mkdirSync(packagesDir, { recursive: true })
+
+            fs.mkdirSync(path.join(packagesDir, 'server'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'package.json'), JSON.stringify({ name: '@cuttlely/server' }))
+
+            fs.mkdirSync(path.join(packagesDir, 'ui'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'package.json'), JSON.stringify({ name: '@cuttlely/ui' }))
+            fs.mkdirSync(path.join(packagesDir, 'ui', 'dist'))
+            fs.writeFileSync(path.join(packagesDir, 'ui', 'dist', 'bundle.js'), '')
+
+            fs.mkdirSync(path.join(packagesDir, 'extra'))
+            fs.writeFileSync(path.join(packagesDir, 'extra', 'package.json'), JSON.stringify({ name: '@cuttlely/extra' }))
+
+            const stepsWithoutExtra = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: ['exec', 'turbo', 'run', 'build', '--filter=@cuttlely/server', '--filter=@cuttlely/ui']
+                }
+            ]
+            const skip = new Set(['build'])
+            const fast = false
+
+            const result1 = checkDistPreflight(stepsWithoutExtra, skip, fast, root)
+            assert.equal(result1.ok, false)
+            assert.deepEqual(result1.missing, ['@cuttlely/server'])
+
+            const stepsWithExtra = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: [
+                        'exec',
+                        'turbo',
+                        'run',
+                        'build',
+                        '--filter=@cuttlely/server',
+                        '--filter=@cuttlely/ui',
+                        '--filter=@cuttlely/extra'
+                    ]
+                }
+            ]
+
+            const result2 = checkDistPreflight(stepsWithExtra, skip, fast, root)
+            assert.equal(result2.ok, false)
+            assert.deepEqual(result2.missing, ['@cuttlely/server', '@cuttlely/extra'])
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('passes when build is not skipped', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-dist-'))
+        try {
+            const packagesDir = path.join(root, 'packages')
+            fs.mkdirSync(packagesDir, { recursive: true })
+
+            fs.mkdirSync(path.join(packagesDir, 'server'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'package.json'), JSON.stringify({ name: '@cuttlely/server' }))
+
+            const steps = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: ['exec', 'turbo', 'run', 'build', '--filter=@cuttlely/server']
+                }
+            ]
+            const skip = new Set()
+            const fast = false
+
+            const result = checkDistPreflight(steps, skip, fast, root)
+            assert.equal(result.ok, true)
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('reports missing when dist exists but is empty', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-dist-'))
+        try {
+            const packagesDir = path.join(root, 'packages')
+            fs.mkdirSync(packagesDir, { recursive: true })
+
+            fs.mkdirSync(path.join(packagesDir, 'server'))
+            fs.writeFileSync(path.join(packagesDir, 'server', 'package.json'), JSON.stringify({ name: '@cuttlely/server' }))
+            fs.mkdirSync(path.join(packagesDir, 'server', 'dist'))
+
+            const steps = [
+                {
+                    name: 'build',
+                    fast: false,
+                    command: 'pnpm',
+                    args: ['exec', 'turbo', 'run', 'build', '--filter=@cuttlely/server']
+                }
+            ]
+            const skip = new Set(['build'])
+            const fast = false
+
+            const result = checkDistPreflight(steps, skip, fast, root)
+            assert.equal(result.ok, false)
+            assert.deepEqual(result.missing, ['@cuttlely/server'])
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
     })
 })
