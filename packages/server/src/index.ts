@@ -27,6 +27,7 @@ import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from './metrics/tracing'
 import { installHttpLocalhostReader } from './settings/httpLocalhost'
+import { requireVerifiedSettingsSelection } from './settings/postgres'
 import { InstallationKeyGuardError, verifyInstallationKey } from './settings/keyGuard'
 import errorHandlerMiddleware from './middlewares/errors'
 import { NodesPool } from './NodesPool'
@@ -119,6 +120,7 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
+            requireVerifiedSettingsSelection()
             const newPostgresApplication =
                 this.AppDataSource.options.type === 'postgres' &&
                 (

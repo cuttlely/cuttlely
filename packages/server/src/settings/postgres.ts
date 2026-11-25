@@ -157,12 +157,33 @@ export function settingsPostgresConnection(env: Record<string, string | undefine
     return undefined
 }
 
-export function initPostgresSettings(dir: string, env: Record<string, string | undefined>): void {
+// A web instance may expose database-outage health while the optional legacy-store probe is unavailable.
+let pendingApplicationProbe = false
+export function requireVerifiedSettingsSelection(): void {
+    if (pendingApplicationProbe)
+        throw Object.assign(
+            new Error(
+                'The application database could not be checked for durable settings at startup. Restore connectivity and restart before serving traffic.'
+            ),
+            { code: 'STORAGE_START_FAILED' }
+        )
+}
+
+export function initPostgresSettings(dir: string, env: Record<string, string | undefined>, allowOutageHealth = false): void {
+    pendingApplicationProbe = false
     const connection = settingsPostgresConnection(env)
     if (!connection) {
         if (env.DATABASE_TYPE === 'postgres' && env.DATABASE_HOST && env.DATABASE_NAME && env.DATABASE_USER) {
             const probe = new PostgresSettings({ connection: applicationPostgresOptions(env), secret: '', dir })
-            if (probe.hasDurableSettings())
+            let durable: boolean
+            try {
+                durable = probe.hasDurableSettings()
+            } catch (error) {
+                if (!allowOutageHealth || !(error instanceof SettingsStorageError)) throw error
+                pendingApplicationProbe = true
+                return
+            }
+            if (durable)
                 throw new Error(
                     'Restore the PostgreSQL settings connection or CUTTLELY_APP_DATABASE_STORES before starting this installation.'
                 )
