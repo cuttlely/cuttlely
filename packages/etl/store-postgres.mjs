@@ -1,56 +1,25 @@
+import { registerSideSchema } from '../harness/side-store-identity.mjs'
 // ETL store in the application's Postgres database (CUTTLELY_APP_DATABASE_STORES, #516).
 // The server hands over a source: { dialect, session(): Promise<{ execute(sql, params) -> {rows, affected}, release() }> }.
 // Tests build the same shape from a plain pg.Client, so this module never imports the server.
+import { postgresVectors } from './vectors-postgres.mjs'
 import { SCHEMA_VERSION } from './db.mjs'
 
 export const ETL_SCHEMA = 'cuttlely_etl'
 const S = ETL_SCHEMA
 
-const fail = (message, status) => {
-    const error = new Error(message)
-    error.status = status
-    throw error
-}
-
-// pg returns BIGINT as text. The store compares ids, counts and times as numbers, as on SQLite.
-const NUMERIC_COLUMNS = new Set([
-    'id',
-    'version',
-    'served_version',
-    'attempt',
-    'seq',
-    'ordinal',
-    'read',
-    'written_inserted',
-    'written_unchanged',
-    'rejected',
-    'filtered',
-    'bytes',
-    'ms',
-    'chunks',
-    'records',
-    'inserted',
-    'unchanged',
-    'embed_ms',
-    'store_ms',
-    'retries',
-    'raw_bytes',
-    'every_n'
-])
-
-// run_nodes.retries is TEXT and stays a string (it's a JSON blob, not a number).
-const normalize = (rows, columns) => {
-    if (!Array.isArray(rows)) return rows
-    return rows.map((row) => {
-        const out = { ...row }
-        for (const key of Object.keys(out)) {
-            if ((NUMERIC_COLUMNS.has(key) || key === 'n') && out[key] !== null) {
-                const value = out[key]
-                if (typeof value === 'string' && /^\d+$/.test(value)) out[key] = Number(value)
-            }
+// node-postgres returns int8 as text. Column names alone cannot distinguish numeric IDs from text IDs.
+function normalize({ rows, fields }) {
+    const integers = fields.filter((field) => field.dataTypeID === 20)
+    for (const row of rows) {
+        for (const { name } of integers) {
+            if (row[name] === null) continue
+            const value = Number(row[name])
+            if (!Number.isSafeInteger(value)) throw new RangeError('ETL integer exceeds the safe JavaScript range.')
+            row[name] = value
         }
-        return out
-    })
+    }
+    return rows
 }
 
 // Convert ? placeholders to $n, skipping quoted literals.
@@ -307,14 +276,14 @@ async function schemaExists(session) {
     return rows[0]?.present === true
 }
 
-async function ensureSchema(session) {
+export async function ensureSchema(session) {
     await session.execute(`SELECT pg_advisory_xact_lock(hashtext('cuttlely-etl-schema'))`, [])
-    if (!(await schemaExists(session))) {
-        await session.execute(`CREATE SCHEMA ${S}`, [])
-    }
     for (const sql of PG_SCHEMA) {
         await session.execute(sql, [])
     }
+    const { rows } = await session.execute(`SELECT value FROM ${S}.etl_store_meta WHERE key='schema_version'`, [])
+    if (rows[0]?.value !== String(SCHEMA_VERSION)) throw new Error('Unsupported PostgreSQL ETL schema version.')
+    await registerSideSchema((sql, params = []) => session.execute(sql, params), S)
     for (const sql of PG_TRIGGERS) {
         await session.execute(sql, [])
     }
@@ -334,7 +303,28 @@ export async function missingPrivilege(source) {
         )
         return rows[0]?.ok === true ? null : `USAGE and CREATE on schema ${S}`
     } finally {
-        session.release()
+        await session.release()
+    }
+}
+
+export async function withEtlSession(source, work) {
+    const session = await source.session()
+    let discard
+    try {
+        await session.execute('BEGIN ISOLATION LEVEL READ COMMITTED', [])
+        await session.execute(`SET LOCAL search_path TO ${S}, pg_catalog`, [])
+        const result = await work(session)
+        await session.execute('COMMIT', [])
+        return result
+    } catch (error) {
+        try {
+            await session.execute('ROLLBACK', [])
+        } catch (rollbackError) {
+            discard = rollbackError
+        }
+        throw error
+    } finally {
+        await session.release(discard)
     }
 }
 
@@ -346,93 +336,42 @@ export async function openPostgresEtlStore(source) {
         throw new Error(`ETL Postgres backend: source dialect must be 'postgres', got '${source.dialect}'`)
     }
 
-    const session = await source.session()
-    let searchPathSet = false
-    try {
-        await ensureSchema(session)
-        await session.execute(`SET search_path TO ${S}, pg_catalog`, [])
-        searchPathSet = true
-    } finally {
-        session.release()
+    const transaction = (work) => withEtlSession(source, work)
+    await transaction(ensureSchema)
+
+    const exec = async () => {
+        throw new Error('exec is not supported on the Postgres backend')
     }
-
-    let currentSession = null
-    let inTransaction = false
-
-    const getSession = async () => {
-        if (!currentSession || !searchPathSet) {
-            if (currentSession) currentSession.release()
-            currentSession = await source.session()
-            await currentSession.execute(`SET search_path TO ${S}, pg_catalog`, [])
-            searchPathSet = true
-        }
-        return currentSession
-    }
-
-    const query = async (sql, params = []) => {
-        const session = await getSession()
-        const positional = toPositional(sql)
-        const result = await session.execute(positional, params)
-        return normalize(result.rows, result.fields)
-    }
-
-    return {
-        all: async (sql, params) => query(sql, params),
-        get: async (sql, params) => (await query(sql, params))[0],
-        run: async (sql, params) => {
-            const session = await getSession()
-            const positional = toPositional(sql)
-            const result = await session.execute(positional, params)
-            return { changes: result.affected ?? 0 }
-        },
-        exec: async () => {
-            throw new Error('exec is not supported on the Postgres backend')
-        },
-        tx: async (fn) => {
-            const session = await getSession()
-            try {
-                await session.execute('BEGIN ISOLATION LEVEL READ COMMITTED', [])
-                inTransaction = true
-                const handle = {
-                    all: async (sql, params) => {
-                        const positional = toPositional(sql)
-                        const result = await session.execute(positional, params)
-                        return normalize(result.rows, result.fields)
-                    },
-                    get: async (sql, params) => {
-                        const positional = toPositional(sql)
-                        const result = await session.execute(positional, params)
-                        const normalized = normalize(result.rows, result.fields)
-                        return normalized[0]
-                    },
-                    run: async (sql, params) => {
-                        const positional = toPositional(sql)
-                        const result = await session.execute(positional, params)
-                        return { changes: result.affected ?? 0 }
-                    },
-                    exec: async () => {
-                        throw new Error('exec is not supported on the Postgres backend')
-                    }
-                }
-                const result = await fn(handle)
-                await session.execute('COMMIT', [])
-                inTransaction = false
-                return result
-            } catch (error) {
-                inTransaction = false
-                try {
-                    await session.execute('ROLLBACK', [])
-                } catch (rollbackError) {
-                    // Session may already be closed
-                }
-                // Release the session after rollback so the next transaction gets a fresh one
-                if (currentSession === session) {
-                    currentSession.release()
-                    currentSession = null
-                    searchPathSet = false
-                }
-                throw error
+    const tx = (work) =>
+        transaction(async (session) => {
+            let active = true
+            async function query(sql, params = []) {
+                if (!active) throw new Error('This ETL transaction has already ended.')
+                return session.execute(toPositional(sql), params)
             }
-        }
+            const handle = {
+                all: async (sql, params) => normalize(await query(sql, params)),
+                get: async (sql, params) => normalize(await query(sql, params))[0],
+                run: async (sql, params) => ({ changes: (await query(sql, params)).affected ?? 0 }),
+                exec
+            }
+            try {
+                return await work(handle)
+            } finally {
+                active = false
+            }
+        })
+
+    const collections = new Map()
+    return {
+        vectors: (collection) => {
+            if (!collections.has(collection)) collections.set(collection, postgresVectors(collection, transaction))
+            return collections.get(collection)
+        },
+        all: (sql, params) => tx((handle) => handle.all(sql, params)),
+        get: (sql, params) => tx((handle) => handle.get(sql, params)),
+        run: (sql, params) => tx((handle) => handle.run(sql, params)),
+        exec,
+        tx
     }
 }

@@ -19,6 +19,8 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
+**即将发布** · **1.7.15 支持由实例操作员将智能体团队的对话、计划任务、ETL 管道和向量迁移到 PostgreSQL。** [升级与磁盘要求](../docs/upgrading.md#upgrading-to-1715).
+
 **1.7.14 新增分阶段轮换安装加密密钥和持久化实例操作员设置。** 可以调整 Analyst 的 SQL 尝试次数。[升级指南](../docs/upgrading.md#upgrading-to-1714)。
 
 **1.7.13 支持由 chief 在智能体模式下直接向专家分派任务。** 默认仍使用路由模式。Try 对话按流程和所有者复用配置目录。对于受监督的安装，正在执行的工作结束后才会应用已保存的运行时限制。[智能体模式](../docs/how-to/harness-agent-mode.md) · [升级指南](../docs/upgrading.md#upgrading-to-1713)。

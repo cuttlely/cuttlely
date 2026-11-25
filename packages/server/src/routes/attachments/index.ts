@@ -1,6 +1,6 @@
 import express from 'express'
 import attachmentsController from '../../controllers/attachments'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { authorizeAttachmentUpload, bindAttachmentChatId } from '../../utils/authorizeFlowAccess'
 
 const router = express.Router()
@@ -11,7 +11,7 @@ router.post(
     '/:chatflowId/:chatId',
     authorizeAttachmentUpload,
     bindAttachmentChatId,
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     attachmentsController.createAttachment
 )
 

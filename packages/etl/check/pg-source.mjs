@@ -3,6 +3,10 @@
 // when initdb and pg_ctl are on PATH (or PG_BINDIR). Skips with a clear message when neither is available, unless
 // CUTTLELY_TEST_PG_REQUIRED=1, which fails instead of skipping.
 import { execFile, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 import net from 'node:net'
 import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
@@ -47,55 +51,129 @@ function serviceConfig(database) {
     }
 }
 
-export async function createTestSource() {
+export async function createTestDatabase() {
     const { Client } = require('pg')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etl-postgres-'))
+    let dropDatabase
+    let stopCluster
+    async function cleanup() {
+        try {
+            if (dropDatabase) await dropDatabase()
+            if (stopCluster) await stopCluster()
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    }
+    try {
+        let connection
+        if (useService) {
+            const admin = new Client(serviceConfig(process.env.CUTTLELY_TEST_PG_DATABASE || 'postgres'))
+            try {
+                await admin.connect()
+            } catch (error) {
+                await admin.end().catch(() => {})
+                throw new Error(
+                    `Postgres was required but could not be reached at ${
+                        serviceConfig(process.env.CUTTLELY_TEST_PG_DATABASE || 'postgres').host
+                    }:${serviceConfig(process.env.CUTTLELY_TEST_PG_DATABASE || 'postgres').port}: ${error.message}`
+                )
+            }
+            const name = `etl_check_${randomBytes(4).toString('hex')}`
+            try {
+                await admin.query(`CREATE DATABASE ${name}`)
+            } finally {
+                await admin.end()
+            }
+            dropDatabase = async () => {
+                const closer = new Client(serviceConfig(process.env.CUTTLELY_TEST_PG_DATABASE || 'postgres'))
+                await closer.connect()
+                try {
+                    // Managed hosts briefly connect their own monitoring role. Stop new connections to this
+                    // fixture and wait for existing ones to close without terminating another role's backend.
+                    await closer.query(`ALTER DATABASE ${name} WITH ALLOW_CONNECTIONS false`)
+                    await closer.query('SET statement_timeout=20000')
+                    await closer.query(`DROP DATABASE ${name}`)
+                } finally {
+                    await closer.end()
+                }
+            }
+            connection = serviceConfig(name)
+        } else {
+            const cluster = path.join(root, 'pg')
+            const socket = path.join(root, 'socket')
+            fs.mkdirSync(socket)
+            const pgctl = (args) => exec(binary('pg_ctl'), ['-D', cluster, ...args], { timeout: 20000 })
+            await exec(binary('initdb'), ['-D', cluster, '-U', 'etl_check', '--auth=trust', '--no-locale', '--encoding=UTF8'], {
+                timeout: 20000
+            })
+            const port = await unusedPort()
+            stopCluster = async () => {
+                if (fs.existsSync(path.join(cluster, 'postmaster.pid'))) await pgctl(['-m', 'immediate', '-w', 'stop'])
+            }
+            await pgctl([
+                '-w',
+                '-t',
+                '15',
+                '-l',
+                path.join(root, 'postgres.log'),
+                '-o',
+                `-h 127.0.0.1 -p ${port} -k ${socket} -c max_connections=6 -c shared_buffers=16MB -c fsync=off -c full_page_writes=off`,
+                'start'
+            ])
+            connection = {
+                host: '127.0.0.1',
+                port,
+                user: 'etl_check',
+                password: '',
+                database: 'postgres',
+                connectionTimeoutMillis: 3000,
+                statement_timeout: 5000,
+                lock_timeout: 2000
+            }
+        }
+        return { connection, cleanup }
+    } catch (error) {
+        await cleanup()
+        throw error
+    }
+}
 
-    const config = useService
-        ? serviceConfig('postgres')
-        : {
-              host: '127.0.0.1',
-              port: await unusedPort(),
-              user: 'postgres',
-              database: 'postgres',
-              connectionTimeoutMillis: 3000
-          }
-
-    // For local initdb case, create a temporary cluster (not implemented in this slice)
-    // This would require starting pg_ctl, which is handled by the test file itself
-
-    const client = new Client(config)
-    await client.connect()
-    // The source owns every connection it hands out; cleanup() ends any session that was never released.
-    const open = new Set()
-    let ended = false
-
+export async function createTestSource() {
+    const { Pool } = require('pg')
+    const database = await createTestDatabase()
+    const pool = new Pool({ ...database.connection, max: 4 })
     return {
         dialect: 'postgres',
-        client,
+        query: async (sql, params = []) => (await pool.query(sql, params)).rows,
+        transaction: async (work) => {
+            const client = await pool.connect()
+            try {
+                await client.query('BEGIN')
+                const result = await work({ query: async (sql, params = []) => (await client.query(sql, params)).rows })
+                await client.query('COMMIT')
+                return result
+            } finally {
+                client.release(true)
+            }
+        },
+        client: pool,
+        connection: database.connection,
         session: async () => {
-            const sessionClient = new Client(config)
-            await sessionClient.connect()
-            open.add(sessionClient)
+            const client = await pool.connect()
             return {
                 execute: async (sql, params) => {
-                    const result = await sessionClient.query(sql, params)
-                    return {
-                        rows: result.rows,
-                        affected: result.rowCount ?? 0
-                    }
+                    const result = await client.query(sql, params)
+                    return { rows: result.rows, fields: result.fields, affected: result.rowCount ?? 0 }
                 },
-                release: () => {
-                    open.delete(sessionClient)
-                    return sessionClient.end()
-                }
+                release: (error) => client.release(error)
             }
         },
         cleanup: async () => {
-            if (ended) return
-            ended = true
-            const clients = [client, ...open]
-            open.clear()
-            await Promise.all(clients.map((each) => each.end()))
+            try {
+                await pool.end()
+            } finally {
+                await database.cleanup()
+            }
         }
     }
 }

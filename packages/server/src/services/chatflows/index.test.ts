@@ -164,6 +164,7 @@ jest.mock('uuid', () => ({ validate: jest.fn().mockReturnValue(true) }))
 jest.mock('../flow-versions', () => ({
     __esModule: true,
     default: {
+        usesPostgresHistory: () => false,
         recordFlowVersion: jest.fn().mockResolvedValue(null),
         recordFlowDeletion: jest.fn().mockResolvedValue(null)
     }

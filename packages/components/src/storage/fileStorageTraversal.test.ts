@@ -74,6 +74,38 @@ describe('S3 storage names', () => {
         return { provider, send }
     }
 
+    test('all pages use the exact organization prefix and deleting one file uses its full key', async () => {
+        const { provider, send } = s3()
+        send.mockResolvedValueOnce({ Contents: [{ Key: ORG + '/a', Size: 7 }], NextContinuationToken: 'next' })
+        send.mockResolvedValueOnce({ Contents: [{ Key: ORG + '/b', Size: 5 }] })
+        expect(await provider.getStorageSize(ORG)).toBe(12)
+        const commands = send.mock.calls.map((call: any[]) => call[0])
+        expect(commands.map((command) => command.input.Prefix)).toEqual([ORG + '/', ORG + '/'])
+        expect(commands[1].input.ContinuationToken).toBe('next')
+        send.mockResolvedValueOnce({})
+        await provider.removeSpecificFileFromUpload(ORG + '/a')
+        const deletion: any = send.mock.calls[2][0]
+        expect(deletion.constructor.name).toBe('DeleteObjectCommand')
+        expect(deletion.input.Key).toBe(ORG + '/a')
+    })
+
+    test('folder listing trims only outer separators and requires a scope', async () => {
+        const { provider, send } = s3()
+        await expect(provider.getFilesListFromStorage('/', '//')).rejects.toThrow('A scoped S3 folder is required.')
+        expect(send).not.toHaveBeenCalled()
+        send.mockResolvedValueOnce({})
+        await provider.getFilesListFromStorage('//' + ORG, '', FLOW + '//')
+        expect(send.mock.calls[0][0]).toMatchObject({ input: { Prefix: ORG + '//' + FLOW + '/' } })
+    })
+
+    test('a zero-byte object is consumed once', async () => {
+        const { provider, send } = s3()
+        const transformToByteArray = jest.fn(async () => new Uint8Array())
+        send.mockResolvedValueOnce({ Body: { transformToByteArray } })
+        expect(await provider.getFileFromUpload(ORG + '/empty')).toEqual(Buffer.alloc(0))
+        expect(transformToByteArray).toHaveBeenCalledTimes(1)
+    })
+
     test.each(CLIMBING)('%s is refused before any request is made', async (value) => {
         const { provider, send } = s3()
         for (const name of namesIn(value)) await expect(provider.getFileFromStorage(name, ORG, FLOW)).rejects.toThrow(REFUSED)

@@ -6,7 +6,10 @@ import path from 'path'
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../errors/appError'
-import { authSecret } from '../identity/authSecrets'
+import { postgresSettings, PostgresSettings } from '../settings/postgres'
+import { withSettingsLockSync } from '../settings/lock'
+import { settingsDir } from '../settings/store'
+import { readAuthenticationFile, authSecret } from '../identity/authSecrets'
 import logger from './logger'
 
 /**
@@ -136,8 +139,66 @@ function grantFilePath(): string {
     return path.join(dir, 'session-grants.json')
 }
 
+const grantDocument = 'session-grants.json'
+
+function decodeGrants(text: string): Map<string, Map<string, string>> {
+    const obj = JSON.parse(text)
+    if (!obj || Array.isArray(obj) || typeof obj !== 'object') throw new Error('Invalid session grant document.')
+    const rows = new Map<string, Map<string, string>>()
+    for (const [flow, sessions] of Object.entries(obj)) {
+        if (!sessions || typeof sessions !== 'object' || Array.isArray(sessions)) throw new Error('Invalid stored session grants.')
+        const grants = new Map<string, string>()
+        for (const [id, owner] of Object.entries(sessions)) {
+            if (typeof owner !== 'string') throw new Error('Invalid stored session owner.')
+            grants.set(id, owner)
+        }
+        rows.set(flow, grants)
+    }
+    return rows
+}
+
+function databaseGrantStore(dir: string, postgres: PostgresSettings): GrantStore {
+    const read = () => decodeGrants(postgres.read(grantDocument) ?? '{}')
+    return {
+        get(flow, id) {
+            return read().get(flow)?.get(id)
+        },
+        put(flow, id, owner) {
+            withSettingsLockSync(dir, () => {
+                const rows = read()
+                const grants = rows.get(flow) || new Map<string, string>()
+                if (grants.get(id) === owner) return
+                if (grants.has(id)) throw new Error('The session is already owned by another caller.')
+                grants.set(id, owner)
+                rows.set(flow, grants)
+                postgres.write(
+                    grantDocument,
+                    JSON.stringify(Object.fromEntries([...rows].map(([key, values]) => [key, Object.fromEntries(values)])))
+                )
+            })
+        }
+    }
+}
+
+// Import existing grants during bootstrap, while the migration source is still mounted.
+export function initializeSessionGrants() {
+    const dir = settingsDir()
+    const postgres = postgresSettings(dir)
+    if (!postgres) return
+    if (postgres.read(grantDocument) === null)
+        withSettingsLockSync(dir, () => {
+            if (postgres.read(grantDocument) !== null) return
+            const text = readAuthenticationFile(grantFilePath()) || '{}'
+            decodeGrants(text)
+            postgres.write(grantDocument, text)
+        })
+    activeGrants = databaseGrantStore(dir, postgres)
+}
+
 function defaultGrantStore(): GrantStore {
-    return new FileGrantStore(grantFilePath())
+    const dir = settingsDir()
+    const postgres = postgresSettings(dir)
+    return postgres ? databaseGrantStore(dir, postgres) : new FileGrantStore(grantFilePath())
 }
 
 let activeGrants: GrantStore | undefined

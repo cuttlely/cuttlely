@@ -1,6 +1,6 @@
 import express from 'express'
 import openaiAssistantsVectorStoreController from '../../controllers/openai-assistants-vector-store'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { requirePermission, requireAnyPermission } from '../../identity/rbac'
 
 const router = express.Router()
@@ -28,7 +28,7 @@ router.delete(['/', '/:id'], requirePermission('assistants:delete'), openaiAssis
 router.post(
     '/:id',
     requireAnyPermission('assistants:create,assistants:update'),
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     openaiAssistantsVectorStoreController.uploadFilesToAssistantVectorStore
 )
 

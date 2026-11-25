@@ -6,6 +6,14 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
 
+## Upgrading to 1.7.15
+
+**Before updating a 1.7.14 Dashflows PostgreSQL pilot:** check whether the service already has `CUTTLELY_APP_DATABASE_STORES=1`. In 1.7.15 the same flag also selects durable server settings when the host supplies `DATABASE_TYPE=postgres`. Put the **existing** installation encryption key and complete database connection in the web and worker host environments before starting the new version. Preserve any separately configured settings database URL. Missing settings can block startup. Back up the original disk before changing a hosted environment, since the change itself may replace the disk. A pilot with local side stores still needs the operator cutover.
+
+For a new installation on disposable disks, supply the PostgreSQL connection, a stable installation key and `CUTTLELY_APP_DATABASE_STORES=1` through the host before first startup. PostgreSQL stores the installation, managed files and flow version history. You can select a private S3-compatible bucket for application uploads. Supply that same configuration to every web server and worker.
+
+For an existing PostgreSQL installation, retain the original volume, drain writers and run **Server Settings → Database → Upgrade storage**. For SQLite, first take an off-host backup, run the verified application copy on the original disk and switch to its PostgreSQL destination with the existing encryption key. Then complete the side-store upgrade. Verify sign-in, saved credentials, workflows and files on a replacement before releasing the original volume. Local runtime sessions and temporary work can restart empty. [Operator guide](./how-to/postgres-side-stores.md) · [Disk inventory](./reference/disk-storage-inventory.md).
+
 ## Upgrading to 1.7.14
 
 Back up the application database, settings, installation key and data directory. Use matching server and widget packages. The instance operator can keep authority and saved settings in a separate PostgreSQL database on an ephemeral host. [Operator storage and recovery](./how-to/instance-operator.md#keep-authority-and-settings-when-a-container-is-replaced).
@@ -167,7 +175,9 @@ These sanitized figures were captured on product 1.6.1 at feature head `5c08b125
 
 ## What to back up
 
-Everything Cuttlely keeps is in one folder:
+For **PostgreSQL-only** after verified cutover, back up the entire application database, including every Cuttlely-owned schema, and keep an independent protected copy of the installation key and host boot configuration. If settings, identity, queues or workflow data use separate services, include those services in the recovery plan. For **hybrid**, also back up the bucket and its object versions or retain equivalent recoverable copies. Restore the database and bucket to compatible points so attachment references resolve. A database-only restore cannot restore deleted bucket objects.
+
+For **SQLite** and for **either stage of a migration**, retain the original directories and key as well. Stop writers or use a consistent filesystem snapshot, including SQLite WAL data. A live copy of only the main `.sqlite` file can miss committed writes. These are the default locations:
 
 | Install        | Folder                                                                                         |
 | -------------- | ---------------------------------------------------------------------------------------------- |
@@ -176,13 +186,13 @@ Everything Cuttlely keeps is in one folder:
 | Render         | The disk mounted at `/var/cuttlely`, plus the Postgres database                                |
 | From source    | `~/.cuttlely` (database and key) and `<checkout>/.cuttlely` (history, harnesses, ETL, uploads) |
 
-Inside it, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
+In the standard SQLite container volume, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
 
 `settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key. The separate host-only `instance-operator.json` binds the CLI break-glass account to the database connection; browser/CLI settings restore never restores it.
 
 If you set `DATABASE_PATH`, `SECRETKEY_PATH`, `CUTTLELY_DATA_DIR` or `FLOWISE_SECRETKEY_OVERWRITE` yourself, back up what they point to, and keep the key value. `CUTTLELY_SECRETKEY_OVERWRITE` is the same key. If both are set and the values differ, Cuttlely refuses to start.
 
-On a Postgres host with `CUTTLELY_APP_DATABASE_STORES` on, Dash Flows keeps its data in the application database, so the database backup covers it. See [Storage on Postgres (preview)](./how-to/dashflows.md#storage-on-postgres-preview).
+An existing Dashflows PostgreSQL pilot can still have other local stores. Check the operator storage report and complete an [empty-disk recovery rehearsal](./how-to/postgres-side-stores.md#prove-that-a-replacement-can-serve-traffic) before retiring the source volume.
 
 ## 1. Back up
 

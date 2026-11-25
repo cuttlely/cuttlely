@@ -19,6 +19,7 @@ import OperatorPanel from './OperatorPanel'
 import AllSettingsPanel from './AllSettingsPanel'
 import AuthKitCard from './AuthKitCard'
 import AuthKitWizard from './AuthKitWizard'
+import StorageUpgradeCard from './StorageUpgradeCard'
 import DatabaseCard from './DatabaseCard'
 import ExperimentalRestartCard from './ExperimentalRestartCard'
 import GetStarted from './GetStarted'
@@ -454,6 +455,7 @@ const ServerSettings = () => {
                         onRestore={() => setDatabaseDialog('restore')}
                     />
                 )}
+                {!searching && section.id === 'database' && <StorageUpgradeCard />}
                 {!searching && section.id === 'experimental' && (
                     <ExperimentalRestartCard inPlace={Boolean(data?.restart?.inPlace)} onRestart={restart} />
                 )}

@@ -10,6 +10,10 @@ git clone https://github.com/cuttlely/cuttlely && cd cuttlely && docker compose 
 
 Or, with Node 20+ and Docker: `npx cuttlely start`. Open http://localhost:43117, add one model key, and pick **Try the demo** (all the data is made up). If it's useful, a star on [GitHub](https://github.com/cuttlely/cuttlely) helps other builders find it.
 
+## Can Cuttlely survive losing its application disk?
+
+In 1.7.15, a new PostgreSQL install with application database storage enabled, or an existing install that has completed the verified migration, can recover on empty web and worker disks. Supply its durable database, original installation key and host settings. A private S3-compatible bucket is optional for application uploads. SQLite installations need a persistent volume or a complete off-host backup. Runtime-only conversations can start again at the same endpoint. [Choose your storage mode and verify recovery](./docs/how-to/postgres-side-stores.md).
+
 ## The basics
 
 ### How do you say Cuttlely?

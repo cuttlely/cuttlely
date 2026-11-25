@@ -2,16 +2,17 @@
 // before any module reads it. packages/server/.env is loaded here first and counts as host-set.
 import './loadServerEnv'
 import { applyAdminSettings, StartState } from './apply'
-import { initPostgresSettings, postgresSettings } from './postgres'
+import { initPostgresSettings, postgresSettings, requireVerifiedSettingsSelection } from './postgres'
 import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { settingsDir } from './store'
 
 if (requiresEncryptionKeyOverride(process.env)) guardedEncryptionKeyOverwrite(process.env)
 const dir = settingsDir()
-initPostgresSettings(dir, process.env)
+initPostgresSettings(dir, process.env, process.argv[2] === 'start')
 
 let state: StartState
 try {
+    requireVerifiedSettingsSelection()
     state = applyAdminSettings(process.env, { start: process.argv[2] === 'start' })
 } catch (error) {
     if (postgresSettings(dir) || process.env.CUTTLELY_CREDENTIAL_GENERATION) throw error

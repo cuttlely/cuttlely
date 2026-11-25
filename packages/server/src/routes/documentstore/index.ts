@@ -1,7 +1,7 @@
 import express from 'express'
 import { requirePermission, requireAnyPermission } from '../../identity/rbac'
 import documentStoreController from '../../controllers/documentstore'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { authorizeDocumentStoreUpsert } from '../../utils/authorizeUpsert'
 
 const router = express.Router()
@@ -11,7 +11,7 @@ router.post(
     ['/upsert/', '/upsert/:id'],
     requirePermission('documentStores:upsert-config'),
     authorizeDocumentStoreUpsert,
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     documentStoreController.upsertDocStoreMiddleware
 )
 

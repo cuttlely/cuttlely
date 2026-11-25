@@ -5,13 +5,16 @@ import cors from 'cors'
 import express, { Request, Response } from 'express'
 import 'global-agent/bootstrap'
 import http from 'http'
+import fs from 'node:fs'
+import path from 'node:path'
 import { DataSource } from 'typeorm'
 import { AbortControllerPool } from './AbortControllerPool'
 import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
 import { registerAppCredentialSource } from './utils/credentialSource'
-import { registerAppStoreSource } from './utils/appStoreSource'
+import { closeSideStores, registerAppStoreSource, sideStoreAdmission } from './utils/appStoreSource'
+import { initializeSessionGrants } from './utils/sessionOwnership'
 import { initAuthSecrets } from './identity/authSecrets'
 import { applyAuthKitSwitchOnBoot } from './identity/production'
 import { applyInitialOwnerOnBoot } from './identity/initialOwner'
@@ -46,7 +49,7 @@ import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
 import { resolveTrustProxy } from './utils/trustProxy'
 import { applyHttpServerTimeouts, resolveHttpServerTimeouts } from './utils/httpServerTimeouts'
 import { UsageCacheManager } from './UsageCacheManager'
-import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
+import { applicationFileStorage, getEncryptionKey, getNodeModulesPackagePath, getUserHome } from './utils'
 import { fileSizeLimit } from './settings/settingAlias'
 import { API_KEY_BLACKLIST_URLS, READ_ONLY_WHITELIST_URLS, WHITELIST_URLS } from './utils/constants'
 import logger, { expressRequestLogger } from './utils/logger'
@@ -116,6 +119,21 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
+            const newPostgresApplication =
+                this.AppDataSource.options.type === 'postgres' &&
+                (
+                    await this.AppDataSource.query(`SELECT NOT EXISTS (SELECT FROM pg_tables WHERE schemaname=current_schema()
+                    AND tablename NOT IN ('cuttlely_server_settings','cuttlely_installation_key')) AS fresh`)
+                )[0].fresh === true
+            if (
+                newPostgresApplication &&
+                ['1', 'true'].includes(process.env.CUTTLELY_APP_DATABASE_STORES || '') &&
+                fs.existsSync(path.join(process.env.DATABASE_PATH ?? path.join(getUserHome(), '.cuttlely'), 'database.sqlite'))
+            ) {
+                throw new Error(
+                    'Found an existing SQLite application beside an empty PostgreSQL application. Copy the original installation before switching databases.'
+                )
+            }
             await verifyInstallationKey(this.AppDataSource, (message) => logger.warn(message))
             markDatabaseOpened()
             logger.info('📦 [server]: Data Source initialized successfully')
@@ -125,11 +143,24 @@ export class App {
             await runSupportedMigrations(this.AppDataSource)
             logger.info('🔄 [server]: Database migrations completed successfully')
             await registerAppCredentialSource(this.AppDataSource)
-            await registerAppStoreSource(this.AppDataSource, {
-                info: (message) => logger.info(`[dashflows] ${message}`),
-                warn: (message) => logger.warn(`[dashflows] ${message}`),
-                error: (message) => logger.error(`[dashflows] ${message}`)
-            })
+            await registerAppStoreSource(
+                this.AppDataSource,
+                {
+                    info: (message) => logger.info(`[dashflows] ${message}`),
+                    warn: (message) => logger.warn(`[dashflows] ${message}`),
+                    error: (message) => logger.error(`[dashflows] ${message}`)
+                },
+                undefined,
+                {
+                    newPostgresApplication,
+                    ...applicationFileStorage(),
+                    versionHistory: {
+                        inspect: flowVersionsService.inspectVersionHistory,
+                        copy: flowVersionsService.prepareVersionHistory,
+                        select: flowVersionsService.selectVersionHistory
+                    }
+                }
+            )
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {
                 logger.info(
@@ -170,6 +201,7 @@ export class App {
 
             // Auth secrets: environment, then a file under SECRETKEY_PATH.
             await initAuthSecrets()
+            initializeSessionGrants()
             logger.info('🔐 [server]: Auth initialized successfully')
 
             // Initialize Rate Limit
@@ -227,7 +259,7 @@ export class App {
 
             logger.info('🎉 [server]: All initialization steps completed successfully!')
         } catch (error) {
-            if (error instanceof InstallationKeyGuardError) throw error
+            if (error instanceof InstallationKeyGuardError || (error as { code?: string })?.code === 'STORAGE_START_FAILED') throw error
             this.initError = error
             if (!logUnsupportedFlowiseUpgrade(error, logger)) {
                 logger.error('❌ [server]: Error during Data Source initialization:', error)
@@ -267,6 +299,7 @@ export class App {
 
         // While shutting down, new requests get 503 with Retry-After (settings/runs.ts shutdownDrain).
         this.app.use(refuseWhileShuttingDown)
+        this.app.use(sideStoreAdmission)
 
         // Parse cookies
         this.app.use(cookieParser())
@@ -550,6 +583,7 @@ export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void
     if (serverApp) await serverApp.stopApp()
     await shutdownCuttlelyTraces()
     try {
+        await closeSideStores()
         if (serverApp?.AppDataSource.isInitialized) await serverApp.AppDataSource.destroy()
     } catch (error) {
         logger.error(`❌[server]: Closing the database failed: ${error}`)

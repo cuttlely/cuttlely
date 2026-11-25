@@ -59,11 +59,12 @@ async function servingParts(pipeline, version, ctx) {
     if (!version?.spec) throw new EtlError('not_found', `Version ${version?.version ?? ''} of "${pipeline.name}" is missing.`, 404)
     const key = `${pipeline.id}:${version.version}`
     const hit = cache.get(key)
-    if (hit && Date.now() - hit.at < CACHE_MS) return hit
+    if (hit && hit.backend === etlStore.backendName() && Date.now() - hit.at < CACHE_MS) return hit
     const embeddings = await createEmbeddings(version.spec.embeddings, ctx)
     const store = await openStore(version.spec.store, { pipelineName: pipeline.name, pipelineId: pipeline.id, embeddings, ctx })
     const parts = {
         at: Date.now(),
+        backend: etlStore.backendName(),
         embeddings,
         store,
         version: version.version,

@@ -1,3 +1,4 @@
+import { recordEntries, recordExists } from './record-files.mjs'
 import { defaultEvidenceBytes, evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -14,16 +15,7 @@ import { acquireTryProfileTurn, releaseTryProfileTurn, BUSY_MESSAGE } from './lo
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { TRY_PROFILE_DIR_ENV, stopTryProfileBridges } from './try-bridges.mjs'
 import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
-import {
-    dataRoot,
-    harnessStoreDir,
-    repoRoot,
-    hermesHome,
-    hermesBaseUrl,
-    hermesProfileId,
-    profileDir,
-    savedHarnessProfileIds
-} from './paths.mjs'
+import { dataRoot, repoRoot, hermesHome, hermesBaseUrl, hermesProfileId, profileDir, savedHarnessProfileIds } from './paths.mjs'
 import {
     ANALYST_RULES_MAX_CHARS,
     ROUTING_SUMMARY_CHARS,
@@ -1379,7 +1371,7 @@ export const STALE_CHIEFS_DIR = '.cuttlely-stale-chiefs'
 // "Acme-Agentic.json". A record staged for deletion still counts as saved. null when the store cannot be listed.
 function storeEntries() {
     try {
-        return new Set(fs.readdirSync(harnessStoreDir()))
+        return new Set(recordEntries())
     } catch {
         return null
     }
@@ -2106,8 +2098,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep, { retainFiles = fals
             // A linked marker is not read. The directory stays until a later pass can see a real marker.
             if (readMarker(path.join(dir, 'harness-parent')) !== parent) continue
             // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
-            if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`)))
-                continue
+            if (fs.existsSync(path.join(dir, 'harness-roster.json')) || recordExists(`${entry}.json`)) continue
             const retired = readEnvFile(path.join(dir, '.env'))
             forgetProfileToken(retired.OPENAI_API_KEY)
             if (retainFiles) continue

@@ -64,6 +64,11 @@ const logout = () => {
 }
 
 export const onResponseError = async (error) => {
+    if (error.response?.status === 503 && error.response?.data?.code === 'store_moving') {
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('cuttlely-storage-paused'))
+        finishRetryTracking(error.config || {})
+        return Promise.reject(error)
+    }
     const config = error?.config
 
     if (config && shouldRetry(config, error)) {

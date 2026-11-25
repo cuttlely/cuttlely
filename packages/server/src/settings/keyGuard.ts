@@ -1,5 +1,6 @@
 import type { DataSource } from 'typeorm'
 import { forCredentialGeneration, credentialEnvelopeGeneration, newCredentialGeneration } from './credentialEnvelope'
+import { requireVerifiedSettingsSelection } from './postgres'
 import { guardedEncryptionKeyOverwrite, requiresEncryptionKeyOverride } from './settingAlias'
 import { encryptionKeySync } from './store'
 
@@ -24,6 +25,7 @@ function matchesMarker(marker: unknown, key: string): boolean {
 }
 
 export async function verifyInstallationKey(source: DataSource, warn: (message: string) => void, env = process.env): Promise<void> {
+    requireVerifiedSettingsSelection()
     const generation = env.CUTTLELY_CREDENTIAL_GENERATION
     const required = requiresEncryptionKeyOverride(env)
     const runner = source.createQueryRunner()

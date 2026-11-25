@@ -488,7 +488,7 @@ describe('generic OIDC provider', () => {
             ['nonce', { nonce: 'wrong' }, 'nonce']
         ]
         for (const [, claims, message] of cases) {
-            await expect(validateIdToken(idp.token(claims), config, discovery, idp.nonce, 'provider')).rejects.toThrow(message)
+            await expect(validateIdToken(idp.token(claims), config, discovery, idp.nonce, 'provider', now * 1000)).rejects.toThrow(message)
         }
         await expect(validateIdToken(idp.token({}, 'none'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')
         await expect(validateIdToken(idp.token({}, 'HS256'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')

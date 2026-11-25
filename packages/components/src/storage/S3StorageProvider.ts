@@ -1,7 +1,7 @@
 import {
     DeleteObjectsCommand,
     GetObjectCommand,
-    ListObjectsCommand,
+    DeleteObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
     S3Client,
@@ -158,15 +158,7 @@ export class S3StorageProvider extends BaseStorageProvider {
         }
 
         const response = await this.s3Client.send(new GetObjectCommand(getParams))
-        const body = response.Body
-        if (body instanceof Readable) {
-            const streamToString = await body.transformToString('base64')
-            if (streamToString) {
-                return Buffer.from(streamToString, 'base64')
-            }
-        }
-        const byteArray = await response.Body!.transformToByteArray()
-        return Buffer.from(byteArray)
+        return Buffer.from(await response.Body!.transformToByteArray())
     }
 
     async getFileFromStorage(file: string, ...paths: string[]): Promise<Buffer> {
@@ -184,15 +176,7 @@ export class S3StorageProvider extends BaseStorageProvider {
             }
 
             const response = await this.s3Client.send(new GetObjectCommand(getParams))
-            const body = response.Body
-            if (body instanceof Readable) {
-                const streamToString = await body.transformToString('base64')
-                if (streamToString) {
-                    return Buffer.from(streamToString, 'base64')
-                }
-            }
-            const byteArray = await response.Body!.transformToByteArray()
-            return Buffer.from(byteArray)
+            return Buffer.from(await response.Body!.transformToByteArray())
         } catch (error) {
             // Fallback: Check if file exists without the first path element (likely orgId)
             if (paths.length > 1) {
@@ -208,22 +192,7 @@ export class S3StorageProvider extends BaseStorageProvider {
                         Key: fallbackKey
                     }
                     const fallbackResponse = await this.s3Client.send(new GetObjectCommand(fallbackParams))
-                    const fallbackBody = fallbackResponse.Body
-
-                    // Get the file content
-                    let fileContent: Buffer
-                    if (fallbackBody instanceof Readable) {
-                        const streamToString = await fallbackBody.transformToString('base64')
-                        if (streamToString) {
-                            fileContent = Buffer.from(streamToString, 'base64')
-                        } else {
-                            const byteArray = await fallbackBody.transformToByteArray()
-                            fileContent = Buffer.from(byteArray)
-                        }
-                    } else {
-                        const byteArray = await fallbackBody!.transformToByteArray()
-                        fileContent = Buffer.from(byteArray)
-                    }
+                    const fileContent = Buffer.from(await fallbackResponse.Body!.transformToByteArray())
 
                     // Move to correct location with orgId
                     const putObjCmd = new PutObjectCommand({
@@ -332,106 +301,70 @@ export class S3StorageProvider extends BaseStorageProvider {
     }
 
     async getFilesListFromStorage(...paths: string[]): Promise<FileInfo[]> {
-        let Key = paths.reduce((acc, cur) => acc + '/' + cur, '')
-        if (Key.startsWith('/')) {
-            Key = Key.substring(1)
+        const result: FileInfo[] = []
+        for await (const page of this.folderPages(paths)) {
+            for (const object of page) {
+                if (object.Key) result.push({ name: object.Key.split('/').pop() || '', path: object.Key, size: object.Size || 0 })
+            }
         }
+        return result
+    }
 
-        const listCommand = new ListObjectsV2Command({
-            Bucket: this.bucket,
-            Prefix: Key
-        })
-        const list = await this.s3Client.send(listCommand)
+    private async *folderPages(paths: string[]) {
+        const key = paths.join('/')
+        let start = 0
+        let end = key.length
+        while (start < end && key[start] === '/') start++
+        while (end > start && key[end - 1] === '/') end--
+        if (start === end) throw new Error('A scoped S3 folder is required.')
+        const folder = key.slice(start, end)
+        let token: string | undefined
+        do {
+            const page = await this.s3Client.send(
+                new ListObjectsV2Command({
+                    Bucket: this.bucket,
+                    Prefix: folder + '/',
+                    ContinuationToken: token
+                })
+            )
+            yield page.Contents || []
+            token = page.NextContinuationToken
+        } while (token)
+    }
 
-        if (list.Contents && list.Contents.length > 0) {
-            return list.Contents.map((item) => ({
-                name: item.Key?.split('/').pop() || '',
-                path: item.Key ?? '',
-                size: item.Size || 0
-            }))
-        } else {
-            return []
-        }
+    async openPredictionFile(segments: string[]) {
+        if (
+            segments[0] !== 'blobs' ||
+            segments.length < 3 ||
+            segments.some((part) => !part || part === '.' || part === '..' || /[/\\]/.test(part))
+        )
+            throw new Error('Invalid attachment key.')
+        const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: segments.slice(1).join('/') }))
+        if (!(response.Body instanceof Readable)) throw new Error('Could not read the stored attachment.')
+        return response.Body
     }
 
     async removeFilesFromStorage(...paths: string[]): Promise<StorageSizeResult> {
-        let Key = paths.reduce((acc, cur) => acc + '/' + cur, '')
-        if (Key.startsWith('/')) {
-            Key = Key.substring(1)
+        for await (const page of this.folderPages(paths)) {
+            const objects = page.flatMap((object) => (object.Key ? [{ Key: object.Key }] : []))
+            if (!objects.length) continue
+            const deleted = await this.s3Client.send(new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: objects } }))
+            if (deleted.Errors?.length) throw new Error('The object store did not delete every requested file.')
         }
-
-        await this.deleteS3Folder(Key)
-
-        const totalSize = await this.getStorageSize(paths[0])
-        return { totalSize: totalSize / 1024 / 1024 }
+        return { totalSize: (await this.getStorageSize(paths[0])) / 1024 / 1024 }
     }
 
     async removeSpecificFileFromUpload(filePath: string): Promise<void> {
-        let Key = filePath
-        if (Key.startsWith('/')) {
-            Key = Key.substring(1)
-        }
-        await this.deleteS3Folder(Key)
+        await this.s3Client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: filePath.replace(/^\//, '') }))
     }
 
     async removeSpecificFileFromStorage(...paths: string[]): Promise<StorageSizeResult> {
-        let Key = paths.reduce((acc, cur) => acc + '/' + cur, '')
-        if (Key.startsWith('/')) {
-            Key = Key.substring(1)
-        }
-        await this.deleteS3Folder(Key)
-
-        const totalSize = await this.getStorageSize(paths[0])
-        return { totalSize: totalSize / 1024 / 1024 }
+        await this.removeSpecificFileFromUpload(paths.join('/'))
+        return { totalSize: (await this.getStorageSize(paths[0])) / 1024 / 1024 }
     }
 
     async removeFolderFromStorage(...paths: string[]): Promise<StorageSizeResult> {
-        let Key = paths.reduce((acc, cur) => acc + '/' + cur, '')
-        if (Key.startsWith('/')) {
-            Key = Key.substring(1)
-        }
-        await this.deleteS3Folder(Key)
-
-        const totalSize = await this.getStorageSize(paths[0])
-        return { totalSize: totalSize / 1024 / 1024 }
-    }
-
-    private async deleteS3Folder(location: string): Promise<string> {
-        let count = 0
-
-        const recursiveS3Delete = async (token?: string): Promise<string> => {
-            const listCommand = new ListObjectsV2Command({
-                Bucket: this.bucket,
-                Prefix: location,
-                ContinuationToken: token
-            })
-            const list = await this.s3Client.send(listCommand)
-
-            if (list.KeyCount) {
-                const deleteCommand = new DeleteObjectsCommand({
-                    Bucket: this.bucket,
-                    Delete: {
-                        Objects: list.Contents?.map((item) => ({ Key: item.Key })),
-                        Quiet: false
-                    }
-                })
-                const deleted = await this.s3Client.send(deleteCommand)
-                // @ts-ignore
-                count += deleted.Deleted?.length || 0
-
-                if (deleted.Errors) {
-                    deleted.Errors.map((error: any) => console.error(`${error.Key} could not be deleted - ${error.Code}`))
-                }
-            }
-
-            if (list.NextContinuationToken) {
-                return recursiveS3Delete(list.NextContinuationToken)
-            }
-
-            return `${count} files deleted from S3`
-        }
-
-        return recursiveS3Delete()
+        return this.removeFilesFromStorage(...paths)
     }
 
     private async cleanEmptyS3Folders(prefix: string): Promise<void> {
@@ -473,14 +406,9 @@ export class S3StorageProvider extends BaseStorageProvider {
     async getStorageSize(orgId: string): Promise<number> {
         if (!orgId) return 0
 
-        const getCmd = new ListObjectsCommand({
-            Bucket: this.bucket,
-            Prefix: orgId
-        })
-        const headObj = await this.s3Client.send(getCmd)
         let totalSize = 0
-        for (const obj of headObj.Contents || []) {
-            totalSize += obj.Size || 0
+        for await (const page of this.folderPages([orgId])) {
+            for (const object of page) totalSize += object.Size || 0
         }
         return totalSize
     }
@@ -491,6 +419,8 @@ export class S3StorageProvider extends BaseStorageProvider {
             storage: multerS3({
                 s3: this.s3Client,
                 bucket: this.bucket,
+                // Use the private bucket policy. IBM COS and ACL-disabled S3 buckets reject object ACL headers.
+                acl: (_req, _file, done) => done(null),
                 metadata: function (req: any, file: any, cb: any) {
                     cb(null, { fieldName: file.fieldname, originalName: file.originalname })
                 },

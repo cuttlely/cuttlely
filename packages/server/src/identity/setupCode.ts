@@ -22,7 +22,10 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { authSecret, ensureInstanceSecret } from './authSecrets'
+import { postgresSettings } from '../settings/postgres'
+import { settingsDir } from '../settings/store'
+import { withSettingsLockSync, withSettingsLock } from '../settings/lock'
+import { readAuthenticationFile, authSecret, ensureInstanceSecret } from './authSecrets'
 import type { AuthenticationMethod } from './authenticationState'
 import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
 import { recordSetupFailure, resetSetupFailures, setupFailureLimited } from './setupLimit'
@@ -142,6 +145,8 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 async function withIssuerLock(dir: string, body: () => void): Promise<void> {
+    const saved = settingsDir()
+    if (postgresSettings(saved)) return withSettingsLock(saved, async () => body())
     const lock = path.join(dir, 'setup-issuer.lock')
     const started = Date.now()
     let held = false
@@ -191,7 +196,10 @@ function readMarkFile(): { instanceId: string; starts: Record<string, StartMark>
     const dir = issuerDirectory()
     if (!dir) return null
     try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(dir, SETUP_ISSUER_FILE), 'utf8')) as {
+        const postgres = postgresSettings(settingsDir())
+        const text = postgres ? postgres.read(SETUP_ISSUER_FILE) : fs.readFileSync(path.join(dir, SETUP_ISSUER_FILE), 'utf8')
+        if (text === null) return null
+        const parsed = JSON.parse(text) as {
             instanceId?: unknown
             starts?: Record<string, Partial<StartMark>>
         }
@@ -257,8 +265,13 @@ function persistMarks(): Promise<void> {
             for (const [id, mark] of merged) startMarks.set(id, mark)
             const starts: Record<string, StartMark> = {}
             for (const [id, mark] of startMarks) starts[id] = { ...mark }
-            fs.mkdirSync(current, { recursive: true })
-            fs.writeFileSync(path.join(current, SETUP_ISSUER_FILE), JSON.stringify({ instanceId, starts }))
+            const text = JSON.stringify({ instanceId, starts })
+            const postgres = postgresSettings(settingsDir())
+            if (postgres) postgres.write(SETUP_ISSUER_FILE, text)
+            else {
+                fs.mkdirSync(current, { recursive: true })
+                fs.writeFileSync(path.join(current, SETUP_ISSUER_FILE), text)
+            }
         })
     })
     persistChain = run.then(
@@ -272,6 +285,22 @@ function loadOrCreateInstanceId(): string {
     const dir = issuerDirectory()
     if (!dir) return randomBytes(16).toString('hex')
     const file = path.join(dir, SETUP_INSTANCE_FILE)
+    const saved = settingsDir()
+    const postgres = postgresSettings(saved)
+    if (postgres) {
+        const existing = postgres.read(SETUP_INSTANCE_FILE)
+        if (existing) return existing
+        return withSettingsLockSync(saved, () => {
+            const current = postgres.read(SETUP_INSTANCE_FILE)
+            if (current) return current
+            const id = readAuthenticationFile(file)?.trim() || randomBytes(16).toString('hex')
+            const marks = readAuthenticationFile(path.join(dir, SETUP_ISSUER_FILE))
+            if (marks && JSON.parse(marks)?.instanceId !== id) throw new Error('The setup issuer has a different installation identity.')
+            if (marks) postgres.write(SETUP_ISSUER_FILE, marks)
+            postgres.write(SETUP_INSTANCE_FILE, id)
+            return id
+        })
+    }
     try {
         const existing = fs.readFileSync(file, 'utf8').trim()
         if (existing) return existing
@@ -348,7 +377,8 @@ function pidAlive(pid: number): boolean {
 
 function startAlive(mark: StartMark, now: number): boolean {
     if (now - mark.heartbeatAt > SETUP_HEARTBEAT_FRESH_MS) return false
-    return pidAlive(mark.pid)
+    // PostgreSQL marks may belong to a different host's PID namespace. A fresh heartbeat and a nonzero PID denote a live start.
+    return postgresSettings(settingsDir()) ? mark.pid > 0 : pidAlive(mark.pid)
 }
 
 /** last-start: an earlier start of this install issued the live row and that start is gone. */

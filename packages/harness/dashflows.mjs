@@ -1,3 +1,4 @@
+import { assertStorageReady } from './side-store-maintenance.mjs'
 // Dashflows store typed source rows, never generated prose. Like the harness queue,
 // this BETA uses a local SQLite database shared by processes on the same data volume.
 // With CUTTLELY_APP_DATABASE_STORES on a Postgres host, dashflows-postgres.mjs serves the
@@ -774,5 +775,6 @@ export function setDashStore(next, file) {
     storeFile = file
 }
 export function dashStore() {
+    assertStorageReady()
     return store || (store = openSqliteDashStore(storeFile))
 }

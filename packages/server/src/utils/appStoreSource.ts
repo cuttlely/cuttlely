@@ -1,7 +1,11 @@
+import { applicationStorageDependencies } from '../settings/storageDependencies'
 import fs from 'fs'
+import { SettingsError } from '../settings/service'
+import type { NextFunction, Request, Response } from 'express'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { DataSource, QueryRunner } from 'typeorm'
+import type { PostgresDriver } from 'typeorm/driver/postgres/PostgresDriver'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -10,6 +14,14 @@ const importEsm = new Function('specifier', 'return import(specifier)') as (spec
 type Log = { info: (message: string) => void; warn: (message: string) => void; error: (message: string) => void }
 export type AppStoreSource = {
     dialect: string
+    session: () => Promise<{
+        execute: (
+            sql: string,
+            params?: unknown[]
+        ) => Promise<{ rows: any[]; fields: { name: string; dataTypeID: number }[]; affected: number }>
+        onLost: (listener: () => void) => void
+        release: (error?: Error) => void
+    }>
     query: (sql: string, params?: unknown[]) => Promise<any[]>
     transaction: <T>(work: (tx: { query: (sql: string, params?: unknown[]) => Promise<any[]> }) => Promise<T>) => Promise<T>
 }
@@ -21,11 +33,37 @@ async function rows(runner: QueryRunner, sql: string, params: unknown[] = []): P
 
 // Harness stores that follow the application database (#516) use the app's own pool and SSL settings.
 export function makeAppStoreSource(dataSource: DataSource): AppStoreSource {
-    const dialect = String(process.env.DATABASE_TYPE || 'sqlite')
+    const dialect = String(dataSource.options?.type || process.env.DATABASE_TYPE || 'sqlite')
         .trim()
         .toLowerCase()
     return {
         dialect,
+        async session() {
+            if (dialect !== 'postgres') throw new Error('ETL sessions require PostgreSQL.')
+            const driver = dataSource.driver as PostgresDriver
+            const [client, release] = await driver.obtainMasterConnection()
+            let lost: Error | undefined
+            let notify: (() => void) | undefined
+            const onError = (error: Error) => {
+                lost = error
+                notify?.()
+            }
+            client.on('error', onError)
+            return {
+                onLost: (listener) => {
+                    notify = listener
+                    if (lost) listener()
+                },
+                async execute(sql, params = []) {
+                    const result = await client.query(sql, params)
+                    return { rows: result.rows, fields: result.fields, affected: result.rowCount ?? 0 }
+                },
+                release: (error) => {
+                    client.removeListener('error', onError)
+                    release(error || lost)
+                }
+            }
+        },
         async query(sql, params = []) {
             const runner = dataSource.createQueryRunner()
             try {
@@ -52,23 +90,55 @@ export function makeAppStoreSource(dataSource: DataSource): AppStoreSource {
     }
 }
 
-async function loadDashStoreModule() {
+export async function loadStoreModule(pkg: string, file: string) {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidates = [
-            path.join(dir, 'packages', 'harness', 'dashflows-postgres.mjs'),
-            path.join(dir, 'harness', 'dashflows-postgres.mjs')
-        ]
+        const candidates = [path.join(dir, 'packages', pkg, file), path.join(dir, pkg, file)]
         const candidate = candidates.find((item) => fs.existsSync(item))
         if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
-    throw new Error('Harness module dashflows-postgres.mjs was not found.')
+    throw new Error('Storage module could not be loaded.')
 }
 
 // Runs in initDatabase, before the server listens and before the Dash Flows scheduler starts.
-// With CUTTLELY_APP_DATABASE_STORES off and nothing moved, it changes nothing and never queries the database.
-export async function registerAppStoreSource(dataSource: DataSource, log: Log, loadModule = loadDashStoreModule): Promise<unknown> {
+// PostgreSQL members check durable upgrade state before selecting their side stores.
+export async function registerAppStoreSource<FileStore = unknown>(
+    dataSource: DataSource,
+    log: Log,
+    loadModule = () => loadStoreModule('harness', 'dashflows-postgres.mjs'),
+    options: {
+        versionHistory?: {
+            inspect(): Promise<{ head: string; bytes: number } | null>
+            copy(source: AppStoreSource, expected: string | null): Promise<void>
+            select(source: AppStoreSource | null): Promise<void>
+        }
+        worker?: boolean
+        newPostgresApplication?: boolean
+        fileRoots?: { blobs: string; uploads: string }
+        selectFiles?: (store: FileStore | null) => void
+    } = {}
+): Promise<unknown> {
+    const source = makeAppStoreSource(dataSource)
+    if (source.dialect === 'postgres') {
+        try {
+            const { startStorageUpgrade } = await loadStoreModule('etl', 'storage-upgrade.mjs')
+            coordinator = await startStorageUpgrade({
+                source,
+                log,
+                ...options,
+                inspectDependencies: (etl: Parameters<typeof applicationStorageDependencies>[1]) =>
+                    applicationStorageDependencies((sql) => source.query(sql), etl)
+            })
+            return
+        } catch (error) {
+            if (error instanceof Error && (error as Error & { status?: number }).status === 409)
+                throw Object.assign(error, { code: 'STORAGE_START_FAILED' })
+            throw Object.assign(new Error('Storage selection failed. Restore PostgreSQL connectivity and restart.'), {
+                code: 'STORAGE_START_FAILED'
+            })
+        }
+    }
     try {
         const { initDashStore } = await loadModule()
         return await initDashStore({ source: makeAppStoreSource(dataSource), log })
@@ -80,4 +150,59 @@ export async function registerAppStoreSource(dataSource: DataSource, log: Log, l
         )
         return undefined
     }
+}
+
+type Coordinator = {
+    paused: () => boolean
+    status: () => Promise<unknown>
+    close: () => Promise<void>
+    transition: (action: string, options: { availableBytes?: number; confirm?: string; drain: () => void }) => Promise<unknown>
+}
+let coordinator: Coordinator | undefined
+let admitted = 0
+
+export function sideStoreAdmission(req: Request, res: Response, next: NextFunction) {
+    if (req.method === 'GET' && req.path === '/api/v1/ping/storage-upgrade') return res.json({ paused: coordinator?.paused() || false })
+    if (req.method === 'GET' && req.path === '/api/v1/server-settings') return next()
+    if (
+        !coordinator ||
+        !req.path.startsWith('/api/') ||
+        /^\/api\/v1\/(?:server-settings\/storage(?:\/|$)|auth(?:\/|$)|ping(?:\/|$))/.test(req.path)
+    )
+        return next()
+    if (coordinator.paused()) {
+        res.setHeader('Retry-After', '30')
+        return res.status(503).json({ code: 'store_moving', message: 'Storage upgrade in progress. Try again in 30 seconds.' })
+    }
+    admitted++
+    res.once('close', () => {
+        admitted--
+    })
+    next()
+}
+
+export const storageStatus = () => coordinator?.status() || { available: false }
+export async function changeSideStores(action: 'upgrade' | 'rollback', body: { availableBytes?: number; confirm?: string } = {}) {
+    if (!coordinator) throw new SettingsError(409, 'STORAGE_UPGRADE', 'Storage upgrades require a PostgreSQL application database.')
+    try {
+        return await coordinator.transition(action, {
+            availableBytes: body?.availableBytes,
+            confirm: body?.confirm,
+            drain: () => {
+                if (admitted) throw Object.assign(new Error('Wait for current application requests to finish and retry.'), { status: 409 })
+            }
+        })
+    } catch (error) {
+        if (error instanceof Error && (error as Error & { status?: number }).status === 409)
+            throw new SettingsError(409, 'STORAGE_UPGRADE', error.message)
+        throw new SettingsError(
+            503,
+            'STORAGE_UPGRADE',
+            'The storage operation could not finish. Check the database connection, schema and backup disk, then resume from Server Settings.'
+        )
+    }
+}
+export async function closeSideStores() {
+    await coordinator?.close()
+    coordinator = undefined
 }

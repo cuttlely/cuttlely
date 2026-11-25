@@ -1,3 +1,4 @@
+import { HISTORY_SCHEMA } from './side-store-schema.mjs'
 import { randomUUID } from 'node:crypto'
 import { TRACE_JSON_LIMIT, redactSecrets, settleToolChips } from './trace.mjs'
 import { database, immediate } from './lock.mjs'
@@ -32,36 +33,8 @@ const DIAGNOSTIC_UNIT =
     /^(?:[KMB]|%|acv|nacv|racv|arr|tcv|ram|thousand|million|billion|accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?|millisecond|second|minute|hour|day|week)$/i
 
 function ensure(db) {
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS run_history (
-            id TEXT PRIMARY KEY,
-            harness_name TEXT NOT NULL,
-            chat_id TEXT,
-            status TEXT NOT NULL,
-            source TEXT NOT NULL,
-            started_at INTEGER NOT NULL,
-            finished_at INTEGER,
-            latency_ms INTEGER,
-            prompt_tokens INTEGER,
-            completion_tokens INTEGER,
-            error_code TEXT,
-            error_message TEXT,
-            input_preview TEXT,
-            text_preview TEXT,
-            agents_json TEXT,
-            timings_json TEXT,
-            trace_id TEXT,
-            trace_json TEXT,
-            diagnostics_json TEXT
-        );
-        CREATE INDEX IF NOT EXISTS run_history_harness ON run_history (harness_name, started_at DESC);
-        CREATE TABLE IF NOT EXISTS run_results (
-            run_id TEXT PRIMARY KEY,
-            harness_name TEXT NOT NULL,
-            result_json TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        );
-    `)
+    if (db.dialect === 'postgres') return
+    db.exec(HISTORY_SCHEMA)
     const columns = db.prepare('PRAGMA table_info(run_history)').all()
     if (!columns.some((column) => column.name === 'trace_json')) {
         db.exec('ALTER TABLE run_history ADD COLUMN trace_json TEXT')
@@ -417,7 +390,9 @@ export function failQueuedRun(name, id, error) {
         ensure(db)
         db.prepare(
             `UPDATE run_history
-             SET status = 'failed', finished_at = ?, latency_ms = MAX(0, ? - started_at), error_code = ?, error_message = ?
+             SET status = 'failed', finished_at = ?, latency_ms = ${
+                 db.dialect === 'postgres' ? 'GREATEST' : 'MAX'
+             }(0, ? - started_at), error_code = ?, error_message = ?
              WHERE id = ? AND harness_name = ? AND status = 'queued'`
         ).run(
             Date.now(),

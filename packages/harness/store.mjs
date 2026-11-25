@@ -1,11 +1,9 @@
 import { normalizeEvidenceBytes } from './evidence-budget.mjs'
-import fs from 'node:fs'
+import { readRecord, recordEntries, removeRecord, writeRecord } from './record-files.mjs'
 import { trustedOutputContracts, normalizeTrustedPolicy } from './trusted-output.mjs'
 import { normalizeInterpretationPaths } from './protected-interpretation.mjs'
-import path from 'node:path'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { specialistHandoffChars } from './context.mjs'
-import { harnessStoreDir } from './paths.mjs'
 import { validatePinFirstRules } from './pin-first.mjs'
 import { normalizePresetSpecialist } from './presets.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
@@ -180,36 +178,32 @@ export function assertSavedHarnessName(name) {
     return name
 }
 
-function fileFor(name) {
-    return path.join(harnessStoreDir(), `${assertHarnessName(name)}.json`)
+function names() {
+    try {
+        return recordEntries().filter((entry) => entry.endsWith('.json'))
+    } catch (error) {
+        if (error.code === 'ENOENT') return []
+        throw error
+    }
 }
 
 export function listHarnesses() {
-    const dir = harnessStoreDir()
-    if (!fs.existsSync(dir)) return []
-    return fs
-        .readdirSync(dir)
-        .filter((entry) => entry.endsWith('.json'))
-        .map((entry) => JSON.parse(fs.readFileSync(path.join(dir, entry), 'utf8')))
+    return names()
+        .map((entry) => readRecord(entry))
+        .filter((content) => content !== null)
+        .map((content) => JSON.parse(content))
         .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-// Names from the file names alone, so one unreadable record does not hide the others.
 export function listHarnessNames() {
-    const dir = harnessStoreDir()
-    if (!fs.existsSync(dir)) return []
-    return fs
-        .readdirSync(dir)
-        .filter((entry) => entry.endsWith('.json'))
-        .map((entry) => entry.slice(0, -'.json'.length))
+    return names()
+        .map((entry) => entry.slice(0, -5))
         .sort((a, b) => a.localeCompare(b))
 }
 
 export function getHarness(name) {
-    assertHarnessName(name)
-    const file = fileFor(name)
-    if (!fs.existsSync(file)) return null
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
+    const content = readRecord(assertHarnessName(name) + '.json')
+    return content === null ? null : JSON.parse(content)
 }
 
 export function saveHarness(record, { overwrite = false } = {}) {
@@ -276,7 +270,9 @@ export function saveHarness(record, { overwrite = false } = {}) {
         else delete specialist.handoffChars
     }
     assertRosterLimits(record)
-    const existing = getHarness(record.name)
+    const entry = assertHarnessName(record.name) + '.json'
+    const previous = readRecord(entry)
+    const existing = previous === null ? null : JSON.parse(previous)
     // Names are one file per install. A file that already belongs to another team is left as it is.
     // A file with no team is claimed only by claimWorkspace, the startup backfill, not by a save.
     if (existing && !existing.workspaceId && record.workspaceId) {
@@ -302,30 +298,30 @@ export function saveHarness(record, { overwrite = false } = {}) {
         stored.credentials = { ...stored.credentials }
         delete stored.credentials.modelEnv
     }
-    fs.mkdirSync(harnessStoreDir(), { recursive: true })
-    fs.writeFileSync(fileFor(record.name), JSON.stringify(stored, null, 2))
+    writeRecord(entry, JSON.stringify(stored, null, 2), previous)
     return stored
 }
 
 export function deleteHarness(name) {
-    assertHarnessName(name)
-    const file = fileFor(name)
-    if (fs.existsSync(file)) fs.unlinkSync(file)
+    removeRecord(assertHarnessName(name) + '.json')
 }
 
 // A file saved before harnesses stored a team. Sets the team once and leaves a file that already has one.
 export function claimWorkspace(name, workspaceId) {
-    const existing = getHarness(name)
+    const entry = assertHarnessName(name) + '.json'
+    const previous = readRecord(entry)
+    const existing = previous === null ? null : JSON.parse(previous)
     const id = typeof workspaceId === 'string' ? workspaceId.trim() : ''
     if (!existing || existing.workspaceId || !id) return existing
     const stored = { ...existing, workspaceId: id }
-    fs.mkdirSync(harnessStoreDir(), { recursive: true })
-    fs.writeFileSync(fileFor(name), JSON.stringify(stored, null, 2))
+    writeRecord(entry, JSON.stringify(stored, null, 2), previous)
     return stored
 }
 
 export function setHarnessCategory(name, category) {
-    const existing = getHarness(name)
+    const entry = assertHarnessName(name) + '.json'
+    const previous = readRecord(entry)
+    const existing = previous === null ? null : JSON.parse(previous)
     if (!existing) return null
     const tags = (Array.isArray(category) ? category : category.split(';'))
         .filter((tag) => typeof tag === 'string')
@@ -335,7 +331,6 @@ export function setHarnessCategory(name, category) {
     const stored = { ...existing }
     if (normalized) stored.category = normalized
     else delete stored.category
-    fs.mkdirSync(harnessStoreDir(), { recursive: true })
-    fs.writeFileSync(fileFor(name), JSON.stringify(stored, null, 2))
+    writeRecord(entry, JSON.stringify(stored, null, 2), previous)
     return stored
 }

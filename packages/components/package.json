@@ -6,6 +6,7 @@
     "main": "dist/src/index",
     "types": "dist/src/index.d.ts",
     "exports": {
+        "./module-catalog": "./nodes/module-catalog.json",
         ".": {
             "types": "./dist/src/index.d.ts",
             "default": "./dist/src/index.js"

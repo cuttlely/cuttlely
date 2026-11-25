@@ -14,7 +14,7 @@ const { combine, timestamp, printf, errors } = format
 
 let requestLogger: any
 
-const provider = StorageProviderFactory.getProvider()
+const provider = StorageProviderFactory.getProvider(true)
 const serverTransports = provider.getLoggerTransports('server', config)
 const errorTransports = provider.getLoggerTransports('error', config)
 const requestTransports = provider.getLoggerTransports('requests', config)

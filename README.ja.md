@@ -27,6 +27,8 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
+**次回** · **1.7.15 では、PostgreSQL から空のアプリケーションディスクにインストール環境を復元できます。アップロード先には S3 互換バケットも使えます。既存環境は移行前にバックアップしてください。** [移行手順とディスク要件](./docs/upgrading.md#upgrading-to-1715).
+
 **1.7.14 では、インストール暗号鍵の段階的なローテーションと、オペレーター設定の永続化が可能になります。** Analyst の SQL 試行回数を調整できます。[アップグレードガイド](./docs/upgrading.md#upgrading-to-1714)。
 
 **1.7.13 では、エージェントモードの chief が専門エージェントに直接作業を委任できます。** 既定はルーターモードです。Try チャットはフローと所有者ごとにプロファイルを再利用します。監視下の環境では、実行中の作業が終わると保存済みのランタイム制限が適用されます。[エージェントモード](./docs/how-to/harness-agent-mode.md) · [アップグレードガイド](./docs/upgrading.md#upgrading-to-1713)。
