@@ -537,7 +537,7 @@ describe('analyst sqlite storage', () => {
             const ticker = setInterval(() => {
                 ticks += 1
             }, 50)
-            const started = Date.now()
+            const started = performance.now()
             try {
                 await assert.rejects(
                     queryAnalyst('INSERT INTO t (n) WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c', {
@@ -553,7 +553,7 @@ describe('analyst sqlite storage', () => {
             } finally {
                 clearInterval(ticker)
             }
-            const elapsed = Date.now() - started
+            const elapsed = performance.now() - started
             assert.equal(elapsed >= 700 && elapsed < 5000, true, `stopped after ${elapsed} ms`)
             // node:sqlite would hold the thread for the whole statement. The timer kept running.
             assert.equal(ticks >= 8, true, `the event loop ran ${ticks} ticks`)
