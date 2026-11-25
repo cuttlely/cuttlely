@@ -6,7 +6,7 @@ import { forCredentialGeneration, newCredentialGeneration } from '../settings/cr
 import type { CredentialStageDatabase } from '../settings/credentialStage'
 import { acceptStagedCredentialGeneration, stageApplicationCredentialRecords } from '../settings/credentialStage'
 import { stageAnalystRoleFiles, stageSettingsDocuments } from '../settings/credentialStageFiles'
-import { POSTGRES_SETTINGS_FILES, POSTGRES_SETTINGS_URL } from '../settings/postgres'
+import { POSTGRES_SETTINGS_FILES, POSTGRES_SETTINGS_URL, settingsPostgresConnection } from '../settings/postgres'
 import { POSTGRES_SETTINGS_MARKER, postgresSettingsCodec } from '../settings/postgresCodec'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
 import { settingsDir } from '../settings/store'
@@ -112,6 +112,7 @@ export async function stageCredentialRotation(env: Env) {
     const localSettings = isolatedDir(root, settingsDir(env))
     const secretDir = isolatedDir(root, env.SECRETKEY_PATH)
     const databaseFile = env.DATABASE_TYPE === 'sqlite' ? path.join(isolatedDir(root, env.DATABASE_PATH), 'database.sqlite') : undefined
+    const settingsConnection = settingsPostgresConnection(env)
     const settingsUrl = env[POSTGRES_SETTINGS_URL]?.trim()
     const settingsName = settingsUrl ? new URL(settingsUrl).pathname.slice(1) : undefined
     if (
@@ -149,8 +150,8 @@ export async function stageCredentialRotation(env: Env) {
         const documents = await settingsDocuments(env, oldKey)
         const settings = stageSettingsDocuments(documents, source, destination)
         const roles = stageAnalystRoleFiles(files, source, destination)
-        if (settingsUrl) {
-            await withOfflinePostgres({ connectionString: settingsUrl }, async (client) => {
+        if (settingsConnection) {
+            await withOfflinePostgres(settingsConnection, async (client) => {
                 const codec = postgresSettingsCodec(replacement, generation)
                 await client.query('BEGIN')
                 try {

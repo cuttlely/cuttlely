@@ -1,6 +1,6 @@
 import path from 'path'
 import { NextFunction, Request, Response } from 'express'
-import { getFilesListFromStorage, getStoragePath, removeSpecificFileFromStorage } from '@cuttlely/components'
+import { getFilesListFromStorage, getStorageType, getStoragePath, removeSpecificFileFromStorage } from '@cuttlely/components'
 import { updateStorageUsage } from '../../utils/quotaUsage'
 import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
@@ -16,10 +16,13 @@ const getAllFiles = async (req: Request, res: Response, next: NextFunction) => {
             )
         }
         const apiResponse = await getFilesListFromStorage(activeOrganizationId)
+        const scopedKeys = ['postgres', 's3'].includes(getStorageType())
         const filesList = apiResponse.map((file: any) => ({
             ...file,
             // replace org id because we don't want to expose it
-            path: file.path.replace(getStoragePath(), '').replace(`${path.sep}${activeOrganizationId}${path.sep}`, '')
+            path: scopedKeys
+                ? file.path.split('/').slice(1).join(path.sep)
+                : file.path.replace(getStoragePath(), '').replace(`${path.sep}${activeOrganizationId}${path.sep}`, '')
         }))
         return res.json(filesList)
     } catch (error) {

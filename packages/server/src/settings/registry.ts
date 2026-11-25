@@ -1022,12 +1022,13 @@ export const SETTINGS: SettingDef[] = [
         help: 'Where uploads and generated files go. Files already stored are not moved.',
         type: 'select',
         options: [
-            { value: 'local', label: 'This server' },
-            { value: 's3', label: 'S3 or compatible' },
+            { value: 'local', label: 'Application default (PostgreSQL after storage upgrade, otherwise local)' },
+            { value: 'postgres', label: 'PostgreSQL (requires completed storage upgrade)' },
+            { value: 's3', label: 'Amazon S3 or compatible (including IBM Cloud Object Storage)' },
             { value: 'gcs', label: 'Google Cloud Storage' },
             { value: 'azure', label: 'Azure Blob Storage' }
         ],
-        defaultLabel: 'This server',
+        defaultLabel: 'Application default',
         defaultValue: 'local',
         risk: 'high',
         hostHint: 'Docker compose or Render'
@@ -1081,7 +1082,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'storage',
         group: 'S3',
         label: 'Endpoint',
-        help: 'Only for S3-compatible services such as MinIO or R2.',
+        help: 'Use the bucket’s HTTPS endpoint for IBM Cloud Object Storage, MinIO or R2. Leave empty for the AWS regional endpoint.',
         type: 'text',
         defaultLabel: 'AWS',
         placeholder: 'https://...',

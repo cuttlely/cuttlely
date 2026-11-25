@@ -152,6 +152,7 @@ export interface GithubCredentialStore {
 }
 
 export interface GithubDeps {
+    withStorage?: <T>(work: () => Promise<T>) => Promise<T>
     store: () => VersionStore
     enabled: () => boolean
     // Github API credentials in Credentials. get answers null for any other id, type or workspace.
@@ -1075,7 +1076,7 @@ export class GithubSync {
     // Names this server, or saves the ordered list. A Dev or Prod label with no list stays the old file.
     async setEnvironment(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
-        return this.withEnvironmentLock(() => this.setEnvironmentBody(value, environmentsInput))
+        return this.withStorage(() => this.withEnvironmentLock(() => this.setEnvironmentBody(value, environmentsInput)))
     }
 
     private async setEnvironmentBody(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
@@ -1336,6 +1337,10 @@ export class GithubSync {
     }
 
     // One lock for connect and setEnvironment. The next caller waits until this body, including the connect-time copy, finishes.
+    private withStorage<T>(work: () => Promise<T>): Promise<T> {
+        return this.deps.withStorage ? this.deps.withStorage(work) : work()
+    }
+
     private async withEnvironmentLock<T>(body: () => Promise<T>): Promise<T> {
         const previous = this.envGate
         let release: () => void = () => undefined
@@ -2273,7 +2278,7 @@ export class GithubSync {
     ): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
         if (!workspaceId) throw new GithubError(400, 'No active workspace.')
-        return this.withEnvironmentLock(() => this.connectBody(input, workspaceId))
+        return this.withStorage(() => this.withEnvironmentLock(() => this.connectBody(input, workspaceId)))
     }
 
     private async connectBody(
@@ -2381,6 +2386,10 @@ export class GithubSync {
 
     // Forgets the repository. Nothing on GitHub changes, and the credential stays in Credentials.
     async disconnect(): Promise<GithubStatus> {
+        return this.withStorage(() => this.disconnectBody())
+    }
+
+    private async disconnectBody(): Promise<GithubStatus> {
         this.generation += 1
         this.clearTimer()
         const store = this.deps.store()
@@ -2472,7 +2481,9 @@ export class GithubSync {
                 else this.schedule(delayMs, false)
                 return
             }
-            void this.sync()
+            void this.sync().catch(() =>
+                this.log('[versions] GitHub sync could not access its durable state. Check database connectivity and retry.')
+            )
         }, delayMs)
         if (typeof this.timer.unref === 'function') this.timer.unref()
     }
@@ -2480,6 +2491,10 @@ export class GithubSync {
     // One copy at a time. A version saved while a copy runs is copied right after.
     // A plan passed from connect is the one that passed the check. That copy does not read the file again.
     sync(pinned?: ActivePlan): Promise<void> {
+        return this.withStorage(() => this.syncBody(pinned))
+    }
+
+    private syncBody(pinned?: ActivePlan): Promise<void> {
         if (pinned) this.pinnedPlan = pinned
         if (this.running) {
             this.again = true
@@ -3183,7 +3198,9 @@ export class GithubSync {
         if (this.timer) clearTimeout(this.timer)
         this.timer = setTimeout(() => {
             this.timer = null
-            void this.sync()
+            void this.sync().catch(() =>
+                this.log('[versions] GitHub sync could not access its durable state. Check database connectivity and retry.')
+            )
         }, wait)
         if (typeof this.timer.unref === 'function') this.timer.unref()
     }

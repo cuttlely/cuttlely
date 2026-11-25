@@ -220,7 +220,8 @@ const importSample = (sampleId: string, workspaceId?: string) =>
             workspaceId
         })
         const saved = await repo.save(chatflow)
-        void flowVersionsService.recordFlowVersion(saved)
+        const recorded = flowVersionsService.recordFlowVersion(saved)
+        if (flowVersionsService.usesPostgresHistory()) await recorded
         await syncPipelineFromFlow(saved)
         return saved
     })

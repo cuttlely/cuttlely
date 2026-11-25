@@ -1,8 +1,10 @@
 import fs from 'fs'
 import path from 'path'
 import { DatabaseSync } from 'node:sqlite'
-import { POSTGRES_SETTINGS_FILES, POSTGRES_SETTINGS_URL } from '../settings/postgres'
+import { AUTHORITY_DOCUMENTS, POSTGRES_SETTINGS_FILES, settingsPostgresConnection } from '../settings/postgres'
 import { POSTGRES_SETTINGS_MARKER, postgresSettingsCodec } from '../settings/postgresCodec'
+import { applicationPostgresOptions } from '../settings/applicationPostgres'
+export { applicationPostgresOptions } from '../settings/applicationPostgres'
 import { settingsDir } from '../settings/store'
 
 export type Env = Record<string, string | undefined>
@@ -38,16 +40,17 @@ export function optionalFile(file: string): string | null {
 }
 
 export async function settingsDocuments(env: Env, key: string): Promise<Map<string, string>> {
-    const url = env[POSTGRES_SETTINGS_URL]?.trim()
-    if (!url) {
+    const postgres = settingsPostgresConnection(env)
+    if (!postgres) {
         const docs = new Map<string, string>()
         for (const file of POSTGRES_SETTINGS_FILES) {
+            if (AUTHORITY_DOCUMENTS.has(file)) continue
             const text = optionalFile(path.join(settingsDir(env), file))
             if (text !== null) docs.set(file, text)
         }
         return docs
     }
-    return withPostgres({ connectionString: url }, async (rows) => {
+    return withPostgres(postgres, async (rows) => {
         const { unseal } = postgresSettingsCodec(key, env.CUTTLELY_CREDENTIAL_GENERATION)
         const docs = new Map<string, string>()
         let verified = false
@@ -75,18 +78,5 @@ export async function scanApplicationDatabase<T>(env: Env, work: (rows: Rows, po
         return await work(async (sql) => client.prepare(sql).all(), false)
     } finally {
         client.close()
-    }
-}
-
-export function applicationPostgresOptions(env: Env) {
-    return {
-        host: env.DATABASE_HOST,
-        port: parseInt(env.DATABASE_PORT || '5432'),
-        user: env.DATABASE_USER,
-        password: env.DATABASE_PASSWORD,
-        database: env.DATABASE_NAME,
-        ssl: env.DATABASE_SSL_KEY_BASE64
-            ? { rejectUnauthorized: env.DATABASE_REJECT_UNAUTHORIZED === 'true', ca: Buffer.from(env.DATABASE_SSL_KEY_BASE64, 'base64') }
-            : env.DATABASE_SSL === 'true' || undefined
     }
 }

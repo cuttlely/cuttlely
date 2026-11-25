@@ -1,5 +1,6 @@
 // Large prediction uploads stay on disk. The question gets a short stub, and a
 // specialist samples the file. Token counts are ceil(chars / 4), same as context.mjs.
+export { canCreatePredictionAttachment, createPredictionAttachment } from './prediction-files.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { estimateTokens } from './context.mjs'

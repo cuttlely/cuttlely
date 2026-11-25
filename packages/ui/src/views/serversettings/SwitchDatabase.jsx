@@ -210,6 +210,15 @@ const SwitchDatabase = ({ open, mode, onClose, settings, database, onDone }) => 
                         Cuttlely keeps flows, credentials, accounts and history in its database. Switching points Cuttlely at another
                         database at the next restart. Nothing is copied: what is in the current database stays there.
                     </Typography>
+                    {database?.saved?.type !== 'postgres' && type === 'postgres' && (
+                        <Alert severity='info'>
+                            To keep your existing accounts and flows, copy the SQLite installation while its original disk is available.
+                            Stop writes and workers. On the original host, supply the empty PostgreSQL destination to the migration process
+                            and run <code>pnpm storage:copy-application /absolute/path/to/database.sqlite</code> from the built checkout.
+                            Keep the installation encryption key. Return here after the copy verifies, then test and select the populated
+                            database.
+                        </Alert>
+                    )}
                     <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
                         <Choice
                             selected={type === 'sqlite'}

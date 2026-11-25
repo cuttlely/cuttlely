@@ -140,7 +140,8 @@ export const localStoredUploadPath = (...parts: string[]): string | undefined =>
 export const renderPredictionUploadQuestion = async (
     filename: string,
     prepared: PreparedPredictionUpload,
-    absolutePath?: string
+    absolutePath?: string,
+    stored?: { workspace: string; flow: string; chat: string; parts: string[] }
 ): Promise<string> => {
     const policy = await loadUploadPolicy()
     try {
@@ -150,6 +151,9 @@ export const renderPredictionUploadQuestion = async (
         absolutePath = undefined
     }
     try {
+        if (prepared.stub && stored && ['postgres', 's3'].includes(getStorageType()) && policy.canCreatePredictionAttachment()) {
+            absolutePath = policy.createPredictionAttachment(stored, stored.parts)
+        }
         const part = policy.buildUploadQuestionPart({
             name: filename,
             mime: prepared.mime,

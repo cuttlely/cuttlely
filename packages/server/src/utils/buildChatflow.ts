@@ -483,7 +483,8 @@ export const executeFlow = async ({
                     uploadedFilesContent += await renderPredictionUploadQuestion(
                         upload.name,
                         prepared,
-                        localStoredUploadPath(orgId, chatflowid, chatId, storedName)
+                        localStoredUploadPath(orgId, chatflowid, chatId, storedName),
+                        { workspace: workspaceId, flow: chatflowid, chat: chatId, parts: [orgId, chatflowid, chatId, storedName] }
                     )
                 }
                 fileUploads[i] = { name: storedName, type: 'stored-file:full', mime: prepared.mime }
@@ -585,7 +586,8 @@ export const executeFlow = async ({
                     uploadedFilesContent += await renderPredictionUploadQuestion(
                         file.originalname,
                         prepared,
-                        localStoredUploadPath(orgId, chatflowid, storedOnDisk)
+                        localStoredUploadPath(orgId, chatflowid, storedOnDisk),
+                        { workspace: workspaceId, flow: chatflowid, chat: chatId, parts: [orgId, chatflowid, storedOnDisk] }
                     )
                     fileUploads.push({
                         type: 'stored-file:full',

@@ -19,6 +19,7 @@ import { getPipeline, latestVersion } from './versions.mjs'
 // In-process job runner. This is the queue seam: a later version replaces enqueue() with a job push
 // and workers call executeRun(runId); runs, checkpoints and records already live in a database.
 const active = new Map()
+export const hasActiveRuns = () => active.size > 0
 let contextFor = () => ({})
 let maxActive = Math.max(1, Number(process.env.CUTTLELY_ETL_CONCURRENCY) || 1)
 let onError = () => {}
@@ -141,14 +142,15 @@ export async function pauseRun(runId) {
                 await fault({ faults: runnerFaults }, 'pauseAfterRead', run, t)
                 const job = active.get(runId)
                 if (job) refuseFinishing(run)
-                else if (run.status !== 'queued') throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
+                else if (run.status !== 'queued' && !(etlStore.sharedExecution() && run.status === 'running'))
+                    throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
                 return { run, job }
             })
             if (decision instanceof EtlError) return decision
             const { run, job } = decision
-            if (job) {
+            if (job || (etlStore.sharedExecution() && run.status === 'running')) {
                 if (!(await updateRunIf(runId, [run.status], { status: 'pausing' }, t))) continue
-                job.control.stopRequested = 'pause'
+                if (job) job.control.stopRequested = 'pause'
                 await addEvent(runId, 'info', null, 'Pausing after the batches in flight commit.', t)
             } else {
                 if (!(await updateRunIf(runId, [run.status], { status: 'paused' }, t))) continue
@@ -167,17 +169,22 @@ export async function cancelRun(runId) {
                 await fault({ faults: runnerFaults }, 'cancelAfterRead', run, t)
                 const job = active.get(runId)
                 if (job) refuseFinishing(run)
-                else if (!['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status)) {
+                else if (
+                    !['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status) &&
+                    !(etlStore.sharedExecution() && run.status === 'running')
+                ) {
                     throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
                 }
                 return { run, job }
             })
             if (decision instanceof EtlError) return decision
             const { run, job } = decision
-            if (job) {
+            if (job || (etlStore.sharedExecution() && ['running', 'pausing', 'cancelling'].includes(run.status))) {
                 if (!(await updateRunIf(runId, [run.status], { status: 'cancelling' }, t))) continue
-                job.control.stopRequested = 'cancel'
-                job.control.abort.abort()
+                if (job) {
+                    job.control.stopRequested = 'cancel'
+                    job.control.abort.abort()
+                }
                 await addEvent(runId, 'info', null, 'Cancelling after the batches in flight finish.', t)
             } else {
                 if (!(await updateRunIf(runId, [run.status], { status: 'cancelled', finishedAt: new Date().toISOString() }, t))) continue
@@ -235,29 +242,49 @@ async function resumeUnlocked(runId) {
 export async function resumeInterruptedRuns() {
     const resumed = []
     for (const run of await runsWithStatus(ACTIVE_STATUSES)) {
-        await etlStore.tx(async (t) => {
-            const current = await getRun(run.id, t)
-            if (!current || active.has(run.id)) return
-            await fault({ faults: runnerFaults }, 'recoveryAfterRead', current, t)
-            if (current.status === 'pausing') {
-                if (!(await updateRunIf(run.id, [current.status], { status: 'paused' }, t))) return
-            } else if (current.status === 'cancelling') {
-                if (!(await updateRunIf(run.id, [current.status], { status: 'cancelled', finishedAt: new Date().toISOString() }, t))) return
-            } else if (current.status === 'running') {
-                if (!(await updateRunIf(run.id, [current.status], { status: 'queued' }, t))) return
-                await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.', t)
-                resumed.push(run.id)
-            } else if (current.status === 'queued') {
-                resumed.push(run.id)
-            }
-        })
+        const release = etlStore.sharedExecution() ? await etlStore.tryLease('run:' + run.id) : undefined
+        if (release === null) continue
+        try {
+            await etlStore.tx(async (t) => {
+                const current = await getRun(run.id, t)
+                if (!current || active.has(run.id)) return
+                await fault({ faults: runnerFaults }, 'recoveryAfterRead', current, t)
+                if (current.status === 'pausing') {
+                    if (!(await updateRunIf(run.id, [current.status], { status: 'paused' }, t))) return
+                } else if (current.status === 'cancelling') {
+                    if (!(await updateRunIf(run.id, [current.status], { status: 'cancelled', finishedAt: new Date().toISOString() }, t)))
+                        return
+                } else if (current.status === 'running') {
+                    if (!(await updateRunIf(run.id, [current.status], { status: 'queued' }, t))) return
+                    await addEvent(run.id, 'info', null, 'The server restarted during this run; resuming from the last checkpoint.', t)
+                    resumed.push(run.id)
+                } else if (current.status === 'queued') {
+                    resumed.push(run.id)
+                }
+            })
+        } finally {
+            await release?.()
+        }
     }
     await pump()
     return resumed
 }
 
-export function waitForRun(runId) {
-    return active.get(runId)?.promise || getRun(runId)
+export async function waitForRun(runId) {
+    if (active.has(runId)) return active.get(runId).promise
+    if (!etlStore.sharedExecution()) return getRun(runId)
+    // A delete on another replica must wait for the writer to release its lease before removing vectors.
+    for (;;) {
+        const release = await etlStore.tryLease('run:' + runId)
+        if (release) {
+            try {
+                return await getRun(runId)
+            } finally {
+                await release()
+            }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
 }
 
 export async function waitForIdle() {
@@ -283,14 +310,47 @@ async function pump() {
     for (const run of await runsWithStatus(['queued'])) {
         if (etlStore.gate.closed() || stopping() || active.size >= maxActive) break
         if (active.has(run.id) || deleting.has(run.pipelineId)) continue
-        launch(run)
+        const release = etlStore.sharedExecution() ? await etlStore.tryLease('run:' + run.id) : undefined
+        if (release === null) continue
+        if (release) {
+            try {
+                if (active.size >= maxActive || (await getRun(run.id))?.status !== 'queued') {
+                    await release()
+                    continue
+                }
+            } catch (error) {
+                await release()
+                throw error
+            }
+        }
+        launch(run, release)
     }
 }
 
-function launch(run) {
+function launch(run, release) {
     const control = { stopRequested: null, abort: new AbortController() }
     const job = { control, promise: null }
     active.set(run.id, job)
+    let polling = false
+    const poll =
+        release &&
+        setInterval(async () => {
+            if (polling || control.stopRequested === 'cancel') return
+            polling = true
+            try {
+                const current = await getRun(run.id)
+                if (current?.status === 'pausing') control.stopRequested = 'pause'
+                if (current?.status === 'cancelling') {
+                    control.stopRequested = 'cancel'
+                    control.abort.abort()
+                }
+            } catch (error) {
+                onError(error, run)
+            } finally {
+                polling = false
+            }
+        }, 500)
+    poll?.unref()
     job.promise = track(
         Promise.resolve()
             .then(async () => executeRun(run.id, { ctx: (await contextFor(await getPipeline(run.pipelineId))) || {}, control }))
@@ -315,6 +375,8 @@ function launch(run) {
                 return getRun(run.id)
             })
             .finally(async () => {
+                clearInterval(poll)
+                await release?.()
                 active.delete(run.id)
                 try {
                     await onSettled(run.id)

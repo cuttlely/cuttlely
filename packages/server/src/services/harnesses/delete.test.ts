@@ -130,6 +130,18 @@ const fakeModules = (file: string) => {
         return Promise.resolve({
             removeDraftSessions: (canvas: { workspaceId: string; chatflowId: string }) => removedDraftSessions.push(canvas)
         })
+    if (file === 'record-files.mjs')
+        return Promise.resolve({
+            recordEntries: () => fs.readdirSync(storeDir),
+            recordExists: (entry: string) => fs.existsSync(path.join(storeDir, entry)),
+            readRecord: (entry: string) => fs.readFileSync(path.join(storeDir, entry), 'utf8'),
+            removeRecord: (entry: string) => fs.rmSync(path.join(storeDir, entry), { force: true }),
+            stageRecord: (name: string) => fs.renameSync(fileOf(name), fileOf(name) + '.deleting'),
+            restoreRecord: (name: string) => {
+                if (!has(name)) fs.copyFileSync(fileOf(name) + '.deleting', fileOf(name), fs.constants.COPYFILE_EXCL)
+                fs.rmSync(fileOf(name) + '.deleting', { force: true })
+            }
+        })
     if (file === 'paths.mjs') return Promise.resolve({ harnessStoreDir: () => storeDir })
     if (file === 'lock.mjs') {
         return Promise.resolve({

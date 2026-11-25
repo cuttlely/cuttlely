@@ -2,6 +2,8 @@
 
 Version history and drafts read these environment variables when the server starts. How to use history: [Version history](../how-to/versioning.md).
 
+After the PostgreSQL storage upgrade, the versions directory holds a local checkout. A replacement can recover the flow history from the application database. [Recovery guide](../how-to/postgres-side-stores.md#recover-earlier-flow-versions).
+
 | Variable                     | Default                                  | Notes                                                                                                                    |
 | ---------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `CUTTLELY_VERSIONS`          | unset, history on                        | `off`, `false`, `0`, or `no` turns history off. Case and surrounding spaces do not matter. Any other value leaves it on. |

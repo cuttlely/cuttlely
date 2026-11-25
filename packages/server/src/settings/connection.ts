@@ -68,6 +68,7 @@ export interface BucketProbe {
 
 /** Everything that reaches the network or disk, so tests can swap it. */
 export interface TestDrivers {
+    probeApplicationFiles?: () => Promise<boolean>
     pg: (config: Record<string, unknown>) => PgClient
     s3: (values: Values) => BucketProbe
     gcs: (values: Values) => BucketProbe
@@ -404,6 +405,20 @@ async function probeBucket(probe: BucketProbe, where: string): Promise<{ ok: boo
 
 async function testStorage(values: Values, drivers: TestDrivers): Promise<Omit<TestResult, 'kind' | 'tookMs'>> {
     const type = values.STORAGE_TYPE || 'local'
+    if (type === 'postgres' || type === 'local') {
+        if (await drivers.probeApplicationFiles?.())
+            return {
+                ok: true,
+                summary: 'Connected to the application PostgreSQL file store.',
+                checks: [{ label: 'Write, read and remove a test file in PostgreSQL', ok: true }]
+            }
+        if (type === 'postgres')
+            return {
+                ok: false,
+                summary: 'Complete Application database storage in Server Settings → Database before selecting PostgreSQL file storage.',
+                checks: []
+            }
+    }
     if (type === 'local') {
         const folder = values.BLOB_STORAGE_PATH || path.join(drivers.home(), '.cuttlely', 'storage')
         const probe = path.join(folder, `.${PROBE_PREFIX}-${randomUUID()}`)
@@ -579,6 +594,8 @@ export function findScript(file: string): string {
 
 export function defaultDrivers(): TestDrivers {
     return {
+        probeApplicationFiles: () =>
+            (require('@cuttlely/components') as typeof import('@cuttlely/components')).StorageProviderFactory.probeApplicationFiles(),
         pg: (config) => {
             const { Client } = require('pg')
             return new Client(config)

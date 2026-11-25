@@ -1,3 +1,4 @@
+import { recordExists, readRecord } from './record-files.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -31,7 +32,7 @@ import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
-import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId, savedHarnessProfileIds } from './paths.mjs'
+import { dataRoot, hermesHome, hermesProfileId, savedHarnessProfileIds } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { TRY_BRIDGE_SWEEP_MS, sweepOrphanTryBridges, tryEntriesWithBridges } from './try-bridges.mjs'
 import { sessionChat } from './specialist-run.mjs'
@@ -533,16 +534,14 @@ function ingestProfileTokens(abandoned = new Set()) {
 // The harness has a store file (or a staged canvas delete that can still be put back).
 function harnessSaved(name) {
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) return false
-    const dir = harnessStoreDir()
-    return fs.existsSync(path.join(dir, `${name}.json`)) || fs.existsSync(path.join(dir, `${name}.json.deleting`))
+    return recordExists(`${name}.json`) || recordExists(`${name}.json.deleting`)
 }
 
 function issuedForSavedRecord(name, created) {
     if (!created) return false
-    const dir = harnessStoreDir()
     for (const file of [`${name}.json`, `${name}.json.deleting`]) {
         try {
-            const record = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'))
+            const record = JSON.parse(readRecord(file))
             if (record?.createdAt) return record.createdAt === created
         } catch {
             // Missing or unreadable: try the other file.

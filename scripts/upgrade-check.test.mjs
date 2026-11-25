@@ -192,7 +192,7 @@ test('a disposable boot binds its own gateway even when the inherited gateway po
     const os = await import('node:os')
     const path = await import('node:path')
     const net = await import('node:net')
-    const { startServer } = await import('./upgrade-check.mjs')
+    const { startServer, freePort } = await import('./upgrade-check.mjs')
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fixture-gateway-'))
     const occupied = net.createServer()
     await new Promise((resolve, reject) => {
@@ -208,7 +208,16 @@ test('a disposable boot binds its own gateway even when the inherited gateway po
             path.join(bin, 'run'),
             `const net=require('node:net');const s=net.createServer();s.listen(Number(process.env.CUTTLELY_HARNESS_GATEWAY_PORT),'127.0.0.1',()=>console.log('fixture gateway ready'));`
         )
-        server = await startServer(root, { PATH: process.env.PATH, CUTTLELY_HARNESS_GATEWAY_PORT: String(occupied.address().port) })
+        const appPort = occupied.address().port
+        let allocations = 0
+        server = await startServer(
+            root,
+            { PATH: process.env.PATH, PORT: String(appPort), CUTTLELY_HARNESS_GATEWAY_PORT: String(appPort) },
+            {
+                allocatePort: () => (++allocations === 1 ? Promise.resolve(appPort) : freePort())
+            }
+        )
+        assert.equal(allocations, 2)
         const deadline = Date.now() + 5000
         while (!server.logs.join('').includes('fixture gateway ready') && server.child.exitCode === null && Date.now() < deadline)
             await new Promise((resolve) => setTimeout(resolve, 20))

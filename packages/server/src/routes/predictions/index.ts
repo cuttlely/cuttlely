@@ -1,6 +1,6 @@
 import express from 'express'
 import predictionsController from '../../controllers/predictions'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { authorizePrediction } from '../../utils/authorizeFlowAccess'
 
 const router = express.Router()
@@ -15,7 +15,7 @@ router.post(
     ['/', '/:id'],
     predictionsController.getRateLimiterMiddleware,
     authorizePrediction,
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     predictionsController.createPrediction
 )
 

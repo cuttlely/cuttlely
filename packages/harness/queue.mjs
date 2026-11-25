@@ -111,6 +111,13 @@ function reapStaleRunning(db, key, now) {
 // Attached images only ride to the worker. A finished row drops them, so the queue database does not keep people's
 // pictures or grow with every image turn.
 function forgetPayloadImages(db, where, ...params) {
+    if (db.dialect === 'postgres') {
+        db.prepare(
+            `UPDATE jobs SET payload = (payload::jsonb - 'images')::text
+            WHERE ${where} AND jsonb_typeof(payload::jsonb->'images') = 'array' AND payload::jsonb->'images' <> '[]'::jsonb`
+        ).run(...params)
+        return
+    }
     db.prepare(
         `UPDATE jobs SET payload = json_remove(payload, '$.images')
          WHERE ${where} AND json_array_length(payload, '$.images') > 0`

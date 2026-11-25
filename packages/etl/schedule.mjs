@@ -1,3 +1,4 @@
+import { resumeInterruptedRuns } from './runner.mjs'
 import crypto from 'node:crypto'
 import { EtlError } from './errors.mjs'
 import { now } from './db.mjs'
@@ -13,6 +14,7 @@ let clock = () => new Date()
 let timer = null
 let pollMs = Math.max(1000, Number(process.env.CUTTLELY_ETL_SCHEDULE_MS) || 15000)
 let ticking = false
+export const scheduleBusy = () => ticking
 
 export function configureScheduler({ now: nowFn, pollMs: nextPoll } = {}) {
     if (typeof nowFn === 'function') clock = nowFn
@@ -176,7 +178,13 @@ export async function tickSchedules() {
     ticking = true
     installSettled()
     const outcomes = []
+    let release
     try {
+        if (etlStore.sharedExecution()) {
+            release = await etlStore.tryLease('schedule-tick')
+            if (!release) return []
+            await resumeInterruptedRuns()
+        }
         const due = await etlStore.all(
             `SELECT * FROM schedules WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at`,
             [schedulerNow().toISOString()]
@@ -217,6 +225,7 @@ export async function tickSchedules() {
         }
         return outcomes
     } finally {
+        await release?.()
         ticking = false
     }
 }

@@ -1,6 +1,9 @@
+import { VECTOR_SCHEMA } from './vector-schema.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { postgresVectorCollection } from './store.mjs'
+import { vectorNorm, cosine } from './vector-math.mjs'
 import { EtlError } from './errors.mjs'
 import { etlDir } from './db.mjs'
 import { LOCAL_STORE } from './graph.mjs'
@@ -32,19 +35,10 @@ function toBlob(vector) {
     return new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength)
 }
 
-function fromBlob(blob) {
-    if (blob.byteOffset % 4 === 0) return new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4)
-    return new Float32Array(Uint8Array.from(blob).buffer)
-}
-
-function norm(vector) {
-    let sum = 0
-    for (let i = 0; i < vector.length; i += 1) sum += vector[i] * vector[i]
-    return Math.sqrt(sum)
-}
-
 export class LocalVectorStore {
     static open(collection) {
+        const postgres = postgresVectorCollection(collectionName(collection))
+        if (postgres) return postgres
         const file = collectionFile(collection)
         const cached = open.get(file)
         if (cached) return cached
@@ -67,15 +61,7 @@ export class LocalVectorStore {
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
-CREATE TABLE IF NOT EXISTS vectors (
-    id TEXT PRIMARY KEY,
-    source TEXT,
-    content TEXT NOT NULL,
-    metadata TEXT,
-    norm REAL NOT NULL,
-    embedding BLOB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+${VECTOR_SCHEMA}
 `)
         this.upsertStmt = this.db.prepare(`INSERT INTO vectors (id, source, content, metadata, norm, embedding) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET source = excluded.source, content = excluded.content, metadata = excluded.metadata, norm = excluded.norm, embedding = excluded.embedding`)
@@ -106,7 +92,7 @@ ON CONFLICT (id) DO UPDATE SET source = excluded.source, content = excluded.cont
                     doc.metadata?.source ?? null,
                     doc.pageContent,
                     JSON.stringify(doc.metadata || {}),
-                    norm(vectors[i]),
+                    vectorNorm(vectors[i]),
                     toBlob(vectors[i])
                 )
             }
@@ -148,15 +134,12 @@ ON CONFLICT (id) DO UPDATE SET source = excluded.source, content = excluded.cont
     // Exact cosine scan with a k-sized buffer: memory stays O(k) however large the collection is.
     search(query, k = 4) {
         const q = query instanceof Float32Array ? query : Float32Array.from(query)
-        const qn = norm(q) || 1
+        const qn = vectorNorm(q) || 1
         const top = []
         const scan = this.db.prepare('SELECT rowid, norm, embedding FROM vectors')
         for (const row of scan.iterate()) {
-            const v = fromBlob(row.embedding)
-            if (v.length !== q.length) continue
-            let dot = 0
-            for (let i = 0; i < q.length; i += 1) dot += q[i] * v[i]
-            const score = dot / (qn * (row.norm || 1))
+            const score = cosine(q, qn, row)
+            if (score === null) continue
             if (top.length < k || score > top[top.length - 1].score) {
                 top.push({ rowid: row.rowid, score })
                 top.sort((a, b) => b.score - a.score)

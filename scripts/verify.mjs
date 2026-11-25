@@ -386,6 +386,18 @@ export const STEPS = [
         args: [path.join(ROOT, 'scripts', 'upgrade-check.mjs')]
     },
     {
+        name: 'storage-recovery',
+        fast: false,
+        command: process.execPath,
+        args: [
+            '--test',
+            '--test-concurrency=1',
+            path.join(ROOT, 'packages', 'etl', 'check', 'upgrade-control.test.mjs'),
+            path.join(ROOT, 'scripts', 'storage-copy-application.test.cjs'),
+            path.join(ROOT, 'scripts', 'storage-replacement.test.mjs')
+        ]
+    },
+    {
         // A start that cannot open the database after a settings change stops, and safe boot puts back what worked.
         name: 'safeboot',
         fast: false,

@@ -155,7 +155,13 @@ test(
                 cwd: root,
                 encoding: 'utf8',
                 timeout: 20000,
-                env: { ...common, CUTTLELY_DATA_DIR: path.join(dir, name), ...env }
+                env: {
+                    ...common,
+                    CUTTLELY_DATA_DIR: path.join(dir, name),
+                    SECRETKEY_PATH: path.join(dir, name, 'secrets'),
+                    TOKEN_HASH_SECRET: '',
+                    ...env
+                }
             })
         function evaluate(name, code, env) {
             const result = run(
@@ -194,13 +200,21 @@ test(
             )
 
             // First boot imports from disk. The next processes have entirely new local data directories.
+            mkdirSync(path.join(dir, 'original', 'secrets'), { recursive: true })
+            require('node:fs').writeFileSync(path.join(dir, 'original', 'secrets', 'token-hash.secret'), 'fixture-token-hash')
             const migrated = boot('original')
             assert.equal(migrated.status, 0, migrated.stderr)
             assert.ok(migrated.stdout.split('\0').includes('APP_URL=' + appUrl))
             evaluate(
+                'original',
+                "assert.equal(load('identity/authSecrets').ensureInstanceSecret('TOKEN_HASH_SECRET'), 'fixture-token-hash')"
+            )
+            evaluate(
                 'second',
                 `
                 assert.equal(startState.atStart.APP_URL, appUrl)
+                assert.equal(load('identity/authSecrets').ensureInstanceSecret('TOKEN_HASH_SECRET'), 'fixture-token-hash')
+                assert.equal(require('node:fs').existsSync(env.SECRETKEY_PATH), false)
                 assert.equal(load('identity/instanceOperator').operatorDesignation(env).userId, owner.userId)
                 assert.equal(load('identity/instanceOperator').operatorDesignation({ ...env, CUTTLELY_INSTANCE_OPERATOR: 'none' }), null)
                 assert.equal(load('settings/history').readHistory(saved).length, 1)
@@ -229,6 +243,22 @@ test(
                 assert.equal(load('settings/history').readHistory(saved).length, 3)
                 assert.equal(readSettingsFile(saved, key, 'server.rolled-back.json').values.APP_URL, 'https://bad-start.example')
             `
+            )
+            evaluate(
+                'diskless',
+                `assert.equal(load('identity/authSecrets').ensureInstanceSecret('TOKEN_HASH_SECRET'), 'fixture-token-hash')
+                 assert.equal(readSettingsFile(saved, key).values.APP_URL, appUrl)
+                 assert.equal(require('node:fs').existsSync(env.SECRETKEY_PATH), false)`,
+                {
+                    [urlKey]: '',
+                    CUTTLELY_APP_DATABASE_STORES: 'true',
+                    DATABASE_TYPE: 'postgres',
+                    DATABASE_HOST: host,
+                    DATABASE_PORT: String(port),
+                    DATABASE_USER: user,
+                    DATABASE_PASSWORD: password || '',
+                    DATABASE_NAME: database
+                }
             )
             const wrongKey = boot('wrong-key', { CUTTLELY_SECRETKEY_OVERWRITE: 'wrong-key', FLOWISE_SECRETKEY_OVERWRITE: 'wrong-key' })
             assert.equal(wrongKey.status, 3)

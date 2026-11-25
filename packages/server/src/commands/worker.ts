@@ -4,6 +4,8 @@ import logger from '../utils/logger'
 import { QueueManager } from '../queue/QueueManager'
 import { BaseCommand } from './base'
 import { getDataSource } from '../DataSource'
+import { applicationFileStorage } from '../utils'
+import { registerAppStoreSource, closeSideStores } from '../utils/appStoreSource'
 import { registerAppCredentialSource } from '../utils/credentialSource'
 import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { Telemetry } from '../utils/telemetry'
@@ -79,6 +81,9 @@ export default class Worker extends BaseCommand {
         const appDataSource = getDataSource()
         await appDataSource.initialize()
         await verifyInstallationKey(appDataSource, (message) => logger.warn(message))
+        if (appDataSource.options.type === 'postgres') {
+            await registerAppStoreSource(appDataSource, logger, undefined, { worker: true, ...applicationFileStorage() })
+        }
         await runSupportedMigrations(appDataSource)
         await registerAppCredentialSource(appDataSource)
 
@@ -139,6 +144,7 @@ export default class Worker extends BaseCommand {
             await this.failExit()
         }
 
+        await closeSideStores()
         await shutdownCuttlelyTraces()
         await this.gracefullyExit()
     }

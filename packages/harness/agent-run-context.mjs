@@ -1,15 +1,11 @@
+import { AGENT_SCHEMA } from './side-store-schema.mjs'
 import { database, immediate } from './lock.mjs'
 import { publicTask, redactSecrets } from './trace.mjs'
 
 // The roster runs in a child process. Keep its steps with the admitted turn until the parent saves one run.
 function ensure(db) {
-    db.exec(`CREATE TABLE IF NOT EXISTS agent_turns (
-        session_id TEXT PRIMARY KEY,
-        profile_name TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        turn_id TEXT NOT NULL,
-        steps_json TEXT NOT NULL
-    )`)
+    if (db.dialect === 'postgres') return
+    db.exec(AGENT_SCHEMA)
 }
 
 export function beginAgentTurn(profileName, sessionId, chatId, turnId) {

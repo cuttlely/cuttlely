@@ -154,6 +154,9 @@ describe('who can use server settings', () => {
         ).toBe(403)
         expect((await app(MEMBER).post('/api/v1/server-settings/restart')).status).toBe(403)
         expect((await app(MEMBER).get('/api/v1/server-settings/history')).status).toBe(403)
+        expect((await app(MEMBER).get('/api/v1/server-settings/storage')).status).toBe(403)
+        expect((await app(MEMBER).post('/api/v1/server-settings/storage/upgrade').send({ availableBytes: 1e9 })).status).toBe(403)
+        expect((await app(MEMBER).post('/api/v1/server-settings/storage/rollback').send({ confirm: 'ROLLBACK' })).status).toBe(403)
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
     })
 

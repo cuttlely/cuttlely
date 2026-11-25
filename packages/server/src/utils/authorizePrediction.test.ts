@@ -380,7 +380,7 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         expect(handlers).toHaveLength(4)
         expect(handlers[0]).toBe(predictionsController.getRateLimiterMiddleware)
         expect(handlers[1]).toBe(authorizePrediction)
-        expect(handlers[2].name).toBe('multerMiddleware')
+        expect(handlers[2].name).toBe('receiveUploadedFiles')
         expect(handlers[3]).toBe(predictionsController.createPrediction)
     })
 

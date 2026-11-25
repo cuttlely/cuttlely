@@ -9,6 +9,7 @@ import themes from '@/themes'
 
 // project imports
 import NavigationScroll from '@/layout/NavigationScroll'
+import StorageUpgradeBanner from '@/ui-component/connection/StorageUpgradeBanner'
 import ReconnectingChip from '@/ui-component/connection/ReconnectingChip'
 
 // ==============================|| APP ||============================== //
@@ -21,6 +22,7 @@ const App = () => {
             <ThemeProvider theme={themes(customization)}>
                 <CssBaseline />
                 <ReconnectingChip />
+                <StorageUpgradeBanner />
                 <NavigationScroll>
                     <Outlet />
                 </NavigationScroll>

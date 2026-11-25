@@ -1,6 +1,6 @@
 import express from 'express'
 import openaiAssistantsController from '../../controllers/openai-assistants'
-import { getMulterStorage } from '../../utils'
+import { receiveUploadedFiles } from '../../middlewares/receiveUploadedFiles'
 import { authorizeAssistantFileDownload } from '../../utils/authorizeFlowAccess'
 import { requireAnyPermission } from '../../identity/rbac'
 
@@ -13,7 +13,7 @@ router.post('/download/', authorizeAssistantFileDownload, openaiAssistantsContro
 router.post(
     '/upload/',
     requireAnyPermission('assistants:create,assistants:update'),
-    getMulterStorage().array('files'),
+    receiveUploadedFiles,
     openaiAssistantsController.uploadAssistantFiles
 )
 

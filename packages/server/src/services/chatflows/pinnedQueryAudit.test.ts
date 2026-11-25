@@ -139,7 +139,11 @@ jest.mock('@cuttlely/components', () => ({ removeFolderFromStorage: jest.fn().mo
 jest.mock('uuid', () => ({ validate: jest.fn().mockReturnValue(true) }))
 jest.mock('../flow-versions', () => ({
     __esModule: true,
-    default: { recordFlowVersion: jest.fn().mockResolvedValue(null), recordFlowDeletion: jest.fn().mockResolvedValue(null) }
+    default: {
+        usesPostgresHistory: () => false,
+        recordFlowVersion: jest.fn().mockResolvedValue(null),
+        recordFlowDeletion: jest.fn().mockResolvedValue(null)
+    }
 }))
 jest.mock('http-status-codes', () => ({
     StatusCodes: { OK: 200, BAD_REQUEST: 400, UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404, CONFLICT: 409, INTERNAL_SERVER_ERROR: 500 }

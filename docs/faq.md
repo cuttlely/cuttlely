@@ -1,5 +1,9 @@
 # Frequently asked questions
 
+## Can Cuttlely survive losing its application disk?
+
+In 1.7.15, a new PostgreSQL install with application database storage enabled, or an existing install that has completed the verified migration, can recover on empty web and worker disks. Supply its durable database, original installation key and host settings. A private S3-compatible bucket is optional for application uploads. SQLite installations need a persistent volume or a complete off-host backup. Runtime-only conversations can start again at the same endpoint. [Choose your storage mode and verify recovery](./how-to/postgres-side-stores.md).
+
 ## Can I keep version history on a GitHub branch other than main?
 
 Yes. In Version History, select a repository and choose its **Branch** before connecting. Existing connections keep their branch; disconnect and reconnect to change it. The token must be able to write to that branch, and repository protection rules still apply. Named environment chains keep their configured mappings. [Version History](./how-to/versioning.md).

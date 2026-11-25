@@ -2005,6 +2005,22 @@ describe('analyst postgres role', () => {
                 workspace: 'workspace-pg-a'
             })
             assert.deepEqual(legacyWorkspace.rows, [{ user_name: ANALYST_ROLE, n: 1 }])
+            // Model a SQLite-only Analyst workspace followed by cutover onto an empty application disk.
+            const original = path.join(dir, 'original')
+            const replacement = path.join(dir, 'replacement')
+            fs.mkdirSync(original)
+            fs.mkdirSync(replacement)
+            const sqlite = { ...env, DATABASE_TYPE: 'sqlite', DATABASE_PATH: original, SECRETKEY_PATH: original }
+            const workspace = 'workspace-pg-b'
+            await queryAnalyst('CREATE TABLE old_analysis (n integer)', { env: sqlite, workspace })
+            resetAnalystStoreForTests()
+            const diskless = { ...env, DATABASE_PATH: replacement, SECRETKEY_PATH: replacement }
+            const firstQuery = await queryAnalyst("SELECT to_regclass('old_analysis') AS old_table", { env: diskless, workspace })
+            assert.deepEqual(firstQuery.rows, [{ old_table: null }])
+            await queryAnalyst('CREATE TABLE old_analysis AS SELECT 42 AS n', { env: diskless, workspace })
+            resetAnalystStoreForTests()
+            const rebuilt = await queryAnalyst('SELECT n FROM old_analysis', { env: diskless, workspace })
+            assert.deepEqual(rebuilt.rows, [{ n: 42 }])
             const other = await queryAnalyst('SELECT current_user AS user_name, current_schema() AS schema_name', {
                 env,
                 workspace: 'workspace-pg-b'

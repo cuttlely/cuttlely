@@ -19,7 +19,7 @@ import chatflowService from '../chatflows'
 import chatMessagesService from '../chat-messages'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { utilGetChatMessage } from '../../utils/getChatMessage'
-import { getStoragePath, parseJsonBody } from '@cuttlely/components'
+import { getStorageType, getStoragePath, parseJsonBody } from '@cuttlely/components'
 import path from 'path'
 import { checkUsageLimit } from '../../utils/quotaUsage'
 import documenStoreService from '../documentstore'
@@ -886,7 +886,7 @@ const exportChatflowMessages = async (
             activeWorkspaceId: workspaceId
         })
 
-        const storagePath = getStoragePath()
+        const storagePath = getStorageType() === 'local' ? getStoragePath() : undefined
         const exportObj: { [key: string]: any } = {}
 
         // Process each chat message
@@ -900,7 +900,15 @@ const exportChatflowMessages = async (
                 if (Array.isArray(uploads)) {
                     uploads.forEach((file: any) => {
                         if (file.type === 'stored-file') {
-                            filePaths.push(path.join(storagePath, chatmsg.chatflowid, chatmsg.chatId, file.name))
+                            if (storagePath) filePaths.push(path.join(storagePath, chatmsg.chatflowid, chatmsg.chatId, file.name))
+                            else {
+                                const query = new URLSearchParams({
+                                    chatflowId: chatmsg.chatflowid,
+                                    chatId: chatmsg.chatId,
+                                    fileName: file.name
+                                })
+                                filePaths.push('/api/v1/get-upload-file?' + query.toString())
+                            }
                         }
                     })
                 }

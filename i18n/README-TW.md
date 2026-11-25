@@ -19,6 +19,8 @@ Node 20+ 和 Docker
 
 [10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
 
+**即將發布** · **1.7.15 支援由執行個體操作員將代理團隊的對話、排程、ETL 管線和向量移轉至 PostgreSQL。** [升級與磁碟需求](../docs/upgrading.md#upgrading-to-1715).
+
 **1.7.14 新增分階段輪替安裝加密金鑰和持久化執行個體操作員設定。** 可以調整 Analyst 的 SQL 嘗試次數。[升級指南](../docs/upgrading.md#upgrading-to-1714)。
 
 **1.7.13 支援由 chief 在代理模式下直接向專家分派工作。** 預設仍使用路由模式。Try 對話會依流程和擁有者重複使用設定檔目錄。對於受監督的安裝，執行中的工作結束後才會套用已儲存的執行階段限制。[代理模式](../docs/how-to/harness-agent-mode.md) · [升級指南](../docs/upgrading.md#upgrading-to-1713)。

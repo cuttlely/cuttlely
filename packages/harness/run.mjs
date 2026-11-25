@@ -127,7 +127,8 @@ import {
     turnImages,
     withPromptImages
 } from './images.mjs'
-import { prepareHarnessTurnUploads } from './uploads.mjs'
+import { withPredictionAttachments } from './prediction-files.mjs'
+import { defaultUploadRoots, parseUploadStubs, prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
@@ -919,8 +920,24 @@ export function answerDirectDecision(context, steps, results, question) {
 }
 
 async function runRoster(context, input) {
+    const text = String(input ?? '')
+    const flow = context.moduleOptions.flowOptions
+    return withPredictionAttachments(
+        text,
+        parseUploadStubs(text).map((stub) => stub.path),
+        {
+            workspace: flow.workspaceId,
+            flow: flow.callerChatflowId || flow.chatflowid,
+            chat: context.chatId
+        },
+        (question, dir) => runRosterWithUploads(context, question, dir)
+    )
+}
+
+async function runRosterWithUploads(context, input, dir) {
     const preparedUploads = prepareHarnessTurnUploads({
-        question: String(input ?? ''),
+        question: input,
+        roots: dir ? [...defaultUploadRoots(), dir] : undefined,
         specialists: context.roster?.specialists || [],
         workspaceFor(specialist) {
             if (!specialist?.profileName || !needsAgentLoop(specialist)) return ''

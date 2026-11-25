@@ -848,21 +848,31 @@ async function removeRevokedHarness(name: string, workspaceId: string) {
     }
 }
 
+async function deleteRunRows(names: string[]) {
+    const lock = await loadHarness('lock.mjs')
+    lock.immediate(
+        (db: { dialect?: string; prepare: (sql: string) => { all: () => Array<{ name: string }>; run: (name: string) => unknown } }) => {
+            const tables =
+                db.dialect === 'postgres'
+                    ? ['run_history', 'run_results']
+                    : db
+                          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
+                          .all()
+                          .map((row) => row.name)
+            for (const table of tables) {
+                const remove = db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`)
+                for (const name of names) remove.run(name)
+            }
+        }
+    )
+}
+
 // Run history and stored results of a deleted harness. Best effort: a leftover run row is not readable once the
 // harness is gone, because every run route needs the harness first.
 export async function purgeHarnessRuns(names: string[]) {
     if (!names.length) return
     try {
-        const lock = await loadHarness('lock.mjs')
-        lock.immediate((db: { prepare: (sql: string) => { all: (...a: unknown[]) => any[]; run: (...a: unknown[]) => unknown } }) => {
-            const tables = db
-                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
-                .all()
-                .map((row: { name: string }) => row.name)
-            for (const table of tables) {
-                for (const name of names) db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`).run(name)
-            }
-        })
+        await deleteRunRows(names)
     } catch (error) {
         logger.warn(`[harness] run history cleanup for ${names.join(', ')} failed: ${getErrorMessage(error)}`)
     }
@@ -870,17 +880,13 @@ export async function purgeHarnessRuns(names: string[]) {
 
 const STAGED = '.json.deleting'
 
-async function storeDir(): Promise<string> {
-    const { harnessStoreDir } = await loadHarness('paths.mjs')
-    return harnessStoreDir()
-}
-
 // A name that has no harness record yet. A schedule or run rows left under it by an earlier delete whose cleanup
 // failed are cleared first, so a new harness, possibly in another team, never sees the old team's history or schedule.
 // A failure refuses the save.
 // A staged canvas delete still holds the name until its transaction ends: it may roll back and need it again.
 async function assertNotStaged(name: string) {
-    if (fs.existsSync(path.join(await storeDir(), `${name}${STAGED}`))) {
+    const records = await loadHarness('record-files.mjs')
+    if (records.recordExists(`${name}${STAGED}`)) {
         throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is being deleted. Try again in a moment.`)
     }
 }
@@ -981,14 +987,7 @@ export async function clearStaleNameData(name: string, record?: { specialists?: 
     }
     try {
         await harnessDeleteHooks.removeSchedule(name)
-        const lock = await loadHarness('lock.mjs')
-        lock.immediate((db: { prepare: (sql: string) => { all: (...a: unknown[]) => any[]; run: (...a: unknown[]) => unknown } }) => {
-            const tables = db
-                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
-                .all()
-                .map((row: { name: string }) => row.name)
-            for (const table of tables) db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`).run(name)
-        })
+        await deleteRunRows([name])
     } catch (error) {
         logger.warn(`[harness] stale data under ${name} could not be cleared: ${getErrorMessage(error)}`)
         throw new AppError(
@@ -996,17 +995,6 @@ export async function clearStaleNameData(name: string, record?: { specialists?: 
             `Harness "${name}" was not saved, because data left by an earlier harness with this name could not be cleared. Try again.`
         )
     }
-}
-
-// Moves a staged record back without ever replacing a record saved under the name since. COPYFILE_EXCL fails when one exists.
-function putBack(from: string, to: string) {
-    try {
-        fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL)
-    } catch (error) {
-        if ((error as { code?: string })?.code !== 'EEXIST') throw error
-        logger.warn(`[harness] ${path.basename(to)} was saved again while its delete was pending; the staged copy is dropped`)
-    }
-    fs.rmSync(from, { force: true })
 }
 
 type KeyListManager = Parameters<typeof import('./apiAccess').removeHarnessFromKeyLists>[2]
@@ -1026,7 +1014,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     const fromCanvas = (row: HarnessRow | null | undefined) =>
         Boolean(row) && row!.chatflowId === chatflowId && (!row!.workspaceId || row!.workspaceId === workspaceId)
     let rows: HarnessRow[] = store.listHarnesses().filter(fromCanvas)
-    const dir = await storeDir()
+    const records = await loadHarness('record-files.mjs')
     const staged: string[] = []
     const releases: Array<() => void> = []
     for (const row of rows) releases.push(await acquireNameLock(row.name))
@@ -1036,8 +1024,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     const releaseAll = () => releases.forEach((release) => release())
     const putAllBack = () => {
         for (const name of staged) {
-            const from = path.join(dir, `${name}${STAGED}`)
-            if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
+            if (records.recordExists(`${name}${STAGED}`)) records.restoreRecord(name)
         }
     }
     const revokedNames: string[] = []
@@ -1069,7 +1056,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         for (const row of rows) {
             await removeHarnessFromKeyLists(row.workspaceId || workspaceId, row.name, manager)
-            fs.renameSync(path.join(dir, `${row.name}.json`), path.join(dir, `${row.name}${STAGED}`))
+            records.stageRecord(row.name, row)
             staged.push(row.name)
         }
     } catch (error) {
@@ -1084,11 +1071,11 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             for (const name of staged) {
                 // Tokens first: when revocation fails the staged record, schedule and runs stay; the startup settle retries.
                 if (!(await revokeRuntimeTokens(name))) continue
-                fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
+                records.removeRecord(`${name}${STAGED}`)
                 await removeRuntimeProfiles(name)
                 // Stopping the runtime awaits: a record saved under the name meanwhile (outside the lock) owns the
                 // schedule and runs now, so they stay.
-                if (fs.existsSync(path.join(dir, `${name}.json`))) {
+                if (records.recordExists(`${name}.json`)) {
                     logger.warn(`[harness] ${name} was saved again during its delete; its schedule and runs are kept`)
                     continue
                 }
@@ -1156,32 +1143,38 @@ async function removeRuntimeProfiles(name: string) {
 
 // Startup: finish or undo a canvas delete that stopped between staging a record and the end of its transaction.
 async function settleStagedDeletes() {
-    const dir = await storeDir()
-    if (!fs.existsSync(dir)) return { restored: [] as string[], finished: [] as string[] }
+    const records = await loadHarness('record-files.mjs')
+
     const restored: string[] = []
     const finished: string[] = []
-    for (const entry of fs.readdirSync(dir).filter((item) => item.endsWith(STAGED))) {
-        const file = path.join(dir, entry)
+    let entries: string[]
+    try {
+        entries = records.recordEntries()
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { restored, finished }
+        throw error
+    }
+    for (const entry of entries.filter((item) => item.endsWith(STAGED))) {
         const name = entry.slice(0, -STAGED.length)
         let row: HarnessRow
         try {
-            row = JSON.parse(fs.readFileSync(file, 'utf8'))
+            row = JSON.parse(records.readRecord(entry))
         } catch (error) {
             logger.warn(`[harness] staged delete ${entry} could not be read: ${getErrorMessage(error)}`)
             continue
         }
         const canvas = await canvasState(row)
         if (canvas?.state === 'present') {
-            putBack(file, path.join(dir, `${name}.json`))
+            records.restoreRecord(name)
             restored.push(name)
         } else if (canvas?.state === 'missing') {
             // Under the name lock, like a delete: a save of the name waits until the cleanup is over, and a record
             // saved under the name before it took the lock keeps its schedule and runs.
             const done = await withNameLock(name, async () => {
                 if (!(await revokeRuntimeTokens(name))) return false
-                fs.rmSync(file, { force: true })
+                records.removeRecord(entry)
                 await removeRuntimeProfiles(name)
-                if (fs.existsSync(path.join(dir, `${name}.json`))) {
+                if (records.recordExists(`${name}.json`)) {
                     logger.warn(`[harness] ${name} was saved again during its delete; its schedule and runs are kept`)
                     return false
                 }

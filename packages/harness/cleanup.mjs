@@ -1,3 +1,4 @@
+import { recordEntries } from './record-files.mjs'
 // Removes the agent runtime profiles of a deleted harness: its own profile (named after the harness) and every
 // specialist profile whose harness-parent marker names it. A harness is matched by its exact name, the id its
 // store file uses, never by a prefix, a display label or another letter case.
@@ -15,7 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { closeHarnessTokens, reopenHarnessTokens, revokeHarnessTokens } from './gateway.mjs'
-import { dataRoot, harnessStoreDir, hermesHome, hermesProfileId } from './paths.mjs'
+import { dataRoot, hermesHome, hermesProfileId } from './paths.mjs'
 import { forgetCompiledProfile, stopRuntimeProfile } from './profile.mjs'
 import { assertHarnessName, deleteHarness } from './store.mjs'
 
@@ -284,17 +285,9 @@ function isTempProfile(dir, parent) {
 
 // Saved harness names straight from the store directory, compared exactly. null when the store cannot be read.
 function savedNames() {
-    const dir = harnessStoreDir()
-    // Only a store that is missing (ENOENT) is empty; one that cannot be checked (EACCES and the like) reads as null.
-    try {
-        fs.statSync(dir)
-    } catch (error) {
-        return error?.code === 'ENOENT' ? new Set() : null
-    }
     try {
         return new Set(
-            fs
-                .readdirSync(dir)
+            recordEntries()
                 // A record staged by a canvas delete (<name>.json.deleting) can still be put back, so it counts as saved.
                 .map((entry) =>
                     entry.endsWith('.json')
@@ -305,8 +298,8 @@ function savedNames() {
                 )
                 .filter(Boolean)
         )
-    } catch {
-        return null
+    } catch (error) {
+        return error.code === 'ENOENT' ? new Set() : null
     }
 }
 

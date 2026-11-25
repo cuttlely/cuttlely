@@ -547,8 +547,21 @@ function retire(db, file) {
     return 'moved'
 }
 
+async function verifyCopy(q, digest) {
+    const copied = digestOf({
+        dash_flow: await q(`SELECT * FROM ${S}.dash_flow`),
+        dash_flow_refresh_status: await q(`SELECT * FROM ${S}.dash_flow_refresh_status`),
+        dash_flow_public_report: await q(`SELECT * FROM ${S}.dash_flow_public_report`)
+    })
+    for (const spec of COPIED) {
+        const before = digest.parts[spec.table]
+        const after = copied.parts[spec.table]
+        if (before.rows !== after.rows || before.digest !== after.digest) throw new VerifyMismatch(spec.table, before.rows, after.rows)
+    }
+}
+
 // One-store copy and verify (#516). SQLite stays authoritative until the Postgres copy is verified and committed.
-export async function copyDashStoreToAppDb(file, source, { log = console, waitMs = 120000, pollMs = 10000 } = {}) {
+export async function copyDashStoreToAppDb(file, source, { log = console, waitMs = 120000, pollMs = 10000, keepSource = false } = {}) {
     const checked = await preflight(file, { waitMs, pollMs })
     if (checked.refused) {
         log.warn(checked.refused)
@@ -564,7 +577,10 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
             await ensureSchema(tx)
             await q(`SELECT pg_advisory_xact_lock(hashtext('dashflows-copy'))`)
             const marker = await readMarker(q)
-            if (marker && marker.sourceDigest === digest.all && !marker.rolledBackAt) return { outcome: 'already-copied', digest }
+            if (marker && marker.sourceDigest === digest.all && !marker.rolledBackAt) {
+                if (keepSource) await verifyCopy(q, digest)
+                return { outcome: 'already-copied', digest }
+            }
             // Changed only through refreshes since the copy: nothing a person made is lost, so finish the move. The
             // marker is not rewritten, so a move aside that fails again reaches the same result next start.
             if (marker && marker.contentDigest && marker.contentDigest === digest.content && !marker.rolledBackAt)
@@ -619,17 +635,7 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
                     row.run_id,
                     row.started
                 ])
-            const copied = digestOf({
-                dash_flow: await q(`SELECT * FROM ${S}.dash_flow`),
-                dash_flow_refresh_status: await q(`SELECT * FROM ${S}.dash_flow_refresh_status`),
-                dash_flow_public_report: await q(`SELECT * FROM ${S}.dash_flow_public_report`)
-            })
-            for (const spec of COPIED) {
-                const before = digest.parts[spec.table]
-                const after = copied.parts[spec.table]
-                if (before.rows !== after.rows || before.digest !== after.digest)
-                    throw new VerifyMismatch(spec.table, before.rows, after.rows)
-            }
+            await verifyCopy(q, digest)
             await writeMarker(q, {
                 sourceDigest: digest.all,
                 contentDigest: digest.content,
@@ -663,6 +669,11 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
     if (result.outcome === 'reused') log.warn(MESSAGES.reused)
     if (result.refreshOnly) log.info(MESSAGES.refreshOnly)
     // The copy is committed from here on: Postgres serves even if the file cannot be moved aside.
+    if (keepSource) {
+        db.exec('ROLLBACK')
+        db.close()
+        return { outcome: result.outcome, rows: counts(result.digest), digest: result.digest.all }
+    }
     let retired
     try {
         retired = retire(db, file)
