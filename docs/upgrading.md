@@ -1,12 +1,16 @@
 # Upgrading Cuttlely
 
-PostgreSQL hosts can move application-owned SQLite side stores from Server Settings. [Operator upgrade and rollback guide](./how-to/postgres-side-stores.md).
-
 An upgrade has three steps: back up, upgrade, and check. If something goes wrong, you roll back by restoring the backup and starting the version you had before.
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
+
+## Upgrading to 1.7.15
+
+On a new PostgreSQL install, enable `CUTTLELY_APP_DATABASE_STORES=1` and select **Server Settings → Database → Upgrade storage** before starting workloads to write side-store data to PostgreSQL from the first run. Existing PostgreSQL installations use the same action with their original volume attached. Switching the primary database from SQLite to an empty PostgreSQL database starts a fresh application. Transfer existing users, workspaces, flows and credentials separately if you need them.
+
+Keep persistent storage for disk-backed uploads, flow-version repositories, agent team definitions, agent runtime state, local keys and settings, and retained recovery files. Rolling back restores the SQLite data as it stood at cutover. Later writes stay in PostgreSQL. [Operator guide](./how-to/postgres-side-stores.md) · [Disk inventory](./reference/disk-storage-inventory.md).
 
 ## Upgrading to 1.7.14
 

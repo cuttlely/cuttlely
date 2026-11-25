@@ -2,6 +2,8 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
+Version **1.7.15** adds an operator-controlled PostgreSQL upgrade for agent team and ETL side stores. The upgrade verifies copied data and retains SQLite originals for rollback. [Upgrade and disk requirements](./upgrading.md#upgrading-to-1715).
+
 Version **1.7.13** adds direct chief delegation in agent mode, isolates reusable Try profiles by flow and owner, and lets operators configure agent time limits. Harnesses retry after boot failures, and chat locks renew during long turns. Read the [Analyst upgrade notes](./upgrading.md#upgrading-to-1713) before switching instances.
 
 Version **1.7.12** connects roster over the stdio framing the agent runtime uses; it had never connected since 1.0. Boot is about 60 seconds faster per mixed-model harness (about 2 minutes with two), and the chief's `run_specialist` tool now registers. Router traffic is unchanged. Concurrent ETL start, resume, pause and cancel no longer leave a cancelled or paused run running or start a second run for one pipeline. No schema migration or required configuration change is added. The 1.7.11 startup-tool-list fix and the 1.7.10 health-check path and recovery changes still apply. [ETL](./how-to/etl.md) · [Upgrade guide](./upgrading.md#upgrading-to-1712).

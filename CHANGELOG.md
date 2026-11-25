@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Instance Operators on PostgreSQL can inventory, back up, verify and move ETL, vector, agent team and Dashflows stores from Server Settings. [Upgrade and rollback guide](docs/how-to/postgres-side-stores.md).
 
+### Upgrade notes
+
+-   The PostgreSQL side-store upgrade requires operator activation, including on fresh installs. Keep the volume for file-backed uploads, agent team definitions, runtime state, Git history and rollback copies. Switching the primary database to an empty PostgreSQL database requires a separate transfer of existing application data. [Upgrade instructions](docs/upgrading.md#upgrading-to-1715).
+
 ## [1.7.14] - 2026-11-25
 
 ### Added

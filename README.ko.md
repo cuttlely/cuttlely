@@ -27,6 +27,8 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
+**다음 릴리스** · **1.7.15에서는 운영자가 에이전트 팀 대화, 일정, ETL 파이프라인과 벡터를 PostgreSQL로 옮길 수 있습니다.** [업그레이드 및 디스크 요구 사항](./docs/upgrading.md#upgrading-to-1715).
+
 **1.7.14에서는 설치 암호화 키를 단계적으로 교체하고 운영자 설정을 보존할 수 있습니다.** Analyst의 SQL 시도 횟수를 조정할 수 있습니다. [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1714).
 
 **1.7.13에서는 에이전트 모드의 chief가 전문가에게 직접 작업을 위임할 수 있습니다.** 기본값은 라우터 모드입니다. Try 채팅은 흐름과 소유자별로 프로필을 재사용합니다. 감독 프로세스가 있는 설치에서는 실행 중인 작업이 끝나면 저장한 런타임 제한이 적용됩니다. [에이전트 모드](./docs/how-to/harness-agent-mode.md) · [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1713).

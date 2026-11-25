@@ -27,6 +27,8 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
+**Upcoming** · **1.7.15 lets operators move agent team conversations, schedules, ETL pipelines and vectors into PostgreSQL.** [Upgrade and disk requirements](./docs/upgrading.md#upgrading-to-1715).
+
 **1.7.14 adds staged installation-key rotation and durable operator settings.** Tune the Analyst SQL attempt limit and keep simultaneous pipeline stop and resume operations consistent. [Upgrade guide](./docs/upgrading.md#upgrading-to-1714).
 
 **1.7.13 lets a chief delegate directly to specialists in agent mode.** Router mode stays the default. Try chats reuse a profile per flow and owner, and supervised installations apply saved runtime limits once work is idle. [Agent mode](./docs/how-to/harness-agent-mode.md) · [Upgrade guide](./docs/upgrading.md#upgrading-to-1713).
