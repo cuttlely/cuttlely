@@ -1,3 +1,7 @@
+## Installation encryption key
+
+The opt-in startup guard refuses a missing host override and verifies the supplied key against the application database. Rotation stages an offline restore, binds encrypted records to their generation and identity, retires modern access-key digests on the staged copy, and retains the original deployment for rollback. A replacement restart requires the matching generation marker. [Operator procedure](../../docs/how-to/server-settings.md#rotate-the-installation-encryption-key).
+
 ## Ad hoc SQL allowance for a specialist turn
 
 The Agent runtime setting for [#566](https://github.com/cuttlely/cuttlely/issues/566) defaults to two attempts and accepts whole numbers from one to six. The gateway counts native read-only fallback queries against each specialist’s allowance. A saved query leaves it available. The turn lease keeps its original limit and usage visible across the server and external worker processes. The specialist trace reports attempts used, the effective limit and exhaustion.

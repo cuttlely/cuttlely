@@ -36,7 +36,7 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 ## Next concrete tasks
 
-For [credential-key rotation #570](https://github.com/cuttlely/cuttlely/issues/570), the read-only inventory covers the current reversible stores and identifies active digests and proofs that need reissue or retest. The authenticated format migration, maintenance boundary, activation and rollback are separate implementation steps.
+For [credential-key rotation #570](https://github.com/cuttlely/cuttlely/issues/570), the release candidate stages SQLite or PostgreSQL restores with authenticated records and accepts a replacement generation only after inventory passes. The original deployment is retained for rollback. Version publication follows full verification and the protected release process.
 
 -   **1.7.12 release (published).** Published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. Release notes are dated `## [1.7.12] - 2026-11-21` and cover the roster stdio-framing fix from #547 (`e3d80c58ac60636fe310342444399389d87661c5`, #546) and the ETL async-store fixes from #535 (`d93220c61a1c30aae5f758e50ac777ba3d917d7b`). The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). Runtime admission was still open at this release and shipped in 1.7.13 ([#540](https://github.com/cuttlely/cuttlely/issues/540)).
 
