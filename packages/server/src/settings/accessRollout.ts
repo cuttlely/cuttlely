@@ -1,4 +1,5 @@
 // Service-wide rollout. Never exported into process.env: a real host value must remain distinguishable.
+import { SettingsStorageError } from './postgres'
 import { readSettingsFile, settingsDir } from './store'
 
 export const ACCESS_ROLLOUT_KEY = 'INBOUND_ACCESS_V2'
@@ -27,7 +28,8 @@ export function rolloutState(env: Env = process.env, saved?: Record<string, stri
         try {
             // This setting is not a secret. Reading it never needs the installation encryption key.
             file = readSettingsFile(settingsDir(env), null).values
-        } catch {
+        } catch (error) {
+            if (error instanceof SettingsStorageError) return { value: 'invalid', source: 'panel', locked: false }
             file = {}
         }
     }

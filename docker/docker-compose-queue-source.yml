@@ -38,6 +38,9 @@ services:
             - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
             - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
             - CUTTLELY_INSTANCE_OPERATOR
+            - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
+            - CUTTLELY_SECRETKEY_OVERWRITE
+            - FLOWISE_SECRETKEY_OVERWRITE
             # --- Essential Cuttlely server vars ---
             - PORT=${PORT:-3000}
             - DATABASE_PATH=/home/node/.cuttlely
@@ -90,6 +93,9 @@ services:
             - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
             - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
             - CUTTLELY_INSTANCE_OPERATOR
+            - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
+            - CUTTLELY_SECRETKEY_OVERWRITE
+            - FLOWISE_SECRETKEY_OVERWRITE
             # --- Essential Cuttlely server vars ---
             - WORKER_PORT=${WORKER_PORT:-5566} # Port for worker healthcheck
             - DATABASE_PATH=/home/node/.cuttlely

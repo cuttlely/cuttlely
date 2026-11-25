@@ -1,8 +1,7 @@
 // Restart-type limits apply through the supervised start script once work has finished.
 // The durable attempt record contains keys and hashes only, so a failed application cannot cause a restart loop.
 import { createHash } from 'crypto'
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText, removeSavedSettings } from './fileIO'
 import type { StartState } from './apply'
 import { appendHistory } from './history'
 import { limitSnapshot, resolveLimits } from './limits'
@@ -32,7 +31,7 @@ export function pendingRestartLimits(env: Env, state: StartState): Pending {
 
 function readAttempts(dir: string): Record<string, Pending> {
     try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(dir, IDLE_APPLY_FILE), 'utf8'))
+        const parsed = JSON.parse(readSettingsText(dir, IDLE_APPLY_FILE))
         if (!parsed || parsed.version !== 1 || typeof parsed.attempts !== 'object' || !parsed.attempts || Array.isArray(parsed.attempts))
             throw new Error()
         return parsed.attempts
@@ -171,7 +170,7 @@ export function startApplyWhenIdle(env: Env, state: StartState): () => void {
     // No pending limits at a successful start means the previous attempt applied. Retire its loop guard.
     if (!pendingRestartLimits(env, state).length) {
         try {
-            fs.rmSync(path.join(state.dir, IDLE_APPLY_FILE), { force: true })
+            removeSavedSettings(state.dir, IDLE_APPLY_FILE)
         } catch {
             /* A later read fails closed. */
         }

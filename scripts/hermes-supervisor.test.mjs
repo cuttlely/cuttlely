@@ -914,9 +914,14 @@ ${start}
 NODE_BIN=record_sweep
 PYTHON=record_runtime
 record_sweep() { echo sweep >> "$CUTTLELY_DATA_DIR/order"; }
-record_runtime() { echo runtime >> "$CUTTLELY_DATA_DIR/order"; }
+record_runtime() {
+    if env | grep -q '^CUTTLELY_SERVER_SETTINGS_POSTGRES_URL=fixture-only$'; then return 4; fi
+    echo runtime >> "$CUTTLELY_DATA_DIR/order"
+}
+export CUTTLELY_SERVER_SETTINGS_POSTGRES_URL=fixture-only
 start_hermes_once
 wait "$HERMES_PID"
+[[ "$CUTTLELY_SERVER_SETTINGS_POSTGRES_URL" == fixture-only ]]
 start_hermes_once
 wait "$HERMES_PID"`
                 ],

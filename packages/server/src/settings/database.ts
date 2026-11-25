@@ -1,5 +1,4 @@
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText, removeSavedSettings, savedSettingsExist } from './fileIO'
 // Switch database from the Server settings page. A switch always tests the new database first, says what is there
 // (empty, or Cuttlely data already), explains how you sign in afterwards, needs RESTART typed to confirm, and keeps
 // the previous database so Switch back can put it back. Data is not copied between databases.
@@ -136,13 +135,13 @@ function requireConfirm(input: unknown): void {
 
 /** Keeps the database settings as they are now, so Switch back can put them back. Secrets stay encrypted. */
 function keepPrevious(deps: ServiceDeps, key: string, by: string): () => void {
-    const file = path.join(deps.state.dir, PREVIOUS_DATABASE_FILE)
-    const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+    const { dir } = deps.state
+    const original = savedSettingsExist(dir, PREVIOUS_DATABASE_FILE) ? readSettingsText(dir, PREVIOUS_DATABASE_FILE) : null
     const stored = readStoredValues(deps.state.dir)
     const preserve = Object.fromEntries(Object.entries(stored).filter(([name]) => DATABASE_KEYS.includes(name)))
     writeSettingsFile(deps.state.dir, {}, { key, by, file: PREVIOUS_DATABASE_FILE, preserve })
     return () => {
-        if (original === null) fs.rmSync(file, { force: true })
+        if (original === null) removeSavedSettings(dir, PREVIOUS_DATABASE_FILE)
         else writeFileAtomic(deps.state.dir, PREVIOUS_DATABASE_FILE, original)
     }
 }
