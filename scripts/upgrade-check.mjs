@@ -119,9 +119,10 @@ export async function request(url, { method = 'GET', cookie = '', body, timeoutM
     return { status: response.status, text, json, cookie: cookieHeader(response) || cookie }
 }
 
-export async function startServer(serverRoot, env, { preload = [] } = {}) {
+export async function startServer(serverRoot, env, { preload = [], allocatePort = freePort } = {}) {
     // Each isolated boot gets a separate gateway as well as a separate application port.
-    const gatewayPort = await freePort()
+    let gatewayPort = await allocatePort()
+    while (gatewayPort === Number(env.PORT)) gatewayPort = await allocatePort()
     const serverDir = path.join(serverRoot, 'packages', 'server')
     const logs = []
     const args = [...preload.flatMap((p) => ['-r', p]), path.join(serverDir, 'bin', 'run'), 'start']
