@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.14] - 2026-11-25
+
 ### Added
 
 -   Ephemeral deployments can keep Instance Operator authority and saved server settings in a dedicated PostgreSQL database. [#577](https://github.com/cuttlely/cuttlely/issues/577).
@@ -1218,7 +1220,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...HEAD
+[1.7.14]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...v1.7.13
 [1.7.12]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/cuttlely/cuttlely/compare/v1.7.10...v1.7.11
