@@ -1259,7 +1259,7 @@ const setWebhookSecret = async (chatflowId: string, workspaceId: string): Promis
         const chatflow = await repo.findOne({ where: { id: chatflowId, workspaceId } })
         if (!chatflow) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         const plaintext = randomBytes(32).toString('hex')
-        chatflow.webhookSecret = await encryptCredentialData({ secret: plaintext })
+        chatflow.webhookSecret = await encryptCredentialData({ secret: plaintext }, ['chat-webhook', chatflowId])
         chatflow.webhookSecretConfigured = true
         await repo.update(
             { id: chatflowId, workspaceId },
@@ -1301,7 +1301,7 @@ const getWebhookSecret = async (chatflowId: string, workspaceId: string): Promis
             .getOne()
         const stored = dbResponse?.webhookSecret
         if (!stored) return null
-        const decrypted = await decryptCredentialData(stored)
+        const decrypted = await decryptCredentialData(stored, undefined, undefined, ['chat-webhook', chatflowId])
         return (decrypted?.secret as string | undefined) ?? null
     } catch (error) {
         if (error instanceof AppError) throw error

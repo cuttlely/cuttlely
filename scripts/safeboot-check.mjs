@@ -8,7 +8,7 @@
 //
 //   pnpm safeboot:check
 //
-// Made-up values only: the "bad" database is Postgres on 127.0.0.1 port 1, which refuses at once.
+// Made-up values only: the "bad" database is on loopback port 1.
 // Needs packages/server/dist (pnpm build). Run by pnpm verify as the safeboot step.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -23,7 +23,9 @@ const require = createRequire(import.meta.url)
 export const SETTINGS_FAILED_EXIT_CODE = 76
 const FAIL_MS = 90 * 1000
 const KEY = 'safeboot-check-made-up-key-0123456789abcdef'
-const BAD = { DATABASE_TYPE: 'postgres', DATABASE_HOST: '127.0.0.1', DATABASE_PORT: '1', DATABASE_NAME: 'bakery', DATABASE_USER: 'bakery' }
+// Some WSL networks forward connections to 127.0.0.1 and drop requests to closed ports.
+const BAD_HOST = process.env.CUTTLELY_SAFEBOOT_FIXTURE_HOST === '127.0.0.2' ? '127.0.0.2' : '127.0.0.1'
+const BAD = { DATABASE_TYPE: 'postgres', DATABASE_HOST: BAD_HOST, DATABASE_PORT: '1', DATABASE_NAME: 'bakery', DATABASE_USER: 'bakery' }
 
 function read(file) {
     try {
@@ -125,7 +127,7 @@ export async function main() {
         if (!ping || ping.status !== 503 || ping.text !== 'database unreachable: connection refused')
             throw new Error(`start 5 ping answered ${ping ? `${ping.status} ${ping.text.slice(0, 80)}` : 'nothing'}`)
         if (/Cuttlely is ready/.test(log5)) throw new Error('start 5 said Cuttlely is ready without its database')
-        if (!log5.includes("can't reach its database (postgres at 127.0.0.1:1): connection refused"))
+        if (!log5.includes(`can't reach its database (postgres at ${BAD_HOST}:1): connection refused`))
             throw new Error('start 5 did not log that the database cannot be reached, with host and port')
         if (log5.includes(PW)) throw new Error('start 5 printed the database password')
         step('start 5 with the host database unreachable: ping 503 with the reason, one log line with host and port, never ready')

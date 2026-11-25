@@ -48,6 +48,13 @@ import { withNodeSpan } from '../metrics/tracing'
 import { randomBytes } from 'crypto'
 import { AES, enc } from 'crypto-js'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
+import {
+    isCredentialEnvelope,
+    openWithActiveGeneration,
+    parseAuthenticatedCredential,
+    sealWithActiveGeneration
+} from '../settings/credentialEnvelope'
+import type { RecordContext } from '../settings/credentialEnvelope'
 
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { ChatMessage } from '../database/entities/ChatMessage'
@@ -1458,9 +1465,10 @@ export const getEncryptionKey = async (): Promise<string> => {
  * @param {ICredentialDataDecrypted} plainDataObj
  * @returns {Promise<string>}
  */
-export const encryptCredentialData = async (plainDataObj: ICredentialDataDecrypted): Promise<string> => {
+export const encryptCredentialData = async (plainDataObj: ICredentialDataDecrypted, context?: RecordContext): Promise<string> => {
     const encryptKey = await getEncryptionKey()
-    return AES.encrypt(JSON.stringify(plainDataObj), encryptKey).toString()
+    const plaintext = JSON.stringify(plainDataObj)
+    return sealWithActiveGeneration(plaintext, encryptKey, context) ?? AES.encrypt(plaintext, encryptKey).toString()
 }
 
 /**
@@ -1473,8 +1481,19 @@ export const encryptCredentialData = async (plainDataObj: ICredentialDataDecrypt
 export const decryptCredentialData = async (
     encryptedData: string,
     componentCredentialName?: string,
-    componentCredentials?: IComponentCredentials
+    componentCredentials?: IComponentCredentials,
+    context?: RecordContext
 ): Promise<ICredentialDataDecrypted> => {
+    if (
+        isCredentialEnvelope(encryptedData) ||
+        (process.env.CUTTLELY_CREDENTIAL_GENERATION && !encryptedData.startsWith('FlowiseCredential_'))
+    ) {
+        const plaintext = openWithActiveGeneration(encryptedData, await getEncryptionKey(), context)
+        const record = parseAuthenticatedCredential(plaintext)
+        return componentCredentialName && componentCredentials
+            ? redactCredentialWithPasswordType(componentCredentialName, record, componentCredentials)
+            : record
+    }
     let decryptedDataStr: string
 
     if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
@@ -1606,14 +1625,16 @@ export const getOrCreateStoredSecret = async (options: GetOrCreateStoredSecretOp
  * @param {ICredentialReqBody} body
  * @returns {Credential}
  */
-export const transformToCredentialEntity = async (body: ICredentialReqBody): Promise<Credential> => {
+export const transformToCredentialEntity = async (body: ICredentialReqBody, id?: string): Promise<Credential> => {
     const credentialBody: ICommonObject = {
         name: body.name,
         credentialName: body.credentialName
     }
 
     if (body.plainDataObj) {
-        const encryptedData = await encryptCredentialData(body.plainDataObj)
+        const rowId = id ?? (process.env.CUTTLELY_CREDENTIAL_GENERATION ? uuidv4() : undefined)
+        const encryptedData = await encryptCredentialData(body.plainDataObj, rowId ? ['credential', rowId] : undefined)
+        if (rowId) credentialBody.id = rowId
         credentialBody.encryptedData = encryptedData
     }
 

@@ -14,7 +14,7 @@ let state: StartState
 try {
     state = applyAdminSettings(process.env, { start: process.argv[2] === 'start' })
 } catch (error) {
-    if (postgresSettings(dir)) throw error
+    if (postgresSettings(dir) || process.env.CUTTLELY_CREDENTIAL_GENERATION) throw error
     state = {
         dir: '',
         ignored: false,

@@ -40,6 +40,7 @@ services:
             - CUTTLELY_INSTANCE_OPERATOR
             - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
             - CUTTLELY_REQUIRE_KEY_OVERRIDE
+            - CUTTLELY_CREDENTIAL_GENERATION
             - CUTTLELY_SECRETKEY_OVERWRITE
             - FLOWISE_SECRETKEY_OVERWRITE
             # --- Essential Cuttlely server vars ---
@@ -96,6 +97,7 @@ services:
             - CUTTLELY_INSTANCE_OPERATOR
             - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
             - CUTTLELY_REQUIRE_KEY_OVERRIDE
+            - CUTTLELY_CREDENTIAL_GENERATION
             - CUTTLELY_SECRETKEY_OVERWRITE
             - FLOWISE_SECRETKEY_OVERWRITE
             # --- Essential Cuttlely server vars ---

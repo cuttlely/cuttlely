@@ -176,6 +176,7 @@
             "packages/ui/src/views/authentication/RecoveryWarningBanner.jsx",
             "packages/server/src/settings/**",
             "packages/server/src/security/keyInventory*.ts",
+            "packages/server/src/security/keyRotationStage*.ts",
             "packages/server/src/routes/server-settings/**",
             "packages/server/src/routes/server-setup/**",
             "packages/ui/src/views/serversettings/**",
@@ -1008,6 +1009,7 @@
             "paths": [
                 "packages/server/src/settings/**",
                 "packages/server/src/security/keyInventory*.ts",
+                "packages/server/src/security/keyRotationStage*.ts",
                 "packages/server/src/routes/server-settings/**",
                 "packages/server/src/routes/server-setup/**",
                 "packages/ui/src/views/serversettings/**",
@@ -1026,6 +1028,7 @@
                 "packages/server/src/settings/loadServerEnv.ts",
                 "packages/server/src/settings/httpLocalhost.ts",
                 "packages/server/src/settings/keyGuard.ts",
+                "packages/server/src/settings/credentialEnvelope.ts",
                 "packages/server/src/settings/redact.ts",
                 "packages/server/src/settings/restart.ts",
                 "packages/server/src/settings/applyWhenIdle.ts",
@@ -1412,6 +1415,7 @@
             ],
             "entryPoints": [
                 "packages/components/nodes/module-catalog.json",
+                "scripts/credential-envelope.cjs",
                 "packages/ui/src/ui-component/markdown/math.mjs",
                 "packages/ui/src/views/authentication/RecoveryWarningBanner.jsx",
                 "packages/components/src/customGet.ts",

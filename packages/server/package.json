@@ -42,6 +42,7 @@
         "hash-password:default": "cd bin && ./run hash-password",
         "settings": "run-script-os",
         "keys:inventory": "node dist/security/keyInventoryCli.js",
+        "keys:stage-rotation": "node dist/security/keyRotationStageCli.js",
         "settings:windows": "cd bin && run settings",
         "settings:default": "cd bin && ./run settings",
         "dev": "nodemon",

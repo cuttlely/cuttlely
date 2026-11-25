@@ -66,7 +66,7 @@ function encryptionKeyOverwrite(env) {
 }
 
 function requiresEncryptionKeyOverride(env) {
-    return /^(1|true)$/i.test(env?.CUTTLELY_REQUIRE_KEY_OVERRIDE?.trim() ?? '')
+    return Boolean(env?.CUTTLELY_CREDENTIAL_GENERATION) || /^(1|true)$/i.test(env?.CUTTLELY_REQUIRE_KEY_OVERRIDE?.trim() ?? '')
 }
 
 function guardedEncryptionKeyOverwrite(env) {

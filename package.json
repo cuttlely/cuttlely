@@ -37,6 +37,7 @@
         "hash-password:default": "cd packages/server/bin && ./run hash-password",
         "settings": "run-script-os",
         "keys:inventory": "pnpm --filter @cuttlely/server keys:inventory",
+        "keys:stage-rotation": "pnpm --filter @cuttlely/server keys:stage-rotation",
         "settings:windows": "cd packages/server/bin && run settings",
         "settings:default": "cd packages/server/bin && ./run settings",
         "test": "TURBO_TELEMETRY_DISABLED=1 turbo run test",

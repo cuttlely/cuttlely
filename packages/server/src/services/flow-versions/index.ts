@@ -67,7 +67,9 @@ const githubCredentials: GithubCredentialStore = {
             .AppDataSource.getRepository(Credential)
             .findOne({ where: { id, workspaceId, credentialName: GITHUB_CREDENTIAL } })
         if (!row) return null
-        const data = await (await import('../../utils')).decryptCredentialData(row.encryptedData)
+        const data = await (
+            await import('../../utils')
+        ).decryptCredentialData(row.encryptedData, undefined, undefined, ['credential', row.id])
         const host = typeof data?.githubHost === 'string' ? data.githubHost.trim() : ''
         return {
             id: row.id,

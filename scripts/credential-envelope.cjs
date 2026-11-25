@@ -75,4 +75,42 @@ function credentialEnvelopeGeneration(value) {
     return generation
 }
 
-module.exports = { forCredentialGeneration, isCredentialEnvelope, newCredentialGeneration, credentialEnvelopeGeneration }
+let active
+function activeCodec(passphrase, generation) {
+    if (!active || active.passphrase !== passphrase || active.generation !== generation) {
+        active = { passphrase, generation, codec: forCredentialGeneration(passphrase, generation) }
+    }
+    return active.codec
+}
+
+function sealWithActiveGeneration(plaintext, passphrase, context, env = process.env) {
+    const generation = env.CUTTLELY_CREDENTIAL_GENERATION
+    if (!generation) return undefined
+    return activeCodec(passphrase, generation).seal(plaintext, context)
+}
+
+function openWithActiveGeneration(ciphertext, passphrase, context, env = process.env) {
+    const generation = env.CUTTLELY_CREDENTIAL_GENERATION
+    if (!generation && !isCredentialEnvelope(ciphertext)) return undefined
+    return activeCodec(passphrase, generation).open(ciphertext, context)
+}
+
+function parseAuthenticatedCredential(plaintext) {
+    try {
+        const result = JSON.parse(plaintext)
+        if (!result || typeof result !== 'object' || Array.isArray(result)) throw invalidEnvelope()
+        return result
+    } catch {
+        throw invalidEnvelope()
+    }
+}
+
+module.exports = {
+    forCredentialGeneration,
+    isCredentialEnvelope,
+    newCredentialGeneration,
+    credentialEnvelopeGeneration,
+    sealWithActiveGeneration,
+    openWithActiveGeneration,
+    parseAuthenticatedCredential
+}

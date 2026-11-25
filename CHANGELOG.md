@@ -7,6 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   Installations can opt in to requiring a nonblank host encryption key and verifying it against the application database at startup. [#527](https://github.com/cuttlely/cuttlely/issues/527).
+-   Operators can stage installation-key rotation on an isolated restore and cut over to authenticated, record-bound encryption. The staged copy retires modern access-key digests and requires fresh verification proofs. [Credential key rotation](docs/how-to/server-settings.md#rotate-the-installation-encryption-key).
 -   The ETL store gained an internal Postgres backend and store gate that are not yet selectable. There is no change in behavior with the default SQLite store.
 
 ### Changed

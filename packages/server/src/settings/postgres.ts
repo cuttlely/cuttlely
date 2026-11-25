@@ -34,7 +34,7 @@ export class PostgresSettings {
     private readonly context = new AsyncLocalStorage<Lease>()
     private retryAfter = 0
 
-    constructor(private readonly options: { url: string; secret: string; dir: string }) {}
+    constructor(private readonly options: { url: string; secret: string; generation?: string; dir: string }) {}
 
     private request<T>(request: SettingsRequest): T {
         if (request.op !== 'release' && this.retryAfter > Date.now()) throw new SettingsStorageError()
@@ -132,7 +132,7 @@ export function initPostgresSettings(dir: string, env: Record<string, string | u
     }
     const secret = encryptionKeyOverwrite(env)
     if (!secret?.trim()) throw new Error('Postgres server settings require CUTTLELY_SECRETKEY_OVERWRITE to be set on the host.')
-    const store = new PostgresSettings({ url, secret, dir })
+    const store = new PostgresSettings({ url, secret, generation: env.CUTTLELY_CREDENTIAL_GENERATION, dir })
     store.initialize()
     configured = { dir: path.resolve(dir), store }
 }

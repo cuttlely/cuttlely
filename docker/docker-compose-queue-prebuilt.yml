@@ -36,6 +36,7 @@ services:
             - CUTTLELY_INSTANCE_OPERATOR
             - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
             - CUTTLELY_REQUIRE_KEY_OVERRIDE
+            - CUTTLELY_CREDENTIAL_GENERATION
             # --- Essential Cuttlely server vars ---
             - PORT=${PORT:-3000}
             - DATABASE_PATH=${DATABASE_PATH:-/home/node/.cuttlely}
@@ -216,6 +217,7 @@ services:
             - CUTTLELY_INSTANCE_OPERATOR
             - CUTTLELY_SERVER_SETTINGS_POSTGRES_URL
             - CUTTLELY_REQUIRE_KEY_OVERRIDE
+            - CUTTLELY_CREDENTIAL_GENERATION
             # --- Essential Cuttlely server vars ---
             - WORKER_PORT=${WORKER_PORT:-5566}
             - DATABASE_PATH=${DATABASE_PATH:-/home/node/.cuttlely}

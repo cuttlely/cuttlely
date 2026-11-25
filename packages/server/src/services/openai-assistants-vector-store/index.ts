@@ -45,7 +45,10 @@ const getAssistantVectorStore = async (credentialId: string, vectorStoreId: stri
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -67,7 +70,10 @@ const listAssistantVectorStore = async (credentialId: string, workspaceId: strin
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -89,7 +95,10 @@ const createAssistantVectorStore = async (credentialId: string, obj: OpenAI.Vect
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -116,7 +125,10 @@ const updateAssistantVectorStore = async (
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -147,7 +159,10 @@ const deleteAssistantVectorStore = async (credentialId: string, vectorStoreId: s
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -174,7 +189,10 @@ const uploadFilesToAssistantVectorStore = async (
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -227,7 +245,10 @@ const deleteFilesFromAssistantVectorStore = async (
     try {
         const credential = await resolveCredentialForWorkspace(credentialId, workspaceId)
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)

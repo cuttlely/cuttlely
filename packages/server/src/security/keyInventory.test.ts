@@ -27,18 +27,18 @@ function fixture() {
         edges: []
     })
     db.exec(`
-        CREATE TABLE credential ("encryptedData" TEXT);
-        CREATE TABLE custom_mcp_server ("authConfig" TEXT);
-        CREATE TABLE chat_flow ("flowData" TEXT, "webhookSecret" TEXT);
+        CREATE TABLE credential (id TEXT PRIMARY KEY, "encryptedData" TEXT);
+        CREATE TABLE custom_mcp_server (id TEXT PRIMARY KEY, "authConfig" TEXT);
+        CREATE TABLE chat_flow (id TEXT PRIMARY KEY, "flowData" TEXT, "webhookSecret" TEXT);
         CREATE TABLE flow_version_state ("draftFlowData" TEXT);
         CREATE TABLE apikey (id TEXT, "disabledAt" TEXT, "expiresAt" TEXT);
         CREATE TABLE apikey_credential (digest TEXT, "revokedAt" TEXT, "principalId" TEXT, "expiresAt" TEXT);
         INSERT INTO apikey VALUES ('one', NULL, NULL), ('two', '2000-01-01', NULL);
     `)
     const credential = encryptSecret(JSON.stringify({ apiKey: privateExample }), key)
-    db.prepare('INSERT INTO credential VALUES (?), (?)').run(credential, 'FlowiseCredential_external-fixture')
-    db.prepare('INSERT INTO custom_mcp_server VALUES (?)').run(credential)
-    db.prepare('INSERT INTO chat_flow VALUES (?, ?)').run(canvas, encryptSecret(JSON.stringify({ secret: privateExample }), key))
+    db.prepare("INSERT INTO credential VALUES ('model', ?), ('external', ?)").run(credential, 'FlowiseCredential_external-fixture')
+    db.prepare("INSERT INTO custom_mcp_server VALUES ('mcp', ?)").run(credential)
+    db.prepare("INSERT INTO chat_flow VALUES ('hook', ?, ?)").run(canvas, encryptSecret(JSON.stringify({ secret: privateExample }), key))
     db.prepare('INSERT INTO flow_version_state VALUES (?)').run(canvas)
     db.prepare(
         `INSERT INTO apikey_credential VALUES
@@ -90,7 +90,7 @@ test('blocks on an unreadable settings key or an unknown ciphertext', async () =
         expect(wrongKey.blockers).toContain('SETTINGS_DOCUMENT_UNREADABLE')
         expect(wrongKey.consumers.analystRoleFiles.unreadable).toBe(1)
         const db = new DatabaseSync(file)
-        db.prepare('INSERT INTO credential VALUES (?)').run('unknown-fixture-format')
+        db.prepare("INSERT INTO credential VALUES ('unknown', ?)").run('unknown-fixture-format')
         db.close()
         const before = fs.readFileSync(file)
         const result = await inventoryCredentialKey(env)

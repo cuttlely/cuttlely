@@ -2255,6 +2255,16 @@ export const KEPT_OUT: KeptOutGroup[] = [
         why: 'This host-only connection is needed to read saved settings and operator authority before startup.'
     },
     {
+        group: 'Installation key rotation',
+        keys: [
+            'CUTTLELY_REQUIRE_KEY_OVERRIDE',
+            'CUTTLELY_CREDENTIAL_GENERATION',
+            'CUTTLELY_ROTATION_STAGING_ROOT',
+            'CUTTLELY_ROTATION_NEW_KEY'
+        ],
+        why: 'Key enrollment and rotation are host operations. Saved settings cannot select or stage a key generation.'
+    },
+    {
         group: 'First owner from host configuration',
         keys: [
             'CUTTLELY_INITIAL_OWNER_EMAIL',

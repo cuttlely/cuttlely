@@ -173,7 +173,7 @@ describe('customMcpServersService', () => {
                 'org-1'
             )
 
-            expect(mockEncrypt).toHaveBeenCalledWith({ headers: { 'X-Key': 'secret' } })
+            expect(mockEncrypt).toHaveBeenCalledWith({ headers: { 'X-Key': 'secret' } }, undefined)
         })
 
         it('should not encrypt authConfig when it is not an object', async () => {
@@ -434,7 +434,10 @@ describe('customMcpServersService', () => {
             await customMcpServersService.updateCustomMcpServer('mcp-1', body, 'ws-1')
 
             // encryptCredentialData should have received the real secret, not the redacted value
-            expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ headers: { 'X-Key': 'real-secret' } }))
+            expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ headers: { 'X-Key': 'real-secret' } }), [
+                'custom-mcp',
+                'mcp-1'
+            ])
         })
 
         it('should reject header value that partially contains the mask placeholder', async () => {
@@ -458,7 +461,10 @@ describe('customMcpServersService', () => {
             const body = { authConfig: { headers: { 'X-Key': 'brand-new-secret' } } }
             await customMcpServersService.updateCustomMcpServer('mcp-1', body, 'ws-1')
 
-            expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ headers: { 'X-Key': 'brand-new-secret' } }))
+            expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({ headers: { 'X-Key': 'brand-new-secret' } }), [
+                'custom-mcp',
+                'mcp-1'
+            ])
         })
 
         it('should force workspaceId on saved record (defense-in-depth)', async () => {

@@ -28,6 +28,7 @@ import {
     stripPageColumns
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, guardedEncryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
+import { openWithActiveGeneration, sealWithActiveGeneration } from '../../../scripts/credential-envelope.cjs'
 import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 import {
     SCOPE_NONE_LEFT,
@@ -634,14 +635,17 @@ function secretDir(env) {
     return clean(env.SECRETKEY_PATH) || path.join(os.homedir(), '.cuttlely')
 }
 
-function encryptJson(value, key) {
-    return CryptoJS.AES.encrypt(JSON.stringify(value), key).toString()
+function encryptJson(value, key, env) {
+    const text = JSON.stringify(value)
+    return sealWithActiveGeneration(text, key, ['analyst-role', value.role], env) ?? CryptoJS.AES.encrypt(text, key).toString()
 }
 
-function decryptJson(payload, key) {
+function decryptJson(payload, key, role, env) {
     let text = ''
     try {
-        text = CryptoJS.AES.decrypt(payload, key).toString(CryptoJS.enc.Utf8)
+        text =
+            openWithActiveGeneration(payload, key, ['analyst-role', role], env) ??
+            CryptoJS.AES.decrypt(payload, key).toString(CryptoJS.enc.Utf8)
     } catch {
         throw new Error(SECRET_ERROR)
     }
@@ -657,7 +661,12 @@ async function encryptionKey(env) {
     const conflict = encryptionKeyConflict(env)
     if (conflict) throw new Error(conflict)
     // Trim, as this reader already did. The server keeps the raw overwrite, including spaces.
-    const overwrite = clean(guardedEncryptionKeyOverwrite(env))
+    const hostKey = guardedEncryptionKeyOverwrite(env)
+    if (env.CUTTLELY_CREDENTIAL_GENERATION) {
+        if (!clean(hostKey)) throw new Error(SECRET_ERROR)
+        return hostKey
+    }
+    const overwrite = clean(hostKey)
     if (overwrite) return overwrite
     if (clean(env.SECRETKEY_STORAGE_TYPE).toLowerCase() === 'aws') {
         throw new Error(
@@ -696,11 +705,11 @@ async function readSecretRecord(env, key, area = analystArea('')) {
         if (error.code === 'ENOENT') return null
         throw new Error(SECRET_ERROR)
     }
-    return { ...parseSecretRecord(ciphertext, key, area), ciphertext }
+    return { ...parseSecretRecord(ciphertext, key, area, env), ciphertext }
 }
 
-function parseSecretRecord(ciphertext, key, area) {
-    const parsed = decryptJson(ciphertext, key)
+function parseSecretRecord(ciphertext, key, area, env) {
+    const parsed = decryptJson(ciphertext, key, area.role, env)
     if (!parsed || parsed.role !== area.role || typeof parsed.password !== 'string' || !parsed.password) {
         throw new Error(SECRET_ERROR)
     }
@@ -787,7 +796,7 @@ async function postgresAreaFor(client, table, env, key, workspace, existingOnly)
     }
     if (legacyRow && (!tag || !legacyRow.workspace_tag || legacyRow.workspace_tag === tag)) {
         // Decrypt before changing the mapping. A different key never claims or resets a role.
-        parseSecretRecord(legacyRow.ciphertext, key, legacy)
+        parseSecretRecord(legacyRow.ciphertext, key, legacy, env)
         if (tag && !legacyRow.workspace_tag) {
             await client.query(`UPDATE ${table} SET workspace_tag = $1, updated_at = now() WHERE role = $2`, [tag, legacy.role])
         }
@@ -983,7 +992,7 @@ async function provisionPostgres(env, workspace = '', existingOnly = false) {
             if (area.role !== ANALYST_ROLE) await lockRoleSecret(client, area.role)
             const role = quoteIdent(area.role)
             if (resolved.row && !resolved.imported) {
-                password = parseSecretRecord(resolved.row.ciphertext, key, area).password
+                password = parseSecretRecord(resolved.row.ciphertext, key, area, env).password
             } else {
                 if (existingOnly) throw new Error(SECRET_ERROR)
                 const imported = resolved.imported || (await readSecretRecord(env, key, area))
@@ -1004,7 +1013,7 @@ async function provisionPostgres(env, workspace = '', existingOnly = false) {
                     )}`
                 )
                 await client.query(`ALTER ROLE ${role} SET search_path TO ${quoteIdent(area.schema)}`)
-                const ciphertext = imported?.ciphertext || encryptJson({ role: area.role, password }, key)
+                const ciphertext = imported?.ciphertext || encryptJson({ role: area.role, password }, key, env)
                 if (!resolved.row) {
                     await client.query(`INSERT INTO ${table} (role, workspace_tag, ciphertext) VALUES ($1, $2, $3)`, [
                         area.role,

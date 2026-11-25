@@ -1,7 +1,15 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
+import { forCredentialGeneration } from './credentialEnvelope'
 
 /** Preserve the existing Postgres settings format. File names are authenticated as record context. */
-export function postgresSettingsCodec(secret: string) {
+export function postgresSettingsCodec(secret: string, generation?: string) {
+    if (generation) {
+        const codec = forCredentialGeneration(secret, generation)
+        return {
+            seal: (file: string, text: string) => Buffer.from(codec.seal(text, ['postgres-settings', file])),
+            unseal: (file: string, value: Buffer) => codec.open(value.toString('utf8'), ['postgres-settings', file])
+        }
+    }
     const key = Buffer.from(hkdfSync('sha256', secret, '', 'Cuttlely service settings Postgres v1', 32))
     return {
         seal(file: string, text: string): Buffer {

@@ -146,11 +146,12 @@ class CustomMcpServerTool implements INode {
         let headers: Record<string, string> = {}
         if (serverRecord.authType === 'CUSTOM_HEADERS' && serverRecord.authConfig) {
             try {
-                const decrypted = await decryptCredentialData(serverRecord.authConfig)
+                const decrypted = await decryptCredentialData(serverRecord.authConfig, ['custom-mcp', serverRecord.id])
                 if (decrypted?.headers && typeof decrypted.headers === 'object') {
                     headers = decrypted.headers as Record<string, string>
                 }
-            } catch {
+            } catch (error) {
+                if (process.env.CUTTLELY_CREDENTIAL_GENERATION) throw error
                 // authConfig decryption failed — proceed without headers
             }
         }

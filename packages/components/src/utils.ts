@@ -627,9 +627,28 @@ export const getPinnedQueryKey = async (): Promise<Buffer> => {
  * @param {IComponentCredentials} componentCredentials
  * @returns {Promise<ICommonObject>}
  */
-export const decryptCredentialData = async (encryptedData: string | Buffer | Uint8Array): Promise<ICommonObject> => {
+type CredentialContext = readonly [string, string]
+const { isCredentialEnvelope, openWithActiveGeneration, sealWithActiveGeneration, parseAuthenticatedCredential } =
+    require('../../../scripts/credential-envelope.cjs') as {
+        isCredentialEnvelope(value: unknown): boolean
+        openWithActiveGeneration(ciphertext: string, key: string, context?: CredentialContext): string | undefined
+        sealWithActiveGeneration(plaintext: string, key: string, context?: CredentialContext): string | undefined
+        parseAuthenticatedCredential(plaintext: string | undefined): Record<string, unknown>
+    }
+
+export const decryptCredentialData = async (
+    encryptedData: string | Buffer | Uint8Array,
+    context?: CredentialContext
+): Promise<ICommonObject> => {
     if (Buffer.isBuffer(encryptedData)) encryptedData = encryptedData.toString('utf8')
     else if (encryptedData instanceof Uint8Array) encryptedData = Buffer.from(encryptedData).toString('utf8')
+    if (
+        isCredentialEnvelope(encryptedData) ||
+        (process.env.CUTTLELY_CREDENTIAL_GENERATION && !encryptedData.startsWith('FlowiseCredential_'))
+    ) {
+        const plaintext = openWithActiveGeneration(encryptedData, await getEncryptionKey(), context)
+        return parseAuthenticatedCredential(plaintext)
+    }
     let decryptedDataStr: string
 
     if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
@@ -807,7 +826,7 @@ export const getCredentialData = async (
         }
 
         // Decrypt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, ['credential', credential.id])
 
         return decryptedCredentialData
     } catch (e) {
@@ -1616,7 +1635,11 @@ export const refreshOAuth2Token = async (
                     appDataSource: options.appDataSource,
                     credentialEntity: databaseEntities?.['Credential'],
                     workspaceId,
-                    encrypt: async (plain) => AES.encrypt(JSON.stringify(plain), await getEncryptionKey()).toString()
+                    encrypt: async (plain) => {
+                        const text = JSON.stringify(plain)
+                        const key = await getEncryptionKey()
+                        return sealWithActiveGeneration(text, key, ['credential', credentialId]) ?? AES.encrypt(text, key).toString()
+                    }
                 })
             } catch {
                 console.error('Failed to refresh access token')

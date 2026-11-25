@@ -23,7 +23,10 @@ const getAllOpenaiAssistants = async (credentialId: string, workspaceId: string)
             throw new AppError(StatusCodes.NOT_FOUND, `Credential ${credentialId} not found in the database!`)
         }
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -52,7 +55,10 @@ const getSingleOpenaiAssistant = async (credentialId: string, assistantId: strin
             throw new AppError(StatusCodes.NOT_FOUND, `Credential ${credentialId} not found in the database!`)
         }
         // Decrpyt credentialData
-        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+        const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+            'credential',
+            credential.id
+        ])
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
             throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
@@ -94,7 +100,10 @@ const uploadFilesToAssistant = async (credentialId: string, files: { filePath: s
         throw new AppError(StatusCodes.NOT_FOUND, `Credential ${credentialId} not found in the database!`)
     }
     // Decrpyt credentialData
-    const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
+    const decryptedCredentialData = await decryptCredentialData(credential.encryptedData, undefined, undefined, [
+        'credential',
+        credential.id
+    ])
     const openAIApiKey = decryptedCredentialData['openAIApiKey']
     if (!openAIApiKey) {
         throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)

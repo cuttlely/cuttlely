@@ -10,6 +10,8 @@ import { encryptionKeyOverwrite } from './settingAlias'
 import { isBlank } from './resolve'
 import { readSettingsText, removeSavedSettings } from './fileIO'
 import { postgresSettings, SettingsStorageError } from './postgres'
+import { openWithActiveGeneration, sealWithActiveGeneration } from './credentialEnvelope'
+import type { RecordContext } from './credentialEnvelope'
 
 export const SETTINGS_FILE = 'server.json'
 export const LAST_GOOD_FILE = 'server.last-good.json'
@@ -69,11 +71,13 @@ export function encryptionKeySync(env: Env = process.env): string | null {
     return null
 }
 
-export function encryptSecret(value: string, key: string): string {
-    return AES.encrypt(value, key).toString()
+export function encryptSecret(value: string, key: string, context?: RecordContext): string {
+    return sealWithActiveGeneration(value, key, context) ?? AES.encrypt(value, key).toString()
 }
 
-export function decryptSecret(cipher: string, key: string): string | null {
+export function decryptSecret(cipher: string, key: string, context?: RecordContext): string | null {
+    const authenticated = openWithActiveGeneration(cipher, key, context)
+    if (authenticated !== undefined) return authenticated
     try {
         const plain = AES.decrypt(cipher, key).toString(enc.Utf8)
         return plain === '' ? null : plain
@@ -113,7 +117,8 @@ export function readSettingsFile(dir: string, key: string | null, file = SETTING
     }
     result.updatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined
     result.updatedBy = typeof parsed.updatedBy === 'string' ? parsed.updatedBy : undefined
-    const keyWorks = key !== null && (!parsed.keyCheck || decryptSecret(parsed.keyCheck, key) === KEY_CHECK_TEXT)
+    const keyWorks =
+        key !== null && (!parsed.keyCheck || decryptSecret(parsed.keyCheck, key, ['server-settings', 'key-check']) === KEY_CHECK_TEXT)
     for (const [name, stored] of Object.entries(parsed.values)) {
         const setting = settingFor(name)
         if (!setting) {
@@ -130,7 +135,7 @@ export function readSettingsFile(dir: string, key: string | null, file = SETTING
                 result.problems.push(`${name} is a secret but was not stored encrypted, so it was ignored.`)
                 continue
             }
-            const plain = keyWorks && key ? decryptSecret(stored.secret, key) : null
+            const plain = keyWorks && key ? decryptSecret(stored.secret, key, ['server-setting', name]) : null
             if (plain === null) result.unreadable.push(name)
             else result.values[name] = plain
             continue
@@ -168,13 +173,13 @@ export function writeSettingsFile(
         if (setting.fixed) continue
         const value = values[name]
         if (isBlank(value)) continue
-        stored[name] = setting.type === 'secret' ? { secret: encryptSecret(value, options.key) } : value
+        stored[name] = setting.type === 'secret' ? { secret: encryptSecret(value, options.key, ['server-setting', name]) } : value
     }
     const sorted: Record<string, StoredValue> = {}
     for (const name of Object.keys(stored).sort()) sorted[name] = stored[name]
     const content: SettingsFile = {
         version: FILE_VERSION,
-        keyCheck: encryptSecret(KEY_CHECK_TEXT, options.key),
+        keyCheck: encryptSecret(KEY_CHECK_TEXT, options.key, ['server-settings', 'key-check']),
         updatedAt: (options.now ?? new Date()).toISOString(),
         updatedBy: options.by,
         values: sorted
