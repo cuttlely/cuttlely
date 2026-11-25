@@ -9,7 +9,7 @@ import { TextSplitter } from '@langchain/textsplitters'
 import axios from 'axios'
 import { AES, enc } from 'crypto-js'
 import { createHmac } from 'crypto'
-import { encryptionKeyOverwrite } from './settingAlias'
+import { encryptionKeyOverwrite, loadRepositoryScript } from './settingAlias'
 import * as fs from 'fs'
 import JSON5 from 'json5'
 import { cloneDeep, get, omit } from 'lodash'
@@ -628,13 +628,12 @@ export const getPinnedQueryKey = async (): Promise<Buffer> => {
  * @returns {Promise<ICommonObject>}
  */
 type CredentialContext = readonly [string, string]
-const { isCredentialEnvelope, openWithActiveGeneration, sealWithActiveGeneration, parseAuthenticatedCredential } =
-    require('../../../scripts/credential-envelope.cjs') as {
-        isCredentialEnvelope(value: unknown): boolean
-        openWithActiveGeneration(ciphertext: string, key: string, context?: CredentialContext): string | undefined
-        sealWithActiveGeneration(plaintext: string, key: string, context?: CredentialContext): string | undefined
-        parseAuthenticatedCredential(plaintext: string | undefined): Record<string, unknown>
-    }
+const { isCredentialEnvelope, openWithActiveGeneration, sealWithActiveGeneration, parseAuthenticatedCredential } = loadRepositoryScript<{
+    isCredentialEnvelope(value: unknown): boolean
+    openWithActiveGeneration(ciphertext: string, key: string, context?: CredentialContext): string | undefined
+    sealWithActiveGeneration(plaintext: string, key: string, context?: CredentialContext): string | undefined
+    parseAuthenticatedCredential(plaintext: string | undefined): Record<string, unknown>
+}>('credential-envelope.cjs')
 
 export const decryptCredentialData = async (
     encryptedData: string | Buffer | Uint8Array,
