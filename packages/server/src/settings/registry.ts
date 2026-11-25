@@ -2228,6 +2228,11 @@ export const KEPT_OUT: KeptOutGroup[] = [
         why: 'Host-only designation for service administration. Never loaded from saved settings.'
     },
     {
+        group: 'Postgres server settings',
+        keys: ['CUTTLELY_SERVER_SETTINGS_POSTGRES_URL'],
+        why: 'This host-only connection is needed to read saved settings and operator authority before startup.'
+    },
+    {
         group: 'First owner from host configuration',
         keys: [
             'CUTTLELY_INITIAL_OWNER_EMAIL',
@@ -2401,6 +2406,7 @@ export interface ReadOnlyDef {
 export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
     { key: 'CUTTLELY_API_KEY_INSTANCES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'CUTTLELY_APP_DATABASE_STORES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'CUTTLELY_SERVER_SETTINGS_POSTGRES_URL', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
     { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'CUTTLELY_DATA_DIR', readOnly: true, check: 'nonblank', whenUnset: 'default' },

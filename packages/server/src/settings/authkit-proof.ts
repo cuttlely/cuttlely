@@ -1,8 +1,7 @@
 // Proof that a test sign-in with AuthKit passed for one exact set of AuthKit values. Password sign-in can be turned
 // off only while the AuthKit values match a passed test. The file holds a keyed fingerprint, never the values.
 import { createHmac, timingSafeEqual } from 'crypto'
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText } from './fileIO'
 import { writeFileAtomic } from './store'
 
 export const AUTHKIT_PROOF_FILE = 'authkit-test.json'
@@ -35,7 +34,7 @@ export function authKitEnvironment(apiKey: string | undefined): AuthKitProof['en
 
 export function readAuthKitProof(dir: string): AuthKitProof | null {
     try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, AUTHKIT_PROOF_FILE), 'utf8'))
+        const data = JSON.parse(readSettingsText(dir, AUTHKIT_PROOF_FILE))
         if (data && typeof data.fingerprint === 'string' && typeof data.passedAt === 'string') return data as AuthKitProof
     } catch {
         // No proof yet, or a damaged file: treat as untested.

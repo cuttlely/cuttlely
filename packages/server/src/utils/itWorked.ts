@@ -1,5 +1,4 @@
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText } from '../settings/fileIO'
 import { settingsDir, writeFileAtomic } from '../settings/store'
 import { tryNamedLockSync } from '../settings/lock'
 
@@ -13,9 +12,9 @@ function isDisabled(env: Record<string, string | undefined> = process.env): bool
     return String(env[IT_WORKED_DISABLE_ENV] ?? '').trim() === 'true'
 }
 
-function markerShown(file: string): boolean {
+function markerShown(dir: string): boolean {
     try {
-        const raw = fs.readFileSync(file, 'utf8')
+        const raw = readSettingsText(dir, MARKER_FILE)
         const parsed = JSON.parse(raw) as { shown?: boolean }
         return parsed?.shown === true
     } catch {
@@ -25,7 +24,7 @@ function markerShown(file: string): boolean {
 
 /**
  * Logs a one-line "It worked!" message the first time a flow run finishes successfully on this install.
- * - No telemetry, no network calls.
+ * - No telemetry.
  * - Cheap unlocked read first; lock only to write the marker, and skip immediately if the lock is held.
  * - Guarded in memory per process and persisted once in the settings folder, so it prints at most once.
  * - Respects CUTTLELY_DISABLE_IT_WORKED=true.
@@ -35,14 +34,13 @@ export function maybeLogFirstSuccess(): void {
     if (isDisabled()) return
     try {
         const dir = settingsDir(process.env)
-        const file = path.join(dir, MARKER_FILE)
-        if (markerShown(file)) {
+        if (markerShown(dir)) {
             loggedThisProcess = true
             return
         }
         // Own lock file so this never waits on (or holds) the settings lock. Skip immediately if busy.
         tryNamedLockSync(dir, LOCK_FILE, () => {
-            if (markerShown(file)) {
+            if (markerShown(dir)) {
                 loggedThisProcess = true
                 return
             }
@@ -53,7 +51,7 @@ export function maybeLogFirstSuccess(): void {
                 loggedThisProcess = true
                 return
             }
-            if (!markerShown(file)) {
+            if (!markerShown(dir)) {
                 loggedThisProcess = true
                 return
             }

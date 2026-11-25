@@ -82,11 +82,19 @@ export HERMES_API_URL="http://127.0.0.1:${API_SERVER_PORT}"
 host_workos_key="${WORKOS_API_KEY:-}"
 SETTINGS_ENV_CLI="$ROOT/packages/server/dist/settings/env-cli.js"
 if [[ -f "$SETTINGS_ENV_CLI" ]]; then
-    while IFS= read -r -d '' pair; do
+    exec {settings_fd}< <(node "$SETTINGS_ENV_CLI" start)
+    settings_pid=$!
+    while IFS= read -r -d '' pair <&"$settings_fd"; do
         if [[ "${pair%%=*}" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
             export -- "$pair"
         fi
-    done < <(node "$SETTINGS_ENV_CLI" start || true)
+    done
+    exec {settings_fd}<&-
+    if wait "$settings_pid"; then
+        :
+    elif [[ "$?" -eq 3 || -n "${CUTTLELY_SERVER_SETTINGS_POSTGRES_URL:-}" ]]; then
+        exit 1
+    fi
 fi
 
 # Terminal caps must be on the runtime process before its tool module is imported.
@@ -425,6 +433,8 @@ kill_hermes_pid() {
     fi
 }
 start_hermes_once() {
+    # This connection grants access to host authority. Keep it in the Node server and workers.
+    local -x CUTTLELY_SERVER_SETTINGS_POSTGRES_URL=''
     if ! "$NODE_BIN" "$ROOT/scripts/sweep-try-profiles.mjs" >/dev/null 2>&1; then
         echo "Hermes pre-start try-profile sweep failed; continuing runtime start." >&2
     fi

@@ -1,5 +1,4 @@
-import fs from 'fs'
-import path from 'path'
+import { readSettingsText, removeSavedSettings, savedSettingsExist } from './fileIO'
 // Set up AuthKit from the Server settings page: check the values, then a real test sign-in with the values on the
 // page, before anything is saved. The test is bound to the owner's browser session and expires after 10 minutes.
 // The values wait in server memory (never sent back to the browser) and are saved only when the owner chooses to.
@@ -491,8 +490,8 @@ export async function handleAuthKitTestCallback(deps: ServiceDeps, kit: AuthKitD
     record.signedInAs = identity.email
     const key = await deps.key()
     await deps.authorize?.()
-    const proofFile = path.join(deps.state.dir, AUTHKIT_PROOF_FILE)
-    const previousProof = fs.existsSync(proofFile) ? fs.readFileSync(proofFile, 'utf8') : null
+    const { dir } = deps.state
+    const previousProof = savedSettingsExist(dir, AUTHKIT_PROOF_FILE) ? readSettingsText(dir, AUTHKIT_PROOF_FILE) : null
     try {
         writeAuthKitProof(deps.state.dir, {
             fingerprint: authKitFingerprint(values, key),
@@ -508,7 +507,7 @@ export async function handleAuthKitTestCallback(deps: ServiceDeps, kit: AuthKitD
             outcome: 'ok'
         })
     } catch (error) {
-        if (previousProof === null) fs.rmSync(proofFile, { force: true })
+        if (previousProof === null) removeSavedSettings(dir, AUTHKIT_PROOF_FILE)
         else writeFileAtomic(deps.state.dir, AUTHKIT_PROOF_FILE, previousProof)
         throw error
     }

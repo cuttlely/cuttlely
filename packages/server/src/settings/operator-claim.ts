@@ -1,6 +1,6 @@
 // Explicit operator designation. Bootstrap/setup capabilities never enter this module.
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
-import path from 'path'
+import { readSettingsText } from './fileIO'
 import { Request } from 'express'
 import { getDataSource } from '../DataSource'
 import { INSTANCE_OPERATOR_KEY, isInstanceOperator, operatorDatabaseFingerprint } from '../identity/instanceOperator'
@@ -11,8 +11,7 @@ import {
     publishOperator,
     managedOperator,
     operatorInstallation,
-    writeOperatorProofState,
-    readPrivateOperatorFile
+    writeOperatorProofState
 } from '../identity/operatorBinding'
 import { recentlyAuthenticated } from '../identity/authenticationRoutes'
 import { attachIdentitySession } from '../identity/middleware'
@@ -79,7 +78,7 @@ function confirmation(body: Record<string, unknown>, word: string): void {
 }
 function readState(env: Env): State {
     try {
-        const value = JSON.parse(readPrivateOperatorFile(path.join(settingsDir(env), STATE_FILE))) as State
+        const value = JSON.parse(readSettingsText(settingsDir(env), STATE_FILE, true)) as State
         const validBudget = (b: Budget) =>
             b && Number.isSafeInteger(b.requests) && b.requests >= 0 && Number.isSafeInteger(b.attempts) && b.attempts >= 0
         if (

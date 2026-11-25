@@ -2,11 +2,17 @@
 // before any module reads it. packages/server/.env is loaded here first and counts as host-set.
 import './loadServerEnv'
 import { applyAdminSettings, StartState } from './apply'
+import { initPostgresSettings, postgresSettings } from './postgres'
+import { settingsDir } from './store'
+
+const dir = settingsDir()
+initPostgresSettings(dir, process.env)
 
 let state: StartState
 try {
     state = applyAdminSettings(process.env, { start: process.argv[2] === 'start' })
 } catch (error) {
+    if (postgresSettings(dir)) throw error
     state = {
         dir: '',
         ignored: false,

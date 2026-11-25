@@ -6,6 +6,7 @@
 import { randomBytes } from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { postgresSettings } from './postgres'
 
 const SETTINGS_LOCK = '.settings.lock'
 const STALE_MS = 15000
@@ -198,8 +199,24 @@ function acquireSync(dir: string, name: string): string {
     }
 }
 
-/** A named lock in the settings folder. Callers that take two locks take the settings lock first. */
+/** Filesystem writers take the settings lock first when nesting locks. Postgres writers share one lease across nested calls. */
 export async function withNamedLock<T>(dir: string, name: string, work: () => Promise<T>): Promise<T> {
+    const postgres = postgresSettings(dir)
+    if (postgres) {
+        if (postgres.locked) return work()
+        const deadline = Date.now() + WAIT_MS
+        let lease = postgres.take()
+        while (!lease && Date.now() < deadline) {
+            await pause(25)
+            lease = postgres.take()
+        }
+        if (!lease) throw new SettingsBusyError()
+        try {
+            return await postgres.run(lease, work)
+        } finally {
+            postgres.release(lease)
+        }
+    }
     const token = await acquire(dir, name)
     try {
         return await work()
@@ -209,6 +226,13 @@ export async function withNamedLock<T>(dir: string, name: string, work: () => Pr
 }
 
 export function withNamedLockSync<T>(dir: string, name: string, work: () => T): T {
+    const postgres = postgresSettings(dir)
+    if (postgres) {
+        // A synchronous caller cannot wait for another request in this process to finish.
+        return tryPostgresLock(postgres, work, () => {
+            throw new SettingsBusyError()
+        })
+    }
     const token = acquireSync(dir, name)
     try {
         return work()
@@ -222,6 +246,8 @@ export function withNamedLockSync<T>(dir: string, name: string, work: () => T): 
  * Used for optional, fire-and-forget work that must never stall a request.
  */
 export function tryNamedLockSync<T>(dir: string, name: string, work: () => T): T | undefined {
+    const postgres = postgresSettings(dir)
+    if (postgres) return tryPostgresLock(postgres, work, () => undefined)
     const token = take(dir, name)
     if (!token) return undefined
     try {
@@ -237,4 +263,15 @@ export async function withSettingsLock<T>(dir: string, work: () => Promise<T>): 
 
 export function withSettingsLockSync<T>(dir: string, work: () => T): T {
     return withNamedLockSync(dir, SETTINGS_LOCK, work)
+}
+
+function tryPostgresLock<T>(postgres: NonNullable<ReturnType<typeof postgresSettings>>, work: () => T, busy: () => T): T {
+    if (postgres.locked) return work()
+    const lease = postgres.take()
+    if (!lease) return busy()
+    try {
+        return postgres.run(lease, work)
+    } finally {
+        postgres.release(lease)
+    }
 }
