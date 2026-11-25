@@ -311,8 +311,13 @@ export class S3StorageProvider extends BaseStorageProvider {
     }
 
     private async *folderPages(paths: string[]) {
-        const folder = paths.join('/').replace(/^\/+|\/+$/g, '')
-        if (!folder) throw new Error('A scoped S3 folder is required.')
+        const key = paths.join('/')
+        let start = 0
+        let end = key.length
+        while (start < end && key[start] === '/') start++
+        while (end > start && key[end - 1] === '/') end--
+        if (start === end) throw new Error('A scoped S3 folder is required.')
+        const folder = key.slice(start, end)
         let token: string | undefined
         do {
             const page = await this.s3Client.send(

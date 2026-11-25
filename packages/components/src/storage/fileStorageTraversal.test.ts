@@ -89,6 +89,15 @@ describe('S3 storage names', () => {
         expect(deletion.input.Key).toBe(ORG + '/a')
     })
 
+    test('folder listing trims only outer separators and requires a scope', async () => {
+        const { provider, send } = s3()
+        await expect(provider.getFilesListFromStorage('/', '//')).rejects.toThrow('A scoped S3 folder is required.')
+        expect(send).not.toHaveBeenCalled()
+        send.mockResolvedValueOnce({})
+        await provider.getFilesListFromStorage('//' + ORG, '', FLOW + '//')
+        expect(send.mock.calls[0][0]).toMatchObject({ input: { Prefix: ORG + '//' + FLOW + '/' } })
+    })
+
     test('a zero-byte object is consumed once', async () => {
         const { provider, send } = s3()
         const transformToByteArray = jest.fn(async () => new Uint8Array())
