@@ -172,7 +172,7 @@ function installSettled() {
 
 // Due active schedules fire once. A pipeline that already has a run is skipped and the reason is stored.
 export async function tickSchedules() {
-    if (ticking || runnerStopping()) return []
+    if (ticking || etlStore.gate.closed() || runnerStopping()) return []
     ticking = true
     installSettled()
     const outcomes = []
@@ -182,7 +182,7 @@ export async function tickSchedules() {
             [schedulerNow().toISOString()]
         )
         for (const row of due) {
-            if (runnerStopping()) break
+            if (etlStore.gate.closed() || runnerStopping()) break
             const schedule = rowToSchedule(row)
             const at = schedulerNow()
             let outcome = 'started'

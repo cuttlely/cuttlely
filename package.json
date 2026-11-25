@@ -21,7 +21,7 @@
         "upgrade:check": "node scripts/upgrade-check.mjs",
         "safeboot:check": "node scripts/safeboot-check.mjs",
         "verify:comment": "node scripts/verify-comment.mjs",
-        "etl:check": "node packages/etl/check.mjs && node --experimental-test-module-mocks --test --test-concurrency=1 packages/etl/check/run-control-postgres.test.mjs",
+        "etl:check": "node packages/etl/check.mjs && node --experimental-test-module-mocks --test --test-concurrency=1 packages/etl/check/run-control-postgres.test.mjs packages/etl/check/store-gate.test.mjs packages/etl/check/store-postgres.test.mjs",
         "templates:gallery": "node scripts/live-e2e/template-gallery.mjs",
         "check:clean-export": "node scripts/check-clean-export.mjs",
         "start:windows": "cd packages/server/bin && run start",

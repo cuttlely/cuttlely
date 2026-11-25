@@ -33,6 +33,8 @@ export function runnerStopping() {
 
 // Register work before its first await, including admission and queue handoff.
 function admitted(work) {
+    if (etlStore.gate.closed())
+        throw new EtlError('store_moving', 'ETL is moving to the application database. Try again in a minute.', 503, 30)
     if (stopping()) throw new EtlError('restarting', 'Cuttlely is restarting to apply new settings. Try again in a minute.', 503)
     return track(Promise.resolve().then(work))
 }
@@ -277,9 +279,9 @@ async function requireRun(runId, q) {
 }
 
 async function pump() {
-    if (stopping() || active.size >= maxActive) return
+    if (etlStore.gate.closed() || stopping() || active.size >= maxActive) return
     for (const run of await runsWithStatus(['queued'])) {
-        if (stopping() || active.size >= maxActive) break
+        if (etlStore.gate.closed() || stopping() || active.size >= maxActive) break
         if (active.has(run.id) || deleting.has(run.pipelineId)) continue
         launch(run)
     }

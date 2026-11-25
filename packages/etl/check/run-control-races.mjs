@@ -38,7 +38,7 @@ async function seed(status = 'queued') {
     return run
 }
 
-export async function checkRunControlRaces({ check, writeDuringRead }) {
+export async function checkRunControlRaces({ check, writeDuringRead, savePipeline }) {
     await waitForIdle()
     try {
         // Exercise the shared field mapping and both affected-row outcomes on the actual selected store.
@@ -315,6 +315,168 @@ export async function checkRunControlRaces({ check, writeDuringRead }) {
                     detail
                 )
             }
+        }
+
+        // C4/C4b: Claim races. The claim that starts a queued run writes only while the run is still queued.
+        // A pause or cancel committed after its read is finished as a stop, and the run never starts.
+        if (savePipeline) {
+            const { startRun, isActive } = await import('../runner.mjs')
+            for (const [stop, target, message] of [
+                ['pausing', 'paused', 'Paused at the last committed batch.'],
+                ['cancelling', 'cancelled', 'Cancelled. Nothing was deleted.']
+            ]) {
+                const name = `claim race queued/${stop}`
+                const id = `run-control-claim-${stop}`
+                let fired = 0
+                try {
+                    configureRunner({
+                        contextFor: () => ({
+                            workspaceId: 'ws-check',
+                            faults: {
+                                claimAfterRead: async (current, t) => {
+                                    if (fired) return
+                                    fired += 1
+                                    check(`${name}: hook follows the status read`, current?.status === 'queued')
+                                    await writeDuringRead(t, (q) => updateRun(current.id, { status: stop }, q))
+                                }
+                            }
+                        })
+                    })
+                    await savePipeline(id)
+                    const started = await startRun(id, { settings: normalizeSettings() })
+                    await waitForIdle()
+                    const after = await getRun(started.id)
+                    const stops = (await listEvents(started.id)).filter((event) => event.message === message)
+                    check(
+                        `${name}: the claim yields and the stop finishes as ${target} with one event`,
+                        fired === 1 &&
+                            after.status === target &&
+                            !after.startedAt &&
+                            (target === 'cancelled' ? Boolean(after.finishedAt) : !after.finishedAt) &&
+                            stops.length === 1 &&
+                            !isActive(started.id),
+                        JSON.stringify({ fired, after, stops })
+                    )
+                } finally {
+                    configureRunner({ contextFor: () => ({ workspaceId: 'ws-check' }) })
+                }
+            }
+        }
+
+        // C5: the stop writer holds an uncommitted UPDATE when the runner's guarded UPDATE starts, so Postgres must block the
+        // runner and then re-check the status predicate. Postgres only: SQLite serializes writers before either can start.
+        const { backendName } = await import('../store.mjs')
+        if (backendName() === 'postgres' && writeDuringRead) {
+            const run = await seed('queued')
+            let fired = false
+            let blocked = false
+            let writerCommitted = false
+            let writer
+            configureRunner({
+                contextFor: () => ({ workspaceId: 'ws-check' }),
+                faults: {
+                    cancelAfterRead: async (current, t) => {
+                        if (current.id !== run.id || fired) return
+                        fired = true
+                        const runnerPid = (await t.get('SELECT pg_backend_pid() AS pid')).pid
+                        let locked
+                        const held = new Promise((resolve) => (locked = resolve))
+                        // Not awaited: the runner must reach its guarded UPDATE while the stop is still uncommitted.
+                        writer = writeDuringRead(t, async (q) => {
+                            await q.run('UPDATE runs SET status = ? WHERE id = ?', ['cancelled', run.id])
+                            locked()
+                            for (let poll = 0; poll < 50 && !blocked; poll++) {
+                                await new Promise((resolve) => setTimeout(resolve, 20))
+                                blocked = Boolean(
+                                    await q.get('SELECT 1 AS waiting FROM pg_locks WHERE pid = ? AND NOT granted', [runnerPid])
+                                )
+                            }
+                            writerCommitted = true
+                        })
+                        await held
+                    }
+                }
+            })
+            const refused = await refusal(cancelRun(run.id))
+            await writer
+            await waitForIdle()
+            const after = await getRun(run.id)
+            const stops = (await listEvents(run.id)).filter((event) => event.message === STOP_EVENTS.cancelled)
+            check(
+                'C5: the runner blocks on the uncommitted stop, then its guarded UPDATE re-checks the status and refuses',
+                blocked &&
+                    writerCommitted &&
+                    refused?.code === 'bad_state' &&
+                    refused?.status === 409 &&
+                    after.status === 'cancelled' &&
+                    stops.length === 0,
+                JSON.stringify({ blocked, writerCommitted, refused, status: after.status, stops: stops.length })
+            )
+            configureRunner({ faults: null, contextFor: () => ({ workspaceId: 'ws-check' }) })
+        }
+
+        // C7: Queue parity - standalone run executes after tx commits
+        {
+            const run = await seed()
+            const events = []
+            await etlStore.tx(async (t) => {
+                events.push('tx-start')
+                const standalonePending = etlStore.run('UPDATE runs SET error = ? WHERE id = ?', ['standalone', run.id]).then(() => {
+                    events.push('standalone')
+                })
+                await t.run('UPDATE runs SET checkpoint = ? WHERE id = ?', ['{"tx":"1"}', run.id])
+                events.push('tx-end')
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            })
+            await new Promise((resolve) => setTimeout(resolve, 100))
+
+            check(
+                'C7: queue parity - standalone run waits for tx',
+                events[0] === 'tx-start' && events[1] === 'tx-end' && events[2] === 'standalone',
+                JSON.stringify({ events })
+            )
+        }
+
+        // C8: 50 concurrent addEvent calls. listEvents({ after }) is a tail-poll, so poll with a limit that covers every
+        // event while the writes are in flight: a missing id can only be an out-of-order commit gap, never truncation.
+        {
+            const run = await seed()
+            let settled = false
+            const writes = Promise.all(Array.from({ length: 50 }, (_, i) => addEvent(run.id, 'info', null, `Event ${i}`))).finally(() => {
+                settled = true
+            })
+            const ids = new Set()
+            const messages = []
+            const pages = []
+            let after = 0
+            let fetched = 0
+            for (let poll = 0; poll < 500; poll++) {
+                const done = settled
+                const page = await listEvents(run.id, { after, limit: 50 })
+                pages.push({ after, ids: page.map((event) => event.id) })
+                for (const event of page) {
+                    ids.add(event.id)
+                    messages.push(event.message)
+                }
+                fetched += page.length
+                if (page.length) after = page[page.length - 1].id
+                if (done && page.length === 0) break
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            await writes
+            const ordered = pages.every(({ after: from, ids: page }) => page.every((id, i) => id > (i ? page[i - 1] : from)))
+            const expected = Array.from({ length: 50 }, (_, i) => `Event ${i}`)
+            const tail = (await listEvents(run.id, { after: 0, limit: 20 })).map((event) => event.id)
+            const highest = [...ids].sort((a, b) => a - b).slice(-20)
+            check(
+                'C8: 50 concurrent events, polls during the writes return each id once in order',
+                ids.size === 50 &&
+                    fetched === 50 &&
+                    ordered &&
+                    JSON.stringify([...messages].sort()) === JSON.stringify([...expected].sort()) &&
+                    JSON.stringify(tail) === JSON.stringify(highest),
+                JSON.stringify({ size: ids.size, fetched, ordered, polls: pages.length, tail })
+            )
         }
     } finally {
         configureRunner({ faults: null, contextFor: () => ({ workspaceId: 'ws-check' }) })
