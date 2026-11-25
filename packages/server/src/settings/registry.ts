@@ -1022,12 +1022,13 @@ export const SETTINGS: SettingDef[] = [
         help: 'Where uploads and generated files go. Files already stored are not moved.',
         type: 'select',
         options: [
-            { value: 'local', label: 'This server' },
+            { value: 'local', label: 'Application default (PostgreSQL after storage upgrade, otherwise local)' },
+            { value: 'postgres', label: 'PostgreSQL (requires completed storage upgrade)' },
             { value: 's3', label: 'Amazon S3 or compatible (including IBM Cloud Object Storage)' },
             { value: 'gcs', label: 'Google Cloud Storage' },
             { value: 'azure', label: 'Azure Blob Storage' }
         ],
-        defaultLabel: 'This server',
+        defaultLabel: 'Application default',
         defaultValue: 'local',
         risk: 'high',
         hostHint: 'Docker compose or Render'

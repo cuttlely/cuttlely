@@ -23,6 +23,17 @@ export class PostgresStorageProvider extends LocalStorageProvider {
         return 'postgres'
     }
 
+    async probeStorage(): Promise<void> {
+        const key = ['connection-tests', randomUUID()]
+        const data = Buffer.from('Cuttlely storage check')
+        await this.files.put(key, data)
+        try {
+            if (!(await this.files.read(key)).equals(data)) throw new Error('The file read from PostgreSQL differed from the test file.')
+        } finally {
+            await this.files.remove(key)
+        }
+    }
+
     private key(paths: string[]) {
         if (!paths.length || paths.some((part) => !part)) throw new Error('A scoped storage path is required.')
         return ['blobs', ...paths.map((part) => this.sanitizeFilename(part))]

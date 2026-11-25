@@ -202,6 +202,14 @@ if (process.argv.includes('--fixture-worker')) {
                 fs.rmSync(first, { recursive: true })
                 fs.rmSync(path.join(rootDir, 'worker-before'), { recursive: true })
                 await boot(fresh, { ...pg, ...stores, ...operator })
+                const storageCheck = await api('server-settings/test', { kind: 'storage', values: {} })
+                assert.equal(storageCheck.ok, true, storageCheck.summary)
+                assert.match(storageCheck.summary, /PostgreSQL file store/)
+                assert.equal(
+                    (await client.query("SELECT count(*)::int AS n FROM cuttlely_files.files WHERE segments[1]='connection-tests'")).rows[0]
+                        .n,
+                    0
+                )
                 const response = await api('prediction/' + flowId, { question: 'Say smoke-ok', streaming: false })
                 assert.match(JSON.stringify(response), /smoke-ok/)
                 await running.stop()

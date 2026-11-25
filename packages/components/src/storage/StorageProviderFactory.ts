@@ -1,5 +1,5 @@
 import { IStorageProvider } from './IStorageProvider'
-import { PostgresStorageProvider, ApplicationFiles } from './PostgresStorageProvider'
+import type { ApplicationFiles } from './PostgresStorageProvider'
 import { LocalStorageProvider } from './LocalStorageProvider'
 
 /**
@@ -11,7 +11,19 @@ export class StorageProviderFactory {
 
     static setApplicationFiles(files: ApplicationFiles | null): void {
         if (process.env.STORAGE_TYPE && !['local', 'postgres'].includes(process.env.STORAGE_TYPE)) return
-        StorageProviderFactory.instance = files ? new PostgresStorageProvider(files) : null
+        if (!files) {
+            StorageProviderFactory.instance = null
+            return
+        }
+        const { PostgresStorageProvider } = require('./PostgresStorageProvider') as typeof import('./PostgresStorageProvider')
+        StorageProviderFactory.instance = new PostgresStorageProvider(files)
+    }
+
+    static async probeApplicationFiles(): Promise<boolean> {
+        const provider = StorageProviderFactory.instance
+        if (!provider || !('probeStorage' in provider) || typeof provider.probeStorage !== 'function') return false
+        await provider.probeStorage()
+        return true
     }
 
     static async *readS3PredictionFile(segments: string[]) {

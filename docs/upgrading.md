@@ -173,7 +173,9 @@ These sanitized figures were captured on product 1.6.1 at feature head `5c08b125
 
 ## What to back up
 
-Everything Cuttlely keeps is in one folder:
+For **PostgreSQL-only** after verified cutover, back up the entire application database, including every Cuttlely-owned schema, and keep an independent protected copy of the installation key and host boot configuration. If settings, identity, queues or workflow data use separate services, include those services in the recovery plan. For **hybrid**, also back up the bucket and its object versions or retain equivalent recoverable copies. Restore the database and bucket to compatible points so attachment references resolve. A database-only restore cannot restore deleted bucket objects.
+
+For **SQLite** and for **either stage of a migration**, retain the original directories and key as well. Stop writers or use a consistent filesystem snapshot, including SQLite WAL data. A live copy of only the main `.sqlite` file can miss committed writes. These are the default locations:
 
 | Install        | Folder                                                                                         |
 | -------------- | ---------------------------------------------------------------------------------------------- |
@@ -182,13 +184,13 @@ Everything Cuttlely keeps is in one folder:
 | Render         | The disk mounted at `/var/cuttlely`, plus the Postgres database                                |
 | From source    | `~/.cuttlely` (database and key) and `<checkout>/.cuttlely` (history, harnesses, ETL, uploads) |
 
-Inside it, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
+In the standard SQLite container volume, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
 
 `settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key. The separate host-only `instance-operator.json` binds the CLI break-glass account to the database connection; browser/CLI settings restore never restores it.
 
 If you set `DATABASE_PATH`, `SECRETKEY_PATH`, `CUTTLELY_DATA_DIR` or `FLOWISE_SECRETKEY_OVERWRITE` yourself, back up what they point to, and keep the key value. `CUTTLELY_SECRETKEY_OVERWRITE` is the same key. If both are set and the values differ, Cuttlely refuses to start.
 
-On a Postgres host with `CUTTLELY_APP_DATABASE_STORES` on, Dash Flows keeps its data in the application database, so the database backup covers it. See [Storage on Postgres (preview)](./how-to/dashflows.md#storage-on-postgres-preview).
+An existing Dashflows PostgreSQL pilot can still have other local stores. Check the operator storage report and complete an [empty-disk recovery rehearsal](./how-to/postgres-side-stores.md#prove-that-a-replacement-can-serve-traffic) before retiring the source volume.
 
 ## 1. Back up
 

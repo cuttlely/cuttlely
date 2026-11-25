@@ -6,10 +6,26 @@ The install is the repository root `docker-compose.yml`. It runs the published i
 
 The default Compose install keeps SQLite and local files in its named volume. Back up the volume and original installation key before pulling a new image. Keep the volume attached when upgrading a SQLite install. For an empty-disk PostgreSQL deployment, configure durable storage before its first start. For an existing install, finish both the migration and a replacement test before releasing the volume.
 
-For a SQLite primary copy with the repository's Compose layout, stop the original service and all workers, retain the original volume, and select a built image containing the 1.7.15 migration tool. Configure the one-off service environment with the empty PostgreSQL destination and any original nondefault storage paths. From the same Compose project run:
+For a SQLite primary copy with the repository's Compose layout, stop the original service and all workers, retain the original volume, and select a built image containing the 1.7.15 migration tool. Configure a deployment-local Compose override for the one-off service and subsequent startup. For example, add the following to `compose.override.yaml` and explicitly use both files with `-f docker-compose.yml -f compose.override.yaml`. Set each named value in the host environment or secret manager. Include your existing TLS and nondefault storage path settings. Compose interpolation by itself does not pass new variables into the service.
+
+```yaml
+services:
+    cuttlely:
+        environment:
+            - DATABASE_TYPE
+            - DATABASE_HOST
+            - DATABASE_PORT
+            - DATABASE_NAME
+            - DATABASE_USER
+            - DATABASE_PASSWORD
+            - CUTTLELY_APP_DATABASE_STORES
+            - CUTTLELY_SECRETKEY_OVERWRITE
+```
+
+From the same Compose project run:
 
 ```sh
-docker compose run --rm --no-deps cuttlely node packages/server/dist/settings/copySqliteApplicationCli.js /var/cuttlely/data/database.sqlite
+docker compose -f docker-compose.yml -f compose.override.yaml run --rm --no-deps cuttlely node packages/server/dist/settings/copySqliteApplicationCli.js /var/cuttlely/data/database.sqlite
 ```
 
 Check the command reports `verified: true` and individual table counts. Continue with the same key, original files and destination for the side-store upgrade. [Migration, replacement test and rollback](./postgres-side-stores.md).
