@@ -858,7 +858,7 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         ctx
     )
     if (!claimed) return getRun(run.id)
-    await etlStore.run('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)', [
+    await etlStore.run('INSERT INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', [
         run.id,
         pipeline.id,
         pipeline.workspaceId || null,
