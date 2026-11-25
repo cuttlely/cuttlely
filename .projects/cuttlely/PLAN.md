@@ -38,7 +38,9 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 ## Next concrete tasks
 
-Version 1.7.14 includes the internal PostgreSQL ETL backend and store gate. Backend selection and consolidation of the remaining stores are still open. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
+Version 1.7.14 includes the internal PostgreSQL ETL backend and store gate. The upgrade branch adds verified backend selection for ETL, vectors, published/draft sessions, the queue and Dashflows. The [operator guide](../../docs/how-to/postgres-side-stores.md) covers the default-off switch, multi-instance maintenance, retained SQLite files and rollback. [PostgreSQL consolidation #516](https://github.com/cuttlely/cuttlely/issues/516)
+
+Branch tests exercised interruption and resume, empty-volume access from another process, incremental indexing with zero new embeddings, and operator upgrade and rollback through the Server Settings UI.
 
 The [disk storage inventory](../../docs/reference/disk-storage-inventory.md) maps application, workflow and runtime SQLite files, server settings and credentials to their writers and retention requirements. Compare a private metadata inventory before and after each overall upgrade test. The ETL store gate queues already-admitted writes before draining and allows subsequent calls after a failed statement. A regression covers both behaviors.
 
