@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Alert } from '@mui/material'
-import client from '@/api/client'
+import serverSettingsApi from '@/api/serverSettings'
 
 export default function StorageUpgradeBanner() {
     const [paused, setPaused] = useState(false)
     useEffect(() => {
         let live = true
         const check = () =>
-            client
-                .get('/ping/storage-upgrade')
+            serverSettingsApi
+                .storagePause()
                 .then(({ data }) => {
                     if (live) setPaused(data.paused === true)
                 })
