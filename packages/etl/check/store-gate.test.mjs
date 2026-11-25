@@ -434,3 +434,42 @@ test('calls queued before close still run, calls after close reject', async (t) 
         'Call after close rejects with store_moving'
     )
 })
+
+test('drain waits for a queued backend write and a failed write leaves the queue usable', async (t) => {
+    const store = await import('../store.mjs')
+    const transaction = Promise.withResolvers()
+    const writing = Promise.withResolvers()
+    const finish = Promise.withResolvers()
+    const failure = new Error('write failed')
+    store.useBackend({
+        tx: (fn) => fn(),
+        async run() {
+            writing.resolve()
+            await finish.promise
+            throw failure
+        },
+        get: async () => ({ n: 1 })
+    })
+    t.after(() => {
+        store.useBackend(null)
+        store.gate.open()
+    })
+
+    const first = store.tx(() => transaction.promise)
+    const rejected = assert.rejects(store.run('queued write'), failure)
+    store.gate.close('migration')
+    let drained = false
+    const drain = store.drained().then(() => {
+        drained = true
+    })
+    transaction.resolve()
+    await first
+    await writing.promise
+    await new Promise((resolve) => setImmediate(resolve))
+    const drainedDuringWrite = drained
+    finish.resolve()
+    await Promise.all([rejected, drain])
+    assert.equal(drainedDuringWrite, false)
+    store.gate.open()
+    assert.deepEqual(await store.get('read after failure'), { n: 1 })
+})

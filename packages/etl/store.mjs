@@ -16,10 +16,6 @@ function release() {
     held -= 1
 }
 
-async function free() {
-    while (held) await queue
-}
-
 function bind(params) {
     if (params === undefined) return []
     if (!Array.isArray(params)) throw new TypeError('ETL store parameters must be an array.')
@@ -79,83 +75,58 @@ export async function drained() {
 
 const standalone = statements(() => {})
 
-async function executeOnBackend(method, ...args) {
-    if (backend) {
-        held += 1
-        const result = queue.then(() => backend[method](...args))
-        queue = result.then(
-            (value) => {
-                release()
-                return value
-            },
-            (error) => {
-                release()
-                throw error
-            }
-        )
-        return result
-    } else {
-        return standalone[method](...args)
-    }
+// Register every admitted operation before yielding. The drain must include work waiting behind a transaction.
+async function enqueue(work) {
+    checkGate()
+    held += 1
+    const result = queue.then(work)
+    queue = result.then(release, release)
+    return result
 }
 
-export async function all(sql, params) {
-    checkGate()
-    if (held) await free()
+function executeOnBackend(method, ...args) {
+    const store = backend || standalone
+    return enqueue(() => store[method](...args))
+}
+
+export function all(sql, params) {
     return executeOnBackend('all', sql, params)
 }
 
-export async function get(sql, params) {
-    checkGate()
-    if (held) await free()
+export function get(sql, params) {
     return executeOnBackend('get', sql, params)
 }
 
-export async function run(sql, params) {
-    checkGate()
-    if (held) await free()
+export function run(sql, params) {
     return executeOnBackend('run', sql, params)
 }
 
-export async function exec(sql) {
-    checkGate()
-    if (held) await free()
+export function exec(sql) {
     return executeOnBackend('exec', sql)
 }
 
-async function transaction(fn) {
-    if (backend) {
-        return backend.tx(fn)
-    } else {
-        const handle = db()
-        let open = true
-        const t = statements(() => {
-            if (!open) throw new Error('This ETL transaction has already ended.')
-        })
-        handle.exec('BEGIN IMMEDIATE')
-        try {
-            const result = await fn(t)
-            handle.exec('COMMIT')
-            return result
-        } catch (error) {
-            handle.exec('ROLLBACK')
-            throw error
-        } finally {
-            open = false
-        }
+async function sqliteTransaction(fn) {
+    const handle = db()
+    let open = true
+    const t = statements(() => {
+        if (!open) throw new Error('This ETL transaction has already ended.')
+    })
+    handle.exec('BEGIN IMMEDIATE')
+    try {
+        const result = await fn(t)
+        handle.exec('COMMIT')
+        return result
+    } catch (error) {
+        handle.exec('ROLLBACK')
+        throw error
+    } finally {
+        open = false
     }
 }
 
 export function tx(fn) {
-    try {
-        checkGate()
-    } catch (error) {
-        return Promise.reject(error)
-    }
-    held += 1
-    const result = queue.then(() => transaction(fn))
-    queue = result.then(release, release)
-    return result
+    const store = backend
+    return enqueue(() => (store ? store.tx(fn) : sqliteTransaction(fn)))
 }
 
 // In-process keyed lock: calls for one pipeline run one after another, other pipelines are not held up.
