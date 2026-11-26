@@ -12,6 +12,12 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 1.7.12 is published as `abbc637e` ([#548](https://github.com/cuttlely/cuttlely/pull/548)), tagged `v1.7.12`. `#547` landed as `e3d80c58ac60636fe310342444399389d87661c5` and closes the roster stdio-framing gap in [#546](https://github.com/cuttlely/cuttlely/issues/546). `#535` landed as `d93220c61a1c30aae5f758e50ac777ba3d917d7b`. Release notes are dated `## [1.7.12] - 2026-11-21`. The direct chief model-binding limitation is fixed in 1.7.13 (agent mode). 1.7.11 remains published at `c8751b36` ([#544](https://github.com/cuttlely/cuttlely/pull/544)).
 
+## Kraken 2.0 development
+
+The `Kraken` branch tracks the [native runtime proposal](https://github.com/cuttlely/cuttlely/issues/594). For an isolated canary, set `CUTTLELY_NATIVE_PRIME_TEAMS` to a comma-separated list of exact saved team names on the server and workers. Agent-mode Prime can delegate to model-only and plain Calculator specialists. The canary refuses other capabilities. Remove the name and restart the processes to return subsequent agent turns to the bundled runtime. Drain active work before changing the setting.
+
+`pnpm harness:check` includes the saved Calculator canvas, delegation scope and cancellation fixtures. Full verification also runs `scripts/kraken-upgrade.test.mjs`: separate server boots retain the saved flow, synthetic credential and conversation in PostgreSQL through canary selection and rollback. The test simulates provider and legacy runtime replies. Native MCP and Analyst, shell/code and browser execution, per-admission selection across worker replacements, artifact continuity, and a Hermes-free distribution remain release work.
+
 ## Milestones
 
 | #   | Milestone                                                                                        | State                                                                                                                                                                                           |
