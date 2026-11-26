@@ -759,6 +759,11 @@
             "reason": "Service administration binds a host-designated account to the actual application database connection; the host fingerprint CLI and request gate read DataSource options instead of trusting draft settings or duplicating connection resolution."
         },
         {
+            "from": "packages/server/src/identity/oidcProvider.privateIssuer.test.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "The offline OIDC fixture resolves the installed public components entry to mock its guarded fetch in both Jest module layouts."
+        },
+        {
             "from": "packages/server/src/identity/oidcProvider.ts",
             "to": "packages/components/src/index.ts",
             "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
