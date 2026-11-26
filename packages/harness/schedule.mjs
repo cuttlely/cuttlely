@@ -190,15 +190,14 @@ export function recordScheduleTick(name, { claimedNext = null, runId = null, res
         db.prepare(
             `UPDATE harness_schedules
              SET last_result = ?, last_reason = ?, updated_at = ?,
-                 last_run_id = COALESCE(?, last_run_id), last_run_at = CASE WHEN ? IS NULL THEN last_run_at ELSE ? END
+                 last_run_id = COALESCE(?, last_run_id), last_run_at = COALESCE(?, last_run_at)
              WHERE harness_name = ? AND next_run_at IS NOT DISTINCT FROM ?`
         ).run(
             String(result || '').slice(0, 32),
             reason ? String(reason).slice(0, 300) : null,
             now.getTime(),
             runId,
-            runId,
-            now.getTime(),
+            runId == null ? null : now.getTime(),
             current.harness,
             claimedNext
         )

@@ -38,6 +38,8 @@ export function recordAgentStep(profileName, sessionId, step, slot) {
             name: step.name,
             task: publicTask(redactSecrets(step.task)),
             status: step.status,
+            ...(step.model ? { model: step.model } : {}),
+            ...(step.fallback ? { fallback: step.fallback } : {}),
             ...(step.tools?.length ? { tools: step.tools } : {}),
             startedAt: step.startedAt,
             ms: Math.max(0, Date.now() - step.startedAt),

@@ -673,7 +673,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
             ...step,
             ...queryUsageFields(context, specialist),
             ...(step.status === 'running' ? { status: 'cancelled', ms: Math.max(0, Date.now() - step.startedAt) } : {}),
-            model: publicModelLabel(specialist?.model),
+            model: step.model || publicModelLabel(specialist?.model),
             tools: step.tools || [],
             sources: []
         }
@@ -699,7 +699,14 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
     trace.engine = context.nativePrime ? 'native' : 'hermes'
     trace.route.status = 'skipped'
     if (status !== 'completed') trace.status = status
-    trace.chief = { status, model: publicModelLabel(context.roster.chief.model), ms: Date.now() - started }
+    const chiefCalls = roleCalls(context, 'chief')
+    const fallback = chiefCalls.findLast((call) => call.fallback)?.fallback
+    trace.chief = {
+        status,
+        model: chiefCalls.at(-1)?.model || publicModelLabel(context.roster.chief.model),
+        ...(fallback ? { fallback } : {}),
+        ms: Date.now() - started
+    }
     return { text, harness: context.name, mode: 'agent', agents, sources: [], artifacts: [], timings, report, trace }
 }
 
@@ -720,7 +727,10 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         return `Specialist "${specialist.name}" failed.`
     } finally {
         step.tools = toolsFor(context, specialist.name, firstTool)
-        const tokens = sumCallTokens(context.calls?.slice(firstCall))
+        const calls = context.calls.slice(firstCall)
+        step.model = calls.at(-1)?.model
+        step.fallback = calls.findLast((call) => call.fallback)?.fallback
+        const tokens = sumCallTokens(calls)
         if (tokens) step.usage = { prompt_tokens: tokens.prompt, completion_tokens: tokens.completion }
         if (slot !== undefined) recordAgentStep(profileName, sessionId, step, slot)
     }

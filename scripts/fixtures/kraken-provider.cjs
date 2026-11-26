@@ -10,10 +10,19 @@ Module._load = function (request, parent) {
         ...value,
         ChatXAI: class extends value.ChatXAI {
             constructor(id, fields) {
-                assert.equal(fields.apiKey, process.env.KRAKEN_FIXTURE_MODEL_KEY)
+                assert.ok(
+                    fields.apiKey && [process.env.KRAKEN_FIXTURE_MODEL_KEY, process.env.KRAKEN_FIXTURE_BUSY_KEY].includes(fields.apiKey)
+                )
                 super(id, fields)
+                this.fixtureBusy = fields.apiKey === process.env.KRAKEN_FIXTURE_BUSY_KEY
             }
             bindTools(tools) {
+                if (this.fixtureBusy)
+                    return {
+                        async invoke() {
+                            throw new Error('503 Fixture primary unavailable.')
+                        }
+                    }
                 return {
                     async invoke(messages) {
                         const last = messages.at(-1)

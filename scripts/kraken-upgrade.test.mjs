@@ -51,6 +51,7 @@ test(
         const bookTeam = name + '-playbook'
         const chatId = randomUUID()
         const modelKey = randomUUID()
+        const busyKey = randomUUID()
         const secretKey = randomUUID()
         const account = { email: 'qa@example.invalid', password: randomUUID() + 'aA1!' }
         let current
@@ -123,6 +124,7 @@ test(
                 CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? [name, bookTeam].join(',') : '',
                 CUTTLELY_HARNESS_QUEUE: stage === 'original' ? 'off' : 'external',
                 KRAKEN_FIXTURE_MODEL_KEY: modelKey,
+                KRAKEN_FIXTURE_BUSY_KEY: busyKey,
                 HERMES_API_URL: 'http://127.0.0.1:' + legacy.address().port,
                 CUTTLELY_ANALYST: 'off'
             }
@@ -147,9 +149,9 @@ test(
             assert.equal(login.status, 200)
             cookie = login.cookie
         }
-        async function api(route, body) {
+        async function api(route, body, method = body ? 'POST' : 'GET') {
             t.diagnostic(stage + ' ' + route.split('/')[0])
-            const r = await request(url + '/api/v1/' + route, { method: body ? 'POST' : 'GET', body, cookie }).catch((error) => {
+            const r = await request(url + '/api/v1/' + route, { method, body, cookie }).catch((error) => {
                 throw new Error(stage + ' ' + route + ' failed: ' + error.name)
             })
             assert.ok(r.status >= 200 && r.status < 300, route + ' returned ' + r.status + ' ' + (r.json?.message || ''))
@@ -170,6 +172,26 @@ test(
                 content: 'Stock check step.\n'.repeat(3000) + 'Inventory formula: 17 * 3'
             }
         ]
+        // This team keeps separate saved primary and fallback bindings for its specialist.
+        const busy = await api('credentials', { name: 'QA busy primary', credentialName: 'xaiApi', plainDataObj: { xaiApiKey: busyKey } })
+        const backup = bookGraph.nodes.find((node) => node.data.name === 'chatXAI')
+        const primary = structuredClone(backup)
+        primary.id = primary.data.id = 'chatXAI_primary'
+        primary.data.credential = busy.id
+        primary.data.inputs.modelName = 'qa-primary'
+        bookGraph.nodes.push(primary)
+        const specialistId = bookGraph.nodes.find((node) => node.data.name === 'harnessSpecialist').id
+        for (const [binding, input] of [
+            [primary, 'chatModel'],
+            [backup, 'fallbackModel']
+        ]) {
+            bookGraph.edges.push({
+                id: binding.id + '-' + specialistId + '-' + input,
+                source: binding.id,
+                target: specialistId,
+                targetHandle: specialistId + '-input-' + input
+            })
+        }
         const bookFlow = await api('chatflows', {
             name: bookTeam,
             type: 'HARNESS',
@@ -178,6 +200,25 @@ test(
             isPublic: false
         })
         const originalBookFlow = await api('chatflows/' + bookFlow.id)
+        const callerSample = JSON.parse(fs.readFileSync(path.join(root, 'samples/chatflows/ops.chatflow.json')))
+        const callerGraph = JSON.parse(callerSample.flowData)
+        callerGraph.nodes.find((node) => node.data.name === 'harness').data.inputs.harnessName = name
+        const caller = await api('chatflows', {
+            name: 'qa-caller',
+            type: 'CHATFLOW',
+            flowData: JSON.stringify(callerGraph),
+            deployed: true,
+            isPublic: false
+        })
+        const savedCaller = (await api('chatflows/' + caller.id)).flowData
+        async function predict() {
+            const response = await api('prediction/' + caller.id, { question: '17 * 3', overrideConfig: { sessionId: randomUUID() } })
+            assert.equal(response.text, '51')
+        }
+        await predict()
+        const scheduleRoute = 'harnesses/' + name + '/schedule'
+        const savedSchedule = await api(scheduleRoute, { cron: '0 0 * * *', timezone: 'UTC', question: '17 * 3', status: 'paused' }, 'PUT')
+        assert.equal(savedSchedule.schedule.status, 'paused')
         const run = (team = name) => api('harnesses/' + team + '/runs', { mode: 'agent', question: '17 * 3', chatId })
         assert.equal((await run()).text, 'Legacy verified 51.')
         assert.equal((await run(bookTeam)).text, 'Legacy verified 51.')
@@ -194,6 +235,8 @@ test(
         assert.equal((await api('chatflows/' + bookFlow.id)).flowData, originalBookFlow.flowData)
         const bookResult = await run(bookTeam)
         assert.equal(bookResult.text, 'Native verified 51.')
+        assert.match(bookResult.agents[0].fallback, /grok-4\.7/)
+        assert.equal(bookResult.agents[0].model, bookResult.agents[0].fallback)
         assert.deepEqual(
             bookResult.agents.map((agent) => agent.status),
             ['completed']
@@ -203,12 +246,48 @@ test(
         assert.equal(tools.at(-1), 'calculator done')
         assert.ok(tools.length > 4 && tools.slice(1, -1).every((tool) => tool === 'skill_view done'))
         assert.deepEqual(legacyCalls, ['original', 'original'])
+        assert.equal((await api('chatflows/' + caller.id)).flowData, savedCaller)
+        await predict()
+        assert.equal((await api(scheduleRoute)).schedule.status, 'paused')
+        await api(scheduleRoute + '/resume', {})
+        // Make the fixture due now. The real web scheduler claims it and the external worker executes it.
+        const { Pool } = createRequire(path.join(root, 'packages/server/package.json'))('pg')
+        const pool = new Pool(db.connection)
+        try {
+            const due = await pool.query(
+                "UPDATE cuttlely_harness_queue.harness_schedules SET next_run_at = $1 WHERE harness_name = $2 AND status = 'active'",
+                [Date.now() - 1000, name]
+            )
+            assert.equal(due.rowCount, 1)
+        } finally {
+            await pool.end()
+        }
+        let occurrence
+        const deadline = Date.now() + 60000
+        do {
+            const { schedule } = await api(scheduleRoute)
+            if (schedule.lastResult === 'failed') assert.fail('The due schedule failed.')
+            if (schedule.lastResult === 'succeeded' && schedule.lastRunId) {
+                occurrence = schedule.lastRunId
+                break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        } while (Date.now() < deadline)
+        assert.ok(occurrence, 'The due schedule must record its completed run')
+        await api(scheduleRoute + '/pause', {})
         stage = 'rollback'
         await boot()
         const rolledBack = await run()
         assert.equal(rolledBack.text, 'Legacy verified 51.')
         assert.equal(rolledBack.trace.engine, 'hermes')
         assert.equal((await run(bookTeam)).text, 'Legacy verified 51.')
+        await predict()
+        const restored = (await api(scheduleRoute)).schedule
+        assert.equal(restored.status, 'paused')
+        assert.equal(restored.lastRunId, occurrence)
+        const scheduled = await api('harnesses/' + name + '/runs/' + occurrence + '/result')
+        assert.equal(scheduled.source, 'schedule')
+        assert.equal(scheduled.result.text, '51')
         assert.deepEqual(legacyCalls, ['original', 'original', 'rollback', 'rollback'])
     }
 )
