@@ -68,9 +68,15 @@ For an existing local store, pause writers and copy the durable files to the buc
 
 ## Operator-supplied files
 
-When the storage screen lists profile prompts as included, select **Upgrade storage** after confirming the backup and available space. Cuttlely copies each listed `SOUL.md` into PostgreSQL, verifies its contents, and keeps the original file. Web servers and workers restore the upgrade snapshot on a replacement runtime disk. The restore runs once per disk and preserves existing files. Back up later local prompt edits separately. Other unresolved files appear in their own warning.
+When the storage screen lists profile prompts as included, select **Upgrade storage** after confirming the backup and available space. Cuttlely copies each listed `SOUL.md` into PostgreSQL, verifies its contents, and keeps the original file. Web servers and workers restore the upgrade snapshot on a replacement runtime disk. The restore runs once per disk and preserves existing files. Prompt edits written through the profile compiler are committed to PostgreSQL. Direct changes made by a host editor still need their own backup. Other unresolved files appear in their own warning.
 
 In 1.7.15 the yellow disk-dependency warning can list stock runtime skills and disable **Upgrade storage**. Keep the original disk attached. With the bundled-skill preflight fix, reopen **Application database storage** to refresh the inventory. Files matching the installed bundle are counted under **Temporary data Cuttlely can rebuild**. The skill sync manifest is regenerated. Curator run history and its pause setting reset. Modified files, custom skills, and links still require review. For source installations, run the runtime setup for the updated checkout to generate the reference catalog.
+
+The upgrade inventory also recognizes local runtime configuration, skill usage, harness playbooks and supported cache directories. Their verified upgrade snapshot is encrypted with the installation key and restored on an empty web or worker disk. Preserve this key independently of the host. Links, unsupported files and live file databases still require review. When the queue is busy, the storage screen identifies the active work. Select **Check again** after it finishes.
+
+The snapshot represents the time of upgrade. Every web server, worker and runtime can lose its local filesystem at the same time. Recovery depends on a PostgreSQL service outside those hosts and the installation key supplied independently through the deployment’s secret manager. An application using an ephemeral PostgreSQL volume also needs an independent copy of every acknowledged transaction.
+
+The current runtime can acknowledge a SQLite chat message or a local configuration edit before PostgreSQL has it. An installation requiring every acknowledged write to survive a crash cannot rely on this upgrade snapshot for ongoing recovery.
 
 A workflow or runtime plugin can open a local path directly. Move mutable data to a supported durable backend, retire the dependency, or supply immutable files at their expected paths on every instance. For example, ship a custom skill with the image or fetch a pinned object from a private bucket **before starting the web server and worker**. Supply secrets from the host secret manager.
 
@@ -105,7 +111,7 @@ Buffer Memory and Buffer Window Memory read saved chat messages for the same flo
 
 ### Chat sessions after disk loss
 
-The agent runtime keeps its own session database (`state.db`) on the host. When a replacement starts with an empty disk, the runtime creates a fresh database and clients can start a new conversation at the same endpoint. Runtime-only conversation history, in-progress turns and undelivered replies or delegated task results can be lost. An ordinary restart can reuse the database if the disk is still present. The storage inventory lists this database for information and allows cutover. Chat messages already saved to the application PostgreSQL database survive.
+The upgrade verifies a copy of each runtime session database. With application database storage active, the runtime commits changes to the session history in PostgreSQL before its session writer returns. Web services and workers can recover those messages and configuration saved through the runtime on replacement hosts using the same installation key. This uses ordinary outbound database connections. Unfinished turns, external actions and undelivered results have their own delivery semantics. Edits made directly with shell redirection or an independent editor inside a container still reside on that host. A restart that replaces its filesystem can lose those edits.
 
 ## Run and verify
 

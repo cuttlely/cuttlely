@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: runtime-postgres
+
+Commit runtime sessions and settings to PostgreSQL
+---
+ hermes_cli/config.py | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/hermes_cli/config.py b/hermes_cli/config.py
+index 2815fbfe1a1f93b808afe484c186418fbfcf2891..ed1b057092d044cf738aea6024bc6c052f2dce0f 100644
+--- a/hermes_cli/config.py
++++ b/hermes_cli/config.py
+@@ -3185,7 +3185,12 @@ def edit_config():
+         return
+ 
+     print(f"Opening {config_path} in {editor}...")
+-    subprocess.run([editor, str(config_path)])
++    from cuttlely_session_store import runtime_path
++    previous = config_path.read_bytes() if runtime_path(config_path) is not None else None
++    result = subprocess.run([editor, str(config_path)])
++    if result.returncode == 0:
++        from cuttlely_session_store import save_setting
++        save_setting(config_path, config_path, previous=previous)
+ 
+ 
+ def _default_value_for_key(dotted_key: str):

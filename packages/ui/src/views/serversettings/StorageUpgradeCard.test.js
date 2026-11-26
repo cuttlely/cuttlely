@@ -29,7 +29,10 @@ test.each([[], ['skills/custom/SKILL.md']].map((unresolved) => [unresolved]))(
         fireEvent.click(screen.getByRole('checkbox'))
         const button = screen.getByRole('button', { name: 'Upgrade storage' })
         expect(button.disabled).toBe(unresolved.length > 0)
-        if (!unresolved.length) {
+        if (unresolved.length) {
+            expect(screen.getByText('Local files (1)').closest('details').open).toBe(false)
+            expect(screen.getByText(/Review 1 local path/)).toBeTruthy()
+        } else {
             serverSettingsApi.storageStatus.mockResolvedValue({ data: { ...status, phase: 'postgres' } })
             fireEvent.click(button)
             await waitFor(() => expect(screen.getByRole('button', { name: 'Restore retained SQLite files' })).toBeTruthy())
@@ -37,3 +40,18 @@ test.each([[], ['skills/custom/SKILL.md']].map((unresolved) => [unresolved]))(
         }
     }
 )
+
+test('busy queue identifies the active work and can be checked again after it drains', async () => {
+    serverSettingsApi.storageStatus
+        .mockResolvedValueOnce({
+            data: { ...status, stores: [{ kind: 'queue', busy: true, active: ['running jobs'], counts: { jobs: 663247 } }] }
+        })
+        .mockResolvedValue({ data: status })
+    render(createElement(StorageUpgradeCard))
+    await screen.findByText(/Finish or stop active work \(running jobs\)/)
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2048' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(screen.getByRole('button', { name: 'Upgrade storage' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upgrade storage' }).disabled).toBe(false))
+})

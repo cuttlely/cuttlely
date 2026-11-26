@@ -42,3 +42,7 @@ hermes/gateway/hosted_rooms_legacy_import.py
 hermes/gateway/cuttlely_mcp_startup.py
 hermes/gateway/run.py
 hermes/gateway/run_profile_reconcile.py
+hermes/cuttlely_session_store.py
+hermes/hermes_state.py
+hermes/utils.py
+hermes/hermes_cli/config.py
