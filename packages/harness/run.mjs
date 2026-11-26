@@ -1,4 +1,4 @@
-import { beginAgentTurn, agentTurn, endAgentTurn } from './agent-run-context.mjs'
+import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
@@ -66,7 +66,9 @@ import {
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
-import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
+import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
+import { nativePrimeInstructions, runNativePrime, useNativePrime } from './runtime/native-prime.mjs'
+import { executeAgentRun } from './runtime/agent-run.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -562,7 +564,8 @@ async function runTurnBody(
     assertCurrentRecord(harness)
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
-    const needsHermes = mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
+    const nativePrime = useNativePrime(harness, mode)
+    const needsHermes = !nativePrime && (mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist)))
     let roster = harness
     let profileMs = 0
     if (needsHermes) {
@@ -581,6 +584,7 @@ async function runTurnBody(
     const budget = turnBudgetMs(budgetMs)
     const budgetSignal = budget > 0 ? AbortSignal.timeout(budget) : undefined
     const context = {
+        nativePrime,
         name,
         chatId,
         sessionScope: canvasSessionScope(harness),
@@ -671,7 +675,8 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
     const timings = { routeMs: 0, specialistsMs: agents.reduce((sum, step) => sum + step.ms, 0), handoffMs: 0 }
     const report = predictionReport(context, timings)
     for (const step of agents) {
-        if (!step.tokens) continue
+        // Native specialist calls already contributed to the in-process usage counter.
+        if (!step.tokens || context.nativePrime) continue
         report.tokens.prompt = (report.tokens.prompt || 0) + step.tokens.prompt
         report.tokens.completion = (report.tokens.completion || 0) + step.tokens.completion
     }
@@ -691,10 +696,33 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
     return { text, harness: context.name, mode: 'agent', agents, sources: [], artifacts: [], timings, report, trace }
 }
 
+async function runNativeDelegation(context, profileName, sessionId, specialist, task) {
+    const step = { name: specialist.name, task, status: 'running', startedAt: Date.now() }
+    const slot = recordAgentStep(profileName, sessionId, step)
+    const firstCall = context.calls?.length || 0
+    try {
+        const result = await runInlineSpecialist(context, specialist, task)
+        context.workSignal?.throwIfAborted()
+        step.status = 'completed'
+        return result.text
+    } catch (error) {
+        step.status = context.workSignal?.aborted ? 'cancelled' : 'failed'
+        step.error = maskWorkspacePaths(error.message)
+        context.workSignal?.throwIfAborted()
+        return `Specialist "${specialist.name}" failed.`
+    } finally {
+        const tokens = sumCallTokens(context.calls?.slice(firstCall))
+        if (tokens) step.usage = { prompt_tokens: tokens.prompt, completion_tokens: tokens.completion }
+        if (slot !== undefined) recordAgentStep(profileName, sessionId, step, slot)
+    }
+}
+
 async function runAgentChief(context, input) {
+    const { nativePrime } = context
     const started = Date.now()
     const profileName = context.roster.tryId ? tryProfileName(context.roster.tryId) : context.name
     const sessionId = specialistSessionId(profileName, context.chatId, context.turnId)
+    if (nativePrime && context.limit > 0) context.workSignal = combineSignals(context.workSignal, AbortSignal.timeout(context.limit))
     const request = {
         harnessName: profileName,
         baseUrl: context.baseUrl,
@@ -702,22 +730,15 @@ async function runAgentChief(context, input) {
         timeoutMs: context.limit,
         signal: context.workSignal
     }
-    let runId
-    let remoteFinished = false
-    let stopping
-    const stop = () => {
-        if (runId && !stopping) stopping = stopRun({ ...request, runId, timeoutMs: 2000 }).catch(() => false)
-    }
     const stream = chiefStream(context, 'answer')
     beginAgentTurn(profileName, sessionId, context.chatId, context.turnId)
-    context.workSignal?.addEventListener('abort', stop, { once: true })
     try {
         const history = loadPrompt(context)
         const budget = chiefContextTokens()
         // The runtime loads SOUL.md itself. Reserve its size without sending the compiled prompt twice.
-        const soulTokens = estimateTokens(chiefInstructions({ ...context.roster, name: profileName }))
+        const soulTokens = nativePrime ? 0 : estimateTokens(chiefInstructions({ ...context.roster, name: profileName }))
         const fitted = fitChiefMessages({
-            system: '',
+            system: nativePrime ? nativePrimeInstructions(context.roster) : '',
             memory: context.memoryBlock,
             history,
             user: [String(input ?? ''), context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
@@ -725,51 +746,53 @@ async function runAgentChief(context, input) {
         })
         noteTruncated(context, fitted.truncated)
         const user = fitted.messages.at(-1)
-        const created = await createRun({
-            ...request,
-            body: {
-                input: user.content,
-                conversation_history: fitted.messages.slice(1, -1),
-                ...(fitted.messages[0].content ? { instructions: fitted.messages[0].content } : {}),
-                session_id: sessionId,
-                provider: 'custom',
-                model: profileName
-            }
-        })
-        runId = created.run_id
-        throwIfClient(context)
-        context.workSignal?.throwIfAborted()
-        const status =
-            created.output || created.error || !runId
-                ? created
-                : await waitForRun({
-                      ...request,
-                      runId,
-                      timeoutMs: context.limit > 0 ? Math.max(1, context.limit - (Date.now() - started)) : context.limit,
-                      onEvent: (event) => {
-                          if (event?.event === 'message.delta' && event.delta) stream.onDelta(event.delta)
-                      }
+        const status = nativePrime
+            ? {
+                  output: await runNativePrime({
+                      messages: fitted.messages,
+                      roster: context.roster,
+                      budget,
+                      signal: context.workSignal,
+                      complete: (messages, tools) =>
+                          callModel(context, chiefModel(context.roster), { messages, tools, toolChoice: 'auto', role: 'chief' }),
+                      delegate: (specialist, task) => runNativeDelegation(context, profileName, sessionId, specialist, task)
                   })
-        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+              }
+            : await executeAgentRun({
+                  request,
+                  deadlineAt: context.limit > 0 ? started + context.limit : undefined,
+                  onEvent: (event) => {
+                      if (event?.event === 'message.delta' && event.delta) stream.onDelta(event.delta)
+                  },
+                  body: {
+                      input: user.content,
+                      conversation_history: fitted.messages.slice(1, -1),
+                      ...(fitted.messages[0].content ? { instructions: fitted.messages[0].content } : {}),
+                      session_id: sessionId,
+                      provider: 'custom',
+                      model: profileName
+                  }
+              })
+        throwIfClient(context)
         noteUsage(context, status)
         if (hermesRunFailed(status.status))
             throw new HarnessError('chief_failed', String(status.error || status.message || 'Chief run failed.'))
         const text = typeof status.output === 'string' ? maskWorkspacePaths(status.output) : ''
         if (!text.trim()) throw new HarnessError('empty_output', 'The chief returned an empty answer.')
+        if (nativePrime) {
+            stream.onDelta(text)
+            stream.flush()
+        }
         const result = agentChiefResult(context, profileName, sessionId, started, input, text)
         if (!context.replay) appendTurn(context.name, context.chatId, input, text, [], undefined, { scope: context.sessionScope })
         emit(context, 'final', result)
         return result
     } catch (error) {
-        if (runId && !remoteFinished) stop()
-        await stopping
         const status = context.clientSignal?.aborted || error?.code === 'aborted' ? 'cancelled' : 'failed'
         context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', status))
         throw error
     } finally {
         stream.flush()
-        context.workSignal?.removeEventListener('abort', stop)
-        await stopping
         endAgentTurn(profileName, sessionId)
     }
 }
@@ -1691,6 +1714,7 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
         return await invokeChat(resolved, {
             messages: request.messages,
             tools: request.tools,
+            toolChoice: request.toolChoice,
             json: request.json,
             timeoutMs: Math.min(context.limit || modelCallTimeoutMs(), modelCallTimeoutMs()),
             onDelta: request.onDelta,
@@ -3429,32 +3453,6 @@ async function runHermesSpecialist(context, specialist, task) {
         timeoutMs: context.limit,
         signal: context.workSignal
     }
-    let runId
-    let remoteFinished = false
-    const stops = []
-    let stopping = false
-    const stopCurrentRun = () => {
-        if (!runId || stopping) return
-        stopping = true
-        stops.push(
-            stopRun({
-                harnessName: specialist.profileName,
-                runId,
-                baseUrl: context.baseUrl,
-                fetchImpl: context.fetchImpl
-            })
-                .then((confirmed) => {
-                    if (!confirmed) console.warn(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
-                })
-                .catch(() => {})
-        )
-    }
-    // Stop this exact runtime run. Its request socket closing cancels its gateway
-    // model call; aborting by profile would also cancel other chats on this specialist.
-    const cancel = () => stopCurrentRun()
-    if (context.workSignal?.aborted) cancel()
-    const onAbort = () => cancel()
-    context.workSignal?.addEventListener('abort', onAbort, { once: true })
     const finishActivity = context.warmup ? () => {} : warmupCoordinator.begin(context.baseUrl || hermesBaseUrl())
     const specialistStarted = Date.now()
     const retrievalScope = { harness: context.name, specialist: specialist.name, sourceTurn: body.session_id }
@@ -3468,36 +3466,18 @@ async function runHermesSpecialist(context, specialist, task) {
     beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
     try {
         const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
-        const created = await createRun({
-            ...request,
+        const status = await executeAgentRun({
+            request,
             body,
-            ...(capacityWaitSeconds
-                ? {
-                      capacityWaitSeconds,
-                      onCapacityWait: ({ attempt, delayMs }) =>
-                          console.info(
-                              `[harness] ${context.name} ${specialist.name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
-                          )
-                  }
-                : {})
+            capacityWaitSeconds,
+            deadlineAt: capacityWaitSeconds && context.limit > 0 ? specialistStarted + context.limit : undefined,
+            onCapacityWait: ({ attempt, delayMs }) =>
+                console.info(
+                    `[harness] ${context.name} ${specialist.name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
+                ),
+            onEvent: (event) => forwardHermes(context, specialist, event),
+            onUnconfirmedStop: () => console.warn(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
         })
-        runId = created.run_id
-        if (context.workSignal?.aborted) {
-            cancel()
-            throw Object.assign(new Error('The harness run was aborted.'), { name: 'AbortError' })
-        }
-        const status =
-            created.output || created.error || !created.run_id
-                ? created
-                : await waitForRun({
-                      ...request,
-                      ...(capacityWaitSeconds && context.limit > 0
-                          ? { timeoutMs: Math.max(1, context.limit - (Date.now() - specialistStarted)) }
-                          : {}),
-                      runId: created.run_id,
-                      onEvent: (event) => forwardHermes(context, specialist, event)
-                  })
-        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
         const specialistEnded = Date.now()
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: specialistEnded })
         forwardDelta(context, specialist, '', true)
@@ -3517,8 +3497,6 @@ async function runHermesSpecialist(context, specialist, task) {
         return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
         warmupCoordinator.failed(context.baseUrl || hermesBaseUrl(), specialist.profileName)
-        // Losing status transport does not mean the admitted worker stopped.
-        if (runId && !remoteFinished) stopCurrentRun()
         throw error
     } finally {
         finishActivity()
@@ -3529,8 +3507,6 @@ async function runHermesSpecialist(context, specialist, task) {
         context.analystStarts.delete(specialist.name)
         endRetrievedSources(retrievalScope)
         endAnalystCalls(context.name, specialist.name, context.chatId)
-        context.workSignal?.removeEventListener('abort', onAbort)
-        await Promise.all(stops)
         // A turn keeps its folder until its answer is masked; a run outside a turn (warm-up) removes it now.
         if (imageDir && context.turnFolders) context.turnFolders.add(imageDir)
         else {

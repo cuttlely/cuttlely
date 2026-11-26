@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
+import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
+import { executeAgentRun } from './runtime/agent-run.mjs'
 import { profileDir } from './paths.mjs'
 import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
@@ -142,48 +143,16 @@ async function runSpecialist(args, signal) {
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0
     const baseUrl = hermesBaseUrl()
-    let runId
-    let remoteFinished = false
-    let stopping
-    const stop = () => {
-        if (!runId || stopping) return
-        stopping = stopRun({ harnessName: specialist.profileName, runId, baseUrl })
-            .then((confirmed) => {
-                if (!confirmed) console.error(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
-            })
-            .catch(() => {})
-    }
-    signal.addEventListener('abort', stop, { once: true })
     try {
-        const created = await createRun({
-            harnessName: specialist.profileName,
+        const status = await executeAgentRun({
+            request: { harnessName: specialist.profileName, baseUrl, timeoutMs, signal },
             body,
-            baseUrl,
-            timeoutMs,
-            signal,
-            ...(capacityWaitSeconds
-                ? {
-                      capacityWaitSeconds,
-                      onCapacityWait: ({ attempt, delayMs }) =>
-                          console.error(
-                              `[harness] ${harnessName} ${name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
-                          )
-                  }
-                : {})
+            capacityWaitSeconds,
+            deadlineAt: capacityWaitSeconds && timeoutMs > 0 ? startedAt + timeoutMs : undefined,
+            onCapacityWait: ({ attempt, delayMs }) =>
+                console.error(`[harness] ${harnessName} ${name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`),
+            onUnconfirmedStop: () => console.error(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
         })
-        runId = created.run_id
-        if (signal.aborted) throw Object.assign(new Error('The specialist task was cancelled.'), { name: 'AbortError' })
-        const status =
-            created.output || created.error
-                ? created
-                : await waitForRun({
-                      harnessName: specialist.profileName,
-                      runId,
-                      baseUrl,
-                      timeoutMs: capacityWaitSeconds && timeoutMs > 0 ? Math.max(1, timeoutMs - (Date.now() - startedAt)) : timeoutMs,
-                      signal
-                  })
-        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
         step.usage = status.usage
         if (hermesRunFailed(status.status)) {
             step.status = ['cancelled', 'interrupted'].includes(status.status) ? 'cancelled' : 'failed'
@@ -196,12 +165,8 @@ async function runSpecialist(args, signal) {
     } catch (error) {
         step.error = error.message
         step.status = signal.aborted || error.name === 'AbortError' || step.status === 'cancelled' ? 'cancelled' : 'failed'
-        if (runId && !remoteFinished) stop()
         throw error
     } finally {
-        signal.removeEventListener('abort', stop)
-        if (signal.aborted) stop()
-        await stopping
         if (slot !== undefined) recordAgentStep(harnessName, sessionId, step, slot)
     }
 }

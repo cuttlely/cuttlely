@@ -394,7 +394,8 @@ export const STEPS = [
             '--test-concurrency=1',
             path.join(ROOT, 'packages', 'etl', 'check', 'upgrade-control.test.mjs'),
             path.join(ROOT, 'scripts', 'storage-copy-application.test.cjs'),
-            path.join(ROOT, 'scripts', 'storage-replacement.test.mjs')
+            path.join(ROOT, 'scripts', 'storage-replacement.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-upgrade.test.mjs')
         ]
     },
     {
