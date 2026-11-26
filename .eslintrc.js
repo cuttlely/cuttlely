@@ -28,6 +28,7 @@ module.exports = {
         // Written by website/scripts/sync-docs.mjs and Astro at build time (copies of docs/).
         'website/src/content/**',
         'website/src/generated/**',
+        'packages/etl/bundled-skill-files.generated.json',
         'website/.astro/**',
         // Vendored A2A v0.3.0 JSON Schema. Keep the upstream bytes.
         'packages/server/src/services/a2a/__fixtures__/a2a-v0.3.0.json'
