@@ -6,6 +6,7 @@ import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
+import { admittedAgentEngine, selectAgentEngine } from './runtime/native-prime.mjs'
 
 const localRuns = new Map()
 let inlineActive = 0
@@ -40,7 +41,7 @@ export function jobPayload(args) {
         assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
     return {
         name: args.name,
-        ...(args.mode === 'agent' ? { mode: 'agent' } : {}),
+        ...(args.mode === 'agent' ? { mode: 'agent', engine: selectAgentEngine(args.name) } : {}),
         chatId: args.chatId,
         input: String(args.input ?? ''),
         ...(args.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
@@ -359,6 +360,8 @@ export async function executeJob(job) {
     const runArgs = {
         name: job.payload.name,
         mode: job.payload.mode,
+        // Jobs admitted before engine selection was recorded use the released runtime.
+        [admittedAgentEngine]: job.payload.engine ?? 'hermes',
         chatId: job.payload.chatId,
         input: job.payload.input,
         source: local?.source || job.payload.source,

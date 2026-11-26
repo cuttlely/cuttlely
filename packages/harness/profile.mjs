@@ -1856,6 +1856,10 @@ export function specialistSoul(specialist, env = process.env) {
     return lines.join('\n') + '\n'
 }
 
+export function playbookMarkdown(playbook) {
+    return ['---', `name: ${playbook.name}`, `description: ${yamlQuote(playbook.description)}`, '---', '', playbook.content, ''].join('\n')
+}
+
 // Each playbook is a Hermes skill: skills/harness-playbooks/<name>/SKILL.md. Folders for playbooks that were
 // removed are deleted; nothing outside harness-playbooks is touched.
 export function writePlaybooks(dir, playbooks) {
@@ -1887,16 +1891,7 @@ export function writePlaybooks(dir, playbooks) {
             keep.add(playbook.name)
             const folder = path.join(root, playbook.name)
             ensureChildDir(booksFd, root, playbook.name, fds, anchor)
-            const text = [
-                '---',
-                `name: ${playbook.name}`,
-                `description: ${yamlQuote(playbook.description)}`,
-                '---',
-                '',
-                playbook.content,
-                ''
-            ].join('\n')
-            writeIfChanged(path.join(folder, 'SKILL.md'), text)
+            writeIfChanged(path.join(folder, 'SKILL.md'), playbookMarkdown(playbook))
         }
         for (const entry of namesIn(booksFd, root)) {
             if (!entry || entry === '.' || entry === '..') continue

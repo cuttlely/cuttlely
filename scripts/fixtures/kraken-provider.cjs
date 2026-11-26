@@ -17,6 +17,31 @@ Module._load = function (request, parent) {
                 return {
                     async invoke(messages) {
                         const last = messages.at(-1)
+                        if (tools.some((tool) => tool.function.name === 'skill_view')) {
+                            const call = (name, args) => ({
+                                content: '',
+                                tool_calls: [{ type: 'tool_call', name, id: 'qa-' + name, args }]
+                            })
+                            if (last._getType() !== 'tool') {
+                                assert.ok(!messages.some((message) => String(message.content).includes('Inventory formula:')))
+                                return call('skills_list', { category: 'harness-playbooks' })
+                            }
+                            if (last.tool_call_id === 'qa-skills_list') {
+                                const { skills } = JSON.parse(last.content)
+                                assert.deepEqual(
+                                    skills.map((skill) => skill.name),
+                                    ['inventory']
+                                )
+                                return call('skill_view', { name: skills[0].name })
+                            }
+                            if (last.tool_call_id === 'qa-skill_view') {
+                                const expression = JSON.parse(last.content).content.match(/Inventory formula: (.+)/)[1]
+                                return call('calculator', { input: expression })
+                            }
+                            assert.equal(last.tool_call_id, 'qa-calculator')
+                            assert.equal(last.content, '51')
+                            return { content: '51' }
+                        }
                         if (last._getType() === 'tool') {
                             assert.equal(last.content, '51')
                             return { content: 'Native verified 51.' }

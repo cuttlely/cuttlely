@@ -38,6 +38,7 @@ export function recordAgentStep(profileName, sessionId, step, slot) {
             name: step.name,
             task: publicTask(redactSecrets(step.task)),
             status: step.status,
+            ...(step.tools?.length ? { tools: step.tools } : {}),
             startedAt: step.startedAt,
             ms: Math.max(0, Date.now() - step.startedAt),
             ...(step.error ? { error: redactSecrets(step.error).slice(0, 1000) } : {}),

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 import fs from 'node:fs'
 import http from 'node:http'
 import { createRequire } from 'node:module'
@@ -46,17 +48,31 @@ test(
         const { host, port: pgPort, user, password, database } = db.connection
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-upgrade-'))
         const name = 'kraken-calculator'
+        const bookTeam = name + '-playbook'
         const chatId = randomUUID()
         const modelKey = randomUUID()
         const secretKey = randomUUID()
         const account = { email: 'qa@example.invalid', password: randomUUID() + 'aA1!' }
         let current
+        let worker
+        const provider = path.join(root, 'scripts/fixtures/kraken-provider.cjs')
+        async function stopWorker() {
+            if (!worker || worker.exitCode !== null || worker.signalCode !== null) return
+            const exited = once(worker, 'exit')
+            worker.kill('SIGTERM')
+            const timer = setTimeout(() => worker.kill('SIGKILL'), 5000)
+            try {
+                await exited
+            } finally {
+                clearTimeout(timer)
+            }
+        }
         let stage = 'original'
         const legacyCalls = []
         const legacy = http.createServer(async (req, res) => {
             try {
                 assert.equal(req.method, 'POST')
-                assert.equal(req.url, '/p/' + name + '/v1/runs')
+                assert.ok([name, bookTeam].some((team) => req.url === '/p/' + team + '/v1/runs'))
                 assert.match(req.headers.authorization, /^Bearer .+/)
                 let raw = ''
                 for await (const chunk of req) raw += chunk
@@ -73,6 +89,7 @@ test(
         await new Promise((resolve) => legacy.listen(0, '127.0.0.1', resolve))
         t.after(async () => {
             try {
+                await stopWorker()
                 await current?.stop()
             } finally {
                 legacy.closeAllConnections()
@@ -85,6 +102,7 @@ test(
         const url = 'http://127.0.0.1:' + port
         let cookie
         async function boot() {
+            await stopWorker()
             await current?.stop()
             current = undefined
             const disk = path.join(dir, stage)
@@ -102,15 +120,29 @@ test(
                 ...(stage === 'original'
                     ? { CUTTLELY_INITIAL_OWNER_EMAIL: account.email, CUTTLELY_INITIAL_OWNER_PASSWORD: account.password }
                     : {}),
-                CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? name : '',
+                CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? [name, bookTeam].join(',') : '',
+                CUTTLELY_HARNESS_QUEUE: stage === 'original' ? 'off' : 'external',
                 KRAKEN_FIXTURE_MODEL_KEY: modelKey,
                 HERMES_API_URL: 'http://127.0.0.1:' + legacy.address().port,
                 CUTTLELY_ANALYST: 'off'
             }
             current = await startServer(root, dataEnv(disk, port, cfg), {
-                preload: [path.join(root, 'scripts/fixtures/kraken-provider.cjs')]
+                preload: [provider]
             })
             await waitForPing(url, current)
+            if (stage !== 'original') {
+                const workerDisk = path.join(dir, stage + '-worker')
+                fs.mkdirSync(workerDisk)
+                // Exercise a replacement worker with the opposite canary setting and an empty local disk.
+                worker = spawn(process.execPath, ['-r', provider, path.join(root, 'packages/harness/worker.mjs')], {
+                    cwd: root,
+                    env: dataEnv(workerDisk, port, {
+                        ...cfg,
+                        CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? '' : [name, bookTeam].join(',')
+                    }),
+                    stdio: 'ignore'
+                })
+            }
             const login = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
             assert.equal(login.status, 200)
             cookie = login.cookie
@@ -130,21 +162,46 @@ test(
         graph.nodes.find((n) => n.data.name === 'chatXAI').data.credential = cred.id
         const saved = await api('chatflows', { name, type: 'HARNESS', flowData: JSON.stringify(graph), deployed: false, isPublic: false })
         const stored = await api('chatflows/' + saved.id)
-        const run = () => api('harnesses/' + name + '/runs', { mode: 'agent', question: '17 * 3', chatId })
+        const bookGraph = structuredClone(graph)
+        bookGraph.nodes.find((n) => n.data.name === 'harnessSpecialist').data.inputs.playbooks = [
+            { name: 'inventory', description: 'Inventory reconciliation', content: 'Inventory formula: 17 * 3' }
+        ]
+        const bookFlow = await api('chatflows', {
+            name: bookTeam,
+            type: 'HARNESS',
+            flowData: JSON.stringify(bookGraph),
+            deployed: false,
+            isPublic: false
+        })
+        const originalBookFlow = await api('chatflows/' + bookFlow.id)
+        const run = (team = name) => api('harnesses/' + team + '/runs', { mode: 'agent', question: '17 * 3', chatId })
         assert.equal((await run()).text, 'Legacy verified 51.')
+        assert.equal((await run(bookTeam)).text, 'Legacy verified 51.')
         stage = 'native'
         await boot()
         assert.equal((await api('chatflows/' + saved.id)).flowData, stored.flowData)
         const result = await run()
         assert.equal(result.text, 'Native verified 51.')
+        assert.equal(result.trace.engine, 'native')
         assert.deepEqual(
             result.agents.map((a) => [a.name, a.status]),
             [['math', 'completed']]
         )
-        assert.deepEqual(legacyCalls, ['original'])
+        assert.equal((await api('chatflows/' + bookFlow.id)).flowData, originalBookFlow.flowData)
+        const bookResult = await run(bookTeam)
+        assert.equal(bookResult.text, 'Native verified 51.')
+        assert.deepEqual(
+            bookResult.agents.map((agent) => agent.status),
+            ['completed']
+        )
+        assert.deepEqual(bookResult.agents[0].tools, ['skills_list done', 'skill_view done', 'calculator done'])
+        assert.deepEqual(legacyCalls, ['original', 'original'])
         stage = 'rollback'
         await boot()
-        assert.equal((await run()).text, 'Legacy verified 51.')
-        assert.deepEqual(legacyCalls, ['original', 'rollback'])
+        const rolledBack = await run()
+        assert.equal(rolledBack.text, 'Legacy verified 51.')
+        assert.equal(rolledBack.trace.engine, 'hermes')
+        assert.equal((await run(bookTeam)).text, 'Legacy verified 51.')
+        assert.deepEqual(legacyCalls, ['original', 'original', 'rollback', 'rollback'])
     }
 )

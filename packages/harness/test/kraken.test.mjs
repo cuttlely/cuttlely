@@ -4,7 +4,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { runNativePrime, useNativePrime } from '../runtime/native-prime.mjs'
+import { runNativePrime, runNativeToolLoop, useNativePrime } from '../runtime/native-prime.mjs'
+import { readPlaybookTool } from '../runtime/native-playbooks.mjs'
+import { playbookMarkdown } from '../profile.mjs'
 import { executeAgentRun } from '../runtime/agent-run.mjs'
 
 test('cancellation racing admission stops only the admitted ID and waits for cleanup', async () => {
@@ -91,6 +93,43 @@ test('cancelling a pending native delegation leaves a concurrent turn on the sam
     await assert.rejects(pending, { name: 'AbortError' })
     assert.equal(await sibling, '51')
     assert.equal(messages.length, 1)
+})
+
+test('native playbooks list metadata and resolve only the saved content assigned to this specialist', () => {
+    const book = { name: 'inventory', description: 'Count stock', content: 'A private instruction.' }
+    const books = [book]
+    assert.deepEqual(readPlaybookTool(books, 'skills_list', {}).skills, [
+        { name: book.name, description: book.description, category: 'harness-playbooks' }
+    ])
+    assert.equal(readPlaybookTool(books, 'skills_list', { category: 'other' }).count, 0)
+    for (const name of [book.name, 'harness-playbooks/inventory', 'harness-playbooks:inventory']) {
+        assert.equal(readPlaybookTool(books, 'skill_view', { name, file_path: 'SKILL.md' }).content, playbookMarkdown(book))
+    }
+    for (const args of [{ name: 'other' }, { name: '../inventory' }, { name: 'inventory', file_path: '../secrets' }]) {
+        assert.equal(readPlaybookTool(books, 'skill_view', args).success, false)
+    }
+    assert.equal(readPlaybookTool([], 'skill_view', { name: book.name }).success, false)
+})
+
+test('a native specialist can read a long saved playbook without a canvas tool when its context fits', async () => {
+    const book = { name: 'inventory', description: 'Inventory rules', content: 'a'.repeat(59000) + 'Verification code 93.' }
+    const options = {
+        messages: [{ role: 'user', content: 'Read the inventory instructions.' }],
+        tools: [{ type: 'function', function: { name: 'skill_view' } }],
+        maxCalls: 1,
+        limitCode: 'tool_limit',
+        complete: async (messages) => {
+            const last = messages.at(-1)
+            if (last.role === 'tool') {
+                assert.ok(JSON.parse(last.content).content.endsWith('Verification code 93.\n'))
+                return { content: '93', toolCalls: [] }
+            }
+            return { content: '', toolCalls: [{ id: 'read', function: { name: 'skill_view', arguments: '{"name":"inventory"}' } }] }
+        },
+        execute: (tool, args) => JSON.stringify(readPlaybookTool([book], tool, args))
+    }
+    assert.equal(await runNativeToolLoop({ ...options, budget: 16000 }), '93')
+    await assert.rejects(runNativeToolLoop({ ...options, budget: 4000 }), { code: 'context_limit' })
 })
 
 test('the unchanged 1.7.15 Calculator canvas runs directly and through native Prime with a simulated model', async (t) => {

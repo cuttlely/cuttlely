@@ -2,12 +2,19 @@ import { HarnessError } from '../errors.mjs'
 import { estimateTokens } from '../context.mjs'
 import { needsAgentLoop, specialistSummary } from '../profile.mjs'
 
-// An operator selects saved teams by exact name. Keep this decision on the admitted turn.
-export function useNativePrime(roster, mode) {
-    if (mode !== 'agent' || !process.env.CUTTLELY_NATIVE_PRIME_TEAMS?.split(',').some((name) => name.trim() === roster.name)) return false
+// Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
+export const admittedAgentEngine = Symbol('admittedAgentEngine')
+
+export function selectAgentEngine(name) {
+    return process.env.CUTTLELY_NATIVE_PRIME_TEAMS?.split(',').some((entry) => entry.trim() && entry.trim() === name) ? 'native' : 'hermes'
+}
+
+export function useNativePrime(roster, mode, engine = selectAgentEngine(roster.name)) {
+    if (mode !== 'agent' || engine === 'hermes') return false
+    if (engine !== 'native') throw new HarnessError('bad_engine', 'The admitted agent engine is unavailable.')
     for (const specialist of roster.specialists) {
         if (
-            needsAgentLoop(specialist) ||
+            needsAgentLoop({ ...specialist, playbooks: [] }) ||
             specialist.modules?.some(
                 (binding) =>
                     binding.nodeName !== 'calculator' ||
@@ -48,8 +55,27 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
             }
         }
     ]
+    return runNativeToolLoop({
+        messages,
+        tools,
+        complete,
+        signal,
+        budget,
+        maxCalls: 8,
+        limitCode: 'delegation_limit',
+        execute: (_name, args) => {
+            const specialist = roster.specialists.find((s) => s.name === args?.name)
+            if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
+            if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
+            return delegate(specialist, args.task)
+        }
+    })
+}
+
+export async function runNativeToolLoop({ messages, tools, complete, execute, signal, budget, maxCalls, limitCode }) {
     const transcript = [...messages]
-    let remaining = 8
+    const allowed = new Set(tools.map((tool) => tool.function.name))
+    let remaining = maxCalls
     for (;;) {
         signal?.throwIfAborted()
         if (
@@ -60,27 +86,28 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
                 0
             ) > budget
         )
-            throw new HarnessError('context_limit', 'Native Prime exhausted its turn context.')
+            throw new HarnessError('context_limit', 'The native agent exhausted its turn context.')
         const reply = await complete(transcript, tools)
         signal?.throwIfAborted()
         if (!reply.toolCalls.length) return reply.content
-        if (reply.toolCalls.length > remaining) throw new HarnessError('delegation_limit', 'Native Prime reached its delegation limit.')
+        if (reply.toolCalls.length > remaining) throw new HarnessError(limitCode, 'The native agent reached its tool call limit.')
         remaining -= reply.toolCalls.length
-        transcript.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
-        for (const call of reply.toolCalls) {
-            signal?.throwIfAborted()
-            if (call.function.name !== 'run_specialist')
-                throw new HarnessError('forbidden', 'The requested tool is not available to Prime.')
+        const calls = reply.toolCalls.map((call) => {
+            if (!allowed.has(call.function?.name)) throw new HarnessError('forbidden', 'The requested tool is unavailable to this agent.')
             let args
             try {
                 args = JSON.parse(call.function.arguments)
             } catch {
-                throw new HarnessError('bad_task', 'Invalid delegation arguments.')
+                throw new HarnessError('bad_task', 'Invalid tool arguments.')
             }
-            const specialist = roster.specialists.find((s) => s.name === args?.name)
-            if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
-            if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
-            const content = await delegate(specialist, args.task)
+            if (!args || typeof args !== 'object' || Array.isArray(args))
+                throw new HarnessError('bad_task', 'Expected tool arguments as an object.')
+            return { name: call.function.name, id: call.id, args }
+        })
+        transcript.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
+        for (const call of calls) {
+            signal?.throwIfAborted()
+            const content = await execute(call.name, call.args)
             transcript.push({ role: 'tool', tool_call_id: call.id, content })
         }
     }

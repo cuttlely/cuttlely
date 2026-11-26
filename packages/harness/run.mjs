@@ -67,8 +67,9 @@ import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-name
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
-import { nativePrimeInstructions, runNativePrime, useNativePrime } from './runtime/native-prime.mjs'
+import { admittedAgentEngine, nativePrimeInstructions, runNativePrime, runNativeToolLoop, useNativePrime } from './runtime/native-prime.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
+import { playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -365,6 +366,7 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
 }
 
 async function runHarnessTurn({
+    [admittedAgentEngine]: engine,
     mode,
     name,
     chatId,
@@ -406,6 +408,7 @@ async function runHarnessTurn({
             analystScope,
             () =>
                 runTurn(harness, {
+                    engine,
                     mode,
                     name,
                     chatId,
@@ -465,6 +468,7 @@ export async function runQueuedHarness(args) {
 async function runTurn(
     harness,
     {
+        engine,
         mode,
         name,
         chatId,
@@ -495,6 +499,7 @@ async function runTurn(
     const callerContextToken = callerWorkspace ? noteCallerFlowOptions(harness.name, flowOptions, chatId) : undefined
     try {
         return await runTurnBody(harness, {
+            engine,
             mode,
             name,
             chatId,
@@ -536,6 +541,7 @@ function canvasSessionScope(harness) {
 async function runTurnBody(
     harness,
     {
+        engine,
         mode,
         name,
         chatId,
@@ -564,7 +570,7 @@ async function runTurnBody(
     assertCurrentRecord(harness)
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
-    const nativePrime = useNativePrime(harness, mode)
+    const nativePrime = useNativePrime(harness, mode, engine)
     const needsHermes = !nativePrime && (mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist)))
     let roster = harness
     let profileMs = 0
@@ -668,7 +674,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
             ...queryUsageFields(context, specialist),
             ...(step.status === 'running' ? { status: 'cancelled', ms: Math.max(0, Date.now() - step.startedAt) } : {}),
             model: publicModelLabel(specialist?.model),
-            tools: [],
+            tools: step.tools || [],
             sources: []
         }
     })
@@ -690,6 +696,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
         question: input
     })
     trace.mode = 'agent'
+    trace.engine = context.nativePrime ? 'native' : 'hermes'
     trace.route.status = 'skipped'
     if (status !== 'completed') trace.status = status
     trace.chief = { status, model: publicModelLabel(context.roster.chief.model), ms: Date.now() - started }
@@ -699,6 +706,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
 async function runNativeDelegation(context, profileName, sessionId, specialist, task) {
     const step = { name: specialist.name, task, status: 'running', startedAt: Date.now() }
     const slot = recordAgentStep(profileName, sessionId, step)
+    const firstTool = context.toolLog.length
     const firstCall = context.calls?.length || 0
     try {
         const result = await runInlineSpecialist(context, specialist, task)
@@ -711,6 +719,7 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         context.workSignal?.throwIfAborted()
         return `Specialist "${specialist.name}" failed.`
     } finally {
+        step.tools = toolsFor(context, specialist.name, firstTool)
         const tokens = sumCallTokens(context.calls?.slice(firstCall))
         if (tokens) step.usage = { prompt_tokens: tokens.prompt, completion_tokens: tokens.completion }
         if (slot !== undefined) recordAgentStep(profileName, sessionId, step, slot)
@@ -1490,8 +1499,9 @@ function phaseCalls(context, role, name) {
     return rows.length ? { calls: rows } : {}
 }
 
-function toolsFor(context, name) {
+function toolsFor(context, name, start = 0) {
     return (context.toolLog || [])
+        .slice(start)
         .filter((item) => item.specialist === name && item.status !== 'running')
         .map((item) => `${item.name} ${item.status}`)
 }
@@ -3582,7 +3592,8 @@ async function runInlineSpecialist(context, specialist, task) {
     const model = specialist.model || chiefModel(context.roster)
     const soul = specialistSoul(specialist)
     const modules = specialist.modules || []
-    if (!modules.length) {
+    const playbooks = context.nativePrime && specialist.playbooks?.length ? specialist.playbooks : []
+    if (!modules.length && !playbooks.length) {
         const reply = await callModel(context, model, {
             messages: specialistPrompt(context, specialist, task, soul),
             role: 'specialist',
@@ -3614,6 +3625,38 @@ async function runInlineSpecialist(context, specialist, task) {
             parameters: preparedSchema(item)
         }
     }))
+    if (playbooks.length) {
+        const text = await runNativeToolLoop({
+            messages: specialistPrompt(context, specialist, task, soul),
+            tools: [...playbookTools, ...tools],
+            signal: context.workSignal,
+            budget: specialistContextTokens(),
+            maxCalls: playbooks.length + 8,
+            limitCode: 'tool_limit',
+            complete: (messages, offered) => callModel(context, model, { messages, tools: offered, role: 'specialist', specialist }),
+            execute: async (name, args) => {
+                emitTool(context, { phase: 'start', specialist: specialist.name, name })
+                try {
+                    const entry = named.find((item) => item.name === name)
+                    if (!entry) {
+                        const result = readPlaybookTool(playbooks, name, args)
+                        emitTool(context, { phase: 'done', specialist: specialist.name, name, error: !result.success })
+                        return JSON.stringify(result)
+                    }
+                    const value = await raceSignal(context.workSignal, () =>
+                        callPrepared(entry.item, preparedKind(entry.item) === 'object' ? args : args.input)
+                    )
+                    emitTool(context, { phase: 'done', specialist: specialist.name, name })
+                    return normalizeResult(value)
+                } catch (error) {
+                    emitTool(context, { phase: 'done', specialist: specialist.name, name, error: true })
+                    throw error
+                }
+            }
+        })
+        emitSpecialistPartial(context, specialist, text)
+        return { text }
+    }
     const reply = await callModel(context, model, {
         messages: specialistPrompt(context, specialist, task, soul),
         tools,
