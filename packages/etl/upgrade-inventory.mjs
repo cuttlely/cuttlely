@@ -1,3 +1,4 @@
+import { isProfilePrompt } from './migrate-profile-prompts.mjs'
 import { runtimeDependencies, verifiedHostFiles } from './host-files.mjs'
 import { installedSkillCatalog, matchesBundledSkill } from './bundled-skills.mjs'
 import fs from 'node:fs'
@@ -53,13 +54,16 @@ export function discover({
     const local = []
     const temporary = []
     const unresolved = []
+    const prompts = []
     function inspectCache(home, prefix) {
         if (!inspectCaches) return
         const seedBundled = !fs.lstatSync(path.join(home, '.no-bundled-skills'), { throwIfNoEntry: false })
         let bundled = 0
         for (const { target, name, label, regular } of runtimeDependencies(home, prefix)) {
             if (hostFiles.has(path.resolve(target))) continue
-            if (regular && name === 'skills/.bundled_manifest') {
+            if (regular && name === 'SOUL.md' && isProfilePrompt(label)) {
+                prompts.push({ name: label, bytes: fs.lstatSync(target).size })
+            } else if (regular && name === 'skills/.bundled_manifest') {
                 temporary.push(label + ' is recreated by skill sync. Prior sync history and remembered deletions reset.')
             } else if (regular && name === 'skills/.curator_state') {
                 temporary.push(label + ' resets curator history and the pause setting on disk loss.')
@@ -107,7 +111,8 @@ export function discover({
     const stores = items.filter((item) => plain(fileFor(item)) || plain(fileFor(item) + '.migrated'))
     const profiles = stores.filter((item) => item.kind === 'profile').map((item) => item.name.toLowerCase())
     if (new Set(profiles).size !== profiles.length) problem('Resolve case-colliding harness profiles before upgrading.')
-    return { stores, local, temporary, unresolved }
+    prompts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    return { stores, local, temporary, unresolved, prompts }
 }
 
 export async function etlDependencyContext(source, state, hostFiles = verifiedHostFiles(state.hostFiles)) {

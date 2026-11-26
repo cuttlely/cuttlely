@@ -52,6 +52,8 @@ The full release gate runs the primary copy, side-store migration and replacemen
 
 The server and workers verify the storage selection before writing application data. When a legacy installation cannot reach its host database at startup, the health endpoint returns HTTP 503 and identifies the outage. The [safe boot check](../../scripts/safeboot-check.mjs) covers that recovery path.
 
+The storage upgrade includes regular local profile prompts in its verified PostgreSQL snapshot. Each new runtime disk restores that snapshot once. Later prompt edits remain local.
+
 The post-1.7.15 skill preflight compares runtime files with the catalog produced by a clean skill sync during installation. Exact matches and the two rebuildable skill metadata files appear as temporary. The storage recovery suite covers changed, custom and linked files, profiles that opt out of bundled skills, and missing catalog entries.
 
 The [disk storage inventory](../../docs/reference/disk-storage-inventory.md) maps application, workflow and runtime SQLite files, server settings and credentials to their writers and retention requirements. Compare a private metadata inventory before and after each overall upgrade test. The ETL store gate queues already-admitted writes before draining and allows subsequent calls after a failed statement. A regression covers both behaviors.

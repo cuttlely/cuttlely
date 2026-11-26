@@ -1,3 +1,4 @@
+import { inventoryPrompts, copyPrompts, restorePrompts } from './migrate-profile-prompts.mjs'
 import { verifiedHostFiles } from './host-files.mjs'
 import { selectPredictionFiles } from '../harness/prediction-files.mjs'
 import { uploadsRoot } from './paths.mjs'
@@ -9,7 +10,7 @@ import { dataRoot } from '../harness/paths.mjs'
 import { publishedSessionScope } from '../harness/session-scope.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { configureHarnessPostgres } from '../harness/side-store-postgres.mjs'
 import { harnessPgConfig, registerSideSchema } from '../harness/side-store-identity.mjs'
@@ -19,7 +20,7 @@ import { closeSessions } from '../harness/session.mjs'
 import { appDatabaseStoresOn, defaultDashFile, setDashStore } from '../harness/dashflows.mjs'
 import { copyDashStoreToAppDb, initDashStore, openPostgresDashStore } from '../harness/dashflows-postgres.mjs'
 import { closeDb, SCHEMA_VERSION } from './db.mjs'
-import { gate, drained, useBackend } from './store.mjs'
+import { gate, drained, useBackend as selectEtlBackend } from './store.mjs'
 import { scheduleBusy as etlScheduleBusy } from './schedule.mjs'
 import { scheduleBusy as harnessScheduleBusy } from '../harness/schedule.mjs'
 import { hasActiveRuns } from './runner.mjs'
@@ -111,16 +112,17 @@ export async function startStorageUpgrade({
         closeStores()
         await versionHistory?.select(state.phase === 'postgres' ? source : null)
         if (state.phase === 'postgres') {
-            useBackend({ ...(await openPostgresEtlStore(source)), tryLease })
+            selectEtlBackend({ ...(await openPostgresEtlStore(source)), tryLease })
             configureHarnessPostgres(config)
             const files = await openPostgresFiles(source)
+            await restorePrompts(files, state.prompts, state.promptGeneration)
             selectEtlUploads(files, state.uploads, state.etlUploadRoot)
             selectPredictionFiles(predictionFiles || files)
             selectFiles?.(files)
             setDashStore(await openPostgresDashStore(source))
             if (!state.pilot) await registerSideSchema((sql, params = []) => member.execute(sql, params), 'cuttlely_dashflows')
         } else {
-            useBackend(null)
+            selectEtlBackend(null)
             configureHarnessPostgres(null)
             selectEtlUploads(null)
             selectPredictionFiles(predictionFiles || null)
@@ -133,6 +135,7 @@ export async function startStorageUpgrade({
             stores,
             local,
             temporary: runtimeCaches,
+            prompts,
             unresolved
         } = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
         const inventory = stores.map(inspectStore)
@@ -143,7 +146,11 @@ export async function startStorageUpgrade({
         const versions = state.phase === 'sqlite' ? await versionHistory?.inspect() : state.versions
         const versionBytes = versions?.bytes || 0
         const requiredBytes =
-            versionBytes * 2 + uploadBytes + recordBytes + inventory.filter((s) => !s.retired).reduce((n, s) => n + s.bytes * 2, 0)
+            prompts.reduce((total, prompt) => total + prompt.bytes, 0) +
+            versionBytes * 2 +
+            uploadBytes +
+            recordBytes +
+            inventory.filter((s) => !s.retired).reduce((n, s) => n + s.bytes * 2, 0)
         const { dependencies, rebuildable = [] } = inspectDependencies
             ? await inspectDependencies(await etlDependencyContext(source, state))
             : { dependencies: [] }
@@ -164,6 +171,7 @@ export async function startStorageUpgrade({
         return {
             available: true,
             dependencies,
+            prompts,
             unresolved,
             temporary,
             enabled,
@@ -380,6 +388,8 @@ export async function startStorageUpgrade({
                     files,
                     versions: info.versions || null,
                     records: harnessRecordInventory(),
+                    prompts: await inventoryPrompts(info.prompts),
+                    promptGeneration: randomUUID(),
                     hostFiles: [...verifiedHostFiles().values()].sort(),
                     blobTarget,
                     etlUploadRoot: path.resolve(uploadsRoot()),
@@ -389,8 +399,16 @@ export async function startStorageUpgrade({
                 })
             }
             if (state.phase === 'copying' || state.phase === 'retiring') {
+                const inventory = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
+                const prompts = await inventoryPrompts(inventory.prompts)
+                const savedPrompts = state.prompts || []
                 if (
-                    discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) }).unresolved.length ||
+                    prompts.length !== savedPrompts.length ||
+                    prompts.some((p, i) => p.name !== savedPrompts[i].name || p.sha256 !== savedPrompts[i].sha256)
+                )
+                    refuse('Use the original profile prompts to finish the storage upgrade.')
+                if (
+                    inventory.unresolved.length ||
                     (inspectDependencies && (await inspectDependencies(await etlDependencyContext(source, state))).dependencies.length)
                 )
                     refuse('Resolve the listed local storage dependencies before resuming.')
@@ -467,6 +485,10 @@ export async function startStorageUpgrade({
                     await copyUploads(await openPostgresFiles(source), fileRoots, postgresFiles)
                     verifiedUploads = verified
                     report.uploads = { count: verified.length }
+                }
+                if (state.prompts?.length) {
+                    await copyPrompts(await openPostgresFiles(source), state.prompts)
+                    report.profilePrompts = { count: state.prompts.length }
                 }
                 await copyHarnessRecords(source, state.records)
                 report.harnessRecords = { count: state.records.length }
@@ -617,6 +639,7 @@ export async function startStorageUpgrade({
             const inventory = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
             if (
                 !inventory.stores.length &&
+                !inventory.prompts.length &&
                 !inventory.unresolved.length &&
                 !harnessRecordInventory().length &&
                 !uploadEntries(fileRoots).length &&

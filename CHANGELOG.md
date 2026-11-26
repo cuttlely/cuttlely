@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   **Upgrade storage** includes local profile prompts in its verified PostgreSQL backup and restores them on a replacement disk. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#operator-supplied-files).
+
+## [1.7.16] - 2026-11-26
+
 ### Fixed
 
 -   The PostgreSQL storage upgrade recognizes unmodified bundled runtime skills and rebuildable skill metadata. Custom and changed skill files still appear in the disk-dependency warning.
@@ -1242,7 +1248,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.16...HEAD
+[1.7.16]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...v1.7.16
 [1.7.15]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...v1.7.15
 [1.7.14]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...v1.7.13
