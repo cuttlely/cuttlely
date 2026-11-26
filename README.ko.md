@@ -27,6 +27,8 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
+**다음 릴리스** · **1.7.16에서는 PostgreSQL 스토리지로 마이그레이션할 때 수정하지 않은 기본 제공 스킬에 표시되던 경고를 수정했습니다.** [업그레이드 안내](./docs/upgrading.md#upgrading-to-1716).
+
 **1.7.15에서는 PostgreSQL을 사용해 빈 애플리케이션 디스크에 기존 설치를 복구할 수 있습니다. 업로드 파일은 S3 호환 버킷에 저장할 수도 있습니다. 기존 설치는 마이그레이션 전에 백업하세요.** [업그레이드 및 디스크 요구 사항](./docs/upgrading.md#upgrading-to-1715).
 
 **1.7.14에서는 설치 암호화 키를 단계적으로 교체하고 운영자 설정을 보존할 수 있습니다.** Analyst의 SQL 시도 횟수를 조정할 수 있습니다. [업그레이드 가이드](./docs/upgrading.md#upgrading-to-1714).
