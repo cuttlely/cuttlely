@@ -55,7 +55,7 @@ overrides:
   browserslist: ^4.28.7
   fast-uri: ^3.1.9
   zod@>=4.0.0 <4.6.6: 4.6.6
-  hono: ^4.12.25
+  hono: ^4.13.16
   ip-address@10: ^10.3.1
   jws@3: ^3.2.3
   jws@4: ^4.0.1
@@ -9764,8 +9764,8 @@ packages:
     resolution: {integrity: sha512-eSmmWE5bZTK2Nou4g0AI3zZ9rswp7GRKoKXS1BLUkvPviOqs4YTN1djQIqrXy9k5gEtdLPy86JjRwsNM9tnDcA==}
     engines: {node: '>=0.10.0'}
 
-  hono@4.13.13:
-    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
+  hono@4.13.22:
+    resolution: {integrity: sha512-wncKd5/40Pj8grx0RZ2fgNIicFEmVFwIHT5UFLTnphR8I6AQWFf9c2JoM6ZJ9g8y4pMzg3sNlCVNe0m2Yclg0Q==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@2.8.9:
@@ -18214,9 +18214,9 @@ snapshots:
     dependencies:
       axios: 1.20.0(debug@4.3.4)
 
-  '@hono/node-server@1.19.19(hono@4.13.13)':
+  '@hono/node-server@1.19.19(hono@4.13.22)':
     dependencies:
-      hono: 4.13.13
+      hono: 4.13.22
 
   '@huggingface/inference@4.13.2':
     dependencies:
@@ -19638,7 +19638,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.19(hono@4.13.13)
+      '@hono/node-server': 1.19.19(hono@4.13.22)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -19648,7 +19648,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.2.1
       express-rate-limit: 8.4.1(express@5.2.1)
-      hono: 4.13.13
+      hono: 4.13.22
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
@@ -19660,7 +19660,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@4.6.6)':
     dependencies:
-      '@hono/node-server': 1.19.19(hono@4.13.13)
+      '@hono/node-server': 1.19.19(hono@4.13.22)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -19670,7 +19670,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.2.1
       express-rate-limit: 8.4.1(express@5.2.1)
-      hono: 4.13.13
+      hono: 4.13.22
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
@@ -25884,7 +25884,7 @@ snapshots:
     dependencies:
       parse-passwd: 1.0.0
 
-  hono@4.13.13: {}
+  hono@4.13.22: {}
 
   hosted-git-info@2.8.9: {}
 
