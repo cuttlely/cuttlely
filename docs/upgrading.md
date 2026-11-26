@@ -6,6 +6,10 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
 
+## Upgrading to 1.7.16
+
+If bundled skills blocked **Upgrade storage** in 1.7.15, keep the original disk attached and reopen **Application database storage** after updating. The inventory recognizes unchanged bundled skills and rebuildable metadata. Review any custom or modified files that still appear. For a source installation, run runtime setup for the updated checkout to generate the skill catalog. [Operator-supplied files](./how-to/postgres-side-stores.md#operator-supplied-files).
+
 ## Upgrading to 1.7.15
 
 **Before updating a 1.7.14 Dashflows PostgreSQL pilot:** check whether the service already has `CUTTLELY_APP_DATABASE_STORES=1`. In 1.7.15 the same flag also selects durable server settings when the host supplies `DATABASE_TYPE=postgres`. Put the **existing** installation encryption key and complete database connection in the web and worker host environments before starting the new version. Preserve any separately configured settings database URL. Missing settings can block startup. Back up the original disk before changing a hosted environment, since the change itself may replace the disk. A pilot with local side stores still needs the operator cutover.

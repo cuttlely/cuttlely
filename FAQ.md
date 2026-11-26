@@ -12,6 +12,8 @@ Or, with Node 20+ and Docker: `npx cuttlely start`. Open http://localhost:43117,
 
 ## Can Cuttlely survive losing its application disk?
 
+If bundled skills block the PostgreSQL storage upgrade in 1.7.15, keep the original disk and refresh the inventory after installing 1.7.16. The updated inventory identifies unchanged bundled files. [Storage upgrade steps](./docs/upgrading.md#upgrading-to-1716).
+
 In 1.7.15, a new PostgreSQL install with application database storage enabled, or an existing install that has completed the verified migration, can recover on empty web and worker disks. Supply its durable database, original installation key and host settings. A private S3-compatible bucket is optional for application uploads. SQLite installations need a persistent volume or a complete off-host backup. Runtime-only conversations can start again at the same endpoint. [Choose your storage mode and verify recovery](./docs/how-to/postgres-side-stores.md).
 
 ## The basics
