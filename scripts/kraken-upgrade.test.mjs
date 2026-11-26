@@ -164,7 +164,11 @@ test(
         const stored = await api('chatflows/' + saved.id)
         const bookGraph = structuredClone(graph)
         bookGraph.nodes.find((n) => n.data.name === 'harnessSpecialist').data.inputs.playbooks = [
-            { name: 'inventory', description: 'Inventory reconciliation', content: 'Inventory formula: 17 * 3' }
+            {
+                name: 'inventory',
+                description: 'Inventory reconciliation',
+                content: 'Stock check step.\n'.repeat(3000) + 'Inventory formula: 17 * 3'
+            }
         ]
         const bookFlow = await api('chatflows', {
             name: bookTeam,
@@ -194,7 +198,10 @@ test(
             bookResult.agents.map((agent) => agent.status),
             ['completed']
         )
-        assert.deepEqual(bookResult.agents[0].tools, ['skills_list done', 'skill_view done', 'calculator done'])
+        const tools = bookResult.agents[0].tools
+        assert.equal(tools[0], 'skills_list done')
+        assert.equal(tools.at(-1), 'calculator done')
+        assert.ok(tools.length > 4 && tools.slice(1, -1).every((tool) => tool === 'skill_view done'))
         assert.deepEqual(legacyCalls, ['original', 'original'])
         stage = 'rollback'
         await boot()

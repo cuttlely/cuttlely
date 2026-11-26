@@ -75,19 +75,28 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
 export async function runNativeToolLoop({ messages, tools, complete, execute, signal, budget, maxCalls, limitCode }) {
     const transcript = [...messages]
     const allowed = new Set(tools.map((tool) => tool.function.name))
+    // Only evict a replayable tool result after the model has seen its complete batch.
+    const readResults = []
+    let pendingReads = []
     let remaining = maxCalls
     for (;;) {
         signal?.throwIfAborted()
-        if (
-            budget &&
-            transcript.reduce(
+        if (budget) {
+            let tokens = transcript.reduce(
                 (total, message) =>
                     total + estimateTokens(message.content) + (message.tool_calls ? estimateTokens(JSON.stringify(message.tool_calls)) : 0),
                 0
-            ) > budget
-        )
-            throw new HarnessError('context_limit', 'The native agent exhausted its turn context.')
+            )
+            while (tokens > budget && readResults.length) {
+                const { message, compactContent } = readResults.shift()
+                tokens -= estimateTokens(message.content) - estimateTokens(compactContent)
+                message.content = compactContent
+            }
+            if (tokens > budget) throw new HarnessError('context_limit', 'The native agent exhausted its turn context.')
+        }
         const reply = await complete(transcript, tools)
+        readResults.push(...pendingReads)
+        pendingReads = []
         signal?.throwIfAborted()
         if (!reply.toolCalls.length) return reply.content
         if (reply.toolCalls.length > remaining) throw new HarnessError(limitCode, 'The native agent reached its tool call limit.')
@@ -107,8 +116,12 @@ export async function runNativeToolLoop({ messages, tools, complete, execute, si
         transcript.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
         for (const call of calls) {
             signal?.throwIfAborted()
-            const content = await execute(call.name, call.args)
-            transcript.push({ role: 'tool', tool_call_id: call.id, content })
+            const result = await execute(call.name, call.args)
+            const content = typeof result === 'string' ? result : result.content
+            const message = { role: 'tool', tool_call_id: call.id, content }
+            transcript.push(message)
+            if (result.compactContent && result.compactContent.length < content.length)
+                pendingReads.push({ message, compactContent: result.compactContent })
         }
     }
 }

@@ -111,6 +111,24 @@ test('native playbooks list metadata and resolve only the saved content assigned
     assert.equal(readPlaybookTool([], 'skill_view', { name: book.name }).success, false)
 })
 
+test('playbook page offsets reconstruct escaped Markdown and preserve Unicode at page boundaries', () => {
+    const book = { name: 'stock', description: 'Stock', content: '📦'.repeat(20) + '\t"\n'.repeat(200) }
+    let text = ''
+    let offset = 0
+    do {
+        const page = readPlaybookTool([book], 'skill_view', { name: 'stock', offset }, 40)
+        assert.equal(page.success, true)
+        assert.equal(page.offset, offset)
+        assert.ok(page.content.isWellFormed())
+        assert.ok(page.content.length > 0)
+        text += page.content
+        offset = page.next_offset
+    } while (offset !== null)
+    assert.equal(text, playbookMarkdown(book))
+    for (const invalid of [-1, '2', 1e8])
+        assert.equal(readPlaybookTool([book], 'skill_view', { name: book.name, offset: invalid }, 40).success, false)
+})
+
 test('a native specialist can read a long saved playbook without a canvas tool when its context fits', async () => {
     const book = { name: 'inventory', description: 'Inventory rules', content: 'a'.repeat(59000) + 'Verification code 93.' }
     const options = {

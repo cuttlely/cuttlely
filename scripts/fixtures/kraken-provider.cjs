@@ -20,7 +20,7 @@ Module._load = function (request, parent) {
                         if (tools.some((tool) => tool.function.name === 'skill_view')) {
                             const call = (name, args) => ({
                                 content: '',
-                                tool_calls: [{ type: 'tool_call', name, id: 'qa-' + name, args }]
+                                tool_calls: [{ type: 'tool_call', name, id: 'qa-' + name + (args.offset ? '-' + args.offset : ''), args }]
                             })
                             if (last._getType() !== 'tool') {
                                 assert.ok(!messages.some((message) => String(message.content).includes('Inventory formula:')))
@@ -34,8 +34,13 @@ Module._load = function (request, parent) {
                                 )
                                 return call('skill_view', { name: skills[0].name })
                             }
-                            if (last.tool_call_id === 'qa-skill_view') {
-                                const expression = JSON.parse(last.content).content.match(/Inventory formula: (.+)/)[1]
+                            if (last.tool_call_id?.startsWith('qa-skill_view')) {
+                                const page = JSON.parse(last.content)
+                                if (page.next_offset != null) return call('skill_view', { name: page.name, offset: page.next_offset })
+                                assert.ok(
+                                    messages.some((message) => message._getType() === 'tool' && JSON.parse(message.content).previously_read)
+                                )
+                                const expression = page.content.match(/Inventory formula: (.+)/)[1]
                                 return call('calculator', { input: expression })
                             }
                             assert.equal(last.tool_call_id, 'qa-calculator')

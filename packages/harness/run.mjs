@@ -69,7 +69,7 @@ export { assertHarnessCaller } from './caller.mjs'
 import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
 import { admittedAgentEngine, nativePrimeInstructions, runNativePrime, runNativeToolLoop, useNativePrime } from './runtime/native-prime.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
-import { playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
+import { playbookCallLimit, playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -3612,7 +3612,7 @@ async function runInlineSpecialist(context, specialist, task) {
         emitSpecialistPartial(context, specialist, text)
         return { text, sources: documentsFrom(raw) }
     }
-    const used = new Set()
+    const used = new Set(playbooks.length ? playbookTools.map((tool) => tool.function.name) : [])
     const named = prepared.map((item, index) => ({ item, name: toolName(item, index, used) }))
     const tools = named.map(({ item, name }) => ({
         type: 'function',
@@ -3626,12 +3626,20 @@ async function runInlineSpecialist(context, specialist, task) {
         }
     }))
     if (playbooks.length) {
+        const budget = specialistContextTokens()
         const text = await runNativeToolLoop({
-            messages: specialistPrompt(context, specialist, task, soul),
+            messages: specialistPrompt(
+                context,
+                specialist,
+                task,
+                soul,
+                context.promptMessages,
+                budget ? Math.max(1, Math.floor(budget / 2)) : 0
+            ),
             tools: [...playbookTools, ...tools],
             signal: context.workSignal,
-            budget: specialistContextTokens(),
-            maxCalls: playbooks.length + 8,
+            budget,
+            maxCalls: playbookCallLimit(playbooks, budget),
             limitCode: 'tool_limit',
             complete: (messages, offered) => callModel(context, model, { messages, tools: offered, role: 'specialist', specialist }),
             execute: async (name, args) => {
@@ -3639,9 +3647,14 @@ async function runInlineSpecialist(context, specialist, task) {
                 try {
                     const entry = named.find((item) => item.name === name)
                     if (!entry) {
-                        const result = readPlaybookTool(playbooks, name, args)
+                        const result = readPlaybookTool(playbooks, name, args, budget)
                         emitTool(context, { phase: 'done', specialist: specialist.name, name, error: !result.success })
-                        return JSON.stringify(result)
+                        const content = JSON.stringify(result)
+                        if (name !== 'skill_view' || !result.success) return content
+                        return {
+                            content,
+                            compactContent: JSON.stringify({ name: result.name, previously_read: true, offset: args.offset ?? 0 })
+                        }
                     }
                     const value = await raceSignal(context.workSignal, () =>
                         callPrepared(entry.item, preparedKind(entry.item) === 'object' ? args : args.input)
@@ -3698,14 +3711,21 @@ function moduleLabel(prepared) {
     return String(prepared?.tool?.name || prepared?.binding?.label || prepared?.binding?.nodeName || 'tool')
 }
 
-function specialistPrompt(context, specialist, task, instructions, history = context.promptMessages || []) {
+function specialistPrompt(
+    context,
+    specialist,
+    task,
+    instructions,
+    history = context.promptMessages || [],
+    budget = specialistContextTokens()
+) {
     const fitted = fitSpecialistPrompt({
         name: specialist.name,
         instructions,
         memory: context.memoryBlock || '',
         history,
         task,
-        budget: specialistContextTokens()
+        budget
     })
     noteTruncated(context, fitted.truncated)
     return fitted.messages
