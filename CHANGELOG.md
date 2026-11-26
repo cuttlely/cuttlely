@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.15] - 2026-11-26
+
 ### Added
 
 -   PostgreSQL installations can recover on empty web and worker disks, including saved users, credentials, settings, teams, current and older flow versions, ETL and managed files. Large application attachments can use a private S3-compatible bucket, including IBM Cloud Object Storage. [Storage modes](docs/how-to/postgres-side-stores.md#choose-a-storage-mode).
@@ -1232,7 +1234,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...HEAD
+[1.7.15]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...v1.7.15
 [1.7.14]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...v1.7.13
 [1.7.12]: https://github.com/cuttlely/cuttlely/compare/v1.7.11...v1.7.12
