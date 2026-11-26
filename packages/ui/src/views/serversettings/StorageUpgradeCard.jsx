@@ -78,6 +78,26 @@ export default function StorageUpgradeCard() {
                                 </ul>
                             </details>
                         ))}
+                        {needsCapacity && state.prompts?.length > 0 && (
+                            <Alert severity='info'>
+                                <strong>
+                                    {state.prompts.length} profile {state.prompts.length === 1 ? 'prompt' : 'prompts'} included in the
+                                    upgrade
+                                </strong>
+                                <div>
+                                    Upgrade storage saves these prompts in PostgreSQL for a replacement host. Back up later prompt edits
+                                    separately.
+                                </div>
+                                <details>
+                                    <summary>Show prompt files</summary>
+                                    <ul>
+                                        {state.prompts.map(({ name }) => (
+                                            <li key={name}>{name}</li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            </Alert>
+                        )}
                         {state.temporary?.length > 0 && (
                             <Alert severity='info'>
                                 Temporary data Cuttlely can rebuild
