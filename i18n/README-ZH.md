@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
-**即将发布** · **1.7.16 修复了迁移到 PostgreSQL 存储时对未经修改的内置技能发出警告的问题。** [升级指南](../docs/upgrading.md#upgrading-to-1716).
+**1.7.16 修复了迁移到 PostgreSQL 存储时对未经修改的内置技能发出警告的问题。** [升级指南](../docs/upgrading.md#upgrading-to-1716).
 
 **1.7.15 支持由实例操作员将智能体团队的对话、计划任务、ETL 管道和向量迁移到 PostgreSQL。** [升级与磁盘要求](../docs/upgrading.md#upgrading-to-1715).
 
@@ -33,7 +33,7 @@ Node 20+ 和 Docker
 
 **1.7.10 在 agent runtime 恢复期间仍可使用 UI。** 镜像、Compose 和 Render 的健康检查改为探测 `/api/v1/ping/live`；请一并更新自定义网关与负载均衡器的探测路径。[健康检查](../docs/how-to/reverse-proxy.md#health-checks) · [升级指南](../docs/upgrading.md#upgrading-to-1710)。
 
-最新稳定版是 **1.7.15**。请固定镜像 `1.7.15`，或安装 `cuttlely@1.7.15`。[1.7.15 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.15) · [更新日志](../CHANGELOG.md)。
+最新稳定版是 **1.7.16**。请固定镜像 `1.7.16`，或安装 `cuttlely@1.7.16`。[1.7.16 发行说明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.16) · [更新日志](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是从更早的版本升级，必须采取行动。** 请先备份数据库、加密密钥和设置，并在部署前阅读[操作员的指定与恢复](../docs/how-to/instance-operator.md)，以免被锁在浏览器管理之外。完整检查清单（包括以主机日志一次性代码提出的申请、`CUTTLELY_INSTANCE_OPERATOR`，以及访问密钥强制执行默认保持关闭）见[升级注意事项](../docs/upgrading.md)（“1.7.0 security-exception upgrade”节）和[更新日志](../CHANGELOG.md)。初始设置代码只会创建第一个账号，而且只有在主机已开启本地登录时才有效（Docker 和 `npx cuttlely start` 默认会开启）。它不能用来配置服务，也不会指定实例操作员。[登录](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 

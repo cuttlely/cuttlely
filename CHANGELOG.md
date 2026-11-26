@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The workspace `hono` override moves from `^4.12.25` to `^4.13.16`, which closes [GHSA-3gg2-335m-rxc6](https://github.com/advisories/GHSA-3gg2-335m-rxc6) (the `css` helper does not escape a closing tag split between the template and an interpolated value), [GHSA-h7mg-cq63-vhpq](https://github.com/advisories/GHSA-h7mg-cq63-vhpq) (RegExpRouter skips wildcard middleware for some route sets and for paths with an encoded line terminator), [GHSA-4m76-xfj5-7975](https://github.com/advisories/GHSA-4m76-xfj5-7975) (`mount()` and `app.mount()` can forward a path that bypasses middleware scoped inside the mount prefix), [GHSA-4h7h-rv7c-7m2v](https://github.com/advisories/GHSA-4h7h-rv7c-7m2v) (`validator('form')` skips validation for `multipart/form-data` requests with extra parameters), and [GHSA-46wx-v44x-9hh2](https://github.com/advisories/GHSA-46wx-v44x-9hh2) (`csrf()` does not check requests sent by hyperlink auditing); the lockfile resolves 4.13.22.
+
+## [1.7.16] - 2026-11-26
+
 ### Fixed
 
 -   The PostgreSQL storage upgrade recognizes unmodified bundled runtime skills and rebuildable skill metadata. Custom and changed skill files still appear in the disk-dependency warning.
@@ -11,7 +17,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Changed
 
 -   The workspace `@hono/node-server` override moves from `^1.19.15` to `^1.19.18`, which closes [GHSA-jpvv-r467-5p4w](https://github.com/advisories/GHSA-jpvv-r467-5p4w) (backslashes in request paths were treated as path separators, which could bypass path-based access control at a reverse proxy); the lockfile resolves 1.19.19.
--   The workspace `hono` override moves from `^4.12.25` to `^4.13.16`, which closes [GHSA-3gg2-335m-rxc6](https://github.com/advisories/GHSA-3gg2-335m-rxc6) (the `css` helper does not escape a closing tag split between the template and an interpolated value), [GHSA-h7mg-cq63-vhpq](https://github.com/advisories/GHSA-h7mg-cq63-vhpq) (RegExpRouter skips wildcard middleware for some route sets and for paths with an encoded line terminator), [GHSA-4m76-xfj5-7975](https://github.com/advisories/GHSA-4m76-xfj5-7975) (`mount()` and `app.mount()` can forward a path that bypasses middleware scoped inside the mount prefix), [GHSA-4h7h-rv7c-7m2v](https://github.com/advisories/GHSA-4h7h-rv7c-7m2v) (`validator('form')` skips validation for `multipart/form-data` requests with extra parameters), and [GHSA-46wx-v44x-9hh2](https://github.com/advisories/GHSA-46wx-v44x-9hh2) (`csrf()` does not check requests sent by hyperlink auditing); the lockfile resolves 4.13.22.
 
 ## [1.7.15] - 2026-11-26
 
@@ -1243,7 +1248,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.16...HEAD
+[1.7.16]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...v1.7.16
 [1.7.15]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...v1.7.15
 [1.7.14]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/cuttlely/cuttlely/compare/v1.7.12...v1.7.13

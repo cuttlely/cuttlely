@@ -2,7 +2,7 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
-## Upcoming · New in 1.7.16
+## New in 1.7.16
 
 -   Refresh the PostgreSQL storage inventory to distinguish bundled runtime skills from custom files. [Review operator-supplied files](./postgres-side-stores.md#operator-supplied-files).
 
