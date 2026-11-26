@@ -51,3 +51,6 @@ scripts/docs-shots
 
 # Sample files for those pictures. The image does not read them.
 examples/imports
+
+# Produced by runtime setup in the image.
+packages/etl/bundled-skill-files.generated.json
