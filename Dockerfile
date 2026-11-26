@@ -156,6 +156,8 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 # Plotly static export (kaleido) drives this Chromium. With INCLUDE_BROWSER=0 the path is missing and only that export fails.
 ENV BROWSER_PATH=/usr/local/bin/cuttlely-chromium
 
+# OpenShift assigns an arbitrary UID in group 0. Only the mutable data root needs group write access.
+RUN install -d -m 0770 -o node -g 0 /var/cuttlely
 WORKDIR /usr/src/cuttlely
 
 LABEL org.opencontainers.image.title="cuttlely" \

@@ -22,6 +22,8 @@ When moving from SQLite, the first new Analyst SQL query creates an empty, isola
 
 ## New PostgreSQL install on a host with ephemeral disks
 
+The container needs a writable scratch directory on each host. A restricted OpenShift container can use an `emptyDir` at `/var/cuttlely` with write access for its assigned UID or group. The entrypoint places its home there when its original home is unwritable. The runtime connects directly to the application PostgreSQL database. The same connection and installation key must be available on a replacement host.
+
 1. Provision a dedicated, durable PostgreSQL database. Keep its backups outside the application host. Choose PostgreSQL-only unless you need an object bucket for application uploads. Create and configure that bucket before first boot if using hybrid mode.
 2. Set the following on the **host** for the web service and each worker. Resolve secrets through the deployment's secret manager. When the database provider requires TLS, supply its CA and verification settings. A connection previously saved in the settings panel cannot bootstrap an empty host.
 3. Start one web instance on the empty database. With application database storage enabled and no local legacy data, the first startup activates PostgreSQL storage. Open **Server Settings → Database → Application database storage** as the Instance Operator and verify the PostgreSQL state. Complete first-owner onboarding if this is a new local-password installation.
