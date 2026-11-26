@@ -104,6 +104,7 @@ test('the unchanged 1.7.15 Calculator canvas runs directly and through native Pr
     const { rosterFromFlow } = await import('../sync-from-flow.mjs')
     const { saveHarness } = await import('../store.mjs')
     const { runHarness } = await import('../run.mjs')
+    const { loadFlowiseNode } = await import('../bridge.mjs')
     const { readMessages, closeSessions } = await import('../session.mjs')
     const { closeQueueDb } = await import('../lock.mjs')
     const { configureHarnessPostgres } = await import('../side-store-postgres.mjs')
@@ -176,7 +177,7 @@ test('the unchanged 1.7.15 Calculator canvas runs directly and through native Pr
         loadNode: async (node) => {
             if (node === 'chatXAI') return FixtureModel
             assert.equal(node, 'calculator')
-            return (await import('../../components/dist/nodes/tools/Calculator/Calculator.js')).default.nodeClass
+            return (await loadFlowiseNode(node)).constructor
         }
     })
     assert.equal(native.text, 'The answer is 51.')
