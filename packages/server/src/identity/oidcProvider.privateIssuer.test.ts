@@ -53,13 +53,11 @@ describe('OIDC discovery through a private issuer host', () => {
             // Built and source-only server test runs can resolve different module IDs.
             // Register the physical entry when present as well as the source-only virtual package.
             const transport = () => ({ secureFetch: guardedFetch })
-            let entry: string | undefined
             try {
-                entry = require.resolve('@cuttlely/components')
-            } catch {
-                // The identity-only CI job does not build the workspace package.
+                jest.doMock('@cuttlely/components', transport)
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') throw error
             }
-            if (entry) jest.doMock(entry, transport)
             jest.doMock('@cuttlely/components', transport, { virtual: true })
             check = require('./oidcProvider').checkOidcConfiguration
         })
