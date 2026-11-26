@@ -1,12 +1,12 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
-const mockSecureFetch = jest.fn()
+import type { Response } from 'node-fetch'
+
+const mockSecureFetch = jest.fn<Promise<Response>, [string, any, number, any]>()
 jest.mock('@cuttlely/components', () => ({
     ...jest.requireActual('../../../components/src/httpSecurity'),
-    secureFetch: (...args: unknown[]) => mockSecureFetch(...args)
+    secureFetch: mockSecureFetch
 }))
 
-import { Readable } from 'stream'
-import type { Response } from 'node-fetch'
 import { checkOidcConfiguration, clearOidcCachesForTest } from './oidcProvider'
 import { oidcConfigurationFingerprint, OidcConfiguration } from './oidcStore'
 
@@ -29,10 +29,13 @@ describe('OIDC discovery through a private issuer host', () => {
                       response_types_supported: ['code'],
                       id_token_signing_alg_values_supported: ['RS256']
                   }
+            async function* bodyIterable() {
+                yield Buffer.from(JSON.stringify(value))
+            }
             return {
                 status: 200,
                 ok: true,
-                body: Readable.from([Buffer.from(JSON.stringify(value))]),
+                body: bodyIterable(),
                 headers: { get: () => null }
             } as unknown as Response
         })
