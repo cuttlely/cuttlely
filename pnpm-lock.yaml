@@ -92,7 +92,7 @@ overrides:
   cookie@<0.7.0: ^0.7.2
   cookie-parser: ^1.4.7
   '@babel/runtime@7': ^7.26.10
-  '@hono/node-server@1': ^1.19.15
+  '@hono/node-server@1': ^1.19.18
   on-headers: ^1.1.0
   qs: ^6.16.0
   yauzl@3: ^3.4.0
@@ -3829,8 +3829,8 @@ packages:
     peerDependencies:
       axios: 1.20.0
 
-  '@hono/node-server@1.19.17':
-    resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
+  '@hono/node-server@1.19.19':
+    resolution: {integrity: sha512-Fy9R7PACOzHU9LDpfnuzVyuVYevKQRcEG2mZhmfc+DRdmayEd3RVfa2XOt2IgGcPNgA77Yk63KBszepcMFK5Ng==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4.12.25
@@ -18214,7 +18214,7 @@ snapshots:
     dependencies:
       axios: 1.20.0(debug@4.3.4)
 
-  '@hono/node-server@1.19.17(hono@4.13.13)':
+  '@hono/node-server@1.19.19(hono@4.13.13)':
     dependencies:
       hono: 4.13.13
 
@@ -19638,7 +19638,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.17(hono@4.13.13)
+      '@hono/node-server': 1.19.19(hono@4.13.13)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -19660,7 +19660,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@4.6.6)':
     dependencies:
-      '@hono/node-server': 1.19.17(hono@4.13.13)
+      '@hono/node-server': 1.19.19(hono@4.13.13)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5

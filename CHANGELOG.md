@@ -9,6 +9,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   PostgreSQL installations can recover on empty web and worker disks, including saved users, credentials, settings, teams, current and older flow versions, ETL and managed files. Large application attachments can use a private S3-compatible bucket, including IBM Cloud Object Storage. [Storage modes](docs/how-to/postgres-side-stores.md#choose-a-storage-mode).
 -   The Instance Operator can inventory file dependencies, migrate the original SQLite application and verify the side-store cutover. [Migration guide](docs/how-to/postgres-side-stores.md).
 
+### Changed
+
+-   The workspace `@hono/node-server` override moves from `^1.19.15` to `^1.19.18`, which closes [GHSA-jpvv-r467-5p4w](https://github.com/advisories/GHSA-jpvv-r467-5p4w) (backslashes in request paths were treated as path separators, which could bypass path-based access control at a reverse proxy); the lockfile resolves 1.19.19.
+
 ### Upgrade notes / breaking changes
 
 -   **Back up before deploying on an ephemeral host.** Preserve the entire original data directory, database, installation key and any separate settings store. Deploying an image or changing environment settings can replace the only copy of local data.
