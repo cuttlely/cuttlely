@@ -19,7 +19,7 @@ Node 20+ 和 Docker
 
 [10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
 
-**即將發布** · **1.7.15 支援由執行個體操作員將代理團隊的對話、排程、ETL 管線和向量移轉至 PostgreSQL。** [升級與磁碟需求](../docs/upgrading.md#upgrading-to-1715).
+**1.7.15 支援由執行個體操作員將代理團隊的對話、排程、ETL 管線和向量移轉至 PostgreSQL。** [升級與磁碟需求](../docs/upgrading.md#upgrading-to-1715).
 
 **1.7.14 新增分階段輪替安裝加密金鑰和持久化執行個體操作員設定。** 可以調整 Analyst 的 SQL 嘗試次數。[升級指南](../docs/upgrading.md#upgrading-to-1714)。
 
@@ -31,7 +31,7 @@ Node 20+ 和 Docker
 
 **1.7.10 在 agent runtime 復原期間仍可使用 UI。** 映像檔、Compose 和 Render 的健康檢查改為探測 `/api/v1/ping/live`；請一併更新自訂閘道與負載平衡器的探測路徑。[健康檢查](../docs/how-to/reverse-proxy.md#health-checks) · [升級指南](../docs/upgrading.md#upgrading-to-1710)。
 
-最新穩定版是 **1.7.14**。請鎖定映像檔 `1.7.14`，或安裝 `cuttlely@1.7.14`。[1.7.14 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.14) · [變更記錄](../CHANGELOG.md)。
+最新穩定版是 **1.7.15**。請鎖定映像檔 `1.7.15`，或安裝 `cuttlely@1.7.15`。[1.7.15 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.15) · [變更記錄](../CHANGELOG.md)。
 
 **1.7.0 是安全例外版本。若你是從更早的版本升級，必須採取行動。** 請先備份資料庫、加密金鑰和設定，並在部署前閱讀[操作員的指定與復原](../docs/how-to/instance-operator.md)，以免被鎖在瀏覽器管理之外。完整檢查清單（包括以主機日誌一次性代碼提出的申請、`CUTTLELY_INSTANCE_OPERATOR`，以及存取金鑰強制執行預設維持關閉）見[升級注意事項](../docs/upgrading.md)（「1.7.0 security-exception upgrade」節）和[變更記錄](../CHANGELOG.md)。初始設定代碼只會建立第一個帳號，而且只有在主機已開啟本機登入時才有效（Docker 和 `npx cuttlely start` 預設會開啟）。它不能用來設定服務，也不會指定執行個體操作員。[登入](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 
