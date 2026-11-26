@@ -97,6 +97,11 @@ test('cancelling a pending native delegation leaves a concurrent turn on the sam
 
 test('native playbooks list metadata and resolve only the saved content assigned to this specialist', () => {
     const book = { name: 'inventory', description: 'Count stock', content: 'A private instruction.' }
+    for (const content of ['Read ${HERMES_SKILL_DIR}', 'Session ${HERMES_SESSION_ID}']) {
+        const roster = { name: 'saved', specialists: [{ name: 'math', playbooks: [{ ...book, content }] }] }
+        assert.throws(() => useNativePrime(roster, 'agent', 'native'), { code: 'native_unsupported' })
+        assert.equal(useNativePrime(roster, 'agent', 'hermes'), false)
+    }
     const books = [book]
     assert.deepEqual(readPlaybookTool(books, 'skills_list', {}).skills, [
         { name: book.name, description: book.description, category: 'harness-playbooks' }

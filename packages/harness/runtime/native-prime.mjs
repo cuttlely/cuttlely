@@ -13,6 +13,13 @@ export function useNativePrime(roster, mode, engine = selectAgentEngine(roster.n
     if (mode !== 'agent' || engine === 'hermes') return false
     if (engine !== 'native') throw new HarnessError('bad_engine', 'The admitted agent engine is unavailable.')
     for (const specialist of roster.specialists) {
+        const dynamicBook = specialist.playbooks?.find((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content))
+        if (dynamicBook) {
+            throw new HarnessError(
+                'native_unsupported',
+                `Playbook "${dynamicBook.name}" on "${specialist.name}" requires a bundled runtime template.`
+            )
+        }
         if (
             needsAgentLoop({ ...specialist, playbooks: [] }) ||
             specialist.modules?.some(
