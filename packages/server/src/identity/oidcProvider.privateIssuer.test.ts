@@ -2,10 +2,15 @@
 import type { Response } from 'node-fetch'
 
 const mockSecureFetch = jest.fn<Promise<Response>, [string, any, number, any]>()
-jest.mock('@cuttlely/components', () => ({
-    ...jest.requireActual('../../../components/src/httpSecurity'),
-    secureFetch: mockSecureFetch
-}))
+// Match the virtual components mock used by the unbuilt-server identity suites.
+jest.mock(
+    '@cuttlely/components',
+    () => ({
+        ...jest.requireActual('../../../components/src/httpSecurity'),
+        secureFetch: mockSecureFetch
+    }),
+    { virtual: true }
+)
 
 import { checkOidcConfiguration, clearOidcCachesForTest } from './oidcProvider'
 import { oidcConfigurationFingerprint, OidcConfiguration } from './oidcStore'
