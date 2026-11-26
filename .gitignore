@@ -136,3 +136,6 @@ website/.astro/
 
 __pycache__/
 hermes/*.egg-info/
+
+# Rebuilt from the bundled gateway skills during runtime setup.
+/packages/etl/bundled-skill-files.generated.json

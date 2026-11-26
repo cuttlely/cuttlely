@@ -59,7 +59,7 @@ test(
                 .run()
             const scope = { pipelineId: '01', workspaceId: 'w' }
             const upload = await saveUpload(Readable.from(['source document']), 'fixture.txt', scope)
-            async function readSource(reference, context = scope) {
+            const readSource = async (reference, context = scope) => {
                 const docs = []
                 for await (const unit of sourceUnits({ nodeName: 'etlFileSource', inputs: { paths: reference } }, context)) {
                     for await (const doc of unit.docs({})) docs.push([unit.key, unit.fingerprint, doc.docKey, doc.pageContent])
@@ -341,6 +341,48 @@ test('hybrid cutover checks every legacy object and requires the same bucket on 
         await controller?.close()
         process.env = originalEnv
         await source.cleanup()
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test('storage inventory distinguishes shipped skills from local dependencies', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-inventory-'))
+    const previous = process.env.CUTTLELY_DATA_DIR
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_DATA_DIR = root
+    process.env.CUTTLELY_HERMES_HOME = path.join(root, 'runtime')
+    try {
+        const { discover } = await import('../upgrade-inventory.mjs')
+        const home = hermesHome()
+        const write = (name, value) => {
+            const target = path.join(home, name)
+            fs.mkdirSync(path.dirname(target), { recursive: true })
+            fs.writeFileSync(target, value)
+        }
+        const stock = 'skills/example/SKILL.md'
+        const copy = 'profiles/team/' + stock
+        const body = 'bundled content'
+        const skillCatalog = { [stock]: [body.length, createHash('sha256').update(body).digest('hex')] }
+        const inspect = () => discover({ inspectCaches: true, skillCatalog })
+        for (const name of [stock, copy, 'skills/.bundled_manifest', 'skills/.curator_state']) write(name, body)
+        let report = inspect()
+        assert.deepEqual(report.unresolved, [])
+        assert.equal(report.temporary.length, 4)
+        write(stock, 'edited content!')
+        write('skills/example/local.md', body)
+        assert.deepEqual(inspect().unresolved, [stock, 'skills/example/local.md'])
+        fs.unlinkSync(path.join(home, stock))
+        fs.symlinkSync(path.join(home, copy), path.join(home, stock))
+        assert.ok(inspect().unresolved.includes(stock))
+        write('profiles/team/.no-bundled-skills', '')
+        assert.ok(inspect().unresolved.includes(copy))
+        fs.unlinkSync(path.join(home, 'profiles/team/.no-bundled-skills'))
+        assert.ok(discover({ inspectCaches: true, skillCatalog: {} }).unresolved.includes(copy))
+    } finally {
+        if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = previous
+        if (previousHome === undefined) delete process.env.CUTTLELY_HERMES_HOME
+        else process.env.CUTTLELY_HERMES_HOME = previousHome
         fs.rmSync(root, { recursive: true, force: true })
     }
 })

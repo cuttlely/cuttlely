@@ -75,7 +75,7 @@ export function runtimeDependencies(home, prefix = '') {
         if (!stat) return
         if (stat.isDirectory()) {
             for (const entry of fs.readdirSync(target).sort()) walk(name + '/' + entry)
-        } else found.push({ target, label: prefix + name })
+        } else found.push({ target, name, label: prefix + name, regular: stat.isFile() })
     }
     for (const name of targets) walk(name)
     return found
