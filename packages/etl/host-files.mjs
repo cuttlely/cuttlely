@@ -73,7 +73,7 @@ export function runtimeDependencies(home, prefix = '') {
         const target = path.join(home, name)
         const stat = fs.lstatSync(target, { throwIfNoEntry: false })
         if (!stat) return
-        if (stat.isDirectory()) {
+        if (stat.isDirectory() && name !== 'SOUL.md') {
             for (const entry of fs.readdirSync(target).sort()) walk(name + '/' + entry)
         } else found.push({ target, name, label: prefix + name, regular: stat.isFile() })
     }

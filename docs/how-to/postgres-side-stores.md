@@ -68,6 +68,8 @@ For an existing local store, pause writers and copy the durable files to the buc
 
 ## Operator-supplied files
 
+When the storage screen lists profile prompts as included, select **Upgrade storage** after confirming the backup and available space. Cuttlely copies each listed `SOUL.md` into PostgreSQL, verifies its contents, and keeps the original file. Web servers and workers restore the upgrade snapshot on a replacement runtime disk. The restore runs once per disk and preserves existing files. Back up later local prompt edits separately. Other unresolved files appear in their own warning.
+
 In 1.7.15 the yellow disk-dependency warning can list stock runtime skills and disable **Upgrade storage**. Keep the original disk attached. With the bundled-skill preflight fix, reopen **Application database storage** to refresh the inventory. Files matching the installed bundle are counted under **Temporary data Cuttlely can rebuild**. The skill sync manifest is regenerated. Curator run history and its pause setting reset. Modified files, custom skills, and links still require review. For source installations, run the runtime setup for the updated checkout to generate the reference catalog.
 
 A workflow or runtime plugin can open a local path directly. Move mutable data to a supported durable backend, retire the dependency, or supply immutable files at their expected paths on every instance. For example, ship a custom skill with the image or fetch a pinned object from a private bucket **before starting the web server and worker**. Supply secrets from the host secret manager.

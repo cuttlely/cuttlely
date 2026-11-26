@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   **Upgrade storage** includes local profile prompts in its verified PostgreSQL backup and restores them on a replacement disk. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#operator-supplied-files).
+
 ## [1.7.16] - 2026-11-26
 
 ### Fixed
