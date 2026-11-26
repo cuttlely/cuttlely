@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   The PostgreSQL storage upgrade recognizes unmodified bundled runtime skills and rebuildable skill metadata. Custom and changed skill files still appear in the disk-dependency warning.
+
 ### Changed
 
 -   The workspace `@hono/node-server` override moves from `^1.19.15` to `^1.19.18`, which closes [GHSA-jpvv-r467-5p4w](https://github.com/advisories/GHSA-jpvv-r467-5p4w) (backslashes in request paths were treated as path separators, which could bypass path-based access control at a reverse proxy); the lockfile resolves 1.19.19.

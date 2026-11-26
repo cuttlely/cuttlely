@@ -165,6 +165,7 @@ for line in sys.stdin:
 const DRIVER = String.raw`
 import json, os, runpy, sys, threading, time
 from pathlib import Path
+from unittest.mock import patch
 root = Path(sys.argv[1])
 home = Path(os.environ["HERMES_HOME"])
 sys.path.insert(0, str(root / "hermes"))
@@ -178,17 +179,27 @@ def report_gate(name, value):
     tmp.write_text(json.dumps(value))
     os.replace(tmp, home / (name + ".json"))
 
+def measure_pending_wait():
+    event = startup._pending.get(hermes_home_key())
+    if event is None:
+        return {"waited": original_wait()}
+    started = time.monotonic()
+    # Some Python builds time Event.wait against wall time. A host clock adjustment
+    # can make its real 15 s timeout appear shorter on the monotonic clock.
+    with patch.object(event, "wait", wraps=event.wait) as wait:
+        waited = original_wait()
+    return {"waited": waited, "still_pending": not event.is_set(), "elapsed": time.monotonic() - started,
+            "timeouts": [call.args[0] for call in wait.call_args_list]}
+
 def observed_wait():
     if hermes_home_key() != hermes_home_key(home / "profiles" / "pending"):
         return original_wait()
     report_gate("run-wait", {
         "pending": hermes_home_key() in startup._pending,
         "off_loop": threading.current_thread() is not threading.main_thread()})
-    started = time.monotonic()
-    try:
-        return original_wait()
-    finally:
-        report_gate("run-wait-done", {"elapsed": time.monotonic() - started})
+    result = measure_pending_wait()
+    report_gate("run-wait-done", result)
+    return result["waited"]
 startup.wait_for_gateway_mcp_discovery = observed_wait
 
 def monitor():
@@ -213,9 +224,7 @@ def monitor():
                 ready_waited = wait_for_gateway_mcp_discovery()
                 ready_elapsed = time.monotonic() - started
             with _profile_runtime_scope(home):
-                started = time.monotonic()
-                waited = wait_for_gateway_mcp_discovery()
-                gate = {"ready_elapsed": ready_elapsed, "ready_waited": ready_waited, "pending_elapsed": time.monotonic() - started, "waited": waited}
+                gate = {"ready_elapsed": ready_elapsed, "ready_waited": ready_waited, "pending": measure_pending_wait()}
         snapshot["gate"] = gate
         snapshot["pending"] = list(_pending)
         tmp = home / "report.tmp"
@@ -353,6 +362,13 @@ async function boot(t, shortTimeout) {
     }
 }
 
+function assertDefaultDiscoveryWait(gate) {
+    assert.equal(gate.waited, true)
+    assert.deepEqual(gate.timeouts, [15])
+    assert.equal(gate.still_pending, true)
+    assert.ok(gate.elapsed < 30, JSON.stringify(gate))
+}
+
 test(
     'health serves before default-timeout discovery; a ready profile never waits for another profile',
     { skip: integrationSkip },
@@ -386,7 +402,7 @@ test(
         assert.ok(polls > 10, `Only ${polls} health polls during discovery`)
         assert.equal(gate.off_loop, true)
         const completedGate = JSON.parse(fs.readFileSync(path.join(home, 'run-wait-done.json'), 'utf8'))
-        assert.ok(completedGate.elapsed >= 14 && completedGate.elapsed < 30, JSON.stringify(completedGate))
+        assertDefaultDiscoveryWait(completedGate)
         await waitFor(
             async () => {
                 const status = await fetch(`${url}/p/pending/v1/runs/${runId}`, { headers, signal: AbortSignal.timeout(1000) })
@@ -400,7 +416,7 @@ test(
         const result = await waitFor(
             () => {
                 const value = report()
-                return value?.gate?.waited && value.default.some((s) => s.name === 'good' && s.connected) && value
+                return value?.gate?.pending.waited && value.default.some((s) => s.name === 'good' && s.connected) && value
             },
             // The pending profile's run waits the full 15 s bound; leave room for a loaded CI host.
             60_000,
@@ -409,7 +425,7 @@ test(
         assert.ok(result.pending.length > 0)
         assert.equal(result.gate.ready_waited, false)
         assert.ok(result.gate.ready_elapsed < 2, JSON.stringify(result))
-        assert.ok(result.gate.pending_elapsed >= 14 && result.gate.pending_elapsed < 30, JSON.stringify(result))
+        assertDefaultDiscoveryWait(result.gate.pending)
         assert.equal(result.default.find((s) => s.name === 'bad').tools, 0)
         assert.ok(result.ready.find((s) => s.name === 'other').tools > 0)
     }

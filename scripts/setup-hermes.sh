@@ -106,4 +106,5 @@ if ! IMPORT_ERROR="$("$PYTHON" -c 'import aiohttp, cli, mcp' 2>&1)"; then
     echo "    $(printf '%s\n' "$IMPORT_ERROR" | tail -n 1)" >&2
     exit 1
 fi
+"$PYTHON" -I "$ROOT/scripts/bundled-skill-catalog.py"
 echo "Hermes Python ready: $PYTHON (Python $VERSION, mcp extra)"

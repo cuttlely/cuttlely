@@ -1,4 +1,5 @@
 import { runtimeDependencies, verifiedHostFiles } from './host-files.mjs'
+import { installedSkillCatalog, matchesBundledSkill } from './bundled-skills.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -43,16 +44,30 @@ const cacheSources = new Map([
     ['tool_discovery_cache.json', 'the installed runtime tools']
 ])
 
-export function discover({ inspectCaches = false, hostFiles = new Map() } = {}) {
+export function discover({
+    inspectCaches = false,
+    hostFiles = new Map(),
+    skillCatalog = inspectCaches ? installedSkillCatalog() : {}
+} = {}) {
     const items = [{ kind: 'etl' }, { kind: 'queue' }, { kind: 'dash' }]
     const local = []
     const temporary = []
     const unresolved = []
     function inspectCache(home, prefix) {
         if (!inspectCaches) return
-        for (const { target, label } of runtimeDependencies(home, prefix)) {
-            if (!hostFiles.has(path.resolve(target))) unresolved.push(label)
+        const seedBundled = !fs.lstatSync(path.join(home, '.no-bundled-skills'), { throwIfNoEntry: false })
+        let bundled = 0
+        for (const { target, name, label, regular } of runtimeDependencies(home, prefix)) {
+            if (hostFiles.has(path.resolve(target))) continue
+            if (regular && name === 'skills/.bundled_manifest') {
+                temporary.push(label + ' is recreated by skill sync. Prior sync history and remembered deletions reset.')
+            } else if (regular && name === 'skills/.curator_state') {
+                temporary.push(label + ' resets curator history and the pause setting on disk loss.')
+            } else if (regular && seedBundled && matchesBundledSkill(target, skillCatalog?.[name])) {
+                bundled++
+            } else unresolved.push(label)
         }
+        if (bundled) temporary.push(prefix + 'skills/ · ' + bundled + ' files match the installed bundle and can be seeded again.')
         const cache = path.join(home, 'cache')
         const stat = fs.lstatSync(cache, { throwIfNoEntry: false })
         if (!stat) return
