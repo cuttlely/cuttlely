@@ -174,7 +174,7 @@
             "cookie@<0.7.0": "^0.7.2",
             "cookie-parser": "^1.4.7",
             "@babel/runtime@7": "^7.26.10",
-            "@hono/node-server@1": "^1.19.15",
+            "@hono/node-server@1": "^1.19.18",
             "on-headers": "^1.1.0",
             "qs": "^6.16.0",
             "yauzl@3": "^3.4.0",
