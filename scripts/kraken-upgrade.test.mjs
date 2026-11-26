@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +11,32 @@ import { createTestDatabase, skipReason } from '../packages/etl/check/pg-source.
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+
+test('the saved Ops canvas initializes, discovers and calls its allowlisted tool with the installed MCP client', async () => {
+    const components = createRequire(new URL('../packages/components/package.json', import.meta.url))
+    const { Client } = components('@modelcontextprotocol/sdk/client/index.js')
+    const { StdioClientTransport } = components('@modelcontextprotocol/sdk/client/stdio.js')
+    const saved = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/ops.canvas.json')))
+    const { mcpServerConfig, mcpActions } = JSON.parse(saved.flowData).nodes.find((node) => node.data.name === 'customMCP').data.inputs
+    const config = JSON.parse(mcpServerConfig)
+    assert.deepEqual(config, { command: 'node', args: ['samples/ops-mcp-server.mjs'] })
+    const transport = new StdioClientTransport({ command: process.execPath, args: config.args, cwd: root })
+    const client = new Client({ name: 'compatibility-check', version: '1' })
+    try {
+        await client.connect(transport, { timeout: 5000 })
+        const { tools } = await client.listTools()
+        assert.deepEqual(
+            tools.map((tool) => tool.name),
+            mcpActions
+        )
+        const result = await client.callTool({ name: 'ops_status', arguments: {} })
+        assert.equal(result.isError, false)
+        assert.equal(result.content[0].text, 'ops-status: allowlisted MCP tool responded')
+        await assert.rejects(client.callTool({ name: 'unknown', arguments: {} }), { code: -32602 })
+    } finally {
+        await client.close()
+    }
+})
 
 test(
     'a saved team keeps its ID, credential and chat through native cutover, empty disk and engine rollback',

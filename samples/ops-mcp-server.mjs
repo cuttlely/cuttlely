@@ -1,54 +1,70 @@
-import fs from 'node:fs'
+const tool = {
+    name: 'ops_status',
+    description: 'Read the allowlisted ops status note.',
+    inputSchema: { type: 'object', properties: {} }
+}
 
-const tools = [
-    {
-        name: 'ops_status',
-        description: 'Read the allowlisted ops status note.',
-        inputSchema: { type: 'object', properties: {} }
-    }
-]
-
+// Keep this example runnable with Node alone when an operator copies it to an MCP host.
 let buffer = Buffer.alloc(0)
 process.stdin.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk])
-    while (true) {
-        const headerEnd = buffer.indexOf('\r\n\r\n')
-        if (headerEnd === -1) return
-        const header = buffer.slice(0, headerEnd).toString('utf8')
-        const match = header.match(/Content-Length:\s*(\d+)/i)
-        if (!match) {
-            buffer = buffer.slice(headerEnd + 4)
-            continue
+    let newline
+    while ((newline = buffer.indexOf(10)) !== -1) {
+        const line = buffer.toString('utf8', 0, newline).trim()
+        const header = /^Content-Length:\s*(\d+)$/i.exec(line)
+        let body = line
+        if (header) {
+            const separator = buffer.indexOf('\r\n\r\n')
+            if (separator < 0) return
+            const start = separator + 4
+            const end = start + Number(header[1])
+            if (buffer.length < end) return
+            body = buffer.toString('utf8', start, end)
+            buffer = buffer.subarray(end)
+        } else {
+            buffer = buffer.subarray(newline + 1)
         }
-        const length = Number(match[1])
-        const start = headerEnd + 4
-        if (buffer.length < start + length) return
-        const body = buffer.slice(start, start + length).toString('utf8')
-        buffer = buffer.slice(start + length)
-        handle(JSON.parse(body))
+        if (!body) continue
+        const response = handle(body)
+        if (response) {
+            const json = JSON.stringify(response)
+            process.stdout.write(header ? `Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}` : `${json}\n`)
+        }
     }
 })
 
-function handle(message) {
-    if (!message.id) return
-    if (message.method === 'initialize') {
-        return send(message.id, {
-            protocolVersion: '2024-11-05',
-            capabilities: { tools: {} },
-            serverInfo: { name: 'cuttlely-ops', version: '1.0.0' }
-        })
+function handle(body) {
+    let request
+    try {
+        request = JSON.parse(body)
+    } catch {
+        return { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }
     }
-    if (message.method === 'tools/list') return send(message.id, { tools })
-    if (message.method === 'tools/call') {
-        return send(message.id, {
-            content: [{ type: 'text', text: 'ops-status: allowlisted MCP tool responded' }],
-            isError: false
-        })
+    if (request?.id == null) return
+    const response = { jsonrpc: '2.0', id: request.id }
+    switch (request.method) {
+        case 'initialize':
+            response.result = {
+                protocolVersion: '2024-11-05',
+                capabilities: { tools: {} },
+                serverInfo: { name: 'cuttlely-ops', version: '1.0.0' }
+            }
+            break
+        case 'ping':
+            response.result = {}
+            break
+        case 'tools/list':
+            response.result = { tools: [tool] }
+            break
+        case 'tools/call':
+            if (request.params?.name === tool.name) {
+                response.result = { content: [{ type: 'text', text: 'ops-status: allowlisted MCP tool responded' }], isError: false }
+            } else {
+                response.error = { code: -32602, message: 'Unknown tool' }
+            }
+            break
+        default:
+            response.error = { code: -32601, message: 'Method not found' }
     }
-    send(message.id, {})
-}
-
-function send(id, result) {
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, result })
-    fs.writeSync(1, `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`)
+    return response
 }
