@@ -112,10 +112,21 @@ test(
                 else process.env.CUTTLELY_HOST_FILE_MANIFEST = priorManifest
                 fs.unlinkSync(customSkill)
             }
+            const profile = 'zz-test-a--research'
+            const promptPath = () => path.join(hermesHome(), 'profiles', profile, 'SOUL.md')
+            fs.mkdirSync(path.dirname(promptPath()), { recursive: true })
+            const prompt = 'Custom instructions for this profile.\n'
+            fs.writeFileSync(promptPath(), prompt)
+            fs.renameSync(promptPath(), promptPath() + '.source')
+            fs.symlinkSync(promptPath() + '.source', promptPath())
+            assert.ok(discover({ inspectCaches: true }).unresolved.includes('profiles/' + profile + '/SOUL.md'))
+            fs.unlinkSync(promptPath())
+            fs.renameSync(promptPath() + '.source', promptPath())
             controller = await startStorageUpgrade(options)
             const before = await controller.status()
             assert.ok(before.temporary.some((entry) => entry.includes('profiles/team/cache/schema_columns.json')))
             assert.ok(before.temporary.every((entry) => !entry.includes('memory-cache.sqlite')))
+            assert.deepEqual(before.prompts, [{ name: 'profiles/' + profile + '/SOUL.md', bytes: Buffer.byteLength(prompt) }])
             assert.deepEqual(before.unresolved, ['profiles/team/cache/memory-cache.sqlite'])
             await assert.rejects(controller.transition('upgrade', { availableBytes: before.requiredBytes }), /local storage dependencies/)
             fs.renameSync(path.join(cacheDir, 'memory-cache.sqlite'), path.join(root, 'retained-fixture.sqlite'))
@@ -141,9 +152,14 @@ test(
             await controller.close()
             interrupt = false
             controller = await startStorageUpgrade(options)
+            fs.writeFileSync(promptPath(), 'edited during the interruption')
+            await assert.rejects(controller.transition('upgrade'), /original profile prompts/)
+            fs.writeFileSync(promptPath(), prompt)
             fs.unlinkSync(lostUpload.path)
             const migrated = await controller.transition('upgrade')
             assert.equal(migrated.phase, 'postgres')
+            assert.deepEqual(migrated.report.profilePrompts, { count: 1 })
+            assert.equal(fs.readFileSync(promptPath(), 'utf8'), prompt)
             assert.ok(migrated.stores.every((s) => s.retired))
             const file = path.join(hermesHome(), 'profiles', 'team', 'sessions.sqlite')
             assert.equal(fs.statSync(file + '.migrated').mode & 0o222, 0)
@@ -161,10 +177,20 @@ test(
                 await controller.close()
                 process.env.CUTTLELY_DATA_DIR = replacement
                 process.env.CUTTLELY_ETL_DIR = path.join(replacement, 'etl')
+                fs.mkdirSync(path.dirname(promptPath()), { recursive: true })
+                fs.writeFileSync(promptPath(), 'local customization')
+                await assert.rejects(startStorageUpgrade(options), /differs from the upgrade backup/)
+                assert.equal(fs.readFileSync(promptPath(), 'utf8'), 'local customization')
+                fs.unlinkSync(promptPath())
                 controller = await startStorageUpgrade({
                     ...options,
                     fileRoots: { blobs: path.join(replacement, 'blobs'), uploads: path.join(replacement, 'incoming') }
                 })
+                assert.equal(fs.readFileSync(promptPath(), 'utf8'), prompt)
+                fs.unlinkSync(promptPath())
+                await controller.close()
+                controller = await startStorageUpgrade(options)
+                assert.equal(fs.existsSync(promptPath()), false)
                 await assert.rejects(readSource(lostUpload.path), /Upload "re-upload.txt" again in this pipeline/)
                 const attachmentScope = { workspace: 'workspace-a', flow: 'flow', chat: 'chat' }
                 const priorKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
