@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.15)
+# Cuttlely FAQ (1.7.16)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
