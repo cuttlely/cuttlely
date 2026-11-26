@@ -1,29 +1,12 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import type { Response } from 'node-fetch'
 
-const mockSecureFetch = jest.fn<Promise<Response>, [string, any, number, any]>()
-// Match the virtual components mock used by the unbuilt-server identity suites.
-jest.mock(
-    '@cuttlely/components',
-    () => ({
-        ...jest.requireActual('../../../components/src/httpSecurity'),
-        secureFetch: mockSecureFetch
-    }),
-    { virtual: true }
-)
-
-import { checkOidcConfiguration, clearOidcCachesForTest } from './oidcProvider'
 import { oidcConfigurationFingerprint, OidcConfiguration } from './oidcStore'
 
 describe('OIDC discovery through a private issuer host', () => {
-    beforeEach(() => {
-        clearOidcCachesForTest()
-        mockSecureFetch.mockReset()
-    })
-
     it('uses a listed shared-address host for discovery and signing material', async () => {
         const issuer = 'https://100.64.0.1'
-        const guardedFetch = mockSecureFetch.mockImplementation(async (url) => {
+        const guardedFetch = jest.fn<Promise<Response>, [string, any, number, any]>(async (url) => {
             const value = String(url).endsWith('/jwks')
                 ? { keys: [{ kty: 'RSA', kid: 'shared-address-test' }] }
                 : {
@@ -65,10 +48,23 @@ describe('OIDC discovery through a private issuer host', () => {
             version: 1
         }
 
-        const result = await checkOidcConfiguration(config).catch((error: unknown) => error)
+        let check!: typeof import('./oidcProvider').checkOidcConfiguration
+        jest.isolateModules(() => {
+            // Built and source-only server test runs can resolve different module IDs.
+            // Register the physical entry when present as well as the source-only virtual package.
+            const transport = () => ({ secureFetch: guardedFetch })
+            let entry: string | undefined
+            try {
+                entry = require.resolve('@cuttlely/components')
+            } catch {
+                // The identity-only CI job does not build the workspace package.
+            }
+            if (entry) jest.doMock(entry, transport)
+            jest.doMock('@cuttlely/components', transport, { virtual: true })
+            check = require('./oidcProvider').checkOidcConfiguration
+        })
+        await expect(check(config)).resolves.toMatchObject({ issuer })
         expect(guardedFetch).toHaveBeenCalledTimes(2)
-        expect(result).not.toBeInstanceOf(Error)
-        expect(result).toMatchObject({ issuer })
         for (const call of guardedFetch.mock.calls) {
             expect(call[3]).toEqual(expect.objectContaining({ allowedPrivateHostnames: ['100.64.0.1'] }))
         }
