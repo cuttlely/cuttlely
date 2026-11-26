@@ -2,6 +2,8 @@
 
 ## Current release work
 
+Version 1.7.15 ships PostgreSQL disk-loss recovery, a guided migration from local stores and optional S3-compatible storage for application files. [Release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.15) · [Verification](./STATUS.md#1715-release)
+
 Version 1.7.14 ships the staged installation-key rotation, optional startup key guard, configurable specialist SQL attempts, setup and sign-in fixes, and a single status in the import verification alert. [Release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.14) · [Verification and deployment](./STATUS.md#1714-release)
 
 Version [1.7.13](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.13) is published at `4722923d`. It includes runtime recovery, admin limits, renewable chat locks, Try profile cleanup and direct chief execution in agent mode. Router mode remains the default. [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/45216230643) and [tagged image publication](https://github.com/cuttlely/cuttlely/actions/runs/45226518618) are complete.
