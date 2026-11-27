@@ -4,11 +4,7 @@ import { isPackagedOpsStatus } from './runtime/native-mcp.mjs'
 import { specialistSessionId } from './specialist-run.mjs'
 
 const components = createRequire(new URL('../components/package.json', import.meta.url))
-const modelClasses = new Set(
-    components('@cuttlely/components/module-catalog')
-        .nodes.filter((n) => n.category === 'Chat Models')
-        .map((n) => n.name)
-)
+let modelClasses
 const modelOptions = new Set([
     'modelName',
     'temperature',
@@ -21,8 +17,14 @@ const modelOptions = new Set([
 ])
 
 function directModel(model) {
+    if (!model?.nodeName) return false
+    if (!modelClasses) {
+        const { nodes } = components('@cuttlely/components/module-catalog')
+        if (!Array.isArray(nodes)) return false
+        modelClasses = new Set(nodes.filter((node) => node.category === 'Chat Models').map((node) => node.name))
+    }
     return (
-        modelClasses.has(model?.nodeName) &&
+        modelClasses.has(model.nodeName) &&
         !Object.keys(model.upstream || {}).length &&
         Object.entries(model.inputs || {}).every(
             ([key, value]) => modelOptions.has(key) && ['string', 'boolean', 'number'].includes(typeof value)
