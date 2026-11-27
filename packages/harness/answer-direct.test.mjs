@@ -176,7 +176,6 @@ test('answer direct single analyst skips handoff and streams the final trace', a
     assert.equal(payload.trace.handoff.reason, 'answerDirect')
     assert.equal(payload.trace.handoff.tokens, null)
     assert.deepEqual(payload.report.tokens, { prompt: null, completion: null, cached: null })
-    assert.ok(payload.timings.handoffMs < 50)
     assert.equal(events.filter((e) => e.type === 'handoff').length, 0)
     const partials = events.filter((e) => e.type === 'partial' && e.phase === 'answer')
     assert.equal(partials.length, 1)

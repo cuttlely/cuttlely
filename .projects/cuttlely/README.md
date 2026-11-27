@@ -18,7 +18,7 @@ Cuttlely is open-source, context-aware agent orchestration (Apache-2.0). It give
 
 ## How to resume
 
-1.7.15 is published at `bb119132` (#589) on GitHub, as a container image and in both npm packages. `CHANGELOG.md` dates it `## [1.7.15] - 2026-11-26`. It includes PostgreSQL disk-loss recovery from #586 and the private-issuer OIDC test fixture from #587. The direct chief path is fixed in 1.7.13 through [agent mode](../../docs/how-to/harness-agent-mode.md). Orchestrate and A2A outage responses (#540) are closed. Historical 1.7.14 and earlier publication receipts remain in STATUS.
+1.7.17 is published at `6a06b6f9` (#599) on GitHub, as a container image and in both npm packages. `CHANGELOG.md` dates it `## [1.7.17] - 2026-11-27`. It includes PostgreSQL disk-loss recovery from #598 and the recovery-test worker provisioning fix from #601. The direct chief path is fixed in 1.7.13 through [agent mode](../../docs/how-to/harness-agent-mode.md). Orchestrate and A2A outage responses (#540) are closed. Historical 1.7.16 and earlier publication receipts remain in STATUS.
 
 Historical 1.7.8 and 1.7.7 publication and hosted-upgrade receipts remain in STATUS. `docs/releases.md` and `scripts/release.mjs` describe the protected-main release procedure. User/team lifecycle landed in #501; its CI and deployed checks are also recorded in STATUS. Keep preparation, publication and deployment checks separate.
 
