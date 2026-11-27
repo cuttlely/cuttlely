@@ -266,7 +266,10 @@ test('native delegation uses the saved clock, search, and vector credentials and
     attach({ nodeName: 'webBrowser', nodeId: 'page', inputs: { readSource: true } }, math.id, 'attached', 'Tools')
     attach({ nodeName: 'chatOpenAI', nodeId: 'unused-model', inputs: {}, credential: 'unused' }, 'page', 'model', 'Chat Models')
     attach({ nodeName: 'openAIEmbeddings', nodeId: 'unused-emb', inputs: {}, credential: 'unused' }, 'page', 'embeddings', 'Embeddings')
-    saveHarness(rosterFromFlow({ name, workspaceId, chatflowId: randomUUID(), flowData: JSON.stringify(graph) }))
+    const chatflowId = randomUUID()
+    const publish = () =>
+        saveHarness(rosterFromFlow({ name, workspaceId, chatflowId, flowData: JSON.stringify(graph) }), { overwrite: true })
+    publish()
 
     const values = {
         'search-key': { serpApiKey: randomUUID() },
@@ -295,6 +298,7 @@ test('native delegation uses the saved clock, search, and vector credentials and
     let lookups = 0,
         searches = 0
     let pages = 0
+    let retrieval
     const address = 'https://example.invalid/article'
     const components = createRequire(new URL('../packages/components/package.json', import.meta.url))
     t.mock.method(components('@cuttlely/components/httpSecurity'), 'secureFetch', async (url, init, maxRedirects, policy) => {
@@ -351,9 +355,9 @@ test('native delegation uses the saved clock, search, and vector credentials and
         assert.equal(req.method, 'POST')
         assert.equal(url.pathname, '/query')
         const payload = await req.json()
-        assert.equal(payload.namespace, 'qa')
+        assert.equal(payload.namespace, retrieval?.namespace || 'qa')
         assert.ok(payload.filter.$or.some((f) => f.flowise_chatId?.$eq === chatId))
-        assert.equal(payload.topK, 2)
+        assert.equal(payload.topK, retrieval?.topK || 2)
         lookups++
         return json({
             matches: [
@@ -373,7 +377,12 @@ test('native delegation uses the saved clock, search, and vector credentials and
     class Model {
         async init() {
             return {
-                invoke: assert.fail,
+                invoke: async (messages) => {
+                    assert.equal(retrieval?.mode, 'router')
+                    if (messages[0].content.includes('You route work for'))
+                        return { content: JSON.stringify({ steps: [{ specialist: 'math', task: 'Read the catalog.' }] }) }
+                    return { content: 'The catalog number is 19.' }
+                },
                 bindTools: (tools, options) => ({
                     invoke: async (messages) => {
                         assert.equal(options?.tool_choice ?? 'auto', 'auto')
@@ -382,6 +391,26 @@ test('native delegation uses the saved clock, search, and vector credentials and
                         if (tools.some((t) => t.function.name === 'run_specialist')) {
                             if (last._getType() === 'tool') return { content: last.content }
                             return call('run_specialist', { name: 'math', task: 'Read the clock and look up the catalog.' })
+                        }
+                        if (retrieval) {
+                            const offered = tools.map((tool) => tool.function).filter((spec) => spec.name.includes('catalog'))
+                            assert.deepEqual(offered.map((spec) => spec.name).sort(), retrieval.offered)
+                            for (const spec of offered) {
+                                if (retrieval.mode === 'agent') {
+                                    assert.deepEqual(spec.parameters, {
+                                        type: 'object',
+                                        properties: { input: { type: 'string' }, query: { type: 'string' } },
+                                        required: []
+                                    })
+                                } else {
+                                    assert.ok(spec.parameters.properties.input)
+                                    assert.equal(spec.parameters.properties.query, undefined)
+                                }
+                            }
+                            if (last._getType() !== 'tool')
+                                return call(retrieval.requested, retrieval.mode === 'router' ? { input: 'catalog' } : { query: 'catalog' })
+                            assert.match(last.content, /The catalog number is 19/)
+                            return { content: 'The catalog number is 19.' }
                         }
                         if (last._getType() !== 'tool') return call('current_date_time', {})
                         if (last.content.includes('Asia/Tokyo')) return call('search', { input: 'What is the catalog code?' })
@@ -435,6 +464,48 @@ test('native delegation uses the saved clock, search, and vector credentials and
     assert.deepEqual(denied.sources, [])
     assert.equal(searches, 1)
     assert.equal(lookups, 1)
+    rows.get('embeddings-key').workspaceId = workspaceId
+    const canonical = 'mcp__math__catalog'
+    async function exercise(requested, offered, permitted, namespace = 'qa', topK = 2, mode = 'agent') {
+        retrieval = { requested, offered, namespace, topK, mode }
+        const before = lookups
+        const result = await runHarness({ ...opts, mode })
+        assert.equal(result.agents[0].status, permitted ? 'completed' : 'failed', result.agents[0].error)
+        assert.equal(lookups - before, permitted ? 1 : 0)
+        if (permitted) {
+            assert.equal(result.text, 'The catalog number is 19.')
+            assert.equal(result.sources[0].metadata.file_path, 'manual.md')
+        } else {
+            assert.match(result.agents[0].error, /unavailable|same name/i)
+            assert.deepEqual(result.sources, [])
+        }
+    }
+    await exercise(canonical, [canonical], true)
+    await exercise('catalog', [canonical], true)
+    await exercise('mcp__another__catalog', [canonical], false)
+    await exercise('catalog', ['catalog'], true, 'qa', 2, 'router')
+    await exercise(canonical, ['catalog'], false, 'qa', 2, 'router')
+
+    const duplicate = { ...tool, nodeId: 'retriever_1' }
+    const otherStore = { ...store, nodeId: 'pinecone_1', inputs: { ...store.inputs, pineconeNamespace: 'qa-two', topK: 3 } }
+    attach(duplicate, math.id, 'attached', 'Tools')
+    attach(otherStore, duplicate.nodeId, 'retriever', 'Vector Stores')
+    graph.edges.push({
+        source: store.upstream.embeddings.nodeId,
+        target: otherStore.nodeId,
+        targetHandle: otherStore.nodeId + '-input-embeddings'
+    })
+    publish()
+    const stable = [canonical + '__retriever_0', canonical + '__retriever_1']
+    await exercise(stable[1], stable, true, 'qa-two', 3)
+    await exercise(stable[0], stable, true)
+    await exercise('catalog', stable, false)
+
+    // These distinct canvas names collapse to a single provider identifier. Fail before either lookup.
+    graph.nodes.find((n) => n.id === tool.nodeId).data.inputs.name = 'item-name'
+    graph.nodes.find((n) => n.id === duplicate.nodeId).data.inputs.name = 'item_name'
+    publish()
+    await exercise('mcp__math__item_name', [], false)
 })
 
 test('the offline preflight uses the saved graph and outputs only capability labels for blocked tools', async () => {

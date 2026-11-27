@@ -63,6 +63,10 @@ For a canary, exercise a chief-only request, a request invoking a known supporte
 
 The Web Browser card’s **Return source text** mode reads a public HTTP(S) page whose URL the caller includes in the current message. The reader follows same-site redirects, checks every network destination and returns bounded text and source metadata. The link must be present in the original message even when Prime rewrites the specialist’s task. Interactive browser automation and links selected solely by the model still require the bundled runtime.
 
+A saved **Retriever Tool** named `catalog` on a specialist named `research` is offered as `mcp__research__catalog` in agent mode. Router mode uses the same qualified name when the specialist runs through the agent bridge. The inline router offers `catalog` with the card’s own input schema. A bridge call accepts a lookup string in `input` or `query`. An existing native instruction can still call the short name when it identifies one assigned retriever unambiguously.
+
+On a bridge-backed role, use the distinct names in the model’s tool list when two cards share a name. Each resolves to its own card, saved credential, namespace and result limit. A foreign role’s name or an ambiguous short name fails before retrieval. If two names normalize to the same qualified identifier, give the cards distinct names before cutover.
+
 ### Testing a team that searches local documents
 
 The Chief of Staff example builds an in-memory index from its saved Plain Text note using Local Hash Embeddings. On a replacement worker the saved canvas supplies the note, source metadata and embedding settings. Ask which embeddings built the vectors. Router mode returns the retrieved document in `sources`. Agent mode passes the note to the researcher as a tool result and returns the answer with an empty outer `sources` list, matching the released team.
@@ -157,6 +161,8 @@ The history keeps 100 settled runs per team. Active runs and accepted results aw
 
 When a caller waits for a queued PostgreSQL run, each poll reads its public events and job status together. If completion and the wait deadline coincide, the queue checks which operation committed first. A completed job returns its saved result and final events. An active job receives a cancellation request and the caller receives `worker_timeout`.
 
+The PostgreSQL queue groups pending stream reads on a shared polling timer within each API process. Each waiting request reads from its own job and event cursor. Independent chats can acquire or release their turn leases concurrently. Admission and expired-lease recovery still serialize conflicting turns. Cancellation checks read committed state, and a tool call still requires its durable dispatch receipt. These changes require no new worker or database setting.
+
 On PostgreSQL, loss of the storage coordinator makes both `/api/v1/ping` and `/api/v1/ping/live` return HTTP 503. The operator can inspect storage status even if an ordinary database query still succeeds. Restore database connectivity and replace the affected process. A standalone worker exits with status 1 on coordinator loss. Configure its service supervisor to restart it on failure. A normal SIGTERM shutdown exits with status 0.
 
 A successful preflight establishes that the runtime recognizes the saved configuration. Exercise the actual question and tools. A direct Prime answer alone does not test specialist execution.
@@ -201,7 +207,7 @@ Run `pnpm harness:check` and `pnpm verify` on the Node version in `.nvmrc`. Conf
 
 ### Concurrency acceptance for a release
 
-The release goal is to serve at least as many simultaneous authenticated chat connections as the v1.7.15 bundled runtime at equal or better end-to-end p95 latency and verified throughput. Evaluate each route and workload separately. For streaming clients, count distinct connections held open at the same time and confirm each stream delivers its own result.
+The release goal is to serve at least as many simultaneous authenticated chat connections as the v1.7.15 bundled runtime at equal or better end-to-end p95 latency and verified throughput. Evaluate each route and workload separately. For streaming clients, count distinct connections held open at the same time and confirm each stream delivers its own result. In the per-round report, `peakRequestsOnWire` counts overlapping sent requests awaiting completion. `peakOpenSseResponses` counts overlapping streams from receipt of their response headers through end of stream.
 
 Compare the candidate with tagged v1.7.15 (`bb1191321688de52a405dfb88ab43826250c814f`) through the same authenticated streaming endpoint. The direct team comparison uses `POST /api/v1/harnesses/:name/runs` with streaming enabled. Measure the saved chatflow’s `/prediction` path separately when that is the client entry point. Use the same saved graph, simulated provider settings, caller permissions, PostgreSQL snapshot, worker concurrency, hardware limits and client. Run each implementation against its own fresh restore. Pair a cold wave on newly started processes with a warm wave that reuses the running services and chats. Give each turn a distinct input and expected answer.
 

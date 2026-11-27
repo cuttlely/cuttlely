@@ -41,6 +41,7 @@ import {
     preparedKind,
     preparedSchema,
     specialistToolInput,
+    specialistToolBindings,
     specialistToolName,
     splitToolOutput
 } from './bridge.mjs'
@@ -4160,6 +4161,18 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         const report = openNativeTabularReport(context, specialist)
         if (report) register(report.tool, (args) => report.execute(args))
         const used = new Set(handlers.keys())
+        const gatewayRole = context.nativePrime || needsAgentLoop(specialist)
+        let retrieverAliases
+        // The released gateway reserves MCP-advertised names before allocating a stable name to each canvas node.
+        const bridgeNames =
+            gatewayRole && specialist.modules?.some((binding) => binding.nodeName === 'retrieverTool')
+                ? new Map(
+                      specialistToolBindings(specialist, new Set(mcp?.tools.map((tool) => tool.function.name))).map(({ binding, name }) => [
+                          binding,
+                          name
+                      ])
+                  )
+                : null
         for (const [index, binding] of (specialist.modules || []).entries()) {
             if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
             assertCurrent()
@@ -4223,18 +4236,33 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 used.add(name)
                 continue
             }
-            const name = toolName(item, index, used)
+            const shortName = toolName(item, index, used)
+            const bridgeName = binding.nodeName === 'retrieverTool' && bridgeNames?.get(binding)
+            const spec = bridgeName && toolSpec(binding, 'Connected node', bridgeName)
+            const name = spec ? hermesMcpToolName(specialist.name, bridgeName) : shortName
+            // The gateway appends a double-underscore node suffix when an authored name is ambiguous.
+            // Only an unambiguous local name may alias the exact grant advertised for this specialist.
+            if (spec && !bridgeName.includes('__') && !shortName.startsWith('mcp__')) {
+                retrieverAliases ??= new Map()
+                retrieverAliases.set(shortName, name)
+            }
             register(
                 {
                     type: 'function',
-                    function: {
-                        name,
-                        description: String(item.tool?.description || binding.label || name).slice(0, 1000),
-                        parameters: preparedSchema(item)
-                    }
+                    function: spec
+                        ? { name, description: spec.description, parameters: { ...spec.inputSchema, required: [] } }
+                        : {
+                              name,
+                              description: String(item.tool?.description || binding.label || name).slice(0, 1000),
+                              parameters: preparedSchema(item)
+                          }
                 },
                 async (args) => {
-                    const value = preparedKind(item) === 'object' ? args : args.query ?? args.input
+                    const value = spec
+                        ? specialistToolInput(binding, args)
+                        : preparedKind(item) === 'object'
+                        ? args
+                        : args.query ?? args.input
                     const raw = await raceSignal(signal, () => callPrepared(item, value, assertCurrent))
                     assertCurrent()
                     if (binding.nodeName === 'requestsGet') return raw
@@ -4268,6 +4296,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             budget,
             maxCalls: Math.max(40, playbookCallLimit(books, budget, playbookContext)),
             maxBatchCalls: NATIVE_SPECIALIST_BATCH_LIMIT,
+            aliases: retrieverAliases,
             limitCode: 'tool_limit',
             validateCall:
                 numeric &&

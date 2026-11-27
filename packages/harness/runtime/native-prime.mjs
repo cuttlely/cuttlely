@@ -205,6 +205,7 @@ export async function runNativeToolLoop({
     tools,
     complete,
     execute,
+    aliases,
     validateCall,
     signal,
     budget,
@@ -243,7 +244,11 @@ export async function runNativeToolLoop({
             throw new HarnessError(limitCode, 'The native agent reached its tool call limit.')
         remaining -= reply.toolCalls.length
         const calls = reply.toolCalls.map((call) => {
-            if (!allowed.has(call.function?.name)) throw new HarnessError('forbidden', 'The requested tool is unavailable to this agent.')
+            let name = call.function?.name
+            if (!allowed.has(name)) {
+                name = aliases?.get(name)
+                if (!name || !allowed.has(name)) throw new HarnessError('forbidden', 'The requested tool is unavailable to this agent.')
+            }
             let args
             try {
                 args = JSON.parse(call.function.arguments)
@@ -252,8 +257,8 @@ export async function runNativeToolLoop({
             }
             if (!args || typeof args !== 'object' || Array.isArray(args))
                 throw new HarnessError('bad_task', 'Expected tool arguments as an object.')
-            validateCall?.(call.function.name, args)
-            return { name: call.function.name, id: call.id, args }
+            validateCall?.(name, args)
+            return { name, id: call.id, args }
         })
         // Commit the whole validated batch before dispatch. Calls left in this state
         // when a worker dies never reached a tool.
