@@ -987,10 +987,10 @@ wait "$pid" || true
 `,
             isolatedEnv(dir)
         )
-        const started = Date.now()
+        const started = performance.now()
         try {
             assert.equal(await run.exited, 0, run.output)
-            assert.ok(Date.now() - started < 4000, run.output)
+            assert.ok(performance.now() - started < 4000, run.output)
             assert.match(run.output, /reason=container shutdown stop grace=2s/)
         } finally {
             await stopSupervisor(run, dir)
@@ -1066,10 +1066,10 @@ wait "$HERMES_PID" 2>/dev/null || true
 `,
             { ...isolatedEnv(dir), CUTTLELY_HERMES_STOP_GRACE_SECONDS: '15' }
         )
-        const started = Date.now()
+        const started = performance.now()
         try {
             assert.equal(await run.exited, 0, run.output)
-            const elapsed = Date.now() - started
+            const elapsed = performance.now() - started
             assert.ok(elapsed >= 25000 && elapsed < 30000, `${elapsed}ms\n${run.output}`)
             assert.match(run.output, /server draining[\s\S]*server drained[\s\S]*runtime received stop/)
             assert.match(run.output, /stop grace=2s/)
