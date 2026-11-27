@@ -969,7 +969,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     let sha = state.head
     if (!state.resume) {
         step('pnpm verify')
-        run('pnpm', ['verify'], { cwd: root, capture: false })
+        run('pnpm', ['verify'], { cwd: root, capture: false, env: { CUTTLELY_VERIFY_DISK_LOSS: '1' } })
 
         step(`Bump to ${state.version} and update CHANGELOG.md`)
         const releaseDocs = new Map()

@@ -176,6 +176,8 @@ def atomic_replace(tmp_path: Union[str, Path], target: Union[str, Path]) -> str:
     target_str = str(target)
     real_path = os.path.realpath(target_str) if os.path.islink(target_str) else target_str
     tmp_str = str(tmp_path)
+    from cuttlely_session_store import save_setting
+    save_setting(real_path, tmp_str)
     try:
         os.replace(tmp_str, real_path)
         return real_path

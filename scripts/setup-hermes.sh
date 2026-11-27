@@ -88,7 +88,7 @@ PY
     uv pip install --python "$PYTHON" -r "$WORK/mcp.txt" --overrides "$WORK/overrides.txt"
 fi
 
-uv pip install --python "$PYTHON" "$AIOHTTP"
+uv pip install --python "$PYTHON" "$AIOHTTP" "pg8000==1.31.5"
 
 # The asset pins are compiled for Python 3.14, the locked path (NumPy and NetworkX need 3.12 or newer), so other
 # versions skip them with a note instead of failing the setup.

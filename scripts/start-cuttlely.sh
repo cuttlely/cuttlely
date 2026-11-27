@@ -200,7 +200,17 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
     hermes_setup_help
     exit 1
 fi
-if ! IMPORT_ERROR="$(cd "$ROOT/hermes" && "$PYTHON" -c 'import aiohttp, cli' 2>&1)"; then
+# The runtime import creates default prompts and caches. Probe outside the installation
+# so the storage inventory can distinguish a fresh database from existing operator data.
+check_hermes_import() (
+    local probe
+    probe="$(mktemp -d)" || return 1
+    trap 'rm -rf -- "$probe"' EXIT
+    cd "$ROOT/hermes" || return 1
+    CUTTLELY_DATA_DIR="$probe" CUTTLELY_HERMES_HOME="$probe/hermes" HERMES_HOME="$probe/hermes" \
+        CUTTLELY_APP_DATABASE_STORES=0 "$PYTHON" -c 'import aiohttp, cli'
+)
+if ! IMPORT_ERROR="$(check_hermes_import 2>&1)"; then
     echo "Hermes Python $PYTHON cannot import the vendored Hermes runtime:" >&2
     echo "    $(printf '%s\n' "$IMPORT_ERROR" | tail -n 1)" >&2
     hermes_setup_help

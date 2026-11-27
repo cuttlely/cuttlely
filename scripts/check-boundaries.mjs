@@ -30,6 +30,8 @@ const R5_ALLOW = new Set([
     'scripts/hermes-tool-error-preview.test.mjs',
     // The evidence budget test loads real profile config and result storage to verify inline/spill behavior.
     'scripts/hermes-evidence-budget.test.mjs',
+    // Exercise the real runtime session and configuration writers during disk replacement.
+    'scripts/storage-replacement.test.mjs',
     // The terminal limit fixture reads the scoped policy without starting the runtime.
     'scripts/hermes-terminal-limits.test.mjs',
     'scripts/hermes-probe-cache-fd.test.mjs',

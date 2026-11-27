@@ -33,7 +33,25 @@ async function finish(client, command) {
     client.release()
 }
 
-async function execute({ scope, op, sql, params, owner, key }) {
+async function execute({ scope, op, sql, params, owner, key, payload }) {
+    if (op === 'saveRuntimeSetting') {
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            await client.query('SET LOCAL synchronous_commit = on')
+            await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,519))', ['setting/' + key])
+            await client.query(
+                'INSERT INTO cuttlely_runtime.runtime_settings(scope,payload) VALUES($1,$2) ON CONFLICT(scope) DO UPDATE SET payload=excluded.payload',
+                [key, Buffer.from(payload)]
+            )
+            await client.query('COMMIT')
+            client.release()
+        } catch (error) {
+            client.release(true)
+            throw error
+        }
+        return
+    }
     if (op === 'tryLease') {
         const client = new Client(workerData)
         client.on('error', () => {})

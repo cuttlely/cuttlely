@@ -187,6 +187,10 @@ jobs:
                   grep -qx '# fail 0' "$RUNNER_TEMP/analyst-role.tap"
                   grep -qx '# skipped 0' "$RUNNER_TEMP/analyst-role.tap"
                   awk '/^# pass /{found=1; if ($3 < 28) exit 1} END{if (!found) exit 1}' "$RUNNER_TEMP/analyst-role.tap"
+            - name: Install the agent runtime for the disk-loss test
+              run: |
+                  pipx install uv==0.12.3
+                  bash scripts/setup-hermes.sh
             - name: Postgres server settings survive container replacement
               env:
                   PGPASSWORD: postgres

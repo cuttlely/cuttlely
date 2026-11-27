@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, FormControlLabel, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Button, Checkbox, FormControlLabel, Paper, Stack, Typography } from '@mui/material'
 import serverSettingsApi from '@/api/serverSettings'
 
 const storagePhase = {
@@ -15,8 +15,7 @@ export default function StorageUpgradeCard() {
     const [state, setState] = useState(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
-    const [capacity, setCapacity] = useState('')
-    const [confirmed, setConfirmed] = useState(false)
+    const [confirmedFor, setConfirmedFor] = useState(null)
     const refresh = useCallback(async () => setState((await serverSettingsApi.storageStatus()).data), [])
     useEffect(() => {
         refresh().catch(() => setError('Storage status could not be loaded.'))
@@ -24,15 +23,45 @@ export default function StorageUpgradeCard() {
     if (!state?.available && !error) return null
     const rollback = state?.phase === 'postgres' || state?.phase === 'restoring'
     const needsCapacity = state?.phase === 'sqlite'
+    const active = needsCapacity
+        ? state.stores.filter((store) => store.busy).flatMap((store) => (store.active?.length ? store.active : [store.kind]))
+        : []
+    const unresolvedCount = state?.unresolved?.length || 0
+    const dependencyCount = state?.dependencies?.length || 0
+    const blockers = []
+    if (!rollback && state?.available) {
+        if (!state.enabled) blockers.push('Set CUTTLELY_APP_DATABASE_STORES=1 on the server and restart it.')
+        if (active.length) blockers.push('Finish or stop active work (' + active.join(', ') + ').')
+        if (unresolvedCount)
+            blockers.push(
+                'Review ' + unresolvedCount + ' local ' + (unresolvedCount === 1 ? 'path' : 'paths') + ' under Local files below.'
+            )
+        if (dependencyCount) blockers.push('Resolve the team inputs listed under Local dependencies below.')
+    }
+    const minimumBytes = state?.requiredBytes || 0
+    const minimumMiB = Math.ceil(minimumBytes / 1048576)
+    const confirmationKey = state?.phase + '/' + minimumMiB
+    const confirmed = confirmedFor === confirmationKey
+    async function recheck() {
+        setBusy(true)
+        setError('')
+        try {
+            await refresh()
+        } catch {
+            setError('Storage status could not be loaded.')
+        } finally {
+            setBusy(false)
+        }
+    }
     async function submit() {
         setBusy(true)
         setError('')
         try {
             await serverSettingsApi.changeStorage(rollback ? 'rollback' : 'upgrade', {
-                availableBytes: Math.floor(Number(capacity) * 1024 * 1024),
+                availableBytes: needsCapacity ? minimumMiB * 1048576 : 0,
                 confirm: rollback ? 'ROLLBACK' : undefined
             })
-            setConfirmed(false)
+            setConfirmedFor(null)
         } catch (e) {
             setError(e.response?.data?.message || 'The request did not finish. Check storage status before retrying.')
         } finally {
@@ -55,6 +84,60 @@ export default function StorageUpgradeCard() {
                             Storage status: {storagePhase[state.phase] || state.phase}. ETL, vector collections and agent team stores can
                             share the application PostgreSQL database.
                         </Typography>
+                        {blockers.length > 0 && (
+                            <Alert
+                                severity='warning'
+                                action={
+                                    <Button disabled={busy} onClick={recheck}>
+                                        Check again
+                                    </Button>
+                                }
+                            >
+                                <strong>Before you can upgrade</strong>
+                                <ul>
+                                    {blockers.map((message) => (
+                                        <li key={message}>{message}</li>
+                                    ))}
+                                </ul>
+                            </Alert>
+                        )}
+                        <Alert severity='info'>
+                            PostgreSQL restores saved chats, runtime settings and memory notes. Files created by code execution, such as
+                            documents and images, can disappear when a container is replaced. Direct shell edits to runtime settings also
+                            depend on the local disk.
+                        </Alert>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={confirmed}
+                                    onChange={(e) => setConfirmedFor(e.target.checked ? confirmationKey : null)}
+                                />
+                            }
+                            label={
+                                rollback
+                                    ? 'I understand rollback restores pre-upgrade SQLite data. Later writes stay in PostgreSQL.'
+                                    : needsCapacity
+                                    ? 'I have backed up the application database and checked that my PostgreSQL host has at least ' +
+                                      minimumMiB +
+                                      ' MiB free.'
+                                    : 'I have backed up the application database and am ready to resume the upgrade.'
+                            }
+                        />
+                        <Button variant='contained' disabled={busy || !confirmed || blockers.length > 0} onClick={submit}>
+                            {busy
+                                ? 'Working…'
+                                : rollback
+                                ? 'Restore retained SQLite files'
+                                : needsCapacity
+                                ? 'Upgrade storage'
+                                : 'Resume storage upgrade'}
+                        </Button>
+                        {needsCapacity && state.runtimeFiles?.length > 0 && (
+                            <Alert severity='info'>
+                                {state.runtimeFiles.length} runtime files and directories included. Upgrade storage encrypts the snapshot
+                                with your installation key. Supply that same key when starting a replacement host.
+                            </Alert>
+                        )}
                         {state.versions && (
                             <Typography>
                                 Flow version history · {Math.ceil(state.versions.bytes / 1024)} KiB at revision{' '}
@@ -84,10 +167,7 @@ export default function StorageUpgradeCard() {
                                     {state.prompts.length} profile {state.prompts.length === 1 ? 'prompt' : 'prompts'} included in the
                                     upgrade
                                 </strong>
-                                <div>
-                                    Upgrade storage saves these prompts in PostgreSQL for a replacement host. Back up later prompt edits
-                                    separately.
-                                </div>
+                                <div>Upgrade storage verifies and copies these prompts to PostgreSQL.</div>
                                 <details>
                                     <summary>Show prompt files</summary>
                                     <ul>
@@ -98,30 +178,23 @@ export default function StorageUpgradeCard() {
                                 </details>
                             </Alert>
                         )}
-                        {state.temporary?.length > 0 && (
-                            <Alert severity='info'>
-                                Temporary data Cuttlely can rebuild
-                                <ul>
-                                    {state.temporary.map((message) => (
-                                        <li key={message}>{message}</li>
-                                    ))}
-                                </ul>
-                            </Alert>
-                        )}
-                        {state.unresolved?.length > 0 && (
-                            <Alert severity='warning'>
-                                These paths depend on the current disk. Supply immutable inputs on each host using the verified file
-                                manifest, move mutable data to a durable service, or retire the dependency before cutover.
+                        {unresolvedCount > 0 && (
+                            <details>
+                                <summary>Local files ({unresolvedCount})</summary>
+                                <p>
+                                    Supply immutable inputs through the verified file manifest, move mutable files to durable storage, or
+                                    retire the dependency.
+                                </p>
                                 <ul>
                                     {state.unresolved.map((location) => (
                                         <li key={location}>{location}</li>
                                     ))}
                                 </ul>
-                            </Alert>
+                            </details>
                         )}
-                        {state.dependencies?.length > 0 && (
-                            <Alert severity='warning'>
-                                Resolve these local dependencies before moving storage.
+                        {dependencyCount > 0 && (
+                            <details>
+                                <summary>Local dependencies ({dependencyCount})</summary>
                                 <ul>
                                     {state.dependencies.map((item, i) => (
                                         <li key={i}>
@@ -131,15 +204,21 @@ export default function StorageUpgradeCard() {
                                         </li>
                                     ))}
                                 </ul>
-                            </Alert>
+                            </details>
                         )}
-                        <Alert severity='info'>
-                            If this host loses its local disk, the agent runtime starts fresh sessions. Runtime-only messages and
-                            undelivered replies or task results can be lost. Clients can start a new conversation at the same endpoint.
-                        </Alert>
+                        {state.temporary?.length > 0 && (
+                            <details>
+                                <summary>Temporary data Cuttlely can rebuild</summary>
+                                <ul>
+                                    {state.temporary.map((message) => (
+                                        <li key={message}>{message}</li>
+                                    ))}
+                                </ul>
+                            </details>
+                        )}
                         {state.local.length > 0 && (
                             <details>
-                                <summary>Agent runtime databases kept on disk</summary>
+                                <summary>Agent runtime session databases</summary>
                                 {state.local.map((item) => (
                                     <div key={item.name}>
                                         {item.name} ·{' '}
@@ -163,47 +242,6 @@ export default function StorageUpgradeCard() {
                                 The retained SQLite files are at least 30 days old. Keep them while you need rollback.
                             </Alert>
                         )}
-                        {!state.enabled && (
-                            <Alert severity='info'>Set CUTTLELY_APP_DATABASE_STORES=1 and restart to enable the upgrade.</Alert>
-                        )}
-                        {needsCapacity && (
-                            <TextField
-                                label='Available PostgreSQL space (MiB)'
-                                value={capacity}
-                                onChange={(e) => setCapacity(e.target.value)}
-                                type='number'
-                                helperText={
-                                    'Check the database host. Estimated minimum: ' + Math.ceil(state.requiredBytes / 1048576) + ' MiB.'
-                                }
-                            />
-                        )}
-                        <FormControlLabel
-                            control={<Checkbox checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />}
-                            label={
-                                rollback
-                                    ? 'I understand rollback restores pre-upgrade SQLite data. Later writes stay in PostgreSQL.'
-                                    : 'I have backed up the application database. Pause new work and verify the SQLite copies.'
-                            }
-                        />
-                        <Button
-                            variant='contained'
-                            disabled={
-                                busy ||
-                                !confirmed ||
-                                (!rollback && (state.dependencies?.length > 0 || state.unresolved?.length > 0)) ||
-                                (!rollback && !state.enabled) ||
-                                (needsCapacity && (!capacity || Number(capacity) * 1048576 < state.requiredBytes))
-                            }
-                            onClick={submit}
-                        >
-                            {busy
-                                ? 'Working…'
-                                : rollback
-                                ? 'Restore retained SQLite files'
-                                : needsCapacity
-                                ? 'Upgrade storage'
-                                : 'Resume storage upgrade'}
-                        </Button>
                     </>
                 )}
             </Stack>

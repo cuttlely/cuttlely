@@ -22,6 +22,8 @@ When moving from SQLite, the first new Analyst SQL query creates an empty, isola
 
 ## New PostgreSQL install on a host with ephemeral disks
 
+The container needs a writable scratch directory on each host. A restricted OpenShift container can use an `emptyDir` at `/var/cuttlely` with write access for its assigned UID or group. The entrypoint places its home there when its original home is unwritable. The runtime connects directly to the application PostgreSQL database. The same connection and installation key must be available on a replacement host.
+
 1. Provision a dedicated, durable PostgreSQL database. Keep its backups outside the application host. Choose PostgreSQL-only unless you need an object bucket for application uploads. Create and configure that bucket before first boot if using hybrid mode.
 2. Set the following on the **host** for the web service and each worker. Resolve secrets through the deployment's secret manager. When the database provider requires TLS, supply its CA and verification settings. A connection previously saved in the settings panel cannot bootstrap an empty host.
 3. Start one web instance on the empty database. With application database storage enabled and no local legacy data, the first startup activates PostgreSQL storage. Open **Server Settings → Database → Application database storage** as the Instance Operator and verify the PostgreSQL state. Complete first-owner onboarding if this is a new local-password installation.
@@ -68,9 +70,15 @@ For an existing local store, pause writers and copy the durable files to the buc
 
 ## Operator-supplied files
 
-When the storage screen lists profile prompts as included, select **Upgrade storage** after confirming the backup and available space. Cuttlely copies each listed `SOUL.md` into PostgreSQL, verifies its contents, and keeps the original file. Web servers and workers restore the upgrade snapshot on a replacement runtime disk. The restore runs once per disk and preserves existing files. Back up later local prompt edits separately. Other unresolved files appear in their own warning.
+When the storage screen lists profile prompts as included, select **Upgrade storage** after confirming the backup and available space. Cuttlely copies each listed `SOUL.md` into PostgreSQL, verifies its contents, and keeps the original file. Web servers and workers restore the upgrade snapshot on a replacement runtime disk. The restore runs once per disk and preserves existing files. Prompt edits written through the profile compiler are committed to PostgreSQL. Direct changes made by a host editor still need their own backup. Other unresolved files appear in their own warning.
 
 In 1.7.15 the yellow disk-dependency warning can list stock runtime skills and disable **Upgrade storage**. Keep the original disk attached. With the bundled-skill preflight fix, reopen **Application database storage** to refresh the inventory. Files matching the installed bundle are counted under **Temporary data Cuttlely can rebuild**. The skill sync manifest is regenerated. Curator run history and its pause setting reset. Modified files, custom skills, and links still require review. For source installations, run the runtime setup for the updated checkout to generate the reference catalog.
+
+The upgrade inventory also recognizes local runtime configuration, skill usage, harness playbooks and supported cache directories. Their verified upgrade snapshot is encrypted with the installation key and restored on an empty web or worker disk. Preserve this key independently of the host. Links, unsupported files and live file databases still require review. When the queue is busy, the storage screen identifies the active work. Select **Check again** after it finishes.
+
+The snapshot represents the time of upgrade. Every web server, worker and runtime can lose its local filesystem at the same time. Recovery depends on a PostgreSQL service outside those hosts and the installation key supplied independently through the deployment’s secret manager. An application using an ephemeral PostgreSQL volume also needs an independent copy of every acknowledged transaction.
+
+The current runtime can acknowledge a SQLite chat message or a local configuration edit before PostgreSQL has it. An installation requiring every acknowledged write to survive a crash cannot rely on this upgrade snapshot for ongoing recovery.
 
 A workflow or runtime plugin can open a local path directly. Move mutable data to a supported durable backend, retire the dependency, or supply immutable files at their expected paths on every instance. For example, ship a custom skill with the image or fetch a pinned object from a private bucket **before starting the web server and worker**. Supply secrets from the host secret manager.
 
@@ -80,10 +88,12 @@ A workflow using custom code can compute its own paths. An unresolved plugin, mu
 
 ## Before the upgrade
 
+If the existing Docker container, OpenShift pod or Render service has only ephemeral storage, keep it running until you have a verified off-host copy. Quiesce writers before copying the application database, settings and runtime directories, including SQLite journals and WAL files. Restore that consistent copy to the migration container’s writable data directory before its first startup and supply the original installation key from the host. Keep the backup through the replacement test. A redeploy can discard the only copy of data that still lives on the old instance.
+
 1. Back up the application database and the persistent volume. Check that both backups can be restored. Keep the installation encryption key and operator recovery material with the deployment's protected backups.
 2. Enable `CUTTLELY_APP_DATABASE_STORES=1` and restart with the original volume connected. Apply the same database settings to external workers and replicas. On Docker, set the variable on the Compose service. On Render, set it on the service across a deploy with its disk attached. On bare metal, update the service environment and restart the service manager.
 3. Leave one application instance running. Stop external workers, other replicas and older binaries or scripts that can write directly to the files. Finish queued runs, active chats and refreshes. Schedules retain their due times during the pause.
-4. Inspect the inventory in Server Settings. Verify free space in the PostgreSQL host dashboard or filesystem and enter it in MiB. The estimate reserves twice the source size. PostgreSQL SQL sessions cannot report the hosting volume's available space. The application checks SQLite backup disk space, SQLite versions, active work and the database login's schema privileges.
+4. Inspect the inventory in Server Settings. Check the free space in the PostgreSQL host dashboard or filesystem. The confirmation beside **Upgrade storage** shows how many MiB you need. The estimate reserves twice the source size. PostgreSQL SQL sessions cannot report the hosting volume's available space. The application checks SQLite backup disk space, SQLite versions, active work and the database login's schema privileges.
 
 ## Resolve a file-backed dependency
 
@@ -103,9 +113,11 @@ The storage screen lists temporary data separately so the operator can continue 
 
 Buffer Memory and Buffer Window Memory read saved chat messages for the same flow and session from the application database on demand. Preserve and verify the message rows during migration. Text still streaming when the process stops can only be recovered up to its last durable write. A SQLite Agent Memory checkpoint can be the only copy of a conversation’s execution state and blocks cutover until resolved. A filename containing `cache`, `buffer` or `.tmp` alone never establishes that its contents can be regenerated.
 
+Documents, images and other files created by code execution in a local workspace can disappear when its container is replaced. A chat message that links to one of these files can survive even when the file is gone. Files explicitly uploaded to Cuttlely’s managed storage follow the configured PostgreSQL or object-storage recovery policy.
+
 ### Chat sessions after disk loss
 
-The agent runtime keeps its own session database (`state.db`) on the host. When a replacement starts with an empty disk, the runtime creates a fresh database and clients can start a new conversation at the same endpoint. Runtime-only conversation history, in-progress turns and undelivered replies or delegated task results can be lost. An ordinary restart can reuse the database if the disk is still present. The storage inventory lists this database for information and allows cutover. Chat messages already saved to the application PostgreSQL database survive.
+The upgrade verifies a copy of each runtime session database. With application database storage active, the runtime commits changes to the session history in PostgreSQL before its session writer returns. Web services and workers can recover those messages, runtime settings, and notes saved by the runtime memory tool on replacement hosts using the same installation key. This uses ordinary outbound database connections. Unfinished turns, external actions and undelivered results have their own delivery semantics. Edits made directly with shell redirection or an independent editor inside a container still reside on that host. A restart that replaces its filesystem can lose those edits.
 
 ## Run and verify
 
