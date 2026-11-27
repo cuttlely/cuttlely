@@ -25,7 +25,9 @@ serverRequire('ts-node').register({
 
 const WORKSPACE = '11111111-1111-4111-8111-111111111111'
 const LIVE = '{"nodes":[{"id":"live"}],"edges":[]}'
-const DRAFT = '{"nodes":[{"id":"draft"}],"edges":[]}'
+const DRAFT = JSON.parse(await readFile(path.join(root, 'samples', 'harnesses', 'calculator.canvas.json'), 'utf8')).flowData
+const dataDir = await mkdtemp(path.join(tmpdir(), 'cuttlely-draft-usage-'))
+process.env.CUTTLELY_DATA_DIR = dataDir
 const stubDir = path.join(root, 'packages', 'server', 'src', 'services', 'harnesses', 'harness')
 const logFile = path.join(tmpdir(), `harness-draft-usage-${process.pid}.log`)
 process.env.CUTTLELY_HARNESS_STUB_LOG = logFile
@@ -61,15 +63,6 @@ export function chatBelongsToOtherCaller() { return false }
 `
 )
 await writeFile(
-    path.join(stubDir, 'sync-from-flow.mjs'),
-    `import { note } from './note.mjs'
-export function rosterFromFlow(input) {
-  note({ kind: 'roster', flowData: input.flowData, name: input.name })
-  return { name: input.name, workspaceId: input.workspaceId, chatflowId: input.chatflowId, agents: [{ id: 'draft-specialist' }] }
-}
-`
-)
-await writeFile(
     path.join(stubDir, 'run.mjs'),
     `import { note } from './note.mjs'
 const payload = {
@@ -77,7 +70,8 @@ const payload = {
   harnessPayload: { trace: { route: { model: 'gpt-4.1-mini', tokens: { prompt: 20, completion: 8 } } } }
 }
 async function finish(kind, opts) {
-  note({ kind, hasRecord: !!opts.record, tryId: opts.record && opts.record.tryId })
+  note({ kind, hasRecord: !!opts.record, tryId: opts.record?.tryId, tryOwner: opts.record?.tryOwner,
+    name: opts.record?.name, specialists: opts.record?.specialists.map(role => role.name) })
   if (typeof opts.onRecorded === 'function') opts.onRecorded({ id: 'run-1', chatId: opts.chatId })
   return payload
 }
@@ -94,11 +88,11 @@ const { AddTokenUsageDay1791900000000: SqliteMigration } = serverRequire(
 )
 const { queryTokenUsage } = serverRequire('./src/services/usage/index.ts')
 const drafts = serverRequire('./src/services/flow-drafts/index.ts')
-drafts.default.flowDataForTestChat = async () => DRAFT
+drafts.default.canvasForTestChat = async () => ({ flowData: DRAFT, published: false })
 const harnesses = serverRequire('./src/services/harnesses/index.ts').default
 const appMod = serverRequire('./src/utils/getRunningExpressApp.ts')
 
-const dirs = []
+const dirs = [dataDir]
 after(async () => {
     await rm(stubDir, { recursive: true, force: true })
     await rm(logFile, { force: true })
@@ -184,15 +178,14 @@ describe('harness draft try usage', () => {
         const seen = await calls()
         const queued = seen.filter((row) => row.kind === 'queued')
         const inline = seen.filter((row) => row.kind === 'inline')
-        const rosters = seen.filter((row) => row.kind === 'roster')
         assert.equal(queued.length, 1)
         assert.equal(queued[0].hasRecord, false)
         assert.equal(inline.length, 1)
         assert.equal(inline[0].hasRecord, true)
         assert.equal(typeof inline[0].tryId, 'string')
         assert.equal(inline[0].tryId.length, 16)
-        assert.equal(rosters.length, 1)
-        assert.equal(rosters[0].flowData, DRAFT)
-        assert.equal(rosters[0].name, 'bakery-team')
+        assert.equal(inline[0].tryOwner, 'user:draft-usage-user')
+        assert.equal(inline[0].name, 'bakery-team')
+        assert.deepEqual(inline[0].specialists, ['math'])
     })
 })
