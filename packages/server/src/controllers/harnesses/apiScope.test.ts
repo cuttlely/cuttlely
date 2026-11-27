@@ -69,7 +69,7 @@ describe('harness controller scope for an API key', () => {
         expect((await request(app(person)).get('/harnesses')).body).toEqual([{ name: 'bakery' }, { name: 'payroll' }])
     })
 
-    it('reads runs scoped to the calling key, and unscoped for a person', async () => {
+    it('forwards the key or signed-in user so managed run results can be filtered', async () => {
         const runId = 'run_00000000-0000-4000-8000-000000000000'
         await request(app(viaKey)).get('/harnesses/bakery/runs')
         await request(app(viaKey)).get(`/harnesses/bakery/runs/${runId}`)
@@ -79,7 +79,7 @@ describe('harness controller scope for an API key', () => {
             ['listRuns', { apiKeyId: 'key-bakery' }],
             ['getRun', { apiKeyId: 'key-bakery' }],
             ['getRunResult', { apiKeyId: 'key-bakery' }],
-            ['listRuns', { apiKeyId: null }]
+            ['listRuns', { apiKeyId: null, sessionUserId: 'user-1' }]
         ])
     })
 
@@ -96,6 +96,8 @@ describe('harness controller scope for an API key', () => {
         expect((await request(app(viaKey)).get(url)).status).toBe(403)
         expect(calls).toHaveLength(0)
         expect((await request(app(person)).get(url)).status).toBe(200)
-        expect(calls).toEqual([{ fn: 'getRunDiagnostics', args: ['bakery', 'run_00000000-0000-4000-8000-000000000000', 'team-a'] }])
+        expect(calls).toEqual([
+            { fn: 'getRunDiagnostics', args: ['bakery', 'run_00000000-0000-4000-8000-000000000000', 'team-a', { sessionUserId: 'user-1' }] }
+        ])
     })
 })
