@@ -458,7 +458,8 @@ test(
                 fs.rmSync(dir, { recursive: true, force: true })
             }
         })
-        server = await startServer(nativePackageRoot() || root, env, {
+        const serverRoot = nativePackageRoot() || root
+        server = await startServer(serverRoot, env, {
             preload: [path.join(root, 'scripts/fixtures/kraken-published-prediction-provider.cjs')]
         })
         await waitForPing(url, server)
@@ -509,12 +510,22 @@ test(
             })
             const b = await r.json()
             assert.doesNotMatch(JSON.stringify(b), /handoff-note|Synthetic shift handoff|\/workspaces\/|harness-try-keep/)
-            return { status: r.status, body: b }
+            return { status: r.status, body: b, retryAfter: r.headers.get('retry-after') }
         }
-        const denied = async (resource, caller, ticket) => {
+        const nativeOnly = fs.existsSync(path.join(serverRoot, 'packages/harness/native-distribution.json'))
+        const denied = async (resource, caller, ticket, supervisorDown = false) => {
             const r = await predict(resource, caller, ticket)
-            assert.notEqual(r.status, 200, 'preexisting user files must stop the native prediction')
-            assert.match(r.body.message, /existing workspace files need owner-scoped upload/)
+            if (nativeOnly || supervisorDown) {
+                // Strict availability admission never exposes the underlying capability or supervisor state.
+                assert.equal(r.status, 503)
+                assert.equal(r.body.code, 'RUNTIME_UNAVAILABLE')
+                assert.equal(r.body.message, 'The agent runtime is unavailable. Try again shortly or contact the instance operator.')
+                assert.equal(r.retryAfter, '5')
+            } else {
+                assert.equal(r.status, 422)
+                assert.match(r.body.message, /existing workspace files need owner-scoped upload/)
+                assert.equal(r.retryAfter, null)
+            }
             assert.equal(fs.existsSync(path.join(dir, ticket + '.entered')), false)
         }
         const accepted = async (resource, caller, ticket, session) => {
@@ -538,9 +549,11 @@ test(
         const supervisor = path.join(dir, 'hermes-supervisor.json')
         fs.writeFileSync(supervisor, JSON.stringify({ state: 'down' }))
         try {
-            const unavailable = await predict(first, key, 'TKT-707')
-            assert.equal(unavailable.status, 503)
-            assert.ok(!fs.existsSync(path.join(dir, 'TKT-707.entered')))
+            const unauthenticated = await predict(first, { apiKey: randomUUID() }, 'TKT-709')
+            assert.equal(unauthenticated.status, 401)
+            assert.doesNotMatch(unauthenticated.body.message, /workspace files|runtime is unavailable/)
+            assert.equal(fs.existsSync(path.join(dir, 'TKT-709.entered')), false)
+            await denied(first, key, 'TKT-707', true)
             await accepted(first, second, 'TKT-708')
         } finally {
             fs.unlinkSync(supervisor)
