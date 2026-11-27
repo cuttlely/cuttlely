@@ -831,8 +831,7 @@ def _redact_assignments(text: str, *, mask_nonreusable: bool = False) -> str:
 def _redact_url_credentials(text: str, code_file: bool) -> str:
     """DB connection-string passwords and bare-token URL userinfo (``://`` text only)."""
     def _redact_db(m):
-        # code_file: a pure ``{...}`` password is an f-string template reference
-        # (f"postgresql://{user}:{pass}@{host}"), not a literal credential.
+        # Preserve a password field consisting entirely of a source-code template expression.
         pw = m.group(2)
         if code_file and pw.startswith("{") and pw.endswith("}"):
             return m.group(0)
@@ -928,7 +927,7 @@ def redact_sensitive_text(text: str, *, force: bool = False, code_file: bool = F
         text = _PRIVATE_KEY_RE.sub("[REDACTED PRIVATE KEY]", text)
 
     # Database connection string passwords. With code_file=True, a password group that is a pure ``{...}``
-    # brace expression is an f-string template reference (e.g. f"postgresql://{user}:{pass}@{host}"), not a
+    # brace expression is an f-string template reference, not a
     # literal credential — preserve it. Literal passwords are still redacted. The regex forbids whitespace
     # in the password group, so a single-line template's group(2) is exactly the brace expression. See issue
     # #33801.
