@@ -84,12 +84,28 @@ test(
             launcher: Boolean(nativeInstall)
         })
         await waitForPing(url, api)
-        worker = spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
-            cwd: install,
-            env: dataEnv(path.join(dir, 'worker'), port, { ...config, CUTTLELY_NATIVE_PRIME_TEAMS: '' }),
-            stdio: 'ignore'
-        })
-        const workerExit = once(worker, 'exit')
+        // This disposable test database has just the API's single storage member before its worker starts.
+        const members = async () =>
+            (
+                await db.query(
+                    `SELECT pid FROM pg_locks WHERE locktype='advisory' AND mode='ShareLock' AND granted AND objsubid=1
+              AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND classid=((hashtextextended('cuttlely-side-store-instances',516)>>32)&4294967295)::oid
+              AND objid=(hashtextextended('cuttlely-side-store-instances',516)&4294967295)::oid`
+                )
+            ).map((row) => row.pid)
+        const initial = await members()
+        assert.equal(initial.length, 1)
+        let workerExit
+        function launchWorker() {
+            worker = spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
+                cwd: install,
+                env: dataEnv(path.join(dir, 'worker'), port, { ...config, CUTTLELY_NATIVE_PRIME_TEAMS: '' }),
+                stdio: 'ignore'
+            })
+            workerExit = once(worker, 'exit')
+        }
+        launchWorker()
         const { cookie, status } = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
         assert.equal(status, 200)
         async function post(route, body) {
@@ -160,6 +176,34 @@ test(
             assert.ok(run.report.tokens.prompt > 0)
             t.diagnostic(mode + ' received the MCP response using the saved specialist binding')
         }
+        // Kill only the worker's idle coordinator, identified by its shared membership lock.
+        // The shell restarts every exit. An independent on-failure supervisor also needs a nonzero status.
+        const withWorker = await members()
+        assert.equal(withWorker.length, 2)
+        assert.ok(withWorker.includes(initial[0]))
+        const originalWorkerMember = withWorker.find((pid) => pid !== initial[0])
+        const [fault] = await db.query('SELECT pg_terminate_backend($1) AS stopped', [originalWorkerMember])
+        assert.equal(fault.stopped, true)
+        const exitDeadline = setTimeout(() => worker.kill('SIGKILL'), 15000)
+        try {
+            assert.deepEqual(await workerExit, [1, null])
+        } finally {
+            clearTimeout(exitDeadline)
+        }
+        assert.deepEqual(await members(), initial)
+        launchWorker()
+        const recovered = await post('harnesses/' + name + '/runs', {
+            mode: 'agent',
+            chatId: randomUUID(),
+            question: 'Check the ops status.'
+        })
+        assert.equal(recovered.trace.engine, 'native')
+        assert.ok(recovered.agents.some((role) => role.name === 'operator' && role.status === 'completed'))
+        assert.ok(recovered.text.includes('ops-status: allowlisted MCP tool responded'))
+        const replacement = await members()
+        assert.equal(replacement.length, 2)
+        assert.ok(replacement.includes(initial[0]))
+        assert.ok(!replacement.includes(originalWorkerMember))
         // Pause *after* the actual protocol server has returned, but before the
         // worker can acknowledge its call. The next API poll recovers this lease.
         fs.writeFileSync(receiptLatch, '')

@@ -27,6 +27,11 @@ process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
 try {
     await worker.finished
+} catch (error) {
+    // The process logger can handle an uncaught failure. Keep the nonzero status
+    // that an on-failure service supervisor needs to start a replacement.
+    process.exitCode = 1
+    throw error
 } finally {
     await closeStorage?.()
 }
