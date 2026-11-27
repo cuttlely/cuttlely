@@ -299,8 +299,9 @@ function statusAtWaitTimeout(id) {
 }
 
 export function cancelRequested(id) {
-    const row = database().prepare('SELECT cancel_requested FROM jobs WHERE id = ?').get(id)
-    return row?.cancel_requested === 1
+    const db = database()
+    if (db.dialect === 'postgres' && typeof id === 'string' && !id.includes('\0')) return db.readJobCancellation(id)
+    return db.prepare('SELECT cancel_requested FROM jobs WHERE id = ?').get(id)?.cancel_requested === 1
 }
 
 export function touchJob(id) {
@@ -586,8 +587,18 @@ function staleAfter() {
     return ttl + 15000
 }
 
-function delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+// PostgreSQL can read several waiters in a single snapshot. Wake pending readers together
+// so their next cursors share a batch even when the original requests arrived at different times.
+let nextPostgresPoll
+function waitForNextPoll(db) {
+    if (db.dialect !== 'postgres') return new Promise((resolve) => setTimeout(resolve, 15))
+    nextPostgresPoll ??= new Promise((resolve) => {
+        setTimeout(() => {
+            nextPostgresPoll = undefined
+            resolve()
+        }, 15)
+    })
+    return nextPostgresPoll
 }
 
 // Image bytes only ride to the waiter. Once it has them, the stored row keeps the image names, not the bytes, so
@@ -667,7 +678,7 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
                 if (status === 'succeeded' || status === 'cancelled' || status === 'failed') continue
                 throw new HarnessError('worker_timeout', 'The harness job did not finish before its wait elapsed.')
             }
-            await delay(15)
+            await waitForNextPoll(db)
         }
     } finally {
         signal?.removeEventListener('abort', onAbort)

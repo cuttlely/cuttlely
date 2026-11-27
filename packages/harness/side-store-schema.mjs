@@ -1,3 +1,10 @@
+export const insertTurnLease = 'INSERT INTO turns (session_key, owner, expires_at) VALUES (?, ?, ?)'
+export const turnLeaseStatements = Object.freeze({
+    acquire: insertTurnLease + ' ON CONFLICT(session_key) DO NOTHING',
+    renew: 'UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ? AND expires_at != ?',
+    release: 'DELETE FROM turns WHERE session_key = ? AND owner = ?'
+})
+
 export const QUEUE_SCHEMA = `CREATE TABLE IF NOT EXISTS turns (
             session_key TEXT PRIMARY KEY,
             owner TEXT NOT NULL,

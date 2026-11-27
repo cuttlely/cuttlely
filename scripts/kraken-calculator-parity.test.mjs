@@ -63,12 +63,20 @@ test('the release matrix requires all five configurations from one candidate and
 })
 
 test('matching cold and warm cohorts allow equality and report individual round spread', () => {
-    const result = compareCalculatorRounds(matched())
+    const rounds = matched()
+    rounds[1].rows[1].peakOpenSseResponses = 7
+    const result = compareCalculatorRounds(rounds)
     assert.ok(result.passed)
     assert.equal(result.cohorts[0].native.completed, 16)
     assert.equal(result.cohorts[0].native.turnsPerSecond, 80)
     assert.equal(result.cohorts[0].native.p95Ms, 80)
-    assert.equal(result.cohorts[1].native.perRound.length, 2)
+    assert.deepEqual(
+        result.cohorts[1].native.perRound.map((r) => [r.peakRequestsOnWire, r.peakOpenSseResponses]),
+        [
+            [8, 7],
+            [8, 2]
+        ]
+    )
 })
 
 test('a slower candidate p95 or completion rate fails its own cohort even if the other measure passes', () => {

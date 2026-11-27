@@ -21,7 +21,12 @@ function measure(rows) {
         turnsPerSecond: (times.length * 1000) / rows.reduce((total, r) => total + r.wallMs, 0),
         headerP95Ms: quantile(headers, 0.95),
         pingP95Ms: quantile(pings, 0.95),
-        perRound: rows.map((r) => ({ p95Ms: quantile(r.turnDurationsMs, 0.95), turnsPerSecond: rate(r) }))
+        perRound: rows.map((r) => ({
+            p95Ms: quantile(r.turnDurationsMs, 0.95),
+            turnsPerSecond: rate(r),
+            peakRequestsOnWire: r.peakRequestsOnWire,
+            peakOpenSseResponses: r.peakOpenSseResponses
+        }))
     }
 }
 

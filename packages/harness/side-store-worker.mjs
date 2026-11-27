@@ -2,7 +2,7 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { createRequire } from 'node:module'
 import { harnessSchema, queueWakeChannel, registerSideSchema } from './side-store-identity.mjs'
-import { postgresHarnessDdl } from './side-store-schema.mjs'
+import { postgresHarnessDdl, turnLeaseStatements } from './side-store-schema.mjs'
 
 const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
 const { Pool, Client, escapeIdentifier, escapeLiteral } = requireServer('pg')
@@ -12,22 +12,31 @@ const transactions = new Map()
 const leases = new Map()
 let rosterUsesRowLock = false
 
-async function begin(scope, eventJobId) {
+// Both stores use the same fixed lease mutations. This entry point never accepts SQL from its caller.
+const postgresLeaseStatements = new Map(
+    Object.entries(turnLeaseStatements).map(([action, statement]) => {
+        let position = 0
+        return [action, statement.replaceAll('?', () => '$' + ++position)]
+    })
+)
+
+async function begin(scope, eventJobId, leaseWrite = false) {
     const client = await pool.connect()
     try {
         // Acquire the same schema lock in one round trip. The caller's next statement
         // starts after the lock is held and observes the preceding writer's commit.
         const schema = harnessSchema(scope)
-        // Event sequence numbers are per job. Other queue writers still exclude every
-        // append via the schema lock. Appends on different jobs can commit together.
+        // Standalone lease writes use the unique session key and owner predicates. Explicit transactions,
+        // including admission, guarded-query accounting and expired lease replacement, retain the exclusive fence.
         const schemaKey = `pg_catalog.hashtext(${escapeLiteral(schema)})`
         const append = typeof eventJobId === 'string'
-        const lock = append
-            ? `SELECT pg_catalog.pg_advisory_xact_lock_shared(${schemaKey});
-                   SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('cuttlely_harness_queue.job_events'), pg_catalog.hashtext(${escapeLiteral(
-                       eventJobId
-                   )}))`
-            : `SELECT pg_catalog.pg_advisory_xact_lock(${schemaKey})`
+        const schemaLock = append || leaseWrite ? 'pg_advisory_xact_lock_shared' : 'pg_advisory_xact_lock'
+        let lock = `SELECT pg_catalog.${schemaLock}(${schemaKey})`
+        if (append) {
+            lock += `; SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('cuttlely_harness_queue.job_events'), pg_catalog.hashtext(${escapeLiteral(
+                eventJobId
+            )}))`
+        }
         const transaction = scope === 'queue' ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
         await client.query(`${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`)
         return client
@@ -52,6 +61,10 @@ async function finish(client, command) {
 // The pooled connection retains the installation's search path. Resolve tables, aggregates and
 // operators explicitly, just as the transactional queue path selects its own schema.
 const queueSchema = harnessSchema('queue')
+// A subsequent SELECT gets a fresh snapshot after Cuttlely writers release the queue lock.
+const queueReadFence = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+                        SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));`
+
 const pollSql = `SELECT w.poll_index,j.id,j.status,j.result,j.error_code,j.error_message,j.updated_at,j.cancel_requested,
            e.events,e.last_seq FROM ROWS FROM (
              pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.int8[])
@@ -116,7 +129,7 @@ async function pollJobs(params, deadline) {
     }
 }
 
-async function execute({ scope, op, sql, params, owner, key, payload, usage, deadline }) {
+async function execute({ scope, op, sql, params, owner, key, payload, usage, deadline, action }) {
     if (op === 'pollJobs') {
         if (scope !== 'queue') throw new Error('Job polling requires the queue store.')
         // Asynchronous observers always see a committed snapshot, even if this worker
@@ -166,6 +179,15 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         return
     }
     const active = transactions.get(scope)
+    if (op === 'readJobCancellation') {
+        if (scope !== 'queue') throw new Error('Job cancellation requires the queue store.')
+        const select = `SELECT cancel_requested FROM ${queueSchema}.jobs WHERE id OPERATOR(pg_catalog.=) `
+        const response = active
+            ? await active.query(select + '$1::pg_catalog.text', [key])
+            : (await pool.query(`${queueReadFence} ${select}${escapeLiteral(key)}::pg_catalog.text`)).at(-1)
+        normalizeBigInts(response)
+        return response.rows[0]?.cancel_requested === 1
+    }
     if (op === 'readHarnessRecord') {
         if (scope !== 'queue') throw new Error('Harness records require the queue store.')
         const select = `SELECT content FROM ${queueSchema}.harness_records WHERE entry OPERATOR(pg_catalog.=) `
@@ -174,19 +196,17 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         // A simple query message is one implicit transaction. Acquire the writer's lock
         // and table locks first so the SELECT sees a committed publication, even from a direct SQL writer.
         // SHARE locks coexist among readers without writing or flushing WAL for a tuple lock.
-        const lock = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
-                      SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));`
         const row = select + escapeLiteral(key) + '::pg_catalog.text'
         if (!rosterUsesRowLock) {
             try {
-                const results = await pool.query(`${lock} LOCK TABLE ${queueSchema}.harness_records IN SHARE MODE; ${row}`)
+                const results = await pool.query(`${queueReadFence} LOCK TABLE ${queueSchema}.harness_records IN SHARE MODE; ${row}`)
                 return results.at(-1).rows[0]?.content ?? null
             } catch (error) {
                 if (error.code !== '42501') throw error
             }
         }
         try {
-            const results = await pool.query(`${lock} ${row} FOR SHARE`)
+            const results = await pool.query(`${queueReadFence} ${row} FOR SHARE`)
             rosterUsesRowLock = true
             const record = results.at(-1).rows[0]
             if (record) return record.content
@@ -197,7 +217,7 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         // An execution role can have only SELECT on a separately owned roster table.
         // The schema lock still orders reads after every Cuttlely publication, and the
         // SELECT checks the current grants and row policies on every lookup.
-        const results = await pool.query(`${lock} ${row}`)
+        const results = await pool.query(`${queueReadFence} ${row}`)
         return results.at(-1).rows[0]?.content ?? null
     }
     if (op === 'commit' || op === 'rollback') {
@@ -228,7 +248,12 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         return
     }
     const eventJobId = scope === 'queue' && op === 'appendJobEvent' ? params[0] : undefined
-    const client = active || (await begin(scope, eventJobId))
+    const leaseWrite = op === 'writeTurnLease'
+    if (leaseWrite) {
+        if (scope !== 'queue' || !postgresLeaseStatements.has(action)) throw new Error('Invalid turn lease operation.')
+        sql = postgresLeaseStatements.get(action)
+    }
+    const client = active || (await begin(scope, eventJobId, leaseWrite))
     let result
     try {
         if (op === 'appendJobEvent') {
@@ -256,7 +281,7 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         } else {
             const response = await client.query(sql, params)
             normalizeBigInts(response)
-            result = op === 'run' ? { changes: response.rowCount } : op === 'get' ? response.rows[0] : response.rows
+            result = op === 'run' || leaseWrite ? { changes: response.rowCount } : op === 'get' ? response.rows[0] : response.rows
         }
     } catch (error) {
         if (!active) await finish(client, 'ROLLBACK')

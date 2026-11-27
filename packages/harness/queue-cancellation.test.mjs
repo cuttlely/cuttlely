@@ -224,3 +224,96 @@ test('cancellation during worker context setup records once before runHarness st
     assert.equal(modelCalls, 0)
     assert.equal(queueHooks.localRunCount, 0)
 })
+
+test('PostgreSQL cancellation checks wait for committed queue state and share unrelated event locks', async (t) => {
+    const { createTestDatabase, skipReason } = await import('../etl/check/pg-source.mjs')
+    if (skipReason) return t.skip(skipReason)
+    const { configureHarnessPostgres } = await import('./side-store-postgres.mjs')
+    const { database } = await import('./lock.mjs')
+    const { cancelRequested } = await import('./queue.mjs')
+    const { Worker, MessageChannel } = await import('node:worker_threads')
+    const { once } = await import('node:events')
+    const { setTimeout: delay } = await import('node:timers/promises')
+    const { createRequire } = await import('node:module')
+    const { Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
+    const fixture = await createTestDatabase()
+    const writer = new Client(fixture.connection)
+    const observer = new Client(fixture.connection)
+    const schema = 'cuttlely_harness_queue'
+    const jobs = schema + '.jobs'
+    const id = 'job-cancellation-fixture'
+    let reader
+    async function read() {
+        const { port1, port2 } = new MessageChannel()
+        try {
+            const pending = once(port1, 'message')
+            reader.postMessage({ request: { scope: 'queue', op: 'readJobCancellation', key: id }, port: port2 }, [port2])
+            const [reply] = await pending
+            assert.equal(reply.error, undefined)
+            return reply.value
+        } finally {
+            port1.close()
+        }
+    }
+    async function waitForWriterFence() {
+        for (let i = 0; i < 160; i++) {
+            const { rows } = await observer.query(`SELECT 1 FROM pg_catalog.pg_stat_activity WHERE application_name='qa-cancel-reader'
+                AND wait_event_type='Lock' AND wait_event='advisory'`)
+            if (rows.length) return
+            await delay(5)
+        }
+        assert.fail('Cancellation read did not wait for the publishing transaction.')
+    }
+    try {
+        closeQueueDb()
+        configureHarnessPostgres(fixture.connection)
+        const db = database()
+        await writer.connect()
+        await observer.connect()
+        reader = new Worker(new URL('./side-store-worker.mjs', import.meta.url), {
+            workerData: {
+                ...fixture.connection,
+                application_name: 'qa-cancel-reader',
+                options: '-c lock_timeout=4000 -c search_path=pg_catalog -c default_transaction_isolation=repeatable\\ read'
+            }
+        })
+        assert.equal(cancelRequested(undefined), false)
+        assert.equal(cancelRequested(null), false)
+        assert.equal(cancelRequested(id), false)
+        db.prepare("INSERT INTO jobs(id,session_key,status,payload,created_at,updated_at) VALUES (?,?,'running','{}',0,0)").run(id, 's')
+        db.exec('BEGIN')
+        try {
+            db.prepare('UPDATE jobs SET cancel_requested=1 WHERE id=?').run(id)
+            assert.equal(cancelRequested(id), true)
+        } finally {
+            db.exec('ROLLBACK')
+        }
+        assert.equal(cancelRequested(id), false)
+        assert.equal(await read(), false)
+        for (const scenario of ['rollback', 'cancel', 'remove']) {
+            await writer.query('BEGIN')
+            await writer.query('SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext($1))', [schema])
+            const pending = read()
+            await waitForWriterFence()
+            await writer.query(
+                scenario === 'remove' ? `DELETE FROM ${jobs} WHERE id=$1` : `UPDATE ${jobs} SET cancel_requested=1 WHERE id=$1`,
+                [id]
+            )
+            await writer.query(scenario === 'rollback' ? 'ROLLBACK' : 'COMMIT')
+            assert.equal(await pending, scenario === 'cancel')
+        }
+        // An event append for another job holds the schema lock in shared mode and
+        // writes no cancellation flags. It can remain open for the complete lookup.
+        await writer.query('BEGIN')
+        await writer.query('SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext($1))', [schema])
+        assert.equal(await read(), false)
+        await writer.query('ROLLBACK')
+    } finally {
+        await writer.end()
+        await reader?.terminate()
+        await observer.end()
+        closeQueueDb()
+        configureHarnessPostgres(undefined)
+        await fixture.cleanup()
+    }
+})

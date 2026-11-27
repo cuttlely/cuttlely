@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { after, test } from 'node:test'
@@ -11,7 +12,9 @@ import { beginGuardedQueryTurns, VERIFIED_QUERY_POLICY } from './verified-query-
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-lock-'))
 process.env.CUTTLELY_DATA_DIR = dir
-const { acquireTurn, releaseTurn, renewTurn, database, closeQueueDb, startTurnRenewal, BUSY_MESSAGE } = await import('./lock.mjs')
+const { acquireTurn, releaseTurn, renewTurn, database, immediate, closeQueueDb, startTurnRenewal, BUSY_MESSAGE } = await import(
+    './lock.mjs'
+)
 after(() => {
     closeQueueDb()
     fs.rmSync(dir, { recursive: true, force: true })
@@ -50,6 +53,69 @@ for (const backend of ['sqlite', 'postgres']) {
         }
     )
 }
+
+test('PostgreSQL shares only fixed single-lease writes and preserves the raw and admission fences', { skip: skipReason }, async () => {
+    const fixture = await createTestDatabase()
+    const { Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
+    const writer = new Client(fixture.connection)
+    const name = 'lease-fence'
+    const lockTimeout = { code: '55P03' }
+    const schema = 'cuttlely_harness_queue'
+    try {
+        await writer.connect()
+        closeQueueDb()
+        configureHarnessPostgres({
+            ...fixture.connection,
+            options: '-c default_transaction_isolation=repeatable\\ read',
+            lock_timeout: 300
+        })
+        const db = database()
+        const { enqueueHarnessJob } = await import('./queue.mjs')
+        const enqueue = (chatId) => enqueueHarnessJob({ name, chatId, input: 'fixture' })
+        await writer.query('BEGIN')
+        await writer.query('SELECT pg_advisory_xact_lock_shared(hashtext($1))', [schema])
+        const held = acquireTurn(name, 'open')
+        renewTurn(held)
+        releaseTurn(held)
+        // The exact same statement submitted through the general adapter still waits for exclusivity.
+        const rawInsert = 'INSERT INTO turns (session_key, owner, expires_at) VALUES (?, ?, ?) ON CONFLICT(session_key) DO NOTHING'
+        assert.throws(() => db.prepare(rawInsert).run(name + ':raw', 'raw', 1), lockTimeout)
+        assert.throws(() => db.exec('BEGIN'), lockTimeout)
+        assert.throws(() => enqueue('open'), lockTimeout)
+        await writer.query('ROLLBACK')
+        assert.throws(() => db.writeTurnLease('unknown', []))
+        const failure = new Error('rollback fixture')
+        assert.throws(
+            () =>
+                immediate(() => {
+                    acquireTurn(name, 'rollback')
+                    throw failure
+                }),
+            (error) => error === failure
+        )
+        releaseTurn(acquireTurn(name, 'rollback'))
+
+        const first = acquireTurn(name, 'raw-owner')
+        await writer.query('BEGIN')
+        await writer.query('SELECT 1 FROM cuttlely_harness_queue.turns WHERE session_key = $1 FOR UPDATE', [first.key])
+        assert.throws(() => releaseTurn(first), lockTimeout)
+        await writer.query('ROLLBACK')
+        assert.throws(() => enqueue('raw-owner'), { code: 'busy' })
+        releaseTurn(first)
+        assert.ok(enqueue('raw-owner').id)
+
+        await writer.query('BEGIN')
+        await writer.query('SELECT pg_advisory_xact_lock(hashtext($1))', [schema])
+        assert.throws(() => acquireTurn(name, 'exclusive'), lockTimeout)
+        await writer.query('ROLLBACK')
+        releaseTurn(acquireTurn(name, 'exclusive'))
+    } finally {
+        await writer.end().catch(() => {})
+        closeQueueDb()
+        configureHarnessPostgres(undefined)
+        await fixture.cleanup()
+    }
+})
 
 test('renewal extends only its owner, reads the live TTL, and ignores released rows', (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: 1800000000000 })

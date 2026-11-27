@@ -175,6 +175,12 @@ export function openHarnessPostgres(scope) {
         dialect: 'postgres',
         ...(scope === 'queue' && {
             pollJob,
+            writeTurnLease(action, params) {
+                return request({ scope, op: 'writeTurnLease', action, params })
+            },
+            readJobCancellation(id) {
+                return request({ scope, op: 'readJobCancellation', key: id })
+            },
             readHarnessRecord(entry) {
                 return request({ scope, op: 'readHarnessRecord', key: entry })
             },

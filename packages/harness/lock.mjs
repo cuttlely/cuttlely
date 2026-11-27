@@ -1,6 +1,6 @@
 import { assertJobsAllowed, assertStorageReady } from './side-store-maintenance.mjs'
 import { harnessUsesPostgres, openHarnessPostgres, tryProfileLease, releaseProfileLease } from './side-store-postgres.mjs'
-import { QUEUE_SCHEMA } from './side-store-schema.mjs'
+import { QUEUE_SCHEMA, insertTurnLease, turnLeaseStatements } from './side-store-schema.mjs'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -86,20 +86,23 @@ export function immediate(fn) {
     }
 }
 
+function writeTurnLease(action, ...params) {
+    const db = database()
+    if (db.dialect === 'postgres') return db.writeTurnLease(action, params)
+    return db.prepare(turnLeaseStatements[action]).run(...params)
+}
+
 export function acquireTurn(name, chatId) {
     const key = sessionKey(name, chatId)
     const owner = `${process.pid}:${randomUUID()}`
     const now = Date.now()
-    const insert = 'INSERT INTO turns (session_key, owner, expires_at) VALUES (?, ?, ?)'
     try {
-        const acquired = database()
-            .prepare(insert + ' ON CONFLICT(session_key) DO NOTHING')
-            .run(key, owner, expiresAt(now))
+        const acquired = writeTurnLease('acquire', key, owner, expiresAt(now))
         if (!acquired.changes) {
             // Expiry must delete the old lease so its guarded query receipts detach from this session.
             immediate((db) => {
                 db.prepare('DELETE FROM turns WHERE session_key = ? AND expires_at <= ?').run(key, now)
-                db.prepare(insert).run(key, owner, expiresAt(now))
+                db.prepare(insertTurnLease).run(key, owner, expiresAt(now))
             })
         }
     } catch (error) {
@@ -114,9 +117,7 @@ export function acquireTurn(name, chatId) {
 export function renewTurn(held) {
     if (!held?.key || !held?.owner) return
     const expiry = expiresAt(Date.now())
-    database()
-        .prepare('UPDATE turns SET expires_at = ? WHERE session_key = ? AND owner = ? AND expires_at != ?')
-        .run(expiry, held.key, held.owner, expiry)
+    writeTurnLease('renew', expiry, held.key, held.owner, expiry)
 }
 
 // Only the live turn owns this timer. Cancellation and its earliest hard deadline stop
@@ -162,7 +163,7 @@ export function startTurnRenewal(held, { signal, deadlineMs = 0 } = {}) {
 
 export function releaseTurn(held) {
     if (!held?.key || !held?.owner) return
-    database().prepare('DELETE FROM turns WHERE session_key = ? AND owner = ?').run(held.key, held.owner)
+    writeTurnLease('release', held.key, held.owner)
 }
 
 export function turnBusyError() {
