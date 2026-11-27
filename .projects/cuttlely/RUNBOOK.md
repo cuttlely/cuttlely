@@ -4,6 +4,10 @@ Use [Time limits and caps](../../docs/how-to/server-settings.md#time-limits-and-
 
 Terminal settings are exported before Hermes imports its tools. Routed multiplex profiles also require the conditional `terminal.timeout` in specialist YAML because their terminal policy ignores ambient process timeouts. Code-run timeout is conditional in the existing `code_execution` block. Unset settings preserve the existing output. Do not change vendored runtime code for these controls.
 
+## Active jobs before a storage upgrade
+
+On the migration web instance, use **Server Settings → Database → Application database storage → Stop all jobs**. Confirm cancellation after stopping other instances that share the source files. Allow the panel to finish checking the workers before selecting **Upgrade storage**. Use **Resume new jobs** if postponing the change. The [storage guide](../../docs/how-to/postgres-side-stores.md#before-the-upgrade) covers backup and replacement checks.
+
 ## Fileless preview and first publication
 
 Run `node --test packages/harness/draft-session.test.mjs` and the server's `src/services/harnesses/delete.test.ts`, then the final committed-head full gate. Deployed QA must preview a newly imported unpublished Harness, verify its saved queries and publish that same draft. The preview session belongs under `harness-draft-sessions`, never the future Live profile directory. Existing unowned profiles remain a publication blocker; inspect them as the instance operator or choose an unused name rather than weakening the ownership check.
