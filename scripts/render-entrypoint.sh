@@ -33,4 +33,17 @@ if [ "$(id -u)" -eq 0 ]; then
     exec setpriv --reuid=node --regid=node --init-groups -- "$@"
 fi
 
+# A restricted container can start under an arbitrary UID with a read-only application directory.
+# oclif otherwise asks the OS for a login shell, which requires a passwd entry for this UID.
+export SHELL="${SHELL:-/bin/bash}"
+if [ ! -w "$PWD/packages/server" ]; then
+    export LOG_PATH="${LOG_PATH:-$DATA/logs}"
+fi
+if [ -z "${CUTTLELY_DATA_DIR:-}" ] && [ ! -w "$PWD" ] && [ ! -w "$PWD/.cuttlely" ]; then
+    export CUTTLELY_DATA_DIR="$DATA"
+fi
+if [ -z "${HOME:-}" ] || [ ! -w "$HOME" ]; then
+    install -d -m 0700 "$DATA/home"
+    export HOME="$DATA/home"
+fi
 exec "$@"

@@ -62,6 +62,7 @@ export function runtimeDependencies(home, prefix = '') {
         'skin.yaml',
         'plugin.yaml',
         'plugins.json',
+        'memories',
         'mem0.json',
         'honcho.json',
         'bot-desktop/browser-profile'

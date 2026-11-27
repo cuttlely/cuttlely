@@ -459,6 +459,9 @@ class SessionPersistenceMixin:
                     db_saved = True
                 except Exception as exc:
                     logger.warning("gateway.session: state.db routing save failed: %s", exc)
+            if not db_saved:
+                from cuttlely_session_store import allow_local_fallback
+                allow_local_fallback()
             if getattr(self, "_write_sessions_json", True) or not db_saved:
                 try:
                     self._save_sessions_json(data)

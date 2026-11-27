@@ -3185,7 +3185,12 @@ def edit_config():
         return
 
     print(f"Opening {config_path} in {editor}...")
-    subprocess.run([editor, str(config_path)])
+    from cuttlely_session_store import runtime_path
+    previous = config_path.read_bytes() if runtime_path(config_path) is not None else None
+    result = subprocess.run([editor, str(config_path)])
+    if result.returncode == 0:
+        from cuttlely_session_store import save_setting
+        save_setting(config_path, config_path, previous=previous)
 
 
 def _default_value_for_key(dotted_key: str):

@@ -2,6 +2,8 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
+Version **1.7.17** simplifies the PostgreSQL storage upgrade and enables recovery of saved chats, runtime settings and memory notes on replacement web and worker containers. [Upgrade guide](./upgrading.md#upgrading-to-1717).
+
 Version **1.7.16** fixes a PostgreSQL migration warning for unchanged bundled skills and updates the Node.js HTTP adapter to address a reverse-proxy path handling vulnerability. [Upgrade guide](./upgrading.md#upgrading-to-1716) · [Security advisory](https://github.com/advisories/GHSA-jpvv-r467-5p4w).
 
 Version **1.7.15** adds recovery on empty application disks using PostgreSQL, optionally with S3-compatible file storage. A fresh installation can opt in at first boot. Existing installations have separate procedures for the SQLite application copy and the PostgreSQL side-store cutover. Back up local data and the original installation key before replacing the first instance. [Upgrade and disk requirements](./upgrading.md#upgrading-to-1715).

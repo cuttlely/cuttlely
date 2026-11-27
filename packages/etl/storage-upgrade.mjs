@@ -1,3 +1,5 @@
+import { initializeRuntimeSessions, runtimeTables } from './runtime-sessions.mjs'
+import { inventoryRuntimeFiles, copyRuntimeFiles, restoreRuntimeFiles, runtimeSnapshotKey } from './migrate-runtime-files.mjs'
 import { inventoryPrompts, copyPrompts, restorePrompts } from './migrate-profile-prompts.mjs'
 import { verifiedHostFiles } from './host-files.mjs'
 import { selectPredictionFiles } from '../harness/prediction-files.mjs'
@@ -115,7 +117,12 @@ export async function startStorageUpgrade({
             selectEtlBackend({ ...(await openPostgresEtlStore(source)), tryLease })
             configureHarnessPostgres(config)
             const files = await openPostgresFiles(source)
+            await restoreRuntimeFiles(files, state.runtimeFiles, state.promptGeneration)
             await restorePrompts(files, state.prompts, state.promptGeneration)
+            await initializeRuntimeSessions(source, discover().local, config)
+            if (runtimeTables.some((table) => !state.requiredTables?.includes(table))) {
+                await save({ ...state, requiredTables: [...new Set([...(state.requiredTables || []), ...runtimeTables])] })
+            }
             selectEtlUploads(files, state.uploads, state.etlUploadRoot)
             selectPredictionFiles(predictionFiles || files)
             selectFiles?.(files)
@@ -136,6 +143,7 @@ export async function startStorageUpgrade({
             local,
             temporary: runtimeCaches,
             prompts,
+            runtimeFiles,
             unresolved
         } = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
         const inventory = stores.map(inspectStore)
@@ -146,6 +154,7 @@ export async function startStorageUpgrade({
         const versions = state.phase === 'sqlite' ? await versionHistory?.inspect() : state.versions
         const versionBytes = versions?.bytes || 0
         const requiredBytes =
+            runtimeFiles.reduce((total, entry) => total + entry.bytes, 0) +
             prompts.reduce((total, prompt) => total + prompt.bytes, 0) +
             versionBytes * 2 +
             uploadBytes +
@@ -172,6 +181,7 @@ export async function startStorageUpgrade({
             available: true,
             dependencies,
             prompts,
+            runtimeFiles,
             unresolved,
             temporary,
             enabled,
@@ -360,6 +370,8 @@ export async function startStorageUpgrade({
             if (action === 'upgrade' && state.phase === 'sqlite') {
                 const info = await status()
                 await preflight(info, options.availableBytes)
+                const generation = randomUUID()
+                if (info.runtimeFiles.length || info.local.length) runtimeSnapshotKey(generation)
                 closeStores()
                 const files = []
                 for (const item of info.stores) {
@@ -389,7 +401,8 @@ export async function startStorageUpgrade({
                     versions: info.versions || null,
                     records: harnessRecordInventory(),
                     prompts: await inventoryPrompts(info.prompts),
-                    promptGeneration: randomUUID(),
+                    runtimeFiles: await inventoryRuntimeFiles(info.runtimeFiles),
+                    promptGeneration: generation,
                     hostFiles: [...verifiedHostFiles().values()].sort(),
                     blobTarget,
                     etlUploadRoot: path.resolve(uploadsRoot()),
@@ -400,6 +413,19 @@ export async function startStorageUpgrade({
             }
             if (state.phase === 'copying' || state.phase === 'retiring') {
                 const inventory = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
+                const runtimeFiles = await inventoryRuntimeFiles(inventory.runtimeFiles)
+                const saved = state.runtimeFiles || []
+                if (
+                    runtimeFiles.length !== saved.length ||
+                    runtimeFiles.some(
+                        (file, i) =>
+                            file.name !== saved[i].name ||
+                            file.sha256 !== saved[i].sha256 ||
+                            file.directory !== saved[i].directory ||
+                            file.executable !== saved[i].executable
+                    )
+                )
+                    refuse('Use the original runtime files to finish the storage upgrade.')
                 const prompts = await inventoryPrompts(inventory.prompts)
                 const savedPrompts = state.prompts || []
                 if (
@@ -447,7 +473,9 @@ export async function startStorageUpgrade({
                 state = next
             }
             if (state.phase === 'copying') {
-                const report = { keptOnDisk: discover().local }
+                const sessions = discover().local
+                await initializeRuntimeSessions(source, sessions, config)
+                const report = { runtimeSessions: sessions }
                 let verifiedUploads = state.uploads
                 if (versionHistory) {
                     const expected = (state.versions === undefined ? await versionHistory.inspect() : state.versions)?.head || null
@@ -486,13 +514,18 @@ export async function startStorageUpgrade({
                     verifiedUploads = verified
                     report.uploads = { count: verified.length }
                 }
+                let runtimeFiles = state.runtimeFiles
+                if (runtimeFiles?.length) {
+                    runtimeFiles = await copyRuntimeFiles(await openPostgresFiles(source), runtimeFiles, state.promptGeneration)
+                    report.runtimeFiles = { count: runtimeFiles.length }
+                }
                 if (state.prompts?.length) {
                     await copyPrompts(await openPostgresFiles(source), state.prompts)
                     report.profilePrompts = { count: state.prompts.length }
                 }
                 await copyHarnessRecords(source, state.records)
                 report.harnessRecords = { count: state.records.length }
-                await save({ ...state, uploads: verifiedUploads, phase: 'retiring', report })
+                await save({ ...state, uploads: verifiedUploads, runtimeFiles, phase: 'retiring', report })
             }
             if (state.phase === 'retiring') {
                 const files = []
@@ -506,7 +539,7 @@ export async function startStorageUpgrade({
                 await openPostgresDashStore(source)
                 const durable = await q(
                     "SELECT schemaname || '.' || tablename AS name FROM pg_tables WHERE schemaname = ANY($1) ORDER BY 1",
-                    [['cuttlely_etl', 'cuttlely_files', 'cuttlely_versions', 'cuttlely_dashflows', 'cuttlely_storage']]
+                    [['cuttlely_etl', 'cuttlely_files', 'cuttlely_versions', 'cuttlely_dashflows', 'cuttlely_storage', 'cuttlely_runtime']]
                 )
                 await save({
                     ...state,
@@ -575,7 +608,9 @@ export async function startStorageUpgrade({
                         if (!row.nspname) continue // A deleted draft has no schema left to archive.
                         if (
                             row.nspname !== row.name ||
-                            !/^cuttlely_(etl|dashflows|files|versions|harness_queue|vec_[0-9a-f]{48}|session_[0-9a-f]{44})$/.test(row.name)
+                            !/^cuttlely_(etl|dashflows|files|versions|runtime|harness_queue|vec_[0-9a-f]{48}|session_[0-9a-f]{44})$/.test(
+                                row.name
+                            )
                         )
                             refuse('An owned PostgreSQL schema changed identity. Inspect it before rollback.')
                         await tx.query('ALTER SCHEMA ' + row.name + ' RENAME TO cuttlely_retired_' + row.oid)
@@ -640,6 +675,7 @@ export async function startStorageUpgrade({
             if (
                 !inventory.stores.length &&
                 !inventory.prompts.length &&
+                !inventory.runtimeFiles.length &&
                 !inventory.unresolved.length &&
                 !harnessRecordInventory().length &&
                 !uploadEntries(fileRoots).length &&

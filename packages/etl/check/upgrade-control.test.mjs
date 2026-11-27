@@ -263,6 +263,8 @@ test(
         const priorData = process.env.CUTTLELY_DATA_DIR,
             priorEtl = process.env.CUTTLELY_ETL_DIR
         const options = { source, config: source.connection, enabled: true, log: { info() {}, warn() {} } }
+        const priorKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        process.env.CUTTLELY_SECRETKEY_OVERWRITE = randomUUID()
         let controller
         try {
             process.env.CUTTLELY_DATA_DIR = path.join(root, 'original')
@@ -292,9 +294,17 @@ test(
             process.env.CUTTLELY_DATA_DIR = path.join(root, 'replacement')
             process.env.CUTTLELY_ETL_DIR = path.join(root, 'replacement', 'etl')
             controller = await startStorageUpgrade(options)
+            const restored = new DatabaseSync(path.join(hermesHome(), 'state.db'), { readOnly: true })
+            try {
+                assert.equal(restored.prepare('SELECT id FROM sessions').get().id, 'runtime-only')
+            } finally {
+                restored.close()
+            }
             assert.deepEqual(getHarness(saved.name), saved)
             assert.equal(readMessages(saved.name, 'chat').at(-1).content, 'first answer')
         } finally {
+            if (priorKey === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+            else process.env.CUTTLELY_SECRETKEY_OVERWRITE = priorKey
             await controller?.close()
             closeDb()
             closeQueueDb()

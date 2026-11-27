@@ -508,6 +508,8 @@ class SessionPersistenceMixin:
         except Exception as e:
             retry = _db_flush_failed(self, e, batch_rows, _adoption_budget, messages)
             if retry is None:
+                from cuttlely_session_store import allow_local_fallback
+                allow_local_fallback()
                 return False
             # After a heal the pending replay re-sends the history prefix instead of stamping it durable.
             return self._flush_messages_to_session_db_unlocked(messages, conversation_history, _adoption_budget=0)
