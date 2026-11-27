@@ -407,7 +407,7 @@ export const executeFlow = async ({
     nestedFlowDepth
 }: IExecuteFlowParams) => {
     // The HTTP, nested-flow and queue entry points authorize the flow before dispatching it here.
-    assertFlowRuntimeAvailable(chatflow)
+    await assertFlowRuntimeAvailable(chatflow, incomingInput?.overrideConfig)
     const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
     sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     // Ensure incomingInput has all required properties with default values
@@ -1323,7 +1323,7 @@ export const utilBuildChatflow = async (
             }
         }
 
-        assertFlowRuntimeAvailable(chatflow)
+        await assertFlowRuntimeAvailable(chatflow, req.body?.overrideConfig)
 
         if (!isInternal) {
             const isKeyValidated = await validateFlowAPIKey(req, chatflow)

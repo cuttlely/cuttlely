@@ -35,6 +35,9 @@ class SerpAPI_Tools implements INode {
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options)
         const serpApiKey = getCredentialParam('serpApiKey', credentialData, nodeData)
+        if (nodeData.credential && (typeof serpApiKey !== 'string' || !serpApiKey.trim())) {
+            throw new Error('The selected SerpAPI credential is missing its API key.')
+        }
         return new SerpAPI(serpApiKey)
     }
 }

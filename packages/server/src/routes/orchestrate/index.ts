@@ -121,9 +121,9 @@ router.post(
             getChatflowId: (req) => req.params.id,
             keyOnly: true,
             checkOrigin: true,
-            beforeAdmission: (_req, flow) => {
+            beforeAdmission: (req, flow) => {
                 assertExternalFlowKeyed(flow)
-                assertFlowRuntimeAvailable(flow)
+                return assertFlowRuntimeAvailable(flow, req.body?.overrideConfig)
             }
         })
     ),

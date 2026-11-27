@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { readClientSignal } from './abort.mjs'
 import { agentRunTimeoutMs, modelCallTimeoutMs, turnBudgetMs } from './budget.mjs'
 import {
@@ -67,8 +68,18 @@ import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-name
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
-import { admittedAgentEngine, nativePrimeInstructions, runNativePrime, runNativeToolLoop, useNativePrime } from './runtime/native-prime.mjs'
+import {
+    admittedAgentEngine,
+    nativePrimeInstructions,
+    runNativePrime,
+    runNativeToolLoop,
+    useNativeSpecialists,
+    selectAgentEngine
+} from './runtime/native-prime.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
+import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
+import { openNativeAnalyst, nativeAnalystBinding } from './runtime/native-analyst.mjs'
+import { isLiveTry } from './try-live.mjs'
 import { playbookCallLimit, playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
@@ -112,7 +123,8 @@ import {
     routerDialectNote,
     specialistSoul,
     specialistSummary,
-    specialistWorkspace
+    specialistWorkspace,
+    specialistProfileName
 } from './profile.mjs'
 import { specialistSessionId } from './specialist-run.mjs'
 import {
@@ -245,6 +257,7 @@ export function recordCancelledHarnessRun(args) {
     const trace = buildRunTrace({ harness: args.name, timings, wallMs: 0, handoffStatus: 'skipped', question: args.input })
     trace.status = 'cancelled'
     trace.mode = args.mode === 'agent' ? 'agent' : 'router'
+    if (args[admittedAgentEngine]) trace.engine = args[admittedAgentEngine]
     trace.route.status = 'skipped'
     if (args.mode === 'agent') {
         trace.chief = { status: 'cancelled', model: publicModelLabel(getHarness(args.name)?.chief?.model), ms: 0 }
@@ -289,7 +302,7 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
             `Harness "${args.name}" cannot run in agent mode: the runtime reserves the profile name "default". Rename the harness to use agent mode.`
         )
     }
-    assertRuntimeAvailable()
+    assertRuntimeAvailable(undefined, args[admittedAgentEngine] ?? selectAgentEngine(args.name))
     // A publish-check replay keeps no run history. Its runtime and bridges are still closed below.
     const replay = args.replay === true
     let pending = null
@@ -570,10 +583,23 @@ async function runTurnBody(
     assertCurrentRecord(harness)
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
-    const nativePrime = useNativePrime(harness, mode, engine)
-    const needsHermes = !nativePrime && (mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist)))
+    const nativeSpecialists = useNativeSpecialists(harness, engine)
+    const nativePrime = nativeSpecialists && mode === 'agent'
+    const needsHermes =
+        !nativeSpecialists && (mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist)))
     let roster = harness
     let profileMs = 0
+    if (nativeSpecialists) {
+        const home = harness.tryId ? tryProfileName(harness.tryId) : harness.name
+        roster = {
+            ...harness,
+            specialists: harness.specialists.map((s) =>
+                [...(s.modules || []), ...(s.mcpServers || [])].some(nativeAnalystBinding)
+                    ? { ...s, profileName: specialistProfileName(home, s.name) }
+                    : s
+            )
+        }
+    }
     if (needsHermes) {
         // A try id compiles into its own profile directory. The published profile is not opened for write.
         const compiled = harness.tryId
@@ -591,6 +617,27 @@ async function runTurnBody(
     const budgetSignal = budget > 0 ? AbortSignal.timeout(budget) : undefined
     const context = {
         nativePrime,
+        nativeSpecialists,
+        nativeResults: [],
+        assertNativeAuthority() {
+            context.workSignal?.throwIfAborted()
+            if (harness.tryId) {
+                // This request holds the exclusive Try lock and owns its in-memory canvas.
+                if (!isLiveTry(tryProfileName(harness.tryId))) throw new HarnessError('harness_changed', 'This preview has ended.')
+                assertHarnessWorkspace(name, flowOptions, harness)
+                return
+            }
+            const live = getHarness(name)
+            if (
+                !live ||
+                live.chatflowId !== harness.chatflowId ||
+                live.workspaceId !== harness.workspaceId ||
+                !isDeepStrictEqual(live.specialists, harness.specialists) ||
+                !isDeepStrictEqual(live.chief, harness.chief)
+            )
+                throw new HarnessError('harness_changed', 'The saved team changed during this turn.')
+            assertHarnessWorkspace(name, flowOptions, live)
+        },
         name,
         chatId,
         sessionScope: canvasSessionScope(harness),
@@ -602,7 +649,12 @@ async function runTurnBody(
         forceSpecialistFailure,
         limit: timeoutMs ?? agentRunTimeoutMs(),
         modelCache: new Map(),
-        moduleOptions: { componentNodes, loadNode, nodeCache: new Map(), flowOptions },
+        moduleOptions: {
+            componentNodes,
+            loadNode,
+            nodeCache: new Map(),
+            flowOptions: nativeSpecialists ? { ...flowOptions, chatId } : flowOptions
+        },
         onEvent,
         clientSignal,
         budgetSignal,
@@ -667,7 +719,7 @@ function noteUsage(context, reply) {
 }
 
 function agentChiefResult(context, profileName, sessionId, started, input, text, status = 'completed') {
-    const agents = (agentTurn(profileName, sessionId)?.steps || []).map((step) => {
+    const agents = (agentTurn(profileName, sessionId)?.steps || []).map((step, slot) => {
         const specialist = context.roster.specialists.find((item) => item.name === step.name)
         return {
             ...step,
@@ -675,7 +727,7 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
             ...(step.status === 'running' ? { status: 'cancelled', ms: Math.max(0, Date.now() - step.startedAt) } : {}),
             model: step.model || publicModelLabel(specialist?.model),
             tools: step.tools || [],
-            sources: []
+            sources: publicSources(context.nativeResults[slot]?.sources)
         }
     })
     const timings = { routeMs: 0, specialistsMs: agents.reduce((sum, step) => sum + step.ms, 0), handoffMs: 0 }
@@ -707,7 +759,34 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
         ...(fallback ? { fallback } : {}),
         ms: Date.now() - started
     }
-    return { text, harness: context.name, mode: 'agent', agents, sources: [], artifacts: [], timings, report, trace }
+    const sources = context.nativeResults.flatMap((result) => result?.sources || [])
+    return { text, harness: context.name, mode: 'agent', agents, sources, artifacts: [], timings, report, trace }
+}
+
+// Claim only this delegation's calls. A previous verified result must never certify a later empty or failed one.
+async function protectNativeAnalystResult(context, specialist, task, result, started, firstTool) {
+    const hasAnalyst = [...(specialist.modules || []), ...(specialist.mcpServers || [])].some(
+        (binding) => binding.nodeName === 'postgreSQLMCP'
+    )
+    if (!hasAnalyst) return result
+    const scope = {
+        ...context,
+        trustedCaptures: new Map(),
+        displayedSourceCaptures: new Map(),
+        toolLog: context.toolLog.slice(firstTool),
+        turnImages: [],
+        turnFiles: []
+    }
+    attachCapturedAnalystResults(scope, specialist, started)
+    if (!specialist.trustedOutputs?.length)
+        return { ...result, text: groundAnalystSpecialistText(result.text, scope.toolLog, specialist.name) }
+    const output = await protectStepOutput(scope, specialist, { dataTask: true, text: result.text, task })
+    assertTrustedDeliveryActive(context)
+    const displayed = scope.displayedSourceCaptures.get(specialist.name) || scope.trustedCaptures.get(specialist.name) || []
+    if (!context.displayedSourceCaptures) context.displayedSourceCaptures = new Map()
+    context.displayedSourceCaptures.set(specialist.name, [...(context.displayedSourceCaptures.get(specialist.name) || []), ...displayed])
+    const assets = validatedTrustedArtifacts(scope).artifacts
+    return { ...result, text: output.text, trustedOutput: true, artifacts: assets }
 }
 
 async function runNativeDelegation(context, profileName, sessionId, specialist, task) {
@@ -715,8 +794,26 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
     const slot = recordAgentStep(profileName, sessionId, step)
     const firstTool = context.toolLog.length
     const firstCall = context.calls?.length || 0
+    emit(context, 'specialist', {
+        phase: 'start',
+        name: specialist.name,
+        task: publicTask(task),
+        model: configuredModel(context, specialist)
+    })
     try {
-        const result = await runInlineSpecialist(context, specialist, task)
+        context.assertNativeAuthority()
+        let result = await runSpecialistOnce(context, specialist, task)
+        result = await protectNativeAnalystResult(context, specialist, task, result, step.startedAt, firstTool)
+        context.assertNativeAuthority()
+        if (result.trustedOutput && result.artifacts?.length) {
+            context.trustedArtifactObjects ??= new Set()
+            for (const item of result.artifacts) context.trustedArtifactObjects.add(item)
+            context.turnFiles ??= []
+            context.turnImages ??= []
+            context.turnFiles.push(result.artifacts.filter((artifact) => artifact.type === 'csv'))
+            context.turnImages.push(result.artifacts.filter((artifact) => artifact.type !== 'csv'))
+        }
+        if (slot !== undefined) context.nativeResults[slot] = { ...result, name: specialist.name, status: 'completed', task }
         context.workSignal?.throwIfAborted()
         step.status = 'completed'
         return result.text
@@ -724,6 +821,8 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         step.status = context.workSignal?.aborted ? 'cancelled' : 'failed'
         step.error = maskWorkspacePaths(error.message)
         context.workSignal?.throwIfAborted()
+        if (slot !== undefined) context.nativeResults[slot] = { name: specialist.name, status: step.status, task, error: step.error }
+        if (error?.code === 'harness_changed' || specialist.trustedOutputs?.length) throw error
         return `Specialist "${specialist.name}" failed.`
     } finally {
         step.tools = toolsFor(context, specialist.name, firstTool)
@@ -733,7 +832,49 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         const tokens = sumCallTokens(calls)
         if (tokens) step.usage = { prompt_tokens: tokens.prompt, completion_tokens: tokens.completion }
         if (slot !== undefined) recordAgentStep(profileName, sessionId, step, slot)
+        emit(context, 'specialist', {
+            phase: step.status === 'completed' ? 'done' : 'failed',
+            name: specialist.name,
+            status: step.status,
+            task: publicTask(task),
+            ms: Math.max(0, Date.now() - step.startedAt),
+            ...specialistEventFields(context, specialist, context.nativeResults[slot]?.sources, step.status !== 'completed'),
+            ...phaseCalls(context, 'specialist', specialist.name)
+        })
     }
+}
+
+async function nativeChiefAnswer(context, input, delegate, messages, budget) {
+    context.assertNativeAuthority()
+    if (rosterAnalysts(context.roster.specialists).length && analystPageRequest(input)) {
+        const page = applyAnalystPageRoute(input, [], context.roster.specialists, analystCursor(context))
+        if (page.reply) return page.reply
+        if (page.steps.length) return delegate(page.steps[0].specialist, page.steps[0].task)
+    }
+    const answer = await runNativePrime({
+        messages,
+        roster: context.roster,
+        budget,
+        signal: context.workSignal,
+        delegate,
+        complete: (history, tools) => {
+            context.assertNativeAuthority()
+            return callModel(context, chiefModel(context.roster), { messages: history, tools, toolChoice: 'auto', role: 'chief' })
+        }
+    })
+    const protectedAnalysts = context.roster.specialists.filter((specialist) => specialist.trustedOutputs?.length)
+    if (!protectedAnalysts.length || context.nativeResults.some((result) => result?.trustedOutput)) return answer
+    // A direct Prime answer carries no provenance. Ask the saved owner when a verified team never got a source call.
+    // A mixed team can still complete unrelated work through its designated non-Analyst specialists.
+    if (context.nativeResults.length && !analystDataTask(context, input)) return answer
+    const steps =
+        protectedAnalysts.length === 1
+            ? [{ specialist: protectedAnalysts[0], task: input }]
+            : await chooseAnalysts(context, input, context.promptMessages || [], protectedAnalysts)
+    if (steps.length + context.nativeResults.length > 8)
+        throw new HarnessError('delegation_limit', 'The native agent reached its delegation limit.')
+    for (const step of steps) await delegate(step.specialist, step.task)
+    return composeTrustedOutputs(context.nativeResults)
 }
 
 async function runAgentChief(context, input) {
@@ -750,6 +891,7 @@ async function runAgentChief(context, input) {
         signal: context.workSignal
     }
     const stream = chiefStream(context, 'answer')
+    context.userText = String(input ?? '')
     beginAgentTurn(profileName, sessionId, context.chatId, context.turnId)
     try {
         const history = loadPrompt(context)
@@ -765,18 +907,9 @@ async function runAgentChief(context, input) {
         })
         noteTruncated(context, fitted.truncated)
         const user = fitted.messages.at(-1)
+        const delegate = (specialist, task) => runNativeDelegation(context, profileName, sessionId, specialist, task)
         const status = nativePrime
-            ? {
-                  output: await runNativePrime({
-                      messages: fitted.messages,
-                      roster: context.roster,
-                      budget,
-                      signal: context.workSignal,
-                      complete: (messages, tools) =>
-                          callModel(context, chiefModel(context.roster), { messages, tools, toolChoice: 'auto', role: 'chief' }),
-                      delegate: (specialist, task) => runNativeDelegation(context, profileName, sessionId, specialist, task)
-                  })
-              }
+            ? { output: await nativeChiefAnswer(context, input, delegate, fitted.messages, budget) }
             : await executeAgentRun({
                   request,
                   deadlineAt: context.limit > 0 ? started + context.limit : undefined,
@@ -796,15 +929,36 @@ async function runAgentChief(context, input) {
         noteUsage(context, status)
         if (hermesRunFailed(status.status))
             throw new HarnessError('chief_failed', String(status.error || status.message || 'Chief run failed.'))
-        const text = typeof status.output === 'string' ? maskWorkspacePaths(status.output) : ''
+        const protectedText = nativePrime ? composeTrustedOutputs(context.nativeResults) : null
+        if (protectedText !== null) assertTrustedDeliveryActive(context)
+        const text = protectedText ?? (typeof status.output === 'string' ? maskWorkspacePaths(status.output) : '')
         if (!text.trim()) throw new HarnessError('empty_output', 'The chief returned an empty answer.')
+        const result = agentChiefResult(context, profileName, sessionId, started, input, text)
+        if (protectedText !== null) {
+            result.trustedOutput = true
+            result.trustedOutputComplete = context.nativeResults.every(
+                (item) => item?.trustedOutput || item?.trustedPassthrough || item?.retrievedGuidance
+            )
+            result.trace.handoff.reason = 'trustedOutput'
+            if (context.deliveryDeadlineAt) result.trustedOutputDeadlineAt = context.deliveryDeadlineAt
+            result.artifacts = validatedTrustedArtifacts(context).artifacts
+        }
         if (nativePrime) {
+            context.assertNativeAuthority()
             stream.onDelta(text)
             stream.flush()
         }
-        const result = agentChiefResult(context, profileName, sessionId, started, input, text)
-        if (!context.replay) appendTurn(context.name, context.chatId, input, text, [], undefined, { scope: context.sessionScope })
-        emit(context, 'final', result)
+        if (!context.replay)
+            appendTurn(
+                context.name,
+                context.chatId,
+                input,
+                text,
+                sourceNames(result.sources),
+                nativePrime ? answerSelections(text, selectionSources(context, context.nativeResults), input) : undefined,
+                { scope: context.sessionScope }
+            )
+        emit(context, 'final', { ...result, artifacts: result.artifacts.map(({ type, name, specialist }) => ({ type, name, specialist })) })
         return result
     } catch (error) {
         const status = context.clientSignal?.aborted || error?.code === 'aborted' ? 'cancelled' : 'failed'
@@ -982,7 +1136,7 @@ async function runRosterWithUploads(context, input, dir) {
         roots: dir ? [...defaultUploadRoots(), dir] : undefined,
         specialists: context.roster?.specialists || [],
         workspaceFor(specialist) {
-            if (!specialist?.profileName || !needsAgentLoop(specialist)) return ''
+            if (context.nativeSpecialists || !specialist?.profileName || !needsAgentLoop(specialist)) return ''
             return specialistWorkspace(specialist.profileName)
         }
     })
@@ -1075,6 +1229,7 @@ async function runRosterWithUploads(context, input, dir) {
         routeParse: context.routeParse,
         question
     })
+    if (context.nativeSpecialists) trace.engine = 'native'
     console.info(
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
             agents.map((agent) => `${agent.name} ${agent.status} ${agent.ms}ms`).join(', ') +
@@ -3396,7 +3551,7 @@ async function runSpecialistOnce(context, specialist, task) {
     let out
     try {
         out =
-            specialist.profileName && needsAgentLoop(specialist)
+            !context.nativeSpecialists && specialist.profileName && needsAgentLoop(specialist)
                 ? await runHermesSpecialist(context, specialist, task)
                 : await runInlineSpecialist(context, specialist, task)
     } finally {
@@ -3598,12 +3753,139 @@ function toolName(prepared, index, used) {
     return name
 }
 
+// Tool discovery and dispatch share the roster and chat admitted to this turn. Keep
+// the two external sessions alive only for the duration of this delegation.
+async function runNativeSpecialistTools(context, specialist, task, model, soul) {
+    const { workSignal: signal, assertNativeAuthority: assertCurrent } = context
+    const books = specialist.playbooks || []
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    const services = all.filter(nativeMcpBindingSupported)
+    let mcp, analyst
+    const sources = []
+    const firstTool = context.toolLog.length
+    const started = Date.now()
+    const budget = specialistContextTokens()
+    try {
+        if (services.length)
+            mcp = await openNativeMcpTools(services, {
+                signal,
+                assertCurrent,
+                scope: [
+                    context.roster.workspaceId,
+                    context.roster.chatflowId || context.name,
+                    context.roster.tryId || '',
+                    context.chatId,
+                    specialist.name
+                ]
+            })
+        if (all.some(nativeAnalystBinding)) analyst = await openNativeAnalyst({ context, specialist, assertCurrent })
+        const tools = []
+        const handlers = new Map()
+        function register(spec, execute) {
+            const name = spec.function.name
+            if (handlers.has(name)) throw new HarnessError('bad_binding', 'Two assigned tools have the same name: ' + name)
+            tools.push(spec)
+            handlers.set(name, execute)
+        }
+        if (books.length)
+            for (const tool of playbookTools) {
+                register(tool, (args) => {
+                    const page = readPlaybookTool(books, tool.function.name, args, budget)
+                    const content = JSON.stringify(page)
+                    return {
+                        content,
+                        error: !page.success,
+                        ...(page.success && tool.function.name === 'skill_view'
+                            ? { compactContent: JSON.stringify({ name: page.name, previously_read: true, offset: args.offset ?? 0 }) }
+                            : {})
+                    }
+                })
+            }
+        for (const spec of mcp?.tools || []) register(spec, (args) => mcp.call(spec.function.name, args))
+        for (const spec of analyst?.tools || []) register(spec, (args, callId) => analyst.execute(spec.function.name, args, callId))
+        const used = new Set(handlers.keys())
+        for (const [index, binding] of (specialist.modules || []).entries()) {
+            if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding)) continue
+            assertCurrent()
+            const item = await prepareModule(binding, task, context.moduleOptions)
+            const name = toolName(item, index, used)
+            register(
+                {
+                    type: 'function',
+                    function: {
+                        name,
+                        description: String(item.tool?.description || binding.label || name).slice(0, 1000),
+                        parameters: preparedSchema(item)
+                    }
+                },
+                async (args) => {
+                    const value = preparedKind(item) === 'object' ? args : args.query ?? args.input
+                    const raw = await raceSignal(signal, () => callPrepared(item, value, assertCurrent))
+                    assertCurrent()
+                    const result = splitToolOutput(raw)
+                    sources.push(...result.documents)
+                    return result.text
+                }
+            )
+        }
+        assertCurrent()
+        if (!tools.length) throw new HarnessError('bad_binding', 'This specialist has no available saved tools.')
+        const text = await runNativeToolLoop({
+            messages: specialistPrompt(
+                context,
+                specialist,
+                task,
+                soul,
+                context.promptMessages,
+                budget ? Math.max(1, Math.floor(budget / 2)) : 0
+            ),
+            tools,
+            signal,
+            budget,
+            maxCalls: Math.max(40, playbookCallLimit(books, budget)),
+            maxBatchCalls: 8,
+            limitCode: 'tool_limit',
+            complete: (messages, offered) => {
+                assertCurrent()
+                return callModel(context, model, { messages, tools: offered, toolChoice: 'auto', role: 'specialist', specialist })
+            },
+            execute: async (name, args) => {
+                assertCurrent()
+                const callId = crypto.randomUUID()
+                emitTool(context, { phase: 'start', specialist: specialist.name, name, callId })
+                try {
+                    const result = await handlers.get(name)(args, callId)
+                    assertCurrent()
+                    emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: result?.error === true })
+                    return result
+                } catch (error) {
+                    emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: true })
+                    throw error
+                }
+            }
+        })
+        if (analyst && !context.nativePrime) attachCapturedAnalystResults(context, specialist, started, firstTool)
+        emitSpecialistPartial(context, specialist, text)
+        return { text, sources }
+    } finally {
+        try {
+            await analyst?.close()
+        } finally {
+            await mcp?.close()
+        }
+    }
+}
+
 async function runInlineSpecialist(context, specialist, task) {
     const model = specialist.model || chiefModel(context.roster)
     const soul = specialistSoul(specialist)
     const modules = specialist.modules || []
-    const playbooks = context.nativePrime && specialist.playbooks?.length ? specialist.playbooks : []
-    if (!modules.length && !playbooks.length) {
+    if (context.nativeSpecialists) {
+        context.assertNativeAuthority()
+        if (specialist.playbooks?.length || specialist.mcpServers?.length || modules.some((binding) => binding.nodeName !== 'calculator'))
+            return runNativeSpecialistTools(context, specialist, task, model, soul)
+    }
+    if (!modules.length) {
         const reply = await callModel(context, model, {
             messages: specialistPrompt(context, specialist, task, soul),
             role: 'specialist',
@@ -3622,7 +3904,7 @@ async function runInlineSpecialist(context, specialist, task) {
         emitSpecialistPartial(context, specialist, text)
         return { text, sources: documentsFrom(raw) }
     }
-    const used = new Set(playbooks.length ? playbookTools.map((tool) => tool.function.name) : [])
+    const used = new Set()
     const named = prepared.map((item, index) => ({ item, name: toolName(item, index, used) }))
     const tools = named.map(({ item, name }) => ({
         type: 'function',
@@ -3635,51 +3917,6 @@ async function runInlineSpecialist(context, specialist, task) {
             parameters: preparedSchema(item)
         }
     }))
-    if (playbooks.length) {
-        const budget = specialistContextTokens()
-        const text = await runNativeToolLoop({
-            messages: specialistPrompt(
-                context,
-                specialist,
-                task,
-                soul,
-                context.promptMessages,
-                budget ? Math.max(1, Math.floor(budget / 2)) : 0
-            ),
-            tools: [...playbookTools, ...tools],
-            signal: context.workSignal,
-            budget,
-            maxCalls: playbookCallLimit(playbooks, budget),
-            limitCode: 'tool_limit',
-            complete: (messages, offered) => callModel(context, model, { messages, tools: offered, role: 'specialist', specialist }),
-            execute: async (name, args) => {
-                emitTool(context, { phase: 'start', specialist: specialist.name, name })
-                try {
-                    const entry = named.find((item) => item.name === name)
-                    if (!entry) {
-                        const result = readPlaybookTool(playbooks, name, args, budget)
-                        emitTool(context, { phase: 'done', specialist: specialist.name, name, error: !result.success })
-                        const content = JSON.stringify(result)
-                        if (name !== 'skill_view' || !result.success) return content
-                        return {
-                            content,
-                            compactContent: JSON.stringify({ name: result.name, previously_read: true, offset: args.offset ?? 0 })
-                        }
-                    }
-                    const value = await raceSignal(context.workSignal, () =>
-                        callPrepared(entry.item, preparedKind(entry.item) === 'object' ? args : args.input)
-                    )
-                    emitTool(context, { phase: 'done', specialist: specialist.name, name })
-                    return normalizeResult(value)
-                } catch (error) {
-                    emitTool(context, { phase: 'done', specialist: specialist.name, name, error: true })
-                    throw error
-                }
-            }
-        })
-        emitSpecialistPartial(context, specialist, text)
-        return { text }
-    }
     const reply = await callModel(context, model, {
         messages: specialistPrompt(context, specialist, task, soul),
         tools,
@@ -3706,7 +3943,10 @@ async function runInlineSpecialist(context, specialist, task) {
             const kind = preparedKind(match.item)
             const value = kind === 'object' ? args : args.query ?? args.input ?? JSON.stringify(args)
             emitTool(context, { phase: 'start', specialist: specialist.name, name: label })
-            const raw = await raceSignal(context.workSignal, () => callPrepared(match.item, value))
+            const raw = await raceSignal(context.workSignal, () => {
+                if (context.nativeSpecialists) context.assertNativeAuthority()
+                return callPrepared(match.item, value, context.nativeSpecialists ? context.assertNativeAuthority : undefined)
+            })
             const text = normalizeResult(raw)
             emitTool(context, { phase: 'done', specialist: specialist.name, name: label })
             emitSpecialistPartial(context, specialist, text)
@@ -4099,6 +4339,8 @@ async function runDirectTool(context, specialist, input) {
         model: configuredModel(context, specialist)
     })
     const started = Date.now()
+    const assertCall = context.nativeSpecialists ? context.assertNativeAuthority : undefined
+    assertCall?.()
     const prepared = await prepareModule(specialist.modules[0], question, context.moduleOptions)
     const fillStarted = Date.now()
     const schema = fillSchema(prepared)
@@ -4123,7 +4365,12 @@ async function runDirectTool(context, specialist, input) {
     emitTool(context, { phase: 'start', specialist: specialist.name, name: toolLabel })
     let output
     try {
-        output = splitToolOutput(await raceSignal(context.workSignal, () => callPrepared(prepared, value)))
+        output = splitToolOutput(
+            await raceSignal(context.workSignal, () => {
+                assertCall?.()
+                return callPrepared(prepared, value, assertCall)
+            })
+        )
     } catch (error) {
         throwIfClient(context)
         if (overBudget(context)) {
@@ -4226,6 +4473,7 @@ async function runDirectTool(context, specialist, input) {
         },
         question
     })
+    if (context.nativeSpecialists) trace.engine = 'native'
     const payload = { text, harness: name, agents, sources: output.documents, artifacts: [], timings, report, trace }
     emit(context, 'final', { text, agents, sources: output.documents, artifacts: [], timings, report, trace })
     return payload

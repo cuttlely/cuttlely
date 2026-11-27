@@ -610,6 +610,8 @@ class PostgreSQL_MCP implements INode {
         // Each workspace has its own analyst area. A harness run also passes its workspace with the call.
         const workspace = options?.searchOptions?.workspaceId?._value || options?.workspaceId || ''
         const guard = guardSettings(nodeData)
+        if (decision.kind === 'auto' && options.requireReadOnlyAnalystUrl === true)
+            throw expectedFailure('This Analyst turn requires a read-only PostgreSQL connection.')
         if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', guard.requested)
         if (nodeData.inputs?.allowPinDefinitions === true)
             return this.urlTools(decision.postgresUrl, guard.requested, guard.relations, guard.allowedFunctions, true)

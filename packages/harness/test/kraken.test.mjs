@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { runNativePrime, runNativeToolLoop, useNativePrime } from '../runtime/native-prime.mjs'
+import { nativeCompatibilityGaps, runNativePrime, runNativeToolLoop, useNativePrime } from '../runtime/native-prime.mjs'
 import { readPlaybookTool } from '../runtime/native-playbooks.mjs'
 import { playbookMarkdown } from '../profile.mjs'
 import { executeAgentRun } from '../runtime/agent-run.mjs'
@@ -66,6 +66,41 @@ test('native delegation rejects unknown tools, foreign specialists and excess ca
         )
     }
 })
+test('a native Prime can delegate to every specialist on a large saved team across tool batches', async () => {
+    const specialists = Array.from({ length: 14 }, (_, index) => ({ name: 'member-' + index }))
+    const delegated = []
+    const answer = await runNativePrime({
+        roster: { specialists },
+        messages: [],
+        complete: async () => {
+            const next = specialists[delegated.length]
+            return next
+                ? {
+                      content: '',
+                      toolCalls: [
+                          {
+                              id: next.name,
+                              function: {
+                                  name: 'run_specialist',
+                                  arguments: JSON.stringify({ name: next.name, task: 'Read the assigned report.' })
+                              }
+                          }
+                      ]
+                  }
+                : { content: 'complete', toolCalls: [] }
+        },
+        delegate: async (specialist) => {
+            delegated.push(specialist.name)
+            return 'read'
+        }
+    })
+    assert.equal(answer, 'complete')
+    assert.deepEqual(
+        delegated,
+        specialists.map((s) => s.name)
+    )
+})
+
 test('cancelling a pending native delegation leaves a concurrent turn on the same specialist alone', async () => {
     const controller = new AbortController()
     const entered = Promise.withResolvers()
@@ -93,6 +128,35 @@ test('cancelling a pending native delegation leaves a concurrent turn on the sam
     await assert.rejects(pending, { name: 'AbortError' })
     assert.equal(await sibling, '51')
     assert.equal(messages.length, 1)
+})
+
+test('native preflight lists all affected specialists and excludes endpoint, credential and playbook values', () => {
+    const roster = {
+        name: 'sample',
+        specialists: [
+            { name: 'a', shell: true, modules: [{ nodeName: 'customTool', inputs: { url: 'private-endpoint' } }] },
+            {
+                name: 'b',
+                fileAccess: true,
+                mcpServers: [{ nodeName: 'customMCP', credential: 'fixture-id' }],
+                playbooks: [{ content: 'private-notes ${HERMES_SKILL_DIR}' }]
+            },
+            { name: 'c', modules: [{ nodeName: 'calculator', inputs: {} }] }
+        ]
+    }
+    const gaps = nativeCompatibilityGaps(roster)
+    assert.deepEqual(gaps, [
+        { specialist: 'a', capabilities: ['shell', 'canvas tool customTool'] },
+        { specialist: 'b', capabilities: ['workspace files', 'runtime playbook templates', 'MCP configuration for customMCP'] }
+    ])
+    assert.throws(
+        () => useNativePrime(roster, 'agent', 'native'),
+        (error) =>
+            error.code === 'native_unsupported' &&
+            error.message.includes('customTool') &&
+            error.message.includes('workspace files') &&
+            !/private-|fixture-id/.test(error.message)
+    )
 })
 
 test('native playbooks list metadata and resolve only the saved content assigned to this specialist', () => {

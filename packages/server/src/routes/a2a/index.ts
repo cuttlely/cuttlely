@@ -201,7 +201,8 @@ router.post(
             beforeAdmission: (req, flow) => {
                 assertExternalFlowKeyed(flow)
                 const parsed = parseEnvelope((req as Request & { orchestrate?: unknown }).orchestrate)
-                if (parsed.ok && (parsed.method === 'message/send' || parsed.method === 'message/stream')) assertFlowRuntimeAvailable(flow)
+                if (parsed.ok && (parsed.method === 'message/send' || parsed.method === 'message/stream'))
+                    return assertFlowRuntimeAvailable(flow, req.body?.overrideConfig)
             }
         })
     ),

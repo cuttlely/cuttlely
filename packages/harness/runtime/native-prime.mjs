@@ -1,39 +1,64 @@
+import availability from '../availability.cjs'
 import { HarnessError } from '../errors.mjs'
 import { estimateTokens } from '../context.mjs'
-import { needsAgentLoop, specialistSummary } from '../profile.mjs'
+import { supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
+import { nativeMcpBindingSupported } from './native-mcp.mjs'
+import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
+import { specialistSummary } from '../profile.mjs'
 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
 export const admittedAgentEngine = Symbol('admittedAgentEngine')
 
-export function selectAgentEngine(name) {
-    return process.env.CUTTLELY_NATIVE_PRIME_TEAMS?.split(',').some((entry) => entry.trim() && entry.trim() === name) ? 'native' : 'hermes'
-}
+export const { selectAgentEngine } = availability
 
 export function useNativePrime(roster, mode, engine = selectAgentEngine(roster.name)) {
-    if (mode !== 'agent' || engine === 'hermes') return false
+    return mode === 'agent' && useNativeSpecialists(roster, engine)
+}
+
+export function useNativeSpecialists(roster, engine = selectAgentEngine(roster.name)) {
+    if (engine === 'hermes') return false
     if (engine !== 'native') throw new HarnessError('bad_engine', 'The admitted agent engine is unavailable.')
-    for (const specialist of roster.specialists) {
-        const dynamicBook = specialist.playbooks?.find((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content))
-        if (dynamicBook) {
-            throw new HarnessError(
-                'native_unsupported',
-                `Playbook "${dynamicBook.name}" on "${specialist.name}" requires a bundled runtime template.`
-            )
-        }
-        if (
-            needsAgentLoop({ ...specialist, playbooks: [] }) ||
-            specialist.modules?.some(
-                (binding) =>
-                    binding.nodeName !== 'calculator' ||
-                    Object.keys(binding.upstream || {}).length ||
-                    Object.keys(binding.inputs || {}).length
-            ) ||
-            specialist.trustedOutputs?.length
-        ) {
-            throw new HarnessError('native_unsupported', `Native Prime cannot yet run the capabilities of specialist "${specialist.name}".`)
-        }
+    const gaps = nativeCompatibilityGaps(roster)
+    if (gaps.length) {
+        const details = gaps.map(({ specialist, capabilities }) => `${specialist}: ${capabilities.join(', ')}`)
+        throw new HarnessError('native_unsupported', `Native runtime cannot run these saved capabilities: ${details.join('; ')}.`)
     }
     return true
+}
+
+// Offline preflight inspects only the saved grants. Values, credentials, endpoints and
+// playbook bodies never appear in the report. Live provider checks still occur at dispatch.
+export function nativeCompatibilityGaps(roster) {
+    const gaps = []
+    for (const specialist of roster.specialists) {
+        const capabilities = new Set()
+        for (const [enabled, label] of [
+            [specialist.shell, 'shell'],
+            [specialist.browser, 'browser'],
+            [specialist.codeExecution, 'code execution'],
+            [specialist.fileAccess, 'workspace files']
+        ])
+            if (enabled) capabilities.add(label)
+        if (specialist.playbooks?.some((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content)))
+            capabilities.add('runtime playbook templates')
+        for (const binding of specialist.modules || []) {
+            if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding))
+                capabilities.add('canvas tool ' + nativeNodeLabel(binding))
+        }
+        for (const binding of specialist.mcpServers || []) {
+            if (!nativeAnalystBinding(binding) && !nativeMcpBindingSupported(binding))
+                capabilities.add('MCP configuration for ' + nativeNodeLabel(binding))
+        }
+        if (specialist.trustedOutputs?.length && !nativeAnalystSpecialistSupported(specialist))
+            capabilities.add('trusted output without an eligible saved query')
+        if (capabilities.size) gaps.push({ specialist: specialist.name, capabilities: [...capabilities] })
+    }
+    return gaps
+}
+
+function nativeNodeLabel(binding) {
+    const label = binding?.nodeName
+    return typeof label === 'string' && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(label) ? label : 'unrecognized node'
 }
 
 export function nativePrimeInstructions(roster) {
@@ -68,7 +93,9 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
         complete,
         signal,
         budget,
-        maxCalls: 8,
+        // A saved team can have more than eight specialists. Keep individual model batches bounded.
+        maxCalls: 40,
+        maxBatchCalls: 8,
         limitCode: 'delegation_limit',
         execute: (_name, args) => {
             const specialist = roster.specialists.find((s) => s.name === args?.name)
@@ -79,7 +106,17 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
     })
 }
 
-export async function runNativeToolLoop({ messages, tools, complete, execute, signal, budget, maxCalls, limitCode }) {
+export async function runNativeToolLoop({
+    messages,
+    tools,
+    complete,
+    execute,
+    signal,
+    budget,
+    maxCalls,
+    maxBatchCalls = maxCalls,
+    limitCode
+}) {
     const transcript = [...messages]
     const allowed = new Set(tools.map((tool) => tool.function.name))
     // Only evict a replayable tool result after the model has seen its complete batch.
@@ -106,7 +143,8 @@ export async function runNativeToolLoop({ messages, tools, complete, execute, si
         pendingReads = []
         signal?.throwIfAborted()
         if (!reply.toolCalls.length) return reply.content
-        if (reply.toolCalls.length > remaining) throw new HarnessError(limitCode, 'The native agent reached its tool call limit.')
+        if (reply.toolCalls.length > remaining || reply.toolCalls.length > maxBatchCalls)
+            throw new HarnessError(limitCode, 'The native agent reached its tool call limit.')
         remaining -= reply.toolCalls.length
         const calls = reply.toolCalls.map((call) => {
             if (!allowed.has(call.function?.name)) throw new HarnessError('forbidden', 'The requested tool is unavailable to this agent.')

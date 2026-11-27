@@ -41,7 +41,8 @@ export function jobPayload(args) {
         assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
     return {
         name: args.name,
-        ...(args.mode === 'agent' ? { mode: 'agent', engine: selectAgentEngine(args.name) } : {}),
+        ...(args.mode === 'agent' ? { mode: 'agent' } : {}),
+        engine: selectAgentEngine(args.name),
         chatId: args.chatId,
         input: String(args.input ?? ''),
         ...(args.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
@@ -389,7 +390,7 @@ export async function executeJob(job) {
             throw new HarnessError('aborted', 'Client disconnected')
         }
         cancelBeforeStart()
-        availability.assertRuntimeAvailable()
+        availability.assertRuntimeAvailable(undefined, runArgs[admittedAgentEngine])
         const runtime = await jobRuntime(job, local)
         cancelBeforeStart()
         // The waiter is another process when the queue is external, so its onRecorded never runs.
@@ -549,7 +550,7 @@ export async function runQueuedHarness(args) {
     // Resource ownership precedes availability, including calls that bypass the server.
     const { assertHarnessWorkspace } = await import('./run.mjs')
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
-    availability.assertRuntimeAvailable()
+    availability.assertRuntimeAvailable(undefined, selectAgentEngine(args.name))
     let job
     try {
         job = enqueueHarnessJob(args)

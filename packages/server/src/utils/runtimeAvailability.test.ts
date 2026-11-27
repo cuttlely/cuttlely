@@ -33,6 +33,30 @@ describe('runtime admission', () => {
         ).not.toThrow()
     })
 
+    test('a static native selection cannot exempt a dynamic, mixed, malformed or overridden harness caller', () => {
+        fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'down' }))
+        const previous = process.env.CUTTLELY_NATIVE_PRIME_TEAMS
+        process.env.CUTTLELY_NATIVE_PRIME_TEAMS = 'eligible'
+        try {
+            const selected = { data: { name: 'harness', inputs: { harnessName: 'eligible' } } }
+            const check = (nodes: unknown[], overrides?: unknown) =>
+                assertFlowRuntimeAvailable({ type: 'CHATFLOW', workspaceId: 'fixture', flowData: JSON.stringify({ nodes }) }, overrides)
+            for (const other of [
+                { data: { name: 'agent', inputs: { tools: [{ agentSelectedTool: 'harness' }] } } },
+                { data: { name: 'chatflowTool', inputs: { selectedChatflow: 'other-flow' } } },
+                { data: { name: 'harness', inputs: { harnessName: 'other' } } },
+                { data: { name: 'harness', inputs: { harnessName: ['eligible'] } } }
+            ])
+                expect(() => check([selected, other])).toThrow(/agent runtime is unavailable/i)
+            for (const overrides of [{ harnessName: 'other' }, { vars: { target: 'other' } }, true]) {
+                expect(() => check([selected], overrides)).toThrow(/agent runtime is unavailable/i)
+            }
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_NATIVE_PRIME_TEAMS
+            else process.env.CUTTLELY_NATIVE_PRIME_TEAMS = previous
+        }
+    })
+
     test.each(['up', 'degraded'])('allows execution while runtime is %s', (state) => {
         fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state }))
         expect(() => assertRuntimeAvailable()).not.toThrow()

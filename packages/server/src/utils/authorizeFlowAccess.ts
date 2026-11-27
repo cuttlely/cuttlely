@@ -198,7 +198,9 @@ export const bindUploadFileChatId: RequestHandler = (req, res, next) => {
  */
 export const authorizePrediction: RequestHandler = authorizeFlowAccess({
     // A flow that needs the agent runtime is refused while it is down before the key is charged.
-    beforeAdmission: (_req, chatflow) => assertFlowRuntimeAvailable(chatflow),
+    beforeAdmission: (req, chatflow) =>
+        // Multipart fields have not yet been parsed here and may change the saved target.
+        assertFlowRuntimeAvailable(chatflow, req.is('multipart/form-data') ? true : req.body?.overrideConfig),
     getChatflowId: (req) => req.params.id,
     keyOnly: true,
     checkOrigin: true,

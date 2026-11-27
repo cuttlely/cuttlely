@@ -202,8 +202,11 @@ export function analystScopeKey(harness, chatId) {
 
 // A harness run passes its chat scope and its workspace. Each workspace has its own analyst area.
 // A caller that passes a timings array gets one step-timing record per URL query run inside fn.
-export function withAnalystScope(scope, fn, { workspace, timings } = {}) {
-    return analystCall.run({ scope: clean(scope), workspace: clean(workspace), timings: Array.isArray(timings) ? timings : null }, fn)
+export function withAnalystScope(scope, fn, { workspace, timings, signal } = {}) {
+    return analystCall.run(
+        { scope: clean(scope), workspace: clean(workspace), timings: Array.isArray(timings) ? timings : null, signal },
+        fn
+    )
 }
 
 // Milliseconds for each step of one URL query, for the run trace only. A record holds numbers and nothing else,
@@ -2292,6 +2295,35 @@ async function runUrlPostgres(
         connectionTimeoutMillis: 10000
     })
     client.on('error', () => {})
+    const signal = analystCall.getStore()?.signal
+    signal?.throwIfAborted()
+    let cancellation
+    let closing
+    const close = () => (closing ??= client.end().catch(() => {}))
+    // The call owns a fresh connection. Retain it until the cancellation request has finished so this PID
+    // cannot be recycled for another chat. Use the same authenticated transport, including its TLS settings.
+    const cancel = () => {
+        cancellation ??= (async () => {
+            if (client.processID) {
+                const control = new Client({
+                    connectionString: postgresUrl,
+                    application_name: 'cuttlely-analyst-cancel',
+                    connectionTimeoutMillis: 1000,
+                    query_timeout: 1000
+                })
+                control.on('error', () => {})
+                try {
+                    await control.connect()
+                    await control.query('SELECT pg_catalog.pg_cancel_backend($1::integer)', [client.processID])
+                } catch {
+                    // The original connection and its server-side statement timeout still bound the operation.
+                } finally {
+                    await control.end().catch(() => {})
+                }
+            }
+            await close()
+        })()
+    }
     const timer = queryTimer()
     client.query = meteredQuery(client, timer)
     const runner = postgresRunner(client, { transaction: true })
@@ -2419,8 +2451,11 @@ async function runUrlPostgres(
     let checked = null
     let checkOk = false
     let finalRolledBack = false
+    signal?.addEventListener('abort', cancel, { once: true })
     try {
+        signal?.throwIfAborted()
         await timeStep(runner, 'connect', () => client.connect())
+        signal?.throwIfAborted()
         if (!guard.batchedGuard && readOnlySql) {
             const login = (
                 await client.query("SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit")
@@ -2537,9 +2572,11 @@ async function runUrlPostgres(
         const outcome = analystErrorOutcome(error)
         throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
     } finally {
-        if (!finalRolledBack) await rollback()
+        signal?.removeEventListener('abort', cancel)
+        await cancellation
+        if (!closing && !finalRolledBack) await rollback()
         else guard.clearPrefetch?.()
-        await client.end().catch(() => {})
+        await close()
         recordQueryTimings(timer)
     }
 }

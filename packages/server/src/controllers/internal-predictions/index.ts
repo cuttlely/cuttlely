@@ -14,7 +14,7 @@ import { isStreamingRequest } from '../../utils/streaming'
 import { harnessCallerFor, isApiKeyCaller } from '../../services/harnesses/apiAccess'
 import type { IHarnessCaller } from '../../Interface'
 import flowDraftsService from '../../services/flow-drafts'
-import { assertFlowRuntimeAvailable, assertRuntimeAvailable, runtimeState } from '../../utils/runtimeAvailability'
+import { assertFlowRuntimeAvailable, runtimeState } from '../../utils/runtimeAvailability'
 
 // Send input message and get prediction result (Internal)
 const createInternalPrediction = async (req: Request, res: Response, next: NextFunction) => {
@@ -31,9 +31,13 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
             throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
         }
 
-        if (chatflow.type === 'HARNESS') assertRuntimeAvailable()
+        if (chatflow.type === 'HARNESS')
+            await assertFlowRuntimeAvailable(chatflow, undefined, () => flowDraftsService.flowDataForTestChat(chatflow))
         else if (['down', 'restarting', 'cooldown', 'exhausted'].includes(runtimeState())) {
-            assertFlowRuntimeAvailable({ ...chatflow, flowData: await flowDraftsService.flowDataForTestChat(chatflow) })
+            await assertFlowRuntimeAvailable(
+                { ...chatflow, flowData: await flowDraftsService.flowDataForTestChat(chatflow) },
+                req.body?.overrideConfig
+            )
         }
 
         bindRequestSession(req, { chatflow, isInternal: true })

@@ -43,7 +43,7 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             if (!(await validateFlowAPIKey(req, chatflow))) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
-            assertFlowRuntimeAvailable(chatflow)
+            await assertFlowRuntimeAvailable(chatflow, req.body?.overrideConfig)
             // A harness canvas has no node.init. The in-app chat already hands it to the harness runtime.
             // Rate limit, origin and flow authorization above stay as they are.
             if (chatflow.type === 'HARNESS') {

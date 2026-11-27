@@ -1,11 +1,12 @@
 import { Request, Response } from 'express'
-import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
+import { assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { StatusCodes } from 'http-status-codes'
 import { removeSpecificFileFromUpload } from '@cuttlely/components'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import type { IHarnessCaller } from '../../Interface'
 import harnessesService from '../../services/harnesses'
+import flowDraftsService from '../../services/flow-drafts'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
 import { tryOwnerFor } from '../../utils/tryOwner'
@@ -49,7 +50,11 @@ export async function runHarnessCanvasChat(
     caller: IHarnessCaller,
     options: { canvas: 'live' | 'draft'; sessionToken?: string }
 ) {
-    assertRuntimeAvailable()
+    await assertFlowRuntimeAvailable(
+        { ...chatflow, type: 'HARNESS' },
+        undefined,
+        options.canvas === 'draft' ? () => flowDraftsService.flowDataForTestChat(chatflow) : undefined
+    )
     await refuseUploads(req)
     const streaming = isStreamingRequest(req)
     const source = 'playground'

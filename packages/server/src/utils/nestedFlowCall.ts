@@ -60,7 +60,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
     const target = await runtime.appDataSource.getRepository(ChatFlow).findOneBy({ id: request.targetFlowId })
     if (!target) throw new AppError(404, `Chatflow ${request.targetFlowId} not found`)
     const harnessCaller = await authorizeNestedFlowCaller(runtime.caller, runtime.parentWorkspaceId, target, runtime.appDataSource)
-    assertFlowRuntimeAvailable(target)
+    await assertFlowRuntimeAvailable(target, request.overrideConfig)
     const chatId = request.chatId || uuidv4()
     const incomingInput = {
         question: request.question,

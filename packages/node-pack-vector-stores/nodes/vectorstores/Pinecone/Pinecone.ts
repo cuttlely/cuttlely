@@ -241,6 +241,9 @@ class Pinecone_VectorStores implements INode {
 
         const credentialData = await getCredentialData(nodeData.credential ?? '', options)
         const pineconeApiKey = getCredentialParam('pineconeApiKey', credentialData, nodeData)
+        if (nodeData.credential && (typeof pineconeApiKey !== 'string' || !pineconeApiKey.trim())) {
+            throw new Error('The selected Pinecone credential is missing its API key.')
+        }
 
         const client = new Pinecone({ apiKey: pineconeApiKey })
 

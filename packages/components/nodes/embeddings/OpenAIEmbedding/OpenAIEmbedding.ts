@@ -125,6 +125,9 @@ class OpenAIEmbedding_Embeddings implements INode {
         }
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const openAIApiKey = getCredentialParam('openAIApiKey', credentialData, nodeData)
+        if (nodeData.credential && (typeof openAIApiKey !== 'string' || !openAIApiKey.trim())) {
+            throw new Error('The selected OpenAI credential is missing its API key.')
+        }
 
         const obj: Partial<OpenAIEmbeddingsParams> & { openAIApiKey?: string; configuration?: ClientOptions } = {
             openAIApiKey,

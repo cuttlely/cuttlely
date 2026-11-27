@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
 import { isDraining, isShuttingDown } from '../../settings/runs'
-import { assertRuntimeAvailable } from '../../utils/runtimeAvailability'
+import { assertSelectedHarnessAvailable, assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -1477,7 +1477,7 @@ const startRun = async (
         dataSource: opts.runtime?.appDataSource,
         canvasRecord: opts.record
     })
-    assertRuntimeAvailable()
+    await assertSelectedHarnessAvailable(name, { record: prepared.harness })
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
     const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller, opts.sessionUserId)
@@ -1611,9 +1611,9 @@ const startBackgroundRun = async (
             expectedChatflowId: opts.expectedChatflowId
         })
         // Refuse before admission so a key is not charged for a run that cannot start (clients retry on Retry-After).
-        assertRuntimeAvailable()
+        await assertSelectedHarnessAvailable(name, { record: prepared.harness })
         if (opts.admit) opts.caller = await opts.admit()
-        assertRuntimeAvailable()
+        await assertSelectedHarnessAvailable(name, { record: prepared.harness })
         const apiKeyId = callerKeyId(opts.caller)
         const source = opts.source || 'api'
         chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
@@ -1872,7 +1872,7 @@ const replayCheck = async (
     await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller, {
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined
     })
-    assertRuntimeAvailable()
+    await assertFlowRuntimeAvailable({ ...chatflow, type: 'HARNESS', flowData })
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({

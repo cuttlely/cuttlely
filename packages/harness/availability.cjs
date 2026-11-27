@@ -17,14 +17,67 @@ function runtimeState(dataDir = process.env.CUTTLELY_DATA_DIR) {
     }
 }
 
+function selectAgentEngine(name) {
+    return process.env.CUTTLELY_NATIVE_PRIME_TEAMS?.split(',').some((entry) => entry.trim() && entry.trim() === name) ? 'native' : 'hermes'
+}
+
+function supervisorUnavailable(dataDir) {
+    return ['down', 'restarting', 'cooldown', 'exhausted'].includes(runtimeState(dataDir))
+}
+
 // Call only after caller and resource authorization. Never echo supervisor details to an API caller.
-function assertRuntimeAvailable(dataDir = process.env.CUTTLELY_DATA_DIR) {
-    if (!['down', 'restarting', 'cooldown', 'exhausted'].includes(runtimeState(dataDir))) return
-    throw Object.assign(new Error('The agent runtime is unavailable. Try again shortly or contact the instance operator.'), {
+function assertRuntimeAvailable(dataDir = process.env.CUTTLELY_DATA_DIR, admittedEngine) {
+    if (admittedEngine === 'native') return
+    if (!supervisorUnavailable(dataDir)) return
+    throw unavailable()
+}
+
+function unavailable() {
+    return Object.assign(new Error('The agent runtime is unavailable. Try again shortly or contact the instance operator.'), {
         code: 'RUNTIME_UNAVAILABLE',
         statusCode: 503,
         retryAfterSeconds: 5
     })
+}
+
+// Named API preflight runs after authorization and before charging the caller. Read the roster
+// only when a native exemption matters. An unresolved, foreign, or unsupported target fails closed.
+function assertSelectedHarnessAvailable(name, target) {
+    if (!supervisorUnavailable()) return
+    if (selectAgentEngine(name) !== 'native') throw unavailable()
+    return Promise.all([import('./runtime/native-prime.mjs'), nativeRoster(name, target)]).then(
+        ([{ useNativeSpecialists }, roster]) => {
+            try {
+                if (
+                    roster?.name === name &&
+                    roster.chief?.model?.nodeName &&
+                    roster.specialists?.length &&
+                    useNativeSpecialists(roster, 'native')
+                )
+                    return
+            } catch {
+                // Unavailable canary capabilities still need the bundled runtime.
+            }
+            throw unavailable()
+        },
+        () => {
+            throw unavailable()
+        }
+    )
+}
+
+async function nativeRoster(name, target) {
+    if (target?.record) return target.record
+    if (target?.canvas) {
+        const { rosterFromFlow } = await import('./sync-from-flow.mjs')
+        const { id: chatflowId, workspaceId } = target.canvas
+        const flowData = target.readFlowData ? await target.readFlowData() : target.canvas.flowData
+        return rosterFromFlow({ name, chatflowId, workspaceId, flowData })
+    }
+    if (!target?.workspaceId) return
+    const { getHarness } = await import('./store.mjs')
+    const record = getHarness(name)
+    return record?.workspaceId === target.workspaceId ? record : undefined
 }
 
 function setHarnessAvailabilityCheck(check) {
@@ -37,4 +90,11 @@ async function guardHarnessRun(name, run) {
     return run()
 }
 
-module.exports = { setHarnessAvailabilityCheck, guardHarnessRun, runtimeState, assertRuntimeAvailable }
+module.exports = {
+    setHarnessAvailabilityCheck,
+    guardHarnessRun,
+    runtimeState,
+    assertRuntimeAvailable,
+    selectAgentEngine,
+    assertSelectedHarnessAvailable
+}

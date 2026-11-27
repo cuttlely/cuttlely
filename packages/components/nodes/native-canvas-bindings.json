@@ -1,0 +1,27 @@
+{
+    "calculator": { "inputs": [] },
+    "currentDateTime": { "inputs": ["timezone"] },
+    "serpAPI": { "credential": true, "inputs": ["FLOWISE_CREDENTIAL_ID"] },
+    "retrieverTool": {
+        "upstream": {
+            "retriever": {
+                "type": "pinecone",
+                "credential": true,
+                "output": "retriever",
+                "empty": ["pineconeApiKey"],
+                "upstream": {
+                    "embeddings": {
+                        "type": "openAIEmbeddings",
+                        "credential": true,
+                        "empty": ["openAIApiKey", "basepath", "baseOptions"],
+                        "credentialInput": "credentialId"
+                    }
+                }
+            }
+        },
+        "incompatibleInputs": [
+            ["upstream.retriever.inputs.fileUpload", "inputs.retrieverToolMetadataFilter"],
+            ["upstream.retriever.inputs.fileUpload", "upstream.retriever.inputs.pineconeMetadataFilter"]
+        ]
+    }
+}

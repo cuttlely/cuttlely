@@ -1279,70 +1279,88 @@ async function callTool(req, res, meta) {
     if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
         await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
-    if (isPinnedToolName(body.name)) {
-        const result = await invokeOfferedPinnedTool({
+    const result = await callOfferedTool({
+        record,
+        specialistName: meta.specialistName,
+        profileName: meta.profileName,
+        toolName: body.name,
+        args,
+        callId,
+        chatId,
+        scope,
+        sourceTurn: typeof body.scope === 'string' ? body.scope : '',
+        moduleOptions: {
+            componentNodes: ctx.componentNodes,
+            loadNode: ctx.loadNode,
+            flowOptions: ctx.flowOptions,
+            nodeCache: ctx.nodeCache,
+            beforeCall: () => readyToRun(meta),
+            assertCall: () => assertStillValid(meta)
+        }
+    })
+    sendJson(res, 200, { result })
+}
+
+// Called only after the gateway or native delegation has authenticated the caller and resolved the saved owner.
+export async function callOfferedTool({
+    record,
+    specialistName,
+    profileName,
+    routeProfile = profileName,
+    toolName,
+    args,
+    callId,
+    chatId,
+    scope,
+    sourceTurn,
+    moduleOptions
+}) {
+    if (isPinnedToolName(toolName)) {
+        return invokeOfferedPinnedTool({
             record,
-            specialistName: meta.specialistName,
-            toolName: body.name,
+            specialistName,
+            toolName,
             args,
             callId,
             chatId,
-            profileName: meta.profileName,
+            profileName,
+            routeProfile,
             scope,
             sourceReceipt: true,
-            sourceTurn: typeof body.scope === 'string' && body.scope.length <= 4096 ? body.scope : '',
-            moduleOptions: {
-                componentNodes: ctx.componentNodes,
-                loadNode: ctx.loadNode,
-                flowOptions: ctx.flowOptions,
-                nodeCache: ctx.nodeCache,
-                // Checked once the tool's node is prepared, right before the tool itself runs.
-                beforeCall: () => readyToRun(meta),
-                assertCall: () => assertStillValid(meta)
-            }
+            sourceTurn: sourceTurn.length <= 4096 ? sourceTurn : '',
+            moduleOptions
         })
-        sendJson(res, 200, { result })
-        return
     }
-    const specialist = record.specialists?.find((item) => item.name === meta.specialistName)
-    const queryBinding = queryBindingFor(specialist, meta.profileName, body.name)
-    const sourceTurn = typeof body.scope === 'string' ? body.scope : ''
-    if (specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY && body.name === 'query' && queryBinding?.nodeName === 'postgreSQLMCP') {
-        if (!verifiedSourceTurn(meta.profileName, sourceTurn)) {
-            sendJson(res, 200, {
-                result: JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
-            })
-            return
+    const specialist = record.specialists?.find((item) => item.name === specialistName)
+    const queryBinding = queryBindingFor(specialist, routeProfile, toolName)
+    if (specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY && toolName === 'query' && queryBinding?.nodeName === 'postgreSQLMCP') {
+        if (!verifiedSourceTurn(profileName, sourceTurn)) {
+            return JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
         }
-        const admission = admitGuardedQueryAttempt(meta.profileName, sourceTurn)
+        const admission = admitGuardedQueryAttempt(profileName, sourceTurn)
         if (!admission.allowed) {
-            sendJson(res, 200, {
-                result: JSON.stringify({
-                    error: `Read-only SQL allowance exhausted for this specialist turn (limit ${admission.limit}). Corrections and pages count toward this limit.`,
-                    cuttlelyOutcome: 'expected'
-                })
+            return JSON.stringify({
+                error: `Read-only SQL allowance exhausted for this specialist turn (limit ${admission.limit}). Corrections and pages count toward this limit.`,
+                cuttlelyOutcome: 'expected'
             })
-            return
         }
     }
-    const secureNames = secretNamesFor(meta.profileName, body.name)
-    const captureId = isAnalystQueryTool(body.name)
+    const secureNames = secretNamesFor(routeProfile, toolName)
+    const captureId = isAnalystQueryTool(toolName)
         ? noteAnalystGatewayCall({
               harness: record.name,
-              specialist: meta.specialistName,
+              specialist: specialistName,
               chatId,
               callId,
               ...analystStatement(args),
-              toolName: body.name
+              toolName: toolName
           })
         : ''
-    if (isRefusedSqlTool(meta.profileName, body.name)) {
-        const result = JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
-        sendJson(res, 200, { result })
-        return
+    if (isRefusedSqlTool(routeProfile, toolName)) {
+        return JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
-    assertStillValid(meta)
+    moduleOptions.assertCall?.()
     // Step timings for the run trace. The tool result itself is unchanged.
     const timings = []
     const callStarted = performance.now()
@@ -1350,55 +1368,58 @@ async function callTool(req, res, meta) {
     const result = await withAnalystScope(
         scope,
         () =>
-            executeSpecialistTool(record.name, meta.specialistName, body.name, args, {
-                ...routeFor(meta.profileName, body.name),
+            executeSpecialistTool(record.name, specialistName, toolName, args, {
+                ...routeFor(routeProfile, toolName),
                 onRetrievedSources: (documents) => {
                     retrievedSources = documents
                 },
                 harness: record,
-                componentNodes: ctx.componentNodes,
-                loadNode: ctx.loadNode,
-                flowOptions: ctx.flowOptions,
-                nodeCache: ctx.nodeCache,
-                // Checked once the tool's node is prepared, right before the tool itself runs.
-                beforeCall: () => readyToRun(meta),
-                assertCall: () => assertStillValid(meta)
+                ...moduleOptions
             }),
-        { workspace: record.workspaceId, timings }
+        { workspace: record.workspaceId, timings, signal: moduleOptions.signal }
     )
     finishAnalystCallTimings(timings, performance.now() - callStarted)
-    assertStillValid(meta)
-    if (retrievedSources.length && verifiedSourceTurn(meta.profileName, body.scope)) {
+    moduleOptions.assertCall?.()
+    if (retrievedSources.length && verifiedSourceTurn(profileName, sourceTurn)) {
         recordRetrievedSources(
-            { harness: record.name, specialist: meta.specialistName, sourceTurn: body.scope },
+            { harness: record.name, specialist: specialistName, sourceTurn: sourceTurn },
             { callId: callId || crypto.randomUUID(), documents: retrievedSources }
         )
     }
     const shown = modelToolResult(result)
-    rememberAnalystResult(record.name, meta.specialistName, shown.result, scope, args, captureId, timings.at(-1), {
+    rememberAnalystResult(record.name, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,
         queryEvidenceContext: {
             specialist,
             binding: queryBinding,
-            profileName: meta.profileName,
+            profileName: profileName,
             sourceTurn,
             receipt: shown.readOnlyQuery
         },
         sourceTurn,
-        freeSqlWithPin: freePinsFor(meta.profileName, body.name),
+        freeSqlWithPin: freePinsFor(routeProfile, toolName),
         secureNames,
-        pinnedCall: isPinnedToolName(body.name),
-        toolName: body.name,
+        pinnedCall: isPinnedToolName(toolName),
+        toolName: toolName,
         captureTrusted: record.specialists
-            ?.find((item) => item.name === meta.specialistName)
-            ?.trustedOutputs?.some((contract) => contract.pin === body.name)
+            ?.find((item) => item.name === specialistName)
+            ?.trustedOutputs?.some((contract) => contract.pin === toolName)
     })
-    sendJson(res, 200, { result: shown.result })
+    return shown.result
 }
 
 // The tools a specialist's nodes offer this turn, from the same discovery a Hermes tool list uses.
 export async function offeredPinnedTools(record, specialistName, moduleOptions, profileName) {
     return toolSpecs(record, specialistName, moduleOptions, profileName)
+}
+
+// Native discovery is isolated per delegation; release just this delegation's routes and redaction metadata.
+export function forgetNativeToolRoutes(routeProfile) {
+    toolRoutes.delete(routeProfile)
+    refusedSqlTools.delete(routeProfile)
+    offeredPins.delete(routeProfile)
+    pinSecrets.delete(routeProfile)
+    profileDiagnostics.delete(routeProfile)
 }
 
 // The node context a model-issued tool call runs with. Without the server context (offline tests), the run's own.
@@ -1418,6 +1439,7 @@ export async function invokeOfferedPinnedTool({
     callId,
     chatId,
     profileName,
+    routeProfile = profileName,
     scope,
     sourceReceipt = false,
     sourceTurn = '',
@@ -1433,7 +1455,7 @@ export async function invokeOfferedPinnedTool({
             !/#turn-[A-Za-z0-9_-]{1,80}$/.test(sourceTurn))
     )
         return JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
-    const secureNames = secretNamesFor(profileName, toolName)
+    const secureNames = secretNamesFor(routeProfile, toolName)
     const capturedParams = capturePinnedParams(args, secureNames, analystTracePreviewsEnabled())
     const captureId = noteAnalystGatewayCall({
         harness: record.name,
@@ -1444,9 +1466,9 @@ export async function invokeOfferedPinnedTool({
         toolName,
         ...(capturedParams ? { pinned: { params: capturedParams } } : {})
     })
-    if (isRefusedSqlTool(profileName, toolName)) return JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
+    if (isRefusedSqlTool(routeProfile, toolName)) return JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
     if (!pinnedQueriesEnabled()) return JSON.stringify({ error: PINNED_OFF_ERROR, cuttlelyOutcome: 'expected' })
-    if (profileName && !toolRoutes.get(refusalKey(profileName))?.has(toolName)) {
+    if (routeProfile && !toolRoutes.get(refusalKey(routeProfile))?.has(toolName)) {
         return JSON.stringify({ error: PINNED_MISSING_ERROR, cuttlelyOutcome: 'expected' })
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
@@ -1458,18 +1480,18 @@ export async function invokeOfferedPinnedTool({
         scope,
         () =>
             executeSpecialistTool(record.name, specialistName, toolName, args, {
-                ...routeFor(profileName, toolName),
+                ...routeFor(routeProfile, toolName),
                 harness: record,
                 ...moduleOptions
             }),
-        { workspace: record.workspaceId, timings }
+        { workspace: record.workspaceId, timings, signal: moduleOptions.signal }
     )
     finishAnalystCallTimings(timings, performance.now() - callStarted)
     moduleOptions.assertCall?.()
     const shown = modelToolResult(result)
     rememberAnalystResult(record.name, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,
-        freeSqlWithPin: freePinsFor(profileName, toolName),
+        freeSqlWithPin: freePinsFor(routeProfile, toolName),
         secureNames,
         pinnedCall: true,
         toolName,

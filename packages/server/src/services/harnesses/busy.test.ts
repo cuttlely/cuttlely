@@ -1,6 +1,6 @@
 import harnessesService, { setHarnessModuleLoader } from './index'
 
-jest.mock('../../utils/runtimeAvailability', () => ({ assertRuntimeAvailable: jest.fn() }))
+jest.mock('../../utils/runtimeAvailability', () => ({ assertSelectedHarnessAvailable: jest.fn() }))
 jest.mock('../../metrics/tracing', () => ({ openHarnessRunTrace: () => ({ event: jest.fn(), finish: jest.fn(), fail: jest.fn() }) }))
 jest.mock('../usage', () => ({ recordCompletedRun: jest.fn() }))
 jest.mock('../../utils/nestedFlowCall', () => ({ nestedFlowCallerFromHarness: () => undefined }))
