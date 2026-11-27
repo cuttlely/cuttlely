@@ -102,8 +102,9 @@ export default function StorageUpgradeCard() {
                             </Alert>
                         )}
                         <Alert severity='info'>
-                            After the upgrade, PostgreSQL can restore saved runtime messages and configuration saved through the runtime.
-                            Direct edits made with a shell on the host still depend on its disk.
+                            PostgreSQL restores saved chats, runtime settings and memory notes. Files created by code execution, such as
+                            documents and images, can disappear when a container is replaced. Direct shell edits to runtime settings also
+                            depend on the local disk.
                         </Alert>
                         <FormControlLabel
                             control={

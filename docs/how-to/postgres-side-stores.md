@@ -113,6 +113,8 @@ The storage screen lists temporary data separately so the operator can continue 
 
 Buffer Memory and Buffer Window Memory read saved chat messages for the same flow and session from the application database on demand. Preserve and verify the message rows during migration. Text still streaming when the process stops can only be recovered up to its last durable write. A SQLite Agent Memory checkpoint can be the only copy of a conversation’s execution state and blocks cutover until resolved. A filename containing `cache`, `buffer` or `.tmp` alone never establishes that its contents can be regenerated.
 
+Documents, images and other files created by code execution in a local workspace can disappear when its container is replaced. A chat message that links to one of these files can survive even when the file is gone. Files explicitly uploaded to Cuttlely’s managed storage follow the configured PostgreSQL or object-storage recovery policy.
+
 ### Chat sessions after disk loss
 
 The upgrade verifies a copy of each runtime session database. With application database storage active, the runtime commits changes to the session history in PostgreSQL before its session writer returns. Web services and workers can recover those messages, runtime settings, and notes saved by the runtime memory tool on replacement hosts using the same installation key. This uses ordinary outbound database connections. Unfinished turns, external actions and undelivered results have their own delivery semantics. Edits made directly with shell redirection or an independent editor inside a container still reside on that host. A restart that replaces its filesystem can lose those edits.
