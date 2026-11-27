@@ -3,7 +3,7 @@ import { once } from 'node:events'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
+import { MessageChannel, Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { createTestDatabase, skipReason } from '../etl/check/pg-source.mjs'
 import { configureHarnessPostgres, harnessRecordDatabase } from './side-store-postgres.mjs'
 import { getHarness } from './store.mjs'
@@ -32,7 +32,7 @@ if (!isMainThread) {
         const { Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
         const writer = new Client(fixture.connection)
         const observer = new Client(fixture.connection)
-        let reader
+        let reader, columnReader
         const insert = (record) => writer.query(`INSERT INTO ${table}(entry,content) VALUES ($1,$2)`, [entry, JSON.stringify(record)])
         async function waitForLock(event) {
             const sql = "SELECT wait_event FROM pg_catalog.pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'"
@@ -106,8 +106,38 @@ if (!isMainThread) {
                 store.exec('ROLLBACK')
             }
             assert.deepEqual(getHarness(name), original)
+
+            // pg_database_owner is scoped to this disposable database; the application role owns the table.
+            await writer.query(`GRANT USAGE ON SCHEMA ${schema} TO pg_database_owner`)
+            await writer.query(`GRANT SELECT, UPDATE (content) ON ${table} TO pg_database_owner`)
+            columnReader = new Worker(new URL('./side-store-worker.mjs', import.meta.url), {
+                workerData: { ...fixture.connection, application_name: 'qa-roster-reader', options: '-c role=pg_database_owner' }
+            })
+            async function restrictedRead() {
+                const { port1, port2 } = new MessageChannel()
+                try {
+                    const reply = once(port1, 'message')
+                    columnReader.postMessage({ request: { scope: 'queue', op: 'readHarnessRecord', key: entry }, port: port2 }, [port2])
+                    return (await reply)[0]
+                } finally {
+                    port1.close()
+                }
+            }
+            await writer.query('BEGIN')
+            await writer.query(`UPDATE ${table} SET content=$1 WHERE entry=$2`, [JSON.stringify(replacement), entry])
+            const columnRead = restrictedRead()
+            await waitForLock('transactionid')
+            await writer.query('COMMIT')
+            assert.deepEqual(JSON.parse((await columnRead).value), replacement)
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
+
+            await writer.query(`REVOKE SELECT ON ${table} FROM pg_database_owner`)
+            const denied = await restrictedRead()
+            assert.equal(denied.error?.code, '42501')
+            assert.equal(denied.value, undefined)
         } finally {
             await writer.end()
+            await columnReader?.terminate()
             await reader?.terminate()
             configureHarnessPostgres(undefined)
             await observer.end()

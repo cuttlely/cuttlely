@@ -10,6 +10,7 @@ const pool = new Pool(workerData)
 pool.on('error', () => {})
 const transactions = new Map()
 const leases = new Map()
+let rosterUsesRowLock = false
 
 async function begin(scope, eventJobId) {
     const client = await pool.connect()
@@ -173,13 +174,22 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         // A simple query message is one implicit transaction. Acquire the writer's lock
         // and table locks first so the SELECT sees a committed publication, even from a direct SQL writer.
         // SHARE locks coexist among readers without writing or flushing WAL for a tuple lock.
-        const [, , , record] = await pool.query(
-            `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
-             SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));
-             LOCK TABLE ${queueSchema}.harness_records IN SHARE MODE;
-             ${select}${escapeLiteral(key)}::pg_catalog.text`
-        )
-        return record.rows[0]?.content ?? null
+        const lock = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+                      SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));`
+        const row = select + escapeLiteral(key) + '::pg_catalog.text'
+        if (!rosterUsesRowLock) {
+            try {
+                const results = await pool.query(`${lock} LOCK TABLE ${queueSchema}.harness_records IN SHARE MODE; ${row}`)
+                return results.at(-1).rows[0]?.content ?? null
+            } catch (error) {
+                if (error.code !== '42501') throw error
+            }
+        }
+        // A role with column-only UPDATE can lock a row but cannot lock the whole table.
+        // Retry with the released permissions and remember only a successful fallback in this worker.
+        const results = await pool.query(`${lock} ${row} FOR SHARE`)
+        rosterUsesRowLock = true
+        return results.at(-1).rows[0]?.content ?? null
     }
     if (op === 'commit' || op === 'rollback') {
         if (!active) throw new Error('Missing harness store transaction.')
