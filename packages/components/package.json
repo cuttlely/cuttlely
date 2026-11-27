@@ -7,7 +7,7 @@
     "types": "dist/src/index.d.ts",
     "exports": {
         "./module-catalog": "./nodes/module-catalog.json",
-        "./native-canvas-bindings": "./nodes/native-canvas-bindings.json",
+        "./native-canvas-bindings": "./nodes/harness/native-canvas-bindings.json",
         ".": {
             "types": "./dist/src/index.d.ts",
             "default": "./dist/src/index.js"
