@@ -14,7 +14,7 @@ Exit code 0 means the graph passed the capability check and is ready for a runti
 
 Run the check on the target worker image. It reads the exported assignments and probes local prerequisites for workspace files. Live credentials, host permissions, stored memory and destination-specific query stamps still need a rehearsal on the target installation.
 
-The v1.7.15 Field Team sample has an interactive browser specialist and a Python specialist. The Upload sample grants both Python and shell execution. Preflight reports those grants even for a question that the chief could answer alone. Keep those published teams on the full installation while their saved grants still require it.
+The v1.7.15 Field Team sample has an interactive browser specialist and a Python specialist. The Upload sample grants both Python and shell execution. Preflight reports those grants even for a question that the chief could answer alone. Use the full installation for workloads that invoke interactive browsing, general Python or a shell. The on-demand policy below lets operators test eligible paths through an unchanged published team.
 
 ## Enabling a canary
 
@@ -23,7 +23,19 @@ The v1.7.15 Field Team sample has an interactive browser specialist and a Python
 3. Submit a known question through the chat or API your clients use. Check the answer, source documents, any attachment downloads and the run trace. Repeat with an existing chat and with a new chat. The native trace includes `engine: native`.
 4. Run another turn after replacing a worker. Each queued turn carries the engine chosen when it was admitted. Jobs created by older releases use the bundled engine.
 
-Selection applies to both router and agent mode. Native preflight checks every specialist in the team. A `native_unsupported` error identifies the affected specialists and saved capabilities before a model or tool runs. A supported configuration can still fail at execution if a credential is revoked, a destination is unavailable, or a query needs to be tested against its destination again.
+Selection applies to both router and agent mode. The default native policy, `strict`, checks the whole team before a model or tool runs. The runtime can return `native_unsupported` with the affected specialists and grants. If the bundled supervisor is unavailable and preflight cannot admit the team, the service reports runtime unavailable. A supported configuration can still fail at execution if a credential is revoked, a destination is unavailable, or a query needs to be tested against its destination again.
+
+### Trying a mixed team on demand
+
+On the full installation, select the native team as above. Set `CUTTLELY_NATIVE_ROLE_POLICY=on-demand` on processes that admit new turns and restart them. The policy applies to native admissions only. A native-only installation selects every team for native execution, so this setting applies to every eligible published team there. Use `strict` or remove the setting to restore whole-team checks for new turns. Queued native turns retain their admitted policy when a worker restarts. Older queued native turns remain strict.
+
+The on-demand policy keeps every specialist on the saved roster. A chief can answer directly or select an eligible role. Selecting a role with a saved shell or interactive browser grant fails the turn with `native_unsupported` before that role starts. The error names the specialist and its grants, including any code grant on the same role. A router plan or one agent delegation batch that selects both an eligible role and a blocked role fails before either starts. Work completed in an earlier batch keeps its actual receipts. A refused turn produces no final answer or successful chat exchange.
+
+A specialist assigned code execution without a shell or browser can use a limited, stateless `execute_code` tool. For example, `print(sum([125, 250, 476]))` returns `851` with a successful tool receipt. The accepted form is `print(operation([integer, ...]))` with `sum`, `len`, `min`, `max`, or `sorted`. Each call accepts up to 128 signed decimal integers, 64 digits per integer, and 8,192 source characters. An empty `min` or `max` produces the corresponding tool error. A request outside that scope fails the turn. General Python, persistent kernels, arbitrary file access and network calls still require the bundled runtime.
+
+Authorization, canvas ownership, file bindings, MCP grants and credential checks still apply. Only a saved team or its verified published canvas qualifies. Unpublished Try runs retain strict admission. If a published team changes after an on-demand job enters the queue, submit a new authorized turn against the updated version. The export preflight always reports the full saved grants, including general code, shell and browser.
+
+For a canary, exercise a chief-only request, a request invoking a known supported tool, and one selecting each blocked specialist. Check the real tool receipt for the supported request, the error and failed run status for the blocked requests, and the result of the same calls through any saved calling chatflow. Repeat after replacing a worker. Keep the bundled runtime available for workflows that need the deferred capabilities.
 
 ## Supported configurations
 
@@ -129,7 +141,7 @@ A successful preflight establishes that the runtime recognizes the saved configu
 
 ## Previewing an installation without the bundled runtime
 
-Run the named-team canary and the team’s real workflow first. A native-only image selects the native engine for every team. A team that requires a capability absent from the native engine receives a runtime-unavailable response. On the standard image, keep that team on the bundled engine.
+Run the named-team canary and the team’s real workflow first. A native-only image selects the native engine for every team. A team that fails strict admission receives a runtime-unavailable response. A team admitted on demand can still fail later when it selects a blocked specialist or requests an unsupported action. On the standard image, keep that team on the bundled engine.
 
 Build the preview locally with the same source revision on the API and workers.
 
@@ -164,6 +176,17 @@ If you switch this team back to native, use the same account or access key and c
 ## Verification
 
 Run `pnpm harness:check` and `pnpm verify` on the Node version in `.nvmrc`. Configure the disposable PostgreSQL fixtures as described in the repository test setup. The Kraken suites exercise saved chatflow prediction, external workers, cancellation, PostgreSQL queries, trusted outputs, managed attachments, empty-disk replacement and rollback. Provider calls in these compatibility fixtures are simulated.
+
+### Concurrency acceptance for a release
+
+Compare the candidate with the tagged v1.7.15 release through the same authenticated streaming endpoint. The direct team comparison uses `POST /api/v1/harnesses/:name/runs` with streaming enabled. Measure the saved chatflow’s `/prediction` path separately when that is the client entry point. Use the same saved graph, simulated provider settings, caller permissions, PostgreSQL snapshot, worker concurrency, hardware limits and client. Run each implementation against its own fresh restore. Pair a cold wave on newly started processes with a warm wave that reuses the running services and chats. Give each turn a distinct input and expected answer.
+
+1. Compare 1, 8 and 32 concurrent requests at a fixed worker count. At a load of 32, repeat with fleets of 1, 2 and 4 external workers. Record how many requests were actually in flight and the work each worker completed. Include a lightweight API ping during each wave.
+2. Alternate release and candidate order. Run at least two balanced repetitions per configuration. Use four when variation is large enough to change a close decision. Pool the per-turn samples within each matched load, worker count and temperature. Report each repetition so the spread remains visible.
+3. Report admission latency, end-to-end p50 and p95, successful completions per second, and API ping latency and failures. List request errors, timeouts and cancellations. For each matched configuration, candidate end-to-end p95 must be at most the tagged p95, and its completion rate must be at least the tagged rate.
+4. Require every successful answer to match its own input, caller, chat and saved run. Reconcile submitted requests with terminal jobs, confirmed tool calls and delivered events. A dropped or duplicated turn, an incorrect answer, a crossed owner or an unexpected timeout fails the comparison even when timings meet the thresholds.
+
+Record the exact revisions, fixture and measured configurations. A result for one workload, temperature or worker count establishes performance only for those conditions. Acceptance also requires the functional and recovery checks above.
 
 ### v1.7.15 runtime patch coverage
 

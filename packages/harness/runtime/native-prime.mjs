@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import { stableStringify } from '../flow-graph.mjs'
+import { getHarness } from '../store.mjs'
+import { openNativeNumericCode } from './native-numeric-code.mjs'
 import { publishedCanvasSource } from '../canvas-ownership.mjs'
 import { prepareNativePlaybooks } from './native-playbooks.mjs'
 import { existingFileDependency, managedFilesReady } from './native-files.mjs'
@@ -12,16 +17,58 @@ import { chiefPrompt, specialistFileServiceRequirements, specialistProfileName, 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
 export const admittedAgentEngine = Symbol('admittedAgentEngine')
 
+export const admittedNativeRolePin = Symbol('admittedNativeRolePin')
 export const { selectAgentEngine } = availability
+
+const deferredGrants = [
+    ['shell', 'shell'],
+    ['browser', 'browser'],
+    ['codeExecution', 'code execution']
+]
+
+function deferredCapabilities(specialist) {
+    return deferredGrants.filter(([key]) => specialist[key]).map(([, label]) => label)
+}
+
+// A published canvas can select its exact graph without using the registry's copy of that graph.
+// Its server-issued witness binds the selected graph to the same saved owner and revision.
+export function nativeRolePin(roster) {
+    if (!roster?.workspaceId || !roster.chatflowId) return null
+    const published = publishedCanvasSource(roster)
+    if (!published && roster.tryId) return null
+    const saved = published || getHarness(roster.name)
+    if (!saved?.createdAt || !saved.updatedAt || (!published && !isDeepStrictEqual(saved, roster))) return null
+    return createHash('sha256').update(stableStringify(saved)).digest('hex')
+}
+
+export function onDemandNativeRoles(engine) {
+    return engine === 'native' && process.env.CUTTLELY_NATIVE_ROLE_POLICY === 'on-demand'
+}
+
+export function assertNativeRoleSupported(specialist) {
+    if (openNativeNumericCode(specialist, 'on-demand')) return
+    const capabilities = deferredCapabilities(specialist)
+    if (capabilities.length)
+        throw new HarnessError(
+            'native_unsupported',
+            `Native runtime cannot run selected specialist "${specialist.name}": ${capabilities.join(', ')}.`
+        )
+}
 
 export function useNativePrime(roster, mode, engine = selectAgentEngine(roster.name)) {
     return mode === 'agent' && useNativeSpecialists(roster, engine)
 }
 
-export function useNativeSpecialists(roster, engine = selectAgentEngine(roster.name)) {
+export function useNativeSpecialists(
+    roster,
+    engine = selectAgentEngine(roster.name),
+    rolePin = onDemandNativeRoles(engine) ? nativeRolePin(roster) : null
+) {
     if (engine === 'hermes') return false
     if (engine !== 'native') throw new HarnessError('bad_engine', 'The admitted agent engine is unavailable.')
-    const gaps = nativeCompatibilityGaps(roster, { admitUnavailableTools: true })
+    if (rolePin !== null && (!rolePin || nativeRolePin(roster) !== rolePin))
+        throw new HarnessError('harness_changed', 'The saved team changed after native admission.')
+    const gaps = compatibilityGaps(roster, { admitUnavailableTools: true, deferRoleGrants: Boolean(rolePin) })
     if (gaps.length) {
         const details = gaps.map(({ specialist, capabilities }) => `${specialist}: ${capabilities.join(', ')}`)
         throw new HarnessError('native_unsupported', `Native runtime cannot run these saved capabilities: ${details.join('; ')}.`)
@@ -32,14 +79,15 @@ export function useNativeSpecialists(roster, engine = selectAgentEngine(roster.n
 // Offline preflight inspects only the saved grants. Values, credentials, endpoints and
 // playbook bodies never appear in the report. Live provider checks still occur at dispatch.
 export function nativeCompatibilityGaps(roster, { admitUnavailableTools = false, exportOnly = false } = {}) {
+    return compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRoleGrants: false })
+}
+
+function compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRoleGrants }) {
     const host = publishedCanvasSource(roster) || roster
     const gaps = []
     for (const specialist of roster.specialists) {
-        const capabilities = new Set()
+        const capabilities = new Set(deferRoleGrants ? [] : deferredCapabilities(specialist))
         for (const [enabled, label] of [
-            [specialist.shell, 'shell'],
-            [specialist.browser, 'browser'],
-            [specialist.codeExecution, 'code execution'],
             [specialist.fileAccess && !managedFilesReady(), 'workspace files'],
             [
                 specialist.fileAccess && !exportOnly && existingFileDependency(host, specialist),
@@ -90,7 +138,13 @@ export function nativePrimeInstructions(roster, recall) {
     return chiefPrompt(roster, { offeredTools: ['run_specialist', ...(recall?.tools || []).map((tool) => tool.function.name)] })
 }
 
-export async function runNativePrime({ messages, roster, complete, delegate, signal, budget, recall }) {
+export async function runNativePrime({ messages, roster, complete, delegate, signal, budget, recall, checkRole }) {
+    function selectedSpecialist(args) {
+        const specialist = typeof args.name === 'string' && roster.specialists.find((s) => s.name === args.name.trim())
+        if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
+        if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
+        return specialist
+    }
     const tools = [
         {
             type: 'function',
@@ -116,12 +170,14 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
         maxCalls: 40,
         maxBatchCalls: 8,
         limitCode: 'delegation_limit',
+        validateCall:
+            checkRole &&
+            ((name, args) => {
+                if (name === 'run_specialist') checkRole(selectedSpecialist(args))
+            }),
         execute: (name, args) => {
             if (name === 'session_search') return recall.execute(name, args)
-            const specialist = typeof args.name === 'string' && roster.specialists.find((s) => s.name === args.name.trim())
-            if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
-            if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
-            return delegate(specialist, args.task.trim())
+            return delegate(selectedSpecialist(args), args.task.trim())
         }
     })
 }
@@ -131,6 +187,7 @@ export async function runNativeToolLoop({
     tools,
     complete,
     execute,
+    validateCall,
     signal,
     budget,
     maxCalls,
@@ -177,6 +234,7 @@ export async function runNativeToolLoop({
             }
             if (!args || typeof args !== 'object' || Array.isArray(args))
                 throw new HarnessError('bad_task', 'Expected tool arguments as an object.')
+            validateCall?.(call.function.name, args)
             return { name: call.function.name, id: call.id, args }
         })
         // Commit the whole validated batch before dispatch. Calls left in this state

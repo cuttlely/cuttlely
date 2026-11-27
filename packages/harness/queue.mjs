@@ -12,7 +12,13 @@ import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
 import { appendEvent, appendJobEvent, recordToolPhase } from './queue-events.mjs'
 import { nativeToolJournal } from './runtime/native-journal.mjs'
-import { admittedAgentEngine, selectAgentEngine } from './runtime/native-prime.mjs'
+import {
+    admittedAgentEngine,
+    admittedNativeRolePin,
+    nativeRolePin,
+    onDemandNativeRoles,
+    selectAgentEngine
+} from './runtime/native-prime.mjs'
 
 export { appendEvent }
 
@@ -47,10 +53,14 @@ export function jobPayload(args) {
     const flow = args.flowOptions || {}
     if (flow.harnessCaller?.harnessIds !== undefined)
         assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
+    const engine = selectAgentEngine(args.name)
+    const record = onDemandNativeRoles(engine) && flow.workspaceId ? getHarness(args.name) : null
+    const rolePin = record && record.workspaceId === flow.workspaceId ? nativeRolePin(record) : null
     return {
         name: args.name,
         ...(args.mode === 'agent' ? { mode: 'agent' } : {}),
-        engine: selectAgentEngine(args.name),
+        engine,
+        ...(rolePin ? { nativeRolePin: rolePin } : {}),
         chatId: args.chatId,
         input: String(args.input ?? ''),
         ...(args.managedUploadReceipts?.length ? { managedUploadReceipts: args.managedUploadReceipts } : {}),
@@ -476,6 +486,8 @@ async function executeClaimedJob(job) {
         mode: job.payload.mode,
         // Jobs admitted before engine selection was recorded use the released runtime.
         [admittedAgentEngine]: job.payload.engine ?? 'hermes',
+        // Older native jobs and strict admissions keep strict checks even on an on-demand worker.
+        [admittedNativeRolePin]: job.payload.nativeRolePin ?? null,
         chatId: job.payload.chatId,
         input: job.payload.input,
         source: local?.source || job.payload.source,

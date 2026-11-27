@@ -147,6 +147,14 @@ test(
             deployed: true,
             isPublic: false
         })
+        callerGraph.nodes.find((node) => node.data.name === 'harness').data.inputs.harnessName = name + '-unsupported'
+        const blockedCaller = await post('chatflows', {
+            name: 'native-ops-blocked-caller',
+            type: 'CHATFLOW',
+            flowData: JSON.stringify(callerGraph),
+            deployed: true,
+            isPublic: false
+        })
         // Stale supervisor state on BOTH disks must not strand native jobs. The worker has no canary enabled.
         for (const child of ['api', 'worker']) {
             fs.mkdirSync(path.join(dir, child), { recursive: true })
@@ -224,6 +232,7 @@ test(
         assert.ok(admitted.runId)
         await waitForTool()
         await api.stop()
+        config.CUTTLELY_NATIVE_ROLE_POLICY = 'on-demand'
         cookie = await bootApi('replacement-api')
         fs.unlinkSync(receiptLatch)
         const resultDeadline = Date.now() + 30000
@@ -238,6 +247,26 @@ test(
         assert.equal(response.json.runId, admitted.runId)
         assert.ok(response.json.result.text.includes('ops-status: allowlisted MCP tool responded'))
         assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
+        // The original strict worker must honor the replacement API's pinned policy.
+        // The saved calling chatflow reaches the selected specialist, which must refuse before dispatch.
+        const denied = await request(url + '/api/v1/prediction/' + blockedCaller.id, {
+            method: 'POST',
+            cookie,
+            body: { question: 'Check the ops status.', overrideConfig: { sessionId: randomUUID() } }
+        })
+        assert.ok(denied.status >= 400, denied.status + ' ' + (denied.json.message || denied.json.text || ''))
+        assert.match(denied.json.message, /selected specialist "operator": shell/)
+        const [blocked] = await db.query(
+            "SELECT id, status, error_code FROM cuttlely_harness_queue.jobs WHERE payload::jsonb->>'name'=$1 ORDER BY created_at DESC LIMIT 1",
+            [name + '-unsupported']
+        )
+        assert.equal(blocked.status, 'failed')
+        assert.equal(blocked.error_code, 'native_unsupported')
+        const blockedTools = await db.query(
+            "SELECT seq FROM cuttlely_harness_queue.job_events WHERE job_id=$1 AND event::jsonb->>'type' IN ('nativeToolReceipt','tool','specialist','final')",
+            [blocked.id]
+        )
+        assert.equal(blockedTools.length, 0)
         fs.unlinkSync(received)
         // Pause *after* the actual protocol server has returned, but before the
         // worker can acknowledge its call. The next API poll recovers this lease.

@@ -42,8 +42,8 @@ if [[ "${2:-}" == native ]]; then
             test ! -e hermes
             test ! -w packages/harness
             test -f packages/harness/native-distribution.json
-            node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-remote-mcp.test.mjs scripts/kraken-team-parity.test.mjs scripts/kraken-canvas-book.test.mjs scripts/kraken-inline-upload.test.mjs scripts/kraken-tabular-report.test.mjs scripts/kraken-local-research-prediction.test.mjs packages/harness/test/pinned/native-analyst.test.mjs
-            node --test --test-name-pattern="PostgreSQL queue poll snapshots" scripts/kraken-upgrade.test.mjs'
+            node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-remote-mcp.test.mjs scripts/kraken-team-parity.test.mjs scripts/kraken-canvas-book.test.mjs scripts/kraken-inline-upload.test.mjs scripts/kraken-tabular-report.test.mjs scripts/kraken-local-research-prediction.test.mjs packages/harness/test/pinned/native-analyst.test.mjs packages/harness/runtime/native-numeric-code.test.mjs
+            node --test --test-name-pattern="PostgreSQL queue poll snapshots|concurrent PostgreSQL waiters" scripts/kraken-upgrade.test.mjs'
     exit
 fi
 

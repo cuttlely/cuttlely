@@ -85,12 +85,17 @@ export { assertHarnessCaller } from './caller.mjs'
 import { hermesBaseUrl, hermesRunFailed } from './client.mjs'
 import {
     admittedAgentEngine,
+    admittedNativeRolePin,
+    assertNativeRoleSupported,
+    nativeRolePin,
+    onDemandNativeRoles,
     nativePrimeInstructions,
     runNativePrime,
     runNativeToolLoop,
     useNativeSpecialists,
     selectAgentEngine
 } from './runtime/native-prime.mjs'
+import { openNativeNumericCode } from './runtime/native-numeric-code.mjs'
 import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
 import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
@@ -417,7 +422,8 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
 }
 
 async function runHarnessTurn({
-    [admittedAgentEngine]: engine,
+    [admittedAgentEngine]: admittedEngine,
+    [admittedNativeRolePin]: admittedRolePin,
     mode,
     name,
     chatId,
@@ -445,6 +451,8 @@ async function runHarnessTurn({
     recordAgentResult
 } = {}) {
     const harness = harnessForTurn(name, record)
+    const engine = admittedEngine ?? selectAgentEngine(name)
+    const rolePin = admittedRolePin === undefined && onDemandNativeRoles(engine) ? nativeRolePin(harness) : admittedRolePin ?? null
     if (!chatId) {
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }
@@ -462,6 +470,7 @@ async function runHarnessTurn({
                 runTurn(harness, {
                     journalOwner: turnLock.owner,
                     engine,
+                    rolePin,
                     mode,
                     name,
                     chatId,
@@ -529,6 +538,7 @@ async function runTurn(
     {
         journalOwner,
         engine,
+        rolePin,
         mode,
         name,
         chatId,
@@ -562,6 +572,7 @@ async function runTurn(
         return await runTurnBody(harness, {
             journalOwner,
             engine,
+            rolePin,
             mode,
             name,
             chatId,
@@ -606,6 +617,7 @@ async function runTurnBody(
     {
         journalOwner,
         engine,
+        rolePin,
         mode,
         name,
         chatId,
@@ -635,7 +647,9 @@ async function runTurnBody(
     assertCurrentRecord(harness)
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
-    const nativeSpecialists = useNativeSpecialists(harness, engine)
+    const nativeSpecialists = useNativeSpecialists(harness, engine, rolePin)
+    const pinnedCanvas = rolePin && publishedCanvasSource(harness)
+    const roleWork = rolePin ? new AbortController() : undefined
     const nativePrime = nativeSpecialists && mode === 'agent'
     const needsHermes =
         !nativeSpecialists && (mode === 'agent' || (harness.specialists || []).some((specialist) => needsAgentLoop(specialist)))
@@ -675,10 +689,16 @@ async function runTurnBody(
         managedUploadReceipts,
         nativePrime,
         nativeSpecialists,
-        // A playbook can supply installation-owned content. Authorize each public release,
-        // including text received from a model that started before a roster update.
-        checkPlaybookDelivery:
-            nativeSpecialists && roster.specialists.some((role) => role.playbooks?.length)
+        roleWork,
+        checkRole: rolePin
+            ? (role) => {
+                  context.assertNativeAuthority()
+                  assertNativeRoleSupported(role)
+              }
+            : undefined,
+        // Check saved grants at public delivery even when a provider started before the roster changed.
+        checkNativeDelivery:
+            nativeSpecialists && (rolePin || roster.specialists.some((role) => role.playbooks?.length))
                 ? () => context.assertNativeAuthority()
                 : undefined,
         nativeResults: [],
@@ -687,19 +707,22 @@ async function runTurnBody(
             if (harness.tryId) {
                 // This request holds the exclusive Try lock and owns its in-memory canvas.
                 if (!isLiveTry(tryProfileName(harness.tryId))) throw new HarnessError('harness_changed', 'This preview has ended.')
-                publishedCanvasSource(harness)
+                const published = publishedCanvasSource(harness)
+                if (pinnedCanvas && !isDeepStrictEqual(published, pinnedCanvas))
+                    throw new HarnessError('harness_changed', 'The published canvas changed during this turn.')
                 assertHarnessWorkspace(name, flowOptions, harness)
                 return
             }
-            const live = getHarness(name)
+            const live = pinnedCanvas ? publishedCanvasSource(harness) : getHarness(name)
+            const owner = pinnedCanvas || harness
             if (
                 !live ||
-                live.createdAt !== harness.createdAt ||
-                live.chatflowId !== harness.chatflowId ||
-                live.workspaceId !== harness.workspaceId ||
-                (harness.createdAt !== undefined && live.createdAt !== harness.createdAt) ||
-                !isDeepStrictEqual(live.specialists, harness.specialists) ||
-                !isDeepStrictEqual(live.chief, harness.chief)
+                live.createdAt !== owner.createdAt ||
+                live.chatflowId !== owner.chatflowId ||
+                live.workspaceId !== owner.workspaceId ||
+                (rolePin && !isDeepStrictEqual(live, owner)) ||
+                !isDeepStrictEqual(live.specialists, owner.specialists) ||
+                !isDeepStrictEqual(live.chief, owner.chief)
             )
                 throw new HarnessError('harness_changed', 'The saved team changed during this turn.')
             assertHarnessWorkspace(name, flowOptions, live)
@@ -737,7 +760,7 @@ async function runTurnBody(
         // Do not add a clock read to the default-off path; its deterministic trace remains unchanged.
         deliveryDeadlineAt:
             budget > 0 && roster.specialists?.some((specialist) => specialist.trustedOutputs?.length) ? Date.now() + budget : 0,
-        workSignal: combineSignals(clientSignal, budgetSignal),
+        workSignal: combineSignals(combineSignals(clientSignal, budgetSignal), roleWork?.signal),
         // In-process LangSmith tracer callbacks from the calling tool run, so model steps appear as its child runs.
         traceCallbacks: callbacks,
         profileMs,
@@ -779,7 +802,10 @@ async function runTurnBody(
         if (mode === 'agent') return await runAgentChief(context, input)
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
         const direct = context.images.length ? null : directToolSpecialist(roster)
-        if (direct) return await runDirectTool(context, direct, input)
+        if (direct) {
+            context.checkRole?.(direct)
+            return await runDirectTool(context, direct, input)
+        }
         return await runRoster(context, input)
     } catch (error) {
         throwIfClient(context)
@@ -904,6 +930,7 @@ async function protectNativeAnalystResult(context, specialist, task, result, sta
 }
 
 async function runNativeDelegation(context, profileName, sessionId, specialist, task) {
+    context.checkRole?.(specialist)
     const step = { name: specialist.name, task, status: 'running', startedAt: Date.now() }
     const slot = recordAgentStep(profileName, sessionId, step)
     const firstTool = context.toolLog.length
@@ -937,7 +964,8 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         step.error = maskWorkspacePaths(error.message)
         context.workSignal?.throwIfAborted()
         if (slot !== undefined) context.nativeResults[slot] = { name: specialist.name, status: step.status, task, error: step.error }
-        if (error?.code === 'harness_changed' || specialist.trustedOutputs?.length) throw error
+        if (fatalNativeRoleError(context, specialist, error) || error?.code === 'harness_changed' || specialist.trustedOutputs?.length)
+            throw error
         return `Specialist "${specialist.name}" failed.`
     } finally {
         step.tools = toolsFor(context, specialist.name, firstTool)
@@ -971,6 +999,7 @@ async function nativeChiefAnswer(context, input, delegate, messages, budget, rec
         recall,
         roster: context.roster,
         budget,
+        checkRole: context.checkRole,
         signal: context.workSignal,
         delegate,
         complete: (history, tools) => {
@@ -1331,6 +1360,7 @@ async function runRosterWithUploads(context, input, dir) {
         text = context.directReply
         emit(context, 'partial', { phase: 'answer', text })
     } else {
+        if (context.checkRole) for (const { specialist } of steps) context.checkRole(specialist)
         results = await runSteps(context, steps)
         finished = Date.now()
         const protectedText = composeTrustedOutputs(results)
@@ -1800,7 +1830,7 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
 
 function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
-    if (type === 'partial' || type === 'final') context?.checkPlaybookDelivery?.()
+    if (type === 'partial' || type === 'final') context?.checkNativeDelivery?.()
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
     // maskWorkspacePaths masks a "detail" field with maskDetail, so an encoded tool detail stays valid JSON.
     emitHarnessEvent(context?.onEvent, {
@@ -2085,7 +2115,7 @@ async function callModel(context, model, request) {
     const fallback = request.specialist ? fallbackFor(context, request.specialist) : fallbackFor(context, null)
     let usedFallback = false
     const startedAt = Date.now()
-    context.checkPlaybookDelivery?.()
+    context.checkNativeDelivery?.()
     // A failed or slower provider may already have streamed a different answer.
     // Once a fallback is eligible, release only the text belonging to the winning model call.
     const holdDeltas = typeof request.onDelta === 'function' && fallback && !sameModelBinding(model, fallback)
@@ -2109,7 +2139,7 @@ async function callModel(context, model, request) {
             const reply = await invokeOne(context, binding, attempt, windowMs, controlSignal)
             return { reply, winner: binding, producedText }
         }
-    }).finally(() => context.checkPlaybookDelivery?.())
+    }).finally(() => context.checkNativeDelivery?.())
     if (producedText && reply.content) {
         const signal = request.signal || context.workSignal
         signal?.throwIfAborted()
@@ -2848,7 +2878,14 @@ export function runSteps(context, steps, run = runStep) {
         started.set(step.specialist.name, promise)
         return promise
     })
-    return Promise.all(runs)
+    const done = Promise.all(runs)
+    if (!context.roleWork || runs.length < 2) return done
+    // Release the turn lock only after already-admitted siblings have observed the refusal.
+    return done.catch(async (error) => {
+        context.roleWork.abort(error)
+        await Promise.allSettled(runs)
+        throw error
+    })
 }
 
 export function withEarlierResult(step, result) {
@@ -3377,6 +3414,12 @@ async function repairRetrievedGuidance(context, specialist, task, out) {
     }
 }
 
+function fatalNativeRoleError(context, specialist, error) {
+    if (!context.checkRole) return false
+    if (['native_unsupported', 'harness_changed'].includes(error?.code)) return true
+    return specialist.codeExecution === true && ['forbidden', 'bad_task', 'empty_output'].includes(error?.code)
+}
+
 async function runStep(context, step) {
     const { specialist } = step
     const note = context.stagedNotes?.get(specialist.name)
@@ -3591,6 +3634,7 @@ async function runStep(context, step) {
             ...specialistEventFields(context, specialist, [], true),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
+        if (fatalNativeRoleError(context, specialist, error)) throw error
         // The task can hold staged upload paths; the failed step goes to Prime's prompt masked whole.
         const protectedFailure = Boolean(specialist.trustedOutputs?.length)
         if (protectedFailure) replaceTrustedArtifacts(context, specialist.name)
@@ -3640,7 +3684,7 @@ export function bufferStream(context, key, delta, flush, send, root = specialist
         context._deltaTail.set(key, state)
     }
     let shown = scanWorkspaceText(state, delta, root, flush)
-    if (context.checkPlaybookDelivery) {
+    if (context.checkNativeDelivery) {
         // Keep live progress while bounding authorization checks independently of provider token size.
         // Every released chunk includes only text verified at its own send boundary.
         const now = performance.now()
@@ -4037,6 +4081,8 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
+        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict')
+        for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
         const report = openNativeTabularReport(context, specialist)
         if (report) register(report.tool, (args) => report.execute(args))
         const used = new Set(handlers.keys())
@@ -4117,7 +4163,13 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 context,
                 specialist,
                 task,
-                files ? [soul, files.note].filter(Boolean).join('\n') : soul,
+                [
+                    soul,
+                    files?.note,
+                    numeric && 'The native execute_code tool supports the stateless integer-list operations described in its schema.'
+                ]
+                    .filter(Boolean)
+                    .join('\n'),
                 context.promptMessages,
                 budget ? Math.max(1, Math.floor(budget / 2)) : 0
             ),
@@ -4127,6 +4179,11 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             maxCalls: Math.max(40, playbookCallLimit(books, budget, playbookContext)),
             maxBatchCalls: 8,
             limitCode: 'tool_limit',
+            validateCall:
+                numeric &&
+                ((name, args) => {
+                    if (name === 'execute_code') numeric.validate(name, args)
+                }),
             complete: (messages, offered) => {
                 assertCurrent()
                 return callModel(context, model, { messages, tools: offered, toolChoice: 'auto', role: 'specialist', specialist })
@@ -4156,6 +4213,8 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             }
         })
+        if (numeric && !text?.trim() && !specialist.trustedOutputs?.length)
+            throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
         let uploadReport,
             csvReportProduced = false
         if (files) {
@@ -4195,6 +4254,7 @@ async function runInlineSpecialist(context, specialist, task) {
     if (context.nativeSpecialists) {
         context.assertNativeAuthority()
         if (
+            (context.checkRole && specialist.codeExecution) ||
             specialist.fileAccess ||
             specialist.playbooks?.length ||
             specialist.mcpServers?.length ||

@@ -312,7 +312,7 @@ test('protected native model deltas preserve text while grouping public sends in
     const { bufferStream } = await import('../run.mjs')
     let time = 1
     t.mock.method(performance, 'now', () => time)
-    const guard = { checkPlaybookDelivery: () => {} }
+    const guard = { checkNativeDelivery: () => {} }
     const sent = []
     const push = (text) => sent.push(text)
     bufferStream(guard, 'fixture', 'One. ', false, push)
