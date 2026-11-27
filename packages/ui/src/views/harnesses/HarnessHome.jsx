@@ -10,6 +10,7 @@ import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import MainCard from '@/ui-component/cards/MainCard'
 import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { baseURL } from '@/store/constant'
+import { harnessStreamAnswer } from '@/utils/harnessStream'
 import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
 import { harnessCanvasRunPath, harnessRunPath, harnessResponseError, harnessBusyNotice } from '@/utils/harnessCanvasChat'
@@ -99,7 +100,7 @@ const HarnessHome = () => {
         setLiveTrace(emptyTrace(name))
         const controller = new AbortController()
         abortRef.current = controller
-        let sawAnswer = false
+        let answer = { text: '', fallback: false }
         try {
             const runPath = harness?.chatflowId ? harnessCanvasRunPath(harness.chatflowId) : harnessRunPath(name)
             await fetchEventSource(`${baseURL}${runPath}`, {
@@ -127,12 +128,11 @@ const HarnessHome = () => {
                     if (typeof event === 'string' && event.startsWith('harness.') && event !== 'harness.recorded') {
                         const type = event.slice('harness.'.length)
                         setLiveTrace((current) => reduceHarnessEvent(current || emptyTrace(data.harness || name), { ...data, type }))
-                    }
-                    if (event === 'harness.partial' && data.phase === 'answer' && typeof data.text === 'string') {
-                        sawAnswer = true
-                        setOutput((prev) => prev + data.text)
-                    } else if (event === 'harness.final') {
-                        if (!sawAnswer && typeof data.text === 'string') setOutput(data.text)
+                        const next = harnessStreamAnswer(answer, { ...data, type })
+                        if (next !== answer) {
+                            answer = next
+                            setOutput(next.text)
+                        }
                     } else if (event === 'harness.recorded') {
                         if (data.chatId) chatIdRef.current = data.chatId
                         if (data.run?.id) setSelectedId(data.run.id)

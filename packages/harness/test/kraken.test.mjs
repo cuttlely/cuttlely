@@ -310,8 +310,15 @@ test('the unchanged 1.7.15 Calculator canvas runs directly and through native Pr
     })
     assert.equal(native.text, 'The answer is 51.')
     assert.equal(native.trace.chief.status, 'completed')
-    assert.equal(answerEvents.at(-1).type, 'final')
-    assert.ok(answerEvents.some((event) => event.type === 'partial' && event.phase === 'answer'))
+    const answerFrames = answerEvents.filter((event) => event.type === 'final' || (event.type === 'partial' && event.phase === 'answer'))
+    assert.deepEqual(
+        answerFrames.map((event) => [event.type, event.text, !!event.trustedOutput]),
+        [
+            ['partial', 'The answer is ', false],
+            ['final', native.text, false],
+            ['partial', '51.', false]
+        ]
+    )
     assert.deepEqual(
         native.agents.map((s) => [s.name, s.status]),
         [['math', 'completed']]

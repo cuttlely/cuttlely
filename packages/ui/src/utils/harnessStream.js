@@ -1,11 +1,10 @@
-// Chat text for one harness event. A prediction stream sends each answer delta twice: as
-// `harness.partial` (marked `streamedAsToken`) and as `token`. The `token` handler appends it,
-// so a marked partial adds nothing here. The harness canvas chat gets only harness events, unmarked.
-export function harnessMessageText(message, event) {
-    const current = typeof message === 'string' ? message : ''
-    if (event?.type === 'partial' && event.phase === 'answer' && typeof event.text === 'string') {
-        return event.streamedAsToken ? current : current + event.text
+// A final can precede the last buffered answer delta. Replace its fallback when the first
+// actual delta arrives. A marked delta is delivered separately by the token handler.
+export function harnessStreamAnswer(current, event) {
+    if (event?.type === 'partial' && event.phase === 'answer' && typeof event.text === 'string' && event.text) {
+        const prior = current.fallback ? '' : current.text
+        return { text: event.streamedAsToken ? prior : prior + event.text, fallback: false }
     }
-    if (event?.type === 'final' && typeof event.text === 'string' && !current) return event.text
+    if (event?.type === 'final' && typeof event.text === 'string' && !current.text) return { text: event.text, fallback: true }
     return current
 }

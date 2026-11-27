@@ -319,10 +319,9 @@ describe('POST /api/v1/prediction/:id', () => {
             .split('\n\n')
             .filter((frame: string) => frame.includes('data:'))
             .map((frame: string) => JSON.parse(frame.slice(frame.indexOf('data:') + 5)))
-        expect(frames.findIndex((frame: any) => frame.event === 'artifacts')).toBeLessThan(
-            frames.findIndex((frame: any) => frame.event === 'harness.partial')
-        )
-        expect(frames.find((frame: any) => frame.event === 'harness.partial').data.text).toBe(text)
+        const delivery = frames.filter((frame: any) => ['artifacts', 'harness.partial', 'harness.final'].includes(frame.event))
+        expect(delivery.map((frame: any) => frame.event)).toEqual(['artifacts', 'harness.partial', 'harness.final'])
+        for (const frame of delivery.slice(1)) expect(frame.data).toMatchObject({ text, trustedOutput: true })
     })
 
     test.each([true, false])('verified response refuses expired delivery deadline (streaming %s)', async (streaming) => {

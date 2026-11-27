@@ -1071,10 +1071,9 @@ async function runAgentChief(context, input) {
             if (context.deliveryDeadlineAt) result.trustedOutputDeadlineAt = context.deliveryDeadlineAt
             result.artifacts = validatedTrustedArtifacts(context).artifacts
         }
-        if (nativePrime) {
+        if (nativePrime && !result.trustedOutput) {
             context.assertNativeAuthority()
             stream.onDelta(text)
-            stream.flush()
         }
         if (!context.replay)
             appendTurn(
@@ -1086,14 +1085,24 @@ async function runAgentChief(context, input) {
                 nativePrime ? answerSelections(text, selectionSources(context, context.nativeResults), input) : undefined,
                 sessionWriteOptions(context)
             )
+        if (result.trustedOutput) {
+            context.assertNativeAuthority()
+            assertTrustedDeliveryActive(context)
+            emit(context, 'partial', { phase: 'answer', text, trustedOutput: true })
+        }
         emit(context, 'final', { ...result, artifacts: result.artifacts.map(({ type, name, specialist }) => ({ type, name, specialist })) })
+        // The released stream closes the answer's buffered tail after the final event.
+        if (nativePrime && !result.trustedOutput) {
+            context.assertNativeAuthority()
+            stream.flush()
+        }
         return result
     } catch (error) {
         const status = context.clientSignal?.aborted || error?.code === 'aborted' ? 'cancelled' : 'failed'
         context.recordAgentResult?.(agentChiefResult(context, profileName, sessionId, started, input, '', status))
         throw error
     } finally {
-        stream.flush()
+        if (!nativePrime) stream.flush()
         endAgentTurn(profileName, sessionId)
     }
 }

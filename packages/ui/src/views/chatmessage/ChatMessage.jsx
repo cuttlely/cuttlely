@@ -96,7 +96,7 @@ import {
     harnessBusyNotice,
     keepUnsentHarnessMessage
 } from '@/utils/harnessCanvasChat'
-import { harnessMessageText } from '@/utils/harnessStream'
+import { harnessStreamAnswer } from '@/utils/harnessStream'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 
 // Utils
@@ -654,8 +654,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             }
             const current = allMessages[index]
             const trace = reduceHarnessEvent(current.harnessTrace, event)
-            const message = harnessMessageText(current.message, event)
-            allMessages[index] = { ...current, message, harnessTrace: trace }
+            const answer = harnessStreamAnswer({ text: current.message || '', fallback: current.harnessFinalFallback }, event)
+            allMessages[index] = { ...current, message: answer.text, harnessFinalFallback: answer.fallback, harnessTrace: trace }
             return allMessages
         })
     }

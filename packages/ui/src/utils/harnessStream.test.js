@@ -1,28 +1,35 @@
-import { harnessMessageText } from './harnessStream'
+import { harnessStreamAnswer } from './harnessStream'
+
+function display(events) {
+    let answer = { text: '', fallback: false }
+    return events.map((event) => {
+        if (event.type === 'token') answer = { text: answer.text + event.text, fallback: false }
+        else answer = harnessStreamAnswer(answer, event)
+        return answer.text
+    })
+}
+const partial = (text, streamedAsToken = false) => ({ type: 'partial', phase: 'answer', text, streamedAsToken })
+const final = (text) => ({ type: 'final', text })
 
 describe('harness stream text', () => {
-    it('appends an unmarked answer partial (harness canvas chat)', () => {
-        expect(harnessMessageText('researcher ', { type: 'partial', phase: 'answer', text: 'reads' })).toBe('researcher reads')
-        expect(harnessMessageText(undefined, { type: 'partial', phase: 'answer', text: 'Hi' })).toBe('Hi')
+    it('displays the tagged final and its buffered tail once in canvas chat and token streams', () => {
+        expect(display([final('OK'), partial('OK')])).toEqual(['OK', 'OK'])
+        expect(display([final('OK'), partial('OK', true), { type: 'token', text: 'OK' }]).at(-1)).toBe('OK')
+        expect(display([partial('Archive note '), final('Archive note confirmed.'), partial('confirmed.')]).at(-1)).toBe(
+            'Archive note confirmed.'
+        )
     })
-
-    it('shows each piece once when the same delta also arrives as a token', () => {
-        // Order on the wire for one delta: harness.partial (marked), then token.
-        let message = ''
-        for (const piece of ['researcher ', 'reads ', 'files']) {
-            message = harnessMessageText(message, { type: 'partial', phase: 'answer', text: piece, streamedAsToken: true })
-            message += piece // the `token` handler
-        }
-        expect(message).toBe('researcher reads files')
+    it('preserves early deltas, repeated content, paired tokens and final-only answers', () => {
+        expect(display([partial('Hi'), partial('Hi'), final('HiHi')])).toEqual(['Hi', 'HiHi', 'HiHi'])
+        expect(
+            display([partial('Hi', true), { type: 'token', text: 'Hi' }, partial(' there', true), { type: 'token', text: ' there' }]).at(-1)
+        ).toBe('Hi there')
+        expect(display([final('Done.')])).toEqual(['Done.'])
+        expect(display([partial('Streamed.'), final('Done.')]).at(-1)).toBe('Streamed.')
     })
-
-    it('ignores route and specialist partials', () => {
-        expect(harnessMessageText('a', { type: 'partial', phase: 'route', text: 'x' })).toBe('a')
-        expect(harnessMessageText('a', { type: 'specialist', text: 'x' })).toBe('a')
-    })
-
-    it('uses the final text only when nothing streamed', () => {
-        expect(harnessMessageText('', { type: 'final', text: 'Done.' })).toBe('Done.')
-        expect(harnessMessageText('Streamed.', { type: 'final', text: 'Done.' })).toBe('Streamed.')
+    it('ignores specialist and route partials and empty answer deltas', () => {
+        expect(
+            display([final('OK'), { type: 'specialist', text: 'skip' }, { type: 'partial', phase: 'route', text: 'skip' }, partial('')])
+        ).toEqual(['OK', 'OK', 'OK', 'OK'])
     })
 })

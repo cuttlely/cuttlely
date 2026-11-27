@@ -365,7 +365,11 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     assert.equal(direct.trustedOutput, true)
     assert.equal(direct.agents[0].status, 'completed')
     skipSource = true
-    await assert.rejects(runHarness({ ...run, input: 'Return a fresh verified report.' }), { code: 'trusted_output' })
+    const rejectedEvents = []
+    await assert.rejects(runHarness({ ...run, input: 'Return a fresh verified report.', onEvent: (event) => rejectedEvents.push(event) }), {
+        code: 'trusted_output'
+    })
+    assert.ok(!rejectedEvents.some((event) => event.type === 'final' || (event.type === 'partial' && event.phase === 'answer')))
     assert.equal(readMessages(teamName, run.chatId).at(-1).content, 'First sourced report')
 
     // Two independent delegations must preserve both attachments, their bytes, and their references.
@@ -425,13 +429,23 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
             }
         }
     }
+    const fileEvents = []
     const files = await runHarness({
         ...run,
+        onEvent: (event) => fileEvents.push(event),
         name: csvTeam,
         chatId: randomUUID(),
         input: 'Return the two source reports as CSV files.',
         loadNode: async (node) => (node === 'chatXAI' ? CsvModel : run.loadNode(node))
     })
+    const delivered = fileEvents.filter((event) => event.type === 'final' || (event.type === 'partial' && event.phase === 'answer'))
+    assert.deepEqual(
+        delivered.map(({ type, text, trustedOutput }) => [type, text, trustedOutput]),
+        [
+            ['partial', files.text, true],
+            ['final', files.text, true]
+        ]
+    )
     assert.equal(files.trustedOutputComplete, true)
     assert.equal(files.artifacts.length, 2)
     assert.deepEqual(
