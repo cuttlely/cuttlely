@@ -119,7 +119,7 @@ if (process.argv.includes('--fixture-worker')) {
         process.exitCode = 1
     }
 } else
-    for (const initial of ['new-postgres', 'existing-postgres', 'sqlite', 'post-cutover-crash', 'managed-post-cutover-crash'])
+    for (const initial of ['new-postgres', 'existing-postgres', 'sqlite', 'shell-post-cutover-crash', 'managed-post-cutover-crash'])
         test(initial + ' recovers on empty server and worker disks', { skip: skipReason }, async () => {
             const crash = initial.endsWith('post-cutover-crash')
             const managed = initial === 'managed-post-cutover-crash'
@@ -137,9 +137,10 @@ if (process.argv.includes('--fixture-worker')) {
                 '.env': 'FIXTURE=' + randomUUID(),
                 'config.yaml': 'fixture: replacement',
                 'profiles/research/.env': 'PROFILE_FIXTURE=' + randomUUID(),
-                'profiles/research/harness-roster.json': '{}',
+                'profiles/research/config.yaml': 'fixture: before-cutover',
+                'profiles/compiled/harness-roster.json': '{}',
                 'profiles/research/memories/MEMORY.md': 'Existing research notes',
-                'profiles/research/skills/harness-playbooks/report/SKILL.md': '# Report',
+                'profiles/compiled/skills/harness-playbooks/report/SKILL.md': '# Report',
                 'profiles/research/skills/.usage.json': '{"report":2}',
                 'profiles/research/cache/spillover/result.txt': 'retained output',
                 'cache/mcp_schema_cache.json': '{}'
@@ -432,17 +433,19 @@ with closing(connect()) as pg:
                 if (initial === 'existing-postgres' || initial === 'sqlite') verifyRuntime(path.join(rootDir, 'worker-after'))
                 if (crash) {
                     const freshWorker = path.join(rootDir, 'worker-after')
-                    const saved = (dir, name, expected) => {
-                        const file = path.join(dataEnv(dir, port).HERMES_HOME, 'profiles/research', name)
-                        if (!fs.existsSync(file)) return false
-                        const content = fs.readFileSync(file, 'utf8')
-                        return managed ? content.split(/\r?\n/).includes(expected) : content === expected
+                    // Managed saves supersede the verified upgrade copy. A direct shell write
+                    // changes only the disposable host, so recover the last committed setting.
+                    const saved = (dir, name, edited) => {
+                        const scope = 'profiles/research/' + name
+                        const file = path.join(dataEnv(dir, port).HERMES_HOME, scope)
+                        const expected = managed ? edited : runtimeData[scope]
+                        return fs.readFileSync(file, 'utf8').split(/\r?\n/).includes(expected)
                     }
                     assert.deepEqual(
                         {
-                            webEdit: saved(fresh, '.env', revised),
+                            webSetting: saved(fresh, '.env', revised),
                             webMessage: runtimeMessage(dataEnv(fresh, port, { ...host, ...pg, ...stores }), false, message, 'web'),
-                            workerEdit: saved(freshWorker, 'config.yaml', workerEdit),
+                            workerSetting: saved(freshWorker, 'config.yaml', workerEdit),
                             workerMessage: runtimeMessage(
                                 dataEnv(freshWorker, port, { ...host, ...pg, ...stores }),
                                 false,
@@ -450,8 +453,8 @@ with closing(connect()) as pg:
                                 'worker'
                             )
                         },
-                        { webEdit: true, webMessage: true, workerEdit: true, workerMessage: true },
-                        'acknowledged edits and messages must survive loss of all web and worker disks'
+                        { webSetting: true, webMessage: true, workerSetting: true, workerMessage: true },
+                        'restore the last committed settings and acknowledged messages after all host disks are lost'
                     )
                 }
             } finally {

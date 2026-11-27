@@ -19,6 +19,8 @@ Node 20+ 和 Docker
 
 [10 分钟上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它们带过来](https://cuttlely.com/flowise/)
 
+**即将发布** · **1.7.17 可在更换容器后，从 PostgreSQL 恢复已保存的对话、运行时设置和记忆笔记。** [升级指南](../docs/upgrading.md#upgrading-to-1717).
+
 **1.7.16 修复了迁移到 PostgreSQL 存储时对未经修改的内置技能发出警告的问题。** [升级指南](../docs/upgrading.md#upgrading-to-1716).
 
 **1.7.15 支持由实例操作员将智能体团队的对话、计划任务、ETL 管道和向量迁移到 PostgreSQL。** [升级与磁盘要求](../docs/upgrading.md#upgrading-to-1715).
