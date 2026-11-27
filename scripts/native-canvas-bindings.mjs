@@ -96,19 +96,57 @@ export function localMemoryStoreBinding(binding, output = 'retriever') {
     )
 }
 
+const inheritedMetadataKeys = new Set(
+    [Object, Array, String, Number, Boolean].flatMap((type) => Object.getOwnPropertyNames(type.prototype)).concat('prototype')
+)
+// Array and string lengths are ordinary data properties.
+inheritedMetadataKeys.delete('length')
+
+function boundedRetrieverFormat(format, store) {
+    if (typeof format !== 'string' || Buffer.byteLength(format) > 4096) return false
+    const contextSlots = format.split('{{context}}').length - 1
+    const formatBytes = Buffer.byteLength(format)
+    let remaining = 2 * 1024 * 1024
+    const documents = [store.upstream.document].flat()
+    for (const { inputs } of documents) {
+        const text = inputs.text
+        // The released node uses text as a JS replacement string. $&, dollar-backtick and dollar-quote
+        // may copy parts of the format for each occurrence; bound that work before doing the replacement.
+        const copies = contextSlots && (text.match(/\$[&`']/g) || []).length
+        if (formatBytes + contextSlots * (Buffer.byteLength(text) + copies * Math.max(11, formatBytes)) > remaining) return false
+        const expanded = format.replace(/{{context}}/g, text)
+        remaining -= Buffer.byteLength(expanded)
+        // The node substitutes metadata after inserting the document, including references in document text.
+        const metadataBytes = Buffer.byteLength(
+            typeof inputs.metadata === 'string' ? inputs.metadata : JSON.stringify(inputs.metadata || {})
+        )
+        for (const [, key] of expanded.matchAll(/{{metadata\.([\w.]+)}}/g)) {
+            const parts = key.split('.')
+            if (parts.length > 16 || parts.some((part) => !part || inheritedMetadataKeys.has(part))) return false
+            remaining -= metadataBytes
+            if (remaining < 0) return false
+        }
+    }
+    return true
+}
+
 // This saved retrieval card returns its own formatted text, including the document's source label.
 export function localTextRetrieverBinding(binding) {
     if (binding?.nodeName !== 'customRetriever' || binding.nodeData || binding.credential || binding.outputs?.output !== 'text')
         return false
     const inputs = binding.inputs || {}
     if (Object.keys(inputs).some((key) => !['query', 'resultFormat', 'topK'].includes(key))) return false
-    if (inputs.resultFormat !== '{{context}}\nSource: {{metadata.source}}') return false
     if (inputs.query != null && (typeof inputs.query !== 'string' || inputs.query.length > 4096 || /{{|}}/.test(inputs.query))) return false
     const topK = inputs.topK
     if (topK != null && topK !== '') {
         if (!['number', 'string'].includes(typeof topK) || !/^[1-9][0-9]?$/.test(String(topK)) || Number(topK) > 64) return false
     }
-    return Object.keys(binding.upstream || {}).length === 1 && localMemoryStoreBinding(binding.upstream.vectorStore, 'vectorStore')
+    const store = binding.upstream?.vectorStore
+    return (
+        Object.keys(binding.upstream || {}).length === 1 &&
+        localMemoryStoreBinding(store, 'vectorStore') &&
+        boundedRetrieverFormat(inputs.resultFormat, store)
+    )
 }
 
 export function supportsNativeCanvasBinding(binding) {
