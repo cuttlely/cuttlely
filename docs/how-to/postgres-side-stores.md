@@ -88,6 +88,8 @@ A workflow using custom code can compute its own paths. An unresolved plugin, mu
 
 ## Before the upgrade
 
+If the existing Docker container, OpenShift pod or Render service has only ephemeral storage, keep it running until you have a verified off-host copy. Quiesce writers before copying the application database, settings and runtime directories, including SQLite journals and WAL files. Restore that consistent copy to the migration container’s writable data directory before its first startup and supply the original installation key from the host. Keep the backup through the replacement test. A redeploy can discard the only copy of data that still lives on the old instance.
+
 1. Back up the application database and the persistent volume. Check that both backups can be restored. Keep the installation encryption key and operator recovery material with the deployment's protected backups.
 2. Enable `CUTTLELY_APP_DATABASE_STORES=1` and restart with the original volume connected. Apply the same database settings to external workers and replicas. On Docker, set the variable on the Compose service. On Render, set it on the service across a deploy with its disk attached. On bare metal, update the service environment and restart the service manager.
 3. Leave one application instance running. Stop external workers, other replicas and older binaries or scripts that can write directly to the files. Finish queued runs, active chats and refreshes. Schedules retain their due times during the pause.
