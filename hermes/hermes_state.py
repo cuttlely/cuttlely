@@ -922,6 +922,8 @@ class SessionDB(
                 if self._conn is None:
                     self._reopen_after_close_locked(context="read")
                 with read(self._cuttlely_pg_scope, self._conn) as conn:
+                    if conn is not self._conn and self._fts_cjk_loaded:
+                        load_fts5_cjk_extension(conn)
                     yield conn
             return
         conn = self._checkout_read_conn()

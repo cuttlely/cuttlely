@@ -5,18 +5,18 @@ Subject: [PATCH] cuttlely: runtime-postgres
 
 Commit runtime sessions and settings to PostgreSQL
 ---
- cuttlely_session_store.py | 281 ++++++++++++++++++++++++++++++++++++++
- hermes_state.py           |  33 +++--
+ cuttlely_session_store.py | 293 ++++++++++++++++++++++++++++++++++++++
+ hermes_state.py           |  35 +++--
  utils.py                  |   2 +
- 3 files changed, 307 insertions(+), 9 deletions(-)
+ 3 files changed, 321 insertions(+), 9 deletions(-)
  create mode 100644 cuttlely_session_store.py
 
 diff --git a/cuttlely_session_store.py b/cuttlely_session_store.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..f213fe749c97980b18919873618330c159d6ee3d
+index 0000000000000000000000000000000000000000..71eb7491895e4c6776ac937893ef0193473fd741
 --- /dev/null
 +++ b/cuttlely_session_store.py
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,293 @@
 +"""Commit runtime session transactions to the application's PostgreSQL database."""
 +import base64
 +import hashlib
@@ -32,8 +32,20 @@ index 0000000000000000000000000000000000000000..f213fe749c97980b18919873618330c1
 +BLOCK = 256 * 1024
 +
 +
++def postgres_configured():
++    return os.getenv("DATABASE_TYPE", "").lower() == "postgres" and os.getenv("CUTTLELY_APP_DATABASE_STORES") in ("1", "true")
++
++
++def allow_local_fallback():
++    """A fallback to memory or a local file can succeed only before cutover."""
++    if postgres_configured():
++        with storage("fallback-mode") as pg:
++            if pg is not None:
++                raise RuntimeError("PostgreSQL did not acknowledge the runtime write.")
++
++
 +def runtime_path(file):
-+    if os.getenv("DATABASE_TYPE", "").lower() != "postgres" or os.getenv("CUTTLELY_APP_DATABASE_STORES") not in ("1", "true"):
++    if not postgres_configured():
 +        return None
 +    root = os.getenv("CUTTLELY_HERMES_HOME")
 +    if not root and os.getenv("CUTTLELY_DATA_DIR"):
@@ -299,7 +311,7 @@ index 0000000000000000000000000000000000000000..f213fe749c97980b18919873618330c1
 +    import sys
 +    bootstrap(sys.argv[1], json.load(sys.stdin))
 diff --git a/hermes_state.py b/hermes_state.py
-index dca255c379c34739de1f93c56be5c676cb6f7588..9be76359472f438df1a6d5b6c8e3362f41841eb7 100644
+index dca255c379c34739de1f93c56be5c676cb6f7588..4367e99942f79dc5a948391eb689f52fd1953ab6 100644
 --- a/hermes_state.py
 +++ b/hermes_state.py
 @@ -571,6 +571,8 @@ class SessionDB(
@@ -311,7 +323,7 @@ index dca255c379c34739de1f93c56be5c676cb6f7588..9be76359472f438df1a6d5b6c8e3362f
          # Keep only the opening call site, never a frame (which pins caller locals).
          self._creation_site = "unknown"
          caller = None
-@@ -914,6 +916,14 @@ class SessionDB(
+@@ -914,6 +916,16 @@ class SessionDB(
          connection with NO lock under WAL; otherwise (non-WAL, open failure,
          ceiling reached) the writer connection under self._lock — deliberate
          degradation: slower beats EMFILE, which the supervisor cannot see."""
@@ -321,12 +333,14 @@ index dca255c379c34739de1f93c56be5c676cb6f7588..9be76359472f438df1a6d5b6c8e3362f
 +                if self._conn is None:
 +                    self._reopen_after_close_locked(context="read")
 +                with read(self._cuttlely_pg_scope, self._conn) as conn:
++                    if conn is not self._conn and self._fts_cjk_loaded:
++                        load_fts5_cjk_extension(conn)
 +                    yield conn
 +            return
          conn = self._checkout_read_conn()
          if conn is not None:
              try:
-@@ -1019,17 +1029,22 @@ class SessionDB(
+@@ -1019,17 +1031,22 @@ class SessionDB(
                      self._raise_if_db_replaced()
                      if self._conn is None:  # close() raced this writer
                          self._reopen_after_close_locked(context="write")

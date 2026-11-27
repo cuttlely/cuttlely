@@ -5,10 +5,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 import { createTestDatabase, skipReason } from '../packages/etl/check/pg-source.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 import { smokeFlow } from './smoke-server.mjs'
@@ -29,7 +30,11 @@ if sys.argv[1] == "read" and not file.is_file():
 db = SessionDB(file, read_only=sys.argv[1] == "read")
 if sys.argv[1] == "write":
     db.create_session(sys.argv[3], "cli")
-    db.append_message(sys.argv[3], "assistant", sys.argv[2])
+    from gateway.config import GatewayConfig
+    from gateway.session import SessionStore
+    store = SessionStore(file.parent / "sessions", GatewayConfig())
+    store._db = db
+    store.append_to_transcript(sys.argv[3], {"role": "assistant", "content": sys.argv[2]})
 print("present" if any(row["content"] == sys.argv[2] for row in db.get_messages(sys.argv[3])) else "missing", flush=True)
 if sys.argv[1] == "write":
     os.kill(os.getpid(), signal.SIGKILL)
@@ -349,8 +354,8 @@ if (process.argv.includes('--fixture-worker')) {
                     await worker(peer, 'recover')
                     const envFor = (dir) => dataEnv(dir, port, { ...host, ...pg, ...stores })
                     const python = process.env.HERMES_PYTHON || path.join(root, 'hermes', '.venv', 'bin', 'python')
-                    const run = (dir, statement) =>
-                        execFileSync(
+                    const run = async (dir, statement) => {
+                        const { stdout } = await promisify(execFile)(
                             python,
                             [
                                 '-c',
@@ -361,25 +366,48 @@ from hermes_state import SessionDB
 db = SessionDB(Path(os.environ["HERMES_HOME"]) / "profiles" / "research" / "state.db")
 ` + statement
                             ],
-                            {
-                                cwd: path.join(root, 'hermes'),
-                                env: envFor(dir),
-                                timeout: 30000,
-                                stdio: ['ignore', 'pipe', 'pipe'],
-                                encoding: 'utf8'
-                            }
+                            { cwd: path.join(root, 'hermes'), env: envFor(dir), timeout: 30000 }
                         )
-                    const session = "'recovery-fixture-web'"
-                    run(peer, 'assert db.get_messages(' + session + '); db.append_message(' + session + ', "assistant", "peer")')
-                    assert.equal(run(fresh, 'print(db.get_messages(' + session + ')[-1]["content"])').trim(), 'peer')
-                    // Force the durable write to fail after SQLite has executed the callback.
-                    await client.query('ALTER TABLE cuttlely_runtime.session_heads ADD CONSTRAINT unavailable CHECK (false) NOT VALID')
-                    try {
-                        assert.throws(() => run(peer, 'db.append_message(' + session + ', "assistant", "unacknowledged")'))
-                    } finally {
-                        await client.query('ALTER TABLE cuttlely_runtime.session_heads DROP CONSTRAINT unavailable')
+                        return stdout.trim()
                     }
-                    assert.equal(run(fresh, 'print(db.get_messages(' + session + ')[-1]["content"])').trim(), 'peer')
+                    const session = "'recovery-fixture-web'"
+                    await run(peer, 'assert db.get_messages(' + session + '); db.append_message(' + session + ', "assistant", "peer")')
+                    assert.equal(await run(fresh, 'print(db.get_messages(' + session + ')[-1]["content"])'), 'peer')
+                    // Force the durable write to fail after SQLite has executed the callback.
+                    await run(
+                        peer,
+                        `from gateway.config import GatewayConfig
+from gateway.session import SessionStore
+from cuttlely_session_store import connect
+from contextlib import closing
+store = SessionStore(Path(db.db_path).parent / "sessions", GatewayConfig())
+store._db = db
+with closing(connect()) as pg:
+    pg.run("ALTER TABLE cuttlely_runtime.session_heads ADD CONSTRAINT unavailable CHECK (false) NOT VALID")
+    try:
+        try:
+            store.append_to_transcript(${session}, {"role": "assistant", "content": "unacknowledged"})
+        except RuntimeError as error:
+            assert "did not acknowledge" in str(error)
+        else:
+            raise AssertionError("gateway acknowledged a refused PostgreSQL commit")
+        assert not store._dirty_transcripts
+    finally:
+        pg.run("ALTER TABLE cuttlely_runtime.session_heads DROP CONSTRAINT unavailable")`
+                    )
+                    assert.equal(await run(fresh, 'print(db.get_messages(' + session + ')[-1]["content"])'), 'peer')
+                    await Promise.all(
+                        [peer, fresh].map((hostDir, index) =>
+                            run(hostDir, `db.append_message(${session}, "assistant", "parallel-${index}")`)
+                        )
+                    )
+                    assert.equal(
+                        await run(
+                            fresh,
+                            `print(sorted(row["content"] for row in db.get_messages(${session}) if row["content"].startswith("parallel-")))`
+                        ),
+                        "['parallel-0', 'parallel-1']"
+                    )
                     await client.query(
                         "ALTER TABLE cuttlely_runtime.runtime_settings ADD CONSTRAINT setting_unavailable CHECK (scope <> 'profiles/research/.env') NOT VALID"
                     )

@@ -46,3 +46,6 @@ hermes/cuttlely_session_store.py
 hermes/hermes_state.py
 hermes/utils.py
 hermes/hermes_cli/config.py
+hermes/agent/session_persistence.py
+hermes/gateway/session_persistence.py
+hermes/gateway/session_transcript.py

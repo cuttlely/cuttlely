@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: cuttlely-runtime-durable-acknowledgements
+
+---
+ agent/session_persistence.py   |  2 ++
+ gateway/session_persistence.py |  3 +++
+ gateway/session_transcript.py  | 20 ++++++++++++++++++++
+ 3 files changed, 25 insertions(+)
+
+diff --git a/agent/session_persistence.py b/agent/session_persistence.py
+index 8c0f6e7978530d1c33a20d1ca77ed5b020d9ec5a..14765dacb8d888f15b0f2545a29e2886f2b9b2e6 100644
+--- a/agent/session_persistence.py
++++ b/agent/session_persistence.py
+@@ -508,6 +508,8 @@ class SessionPersistenceMixin:
+         except Exception as e:
+             retry = _db_flush_failed(self, e, batch_rows, _adoption_budget, messages)
+             if retry is None:
++                from cuttlely_session_store import allow_local_fallback
++                allow_local_fallback()
+                 return False
+             # After a heal the pending replay re-sends the history prefix instead of stamping it durable.
+             return self._flush_messages_to_session_db_unlocked(messages, conversation_history, _adoption_budget=0)
+diff --git a/gateway/session_persistence.py b/gateway/session_persistence.py
+index 2ccc830db44f55bd2d3a7164710e2781f48e7096..50b363d0925328417d995650b35eec528bcb3c49 100644
+--- a/gateway/session_persistence.py
++++ b/gateway/session_persistence.py
+@@ -459,6 +459,9 @@ class SessionPersistenceMixin:
+                     db_saved = True
+                 except Exception as exc:
+                     logger.warning("gateway.session: state.db routing save failed: %s", exc)
++            if not db_saved:
++                from cuttlely_session_store import allow_local_fallback
++                allow_local_fallback()
+             if getattr(self, "_write_sessions_json", True) or not db_saved:
+                 try:
+                     self._save_sessions_json(data)
+diff --git a/gateway/session_transcript.py b/gateway/session_transcript.py
+index ccc1e76b94bae587904a104c2d5e8ce33851eace..5610708be646d6d4d296e33f9d0262ac0ca3d92e 100644
+--- a/gateway/session_transcript.py
++++ b/gateway/session_transcript.py
+@@ -229,6 +229,7 @@ class SessionTranscriptMixin:
+         """
+         with self._transcript_retry_lock:
+             pending = self._enqueue_transcript_message(session_id, message)
++            submitted = pending[-1]
+             msg = pending[0]
+         queue_session_id = session_id
+ 
+@@ -242,6 +243,22 @@ class SessionTranscriptMixin:
+                 return True
+             return False
+ 
++        def allow_pending_fallback():
++            from cuttlely_session_store import allow_local_fallback
++            try:
++                allow_local_fallback()
++            except Exception:
++                # The caller owns retry after a refused durable write. Remove only its
++                # queued entry so a later drain cannot replay that same attempt.
++                with self._transcript_retry_lock:
++                    for index, entry in enumerate(pending):
++                        if entry is submitted:
++                            pending.pop(index)
++                            break
++                    if not pending:
++                        self._dirty_transcripts.pop(queue_session_id, None)
++                raise
++
+         # DB write outside the retry lock so other sessions can append.
+         while True:
+             # Spooled backlog (cap eviction or a stalled session) is older than ``msg``: replay it
+@@ -253,6 +270,7 @@ class SessionTranscriptMixin:
+                 from hermes_state import StateDbCorruptError, StateDbReplacedError
+                 from hermes_state_errors import CompressionSessionClosedError
+                 if isinstance(exc, (StateDbReplacedError, StateDbCorruptError)):
++                    allow_pending_fallback()
+                     self._divert_transcript_after_db_replaced(session_id, queue_session_id, exc)
+                     return
+                 if isinstance(exc, CompressionSessionClosedError):
+@@ -280,6 +298,7 @@ class SessionTranscriptMixin:
+                             session_id = child_id
+                             continue
+                     else:
++                        allow_pending_fallback()
+                         # Permanent routing invariant failure, not a transient outage: drop it so it
+                         # cannot poison later writes.
+                         with self._transcript_retry_lock:
+@@ -297,6 +316,7 @@ class SessionTranscriptMixin:
+                         with self._transcript_retry_lock:
+                             _ack_head()
+                         continue
++                allow_pending_fallback()
+                 with self._transcript_retry_lock:
+                     failures = self._transcript_append_failures.get(session_id, 0) + 1
+                     self._transcript_append_failures[session_id] = failures

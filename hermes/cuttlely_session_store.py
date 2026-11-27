@@ -13,8 +13,20 @@ from uuid import uuid4
 BLOCK = 256 * 1024
 
 
+def postgres_configured():
+    return os.getenv("DATABASE_TYPE", "").lower() == "postgres" and os.getenv("CUTTLELY_APP_DATABASE_STORES") in ("1", "true")
+
+
+def allow_local_fallback():
+    """A fallback to memory or a local file can succeed only before cutover."""
+    if postgres_configured():
+        with storage("fallback-mode") as pg:
+            if pg is not None:
+                raise RuntimeError("PostgreSQL did not acknowledge the runtime write.")
+
+
 def runtime_path(file):
-    if os.getenv("DATABASE_TYPE", "").lower() != "postgres" or os.getenv("CUTTLELY_APP_DATABASE_STORES") not in ("1", "true"):
+    if not postgres_configured():
         return None
     root = os.getenv("CUTTLELY_HERMES_HOME")
     if not root and os.getenv("CUTTLELY_DATA_DIR"):

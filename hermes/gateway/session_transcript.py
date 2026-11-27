@@ -229,6 +229,7 @@ class SessionTranscriptMixin:
         """
         with self._transcript_retry_lock:
             pending = self._enqueue_transcript_message(session_id, message)
+            submitted = pending[-1]
             msg = pending[0]
         queue_session_id = session_id
 
@@ -242,6 +243,22 @@ class SessionTranscriptMixin:
                 return True
             return False
 
+        def allow_pending_fallback():
+            from cuttlely_session_store import allow_local_fallback
+            try:
+                allow_local_fallback()
+            except Exception:
+                # The caller owns retry after a refused durable write. Remove only its
+                # queued entry so a later drain cannot replay that same attempt.
+                with self._transcript_retry_lock:
+                    for index, entry in enumerate(pending):
+                        if entry is submitted:
+                            pending.pop(index)
+                            break
+                    if not pending:
+                        self._dirty_transcripts.pop(queue_session_id, None)
+                raise
+
         # DB write outside the retry lock so other sessions can append.
         while True:
             # Spooled backlog (cap eviction or a stalled session) is older than ``msg``: replay it
@@ -253,6 +270,7 @@ class SessionTranscriptMixin:
                 from hermes_state import StateDbCorruptError, StateDbReplacedError
                 from hermes_state_errors import CompressionSessionClosedError
                 if isinstance(exc, (StateDbReplacedError, StateDbCorruptError)):
+                    allow_pending_fallback()
                     self._divert_transcript_after_db_replaced(session_id, queue_session_id, exc)
                     return
                 if isinstance(exc, CompressionSessionClosedError):
@@ -280,6 +298,7 @@ class SessionTranscriptMixin:
                             session_id = child_id
                             continue
                     else:
+                        allow_pending_fallback()
                         # Permanent routing invariant failure, not a transient outage: drop it so it
                         # cannot poison later writes.
                         with self._transcript_retry_lock:
@@ -297,6 +316,7 @@ class SessionTranscriptMixin:
                         with self._transcript_retry_lock:
                             _ack_head()
                         continue
+                allow_pending_fallback()
                 with self._transcript_retry_lock:
                     failures = self._transcript_append_failures.get(session_id, 0) + 1
                     self._transcript_append_failures[session_id] = failures
