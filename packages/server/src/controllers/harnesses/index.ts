@@ -19,6 +19,7 @@ import type { IHarnessCaller } from '../../Interface'
 import { trackBackgroundRun } from '../../settings/runs'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
+import { assertVerifiedHarnessDelivery, isVerifiedAnswerEvent } from '../../utils/verifiedHarnessDelivery'
 import { isStreamingRequest } from '../../utils/streaming'
 import { assertSelectedHarnessAvailable } from '../../utils/runtimeAvailability'
 
@@ -138,6 +139,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     if (!isStreamingRequest(req)) {
         try {
             const outcome = await harnessesService.startRun(req.params.name, req.body || {}, runOptions)
+            assertVerifiedHarnessDelivery(outcome.payload, undefined, signal)
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -150,13 +152,20 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Connection', 'keep-alive')
     res.setHeader('X-Accel-Buffering', 'no')
     res.flushHeaders()
+    const deferred: Array<{ type: string }> = []
     try {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
             ...runOptions,
-            onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
+            onEvent: (event) => {
+                // Keep the named run's original event order after its first protected answer.
+                if (deferred.length || isVerifiedAnswerEvent(event)) deferred.push(event)
+                else writeSse(res, `harness.${event.type}`, event)
+            }
         })
         // Images a specialist made: the events named them, the chat shows them.
         const images = chatImages((outcome.payload as { artifacts?: unknown } | undefined)?.artifacts)
+        assertVerifiedHarnessDelivery(outcome.payload, images.length, signal)
+        for (const event of deferred) writeSse(res, `harness.${event.type}`, event)
         if (images.length) writeSse(res, 'artifacts', images)
         writeSse(res, 'harness.recorded', { run: outcome.run, chatId: outcome.chatId })
         res.end()

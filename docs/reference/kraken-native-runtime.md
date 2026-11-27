@@ -105,7 +105,7 @@ A specialist with a single model streams text as it arrives. When a primary and 
 
 For custom streaming clients, `harness.final` contains the complete answer. Replace the displayed answer with that text and ignore any later answer deltas for the same turn. In agent mode, both v1.7.15 and Kraken can flush a buffered `harness.partial` after the final event. A one-word answer can arrive entirely in that last delta. Both engines send `harness.recorded` when conversation metadata is available.
 
-On the streaming prediction endpoint, a native Analyst with verified output delivers its attachments before the protected answer. If the source check fails or the verified attachments cannot be delivered, the stream reports an error and withholds the protected answer.
+On the streaming prediction endpoint, a native Analyst with verified output delivers its attachments before the protected answer. If the source check fails or the verified attachments cannot be delivered, the stream reports an error and withholds the protected answer. On `POST /api/v1/harnesses/:name/runs`, successful streaming clients receive the verified answer events followed by `artifacts`. The server checks that every required attachment is available before sending those events. A failed delivery returns a stream error or an HTTP error for JSON callers.
 
 ### Conversation search
 

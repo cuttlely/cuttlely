@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { assertVerifiedHarnessDelivery, isVerifiedAnswerEvent } from '../../utils/verifiedHarnessDelivery'
 import { assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
 import { StatusCodes } from 'http-status-codes'
 import { removeSpecificFileFromUpload } from '@cuttlely/components'
@@ -13,16 +14,6 @@ import { tryOwnerFor } from '../../utils/tryOwner'
 
 const hasBodyUploads = (uploads: unknown) =>
     uploads !== undefined && uploads !== null && uploads !== '' && !(Array.isArray(uploads) && uploads.length === 0)
-
-function assertVerifiedDeliveryDeadline(payload: unknown) {
-    const result = payload as { trustedOutput?: boolean; trustedOutputDeadlineAt?: number; trace?: { handoff?: { reason?: string } } }
-    if (
-        (result?.trustedOutput || result?.trace?.handoff?.reason === 'trustedOutput') &&
-        typeof result.trustedOutputDeadlineAt === 'number' &&
-        Date.now() >= result.trustedOutputDeadlineAt
-    )
-        throw new AppError(StatusCodes.BAD_REQUEST, 'The turn budget expired before verified output could be delivered.')
-}
 
 // A harness canvas run takes the question as text and does not read attachments. A request with files or uploads is
 // refused with 400 before the run, and the multipart files multer already stored are removed.
@@ -76,7 +67,7 @@ export async function runHarnessCanvasChat(
         })
     if (!streaming) {
         const outcome = await run()
-        assertVerifiedDeliveryDeadline(outcome.payload)
+        assertVerifiedHarnessDelivery(outcome.payload)
         return res.json({
             chatId: outcome.chatId,
             run: outcome.run,
@@ -100,25 +91,13 @@ export async function runHarnessCanvasChat(
         const outcome = await run({
             signal,
             onEvent: (event) => {
-                const shaped = event as { type: string; phase?: string; trustedOutput?: boolean }
-                if (shaped.trustedOutput && (shaped.type === 'final' || (shaped.type === 'partial' && shaped.phase === 'answer')))
-                    deferred.push(event)
+                if (isVerifiedAnswerEvent(event)) deferred.push(event)
                 else write(`harness.${event.type}`, event)
             }
         })
         const images = harnessesService.chatImages((outcome.payload as { artifacts?: unknown } | undefined)?.artifacts)
         if (signal.aborted) throw new AppError(StatusCodes.BAD_REQUEST, 'Run was cancelled.')
-        assertVerifiedDeliveryDeadline(outcome.payload)
-        const payload = (outcome.payload || {}) as {
-            trustedOutput?: boolean
-            artifacts?: unknown[]
-            trace?: { handoff?: { reason?: string } }
-        }
-        if (
-            (payload.trustedOutput || payload.trace?.handoff?.reason === 'trustedOutput') &&
-            images.length !== (payload.artifacts?.length || 0)
-        )
-            throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Verified attachments could not be delivered.')
+        assertVerifiedHarnessDelivery(outcome.payload, images.length, signal)
         if (images.length) write('artifacts', images)
         for (const event of deferred) write(`harness.${event.type}`, event)
         write('harness.recorded', {

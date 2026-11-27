@@ -26,7 +26,7 @@ The optional native image builds from a source archive without the bundled runti
 
 Native runs record the winning specialist model and retain provider-reported input, output and cached-token counts. A single model streams text immediately. When two models can compete for the same call, the client receives the selected answer after the race finishes.
 
-On `/prediction`, ordinary agent answers preserve the released stream order when the final event precedes the last text fragment. Canvas chat and the team view display the answer once. For verified output, the endpoint sends attachment bytes before the answer names the file. An incomplete source result or missing bytes produce a stream error before any file is announced.
+On `/prediction`, ordinary agent answers preserve the released stream order when the final event precedes the last text fragment. Canvas chat and the team view display the answer once. For verified output, the endpoint sends attachment bytes before the answer names the file. An incomplete source result or missing bytes produce a stream error before any file is announced. Named runs check the required attachments before delivering their existing sequence of answer events followed by files.
 
 For published agent-mode teams with direct chat models, the full build can record a bundled specialist’s progress against the active PostgreSQL turn during rollback. This covers model-only specialists and the packaged read-only Ops action. The latter resolves its installed script from the package when the worker starts in another directory. Other team configurations still need a rollback rehearsal.
 
