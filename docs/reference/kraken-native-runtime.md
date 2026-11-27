@@ -107,7 +107,9 @@ On a supported Linux host, a file-enabled specialist can read, write, search and
 
 Each workspace is limited to 256 files and 64 MiB of decoded content. It uses the selected harness session store. PostgreSQL preserves these workspaces across empty-disk replacements. SQLite requires a retained data volume. The image ships a fixed document decoder and search binary. The worker requires Linux Landlock ABI 3 or later and libseccomp. On a host that cannot enforce the file boundary, preflight identifies the team as requiring the bundled engine. A configured hosted OCR service or language server is a separate dependency. Preflight reports these settings so the operator can retain the full runtime for teams that use them. Rehearse with the documents the team processes, including scanned PDFs.
 
-An existing shared workspace may contain files without a reliable owner. A nonempty legacy workspace blocks this team’s native cutover. Back it up, review its contents, and re-upload the required files through the owner's chat before retiring the original workspace. Preserve older copies until the owner confirms the required outputs.
+When a published file-enabled team runs, native admission checks the specialist’s shared legacy workspace and the Try workspace for the signed-in user or API key making the request. Files in the shared workspace block native use of that specialist’s team for every caller. Files in a caller’s Try workspace block that caller. Other callers can continue when their own checks pass. The dependency message identifies the specialist and omits filenames and contents. Cuttlely leaves the files in place.
+
+Before switching engines, back up the affected workspace and verify that the backup opens. Have each owner identify which files belong in each chat. Archive the original files outside the live legacy workspace, then retry native prediction and re-upload only the needed copies through the intended chat using that owner’s account or scoped key. Keep the backup until each owner has opened the uploaded files and checked the required outputs.
 
 ### Reporting on an uploaded CSV
 

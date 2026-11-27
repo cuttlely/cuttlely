@@ -87,6 +87,7 @@ import {
     admittedAgentEngine,
     admittedNativeRolePin,
     assertNativeRoleSupported,
+    assertNativeCanvasWorkspaces,
     nativeRolePin,
     onDemandNativeRoles,
     nativePrimeInstructions,
@@ -570,7 +571,15 @@ async function runManagedHarness(args) {
                     releaseTurn(lease)
                 }
             })
-        return withTryProfile(tryId, (discard) => guardHarnessRun(args.name, () => runHarnessBody(args, discard)))
+        return withTryProfile(tryId, (discard) =>
+            guardHarnessRun(args.name, () => {
+                if (engine === 'native' && args.record.specialists?.some((role) => role.fileAccess)) {
+                    assertHarnessWorkspace(args.name, args.flowOptions, args.record)
+                    assertNativeCanvasWorkspaces(args.record)
+                }
+                return runHarnessBody(args, discard)
+            })
+        )
     }
     return guardHarnessRun(args?.name, () => runHarnessBody(args))
 }

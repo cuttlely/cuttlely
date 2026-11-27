@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { stableStringify } from '../flow-graph.mjs'
 import { getHarness } from '../store.mjs'
 import { openNativeNumericCode } from './native-numeric-code.mjs'
-import { publishedCanvasSource } from '../canvas-ownership.mjs'
+import { publishedCanvasSource, publishedCallerTryId } from '../canvas-ownership.mjs'
 import { prepareNativePlaybooks } from './native-playbooks.mjs'
 import { existingFileDependency, managedFilesReady } from './native-files.mjs'
 import availability from '../availability.cjs'
@@ -69,17 +69,38 @@ export function useNativeSpecialists(
     if (rolePin !== null && (!rolePin || nativeRolePin(roster) !== rolePin))
         throw new HarnessError('harness_changed', 'The saved team changed after native admission.')
     const gaps = compatibilityGaps(roster, { admitUnavailableTools: true, deferRoleGrants: Boolean(rolePin) })
+    assertNoGaps(gaps)
+    return true
+}
+
+function assertNoGaps(gaps) {
     if (gaps.length) {
         const details = gaps.map(({ specialist, capabilities }) => `${specialist}: ${capabilities.join(', ')}`)
         throw new HarnessError('native_unsupported', `Native runtime cannot run these saved capabilities: ${details.join('; ')}.`)
     }
-    return true
 }
 
 // Offline preflight inspects only the saved grants. Values, credentials, endpoints and
 // playbook bodies never appear in the report. Live provider checks still occur at dispatch.
 export function nativeCompatibilityGaps(roster, { admitUnavailableTools = false, exportOnly = false } = {}) {
     return compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRoleGrants: false })
+}
+
+const localFilesGap = 'existing workspace files need owner-scoped upload'
+
+function hasLocalWorkspaceFiles(roster, host, specialist) {
+    if (existingFileDependency(host, specialist)) return true
+    const callerTryId = publishedCallerTryId(roster)
+    return Boolean(callerTryId && existingFileDependency({ name: host.name, tryId: callerTryId }, specialist))
+}
+
+// The physical Try cleanup may remove an unmarked workspace left after an interrupted restore.
+// Inspect under the Try lock, before starting a run that takes responsibility for that cleanup.
+export function assertNativeCanvasWorkspaces(roster) {
+    const host = publishedCanvasSource(roster)
+    if (!host) return
+    const blocked = roster.specialists.filter((specialist) => specialist.fileAccess && hasLocalWorkspaceFiles(roster, host, specialist))
+    assertNoGaps(blocked.map((s) => ({ specialist: s.name, capabilities: [localFilesGap] })))
 }
 
 function compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRoleGrants }) {
@@ -89,10 +110,7 @@ function compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRol
         const capabilities = new Set(deferRoleGrants ? [] : deferredCapabilities(specialist))
         for (const [enabled, label] of [
             [specialist.fileAccess && !managedFilesReady(), 'workspace files'],
-            [
-                specialist.fileAccess && !exportOnly && existingFileDependency(host, specialist),
-                'existing workspace files need owner-scoped upload'
-            ]
+            [specialist.fileAccess && !exportOnly && hasLocalWorkspaceFiles(roster, host, specialist), localFilesGap]
         ])
             if (enabled) capabilities.add(label)
         if (!exportOnly && specialist.fileAccess && host.name && specialist.name) {

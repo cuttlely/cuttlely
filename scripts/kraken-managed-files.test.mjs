@@ -9,6 +9,7 @@ import { createTestSource } from '../packages/etl/check/pg-source.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 import { fileURLToPath } from 'node:url'
 import { managedFilesReady } from '../packages/harness/runtime/native-files.mjs'
+import { nativePackageRoot } from './kraken-package-fixture.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const ready = managedFilesReady()
 test(
@@ -51,7 +52,7 @@ test(
             }
         })
         async function boot(d) {
-            server = await startServer(root, dataEnv(path.join(dir, d), port, cfg), {
+            server = await startServer(nativePackageRoot() || root, dataEnv(path.join(dir, d), port, cfg), {
                 preload: [path.join(root, 'scripts/fixtures/kraken-managed-file-provider.cjs')]
             })
             await waitForPing(url, server)
@@ -413,3 +414,150 @@ test('file compatibility reports configured optional services and unowned local 
     fs.symlinkSync(root, located)
     assert.ok(check().includes(oldFiles))
 })
+
+test(
+    'published native prediction checks only its admitted caller legacy Try workspace before taking ownership of cleanup',
+    {
+        skip: !ready && process.env.CUTTLELY_TEST_NATIVE_FILES_REQUIRED !== '1',
+        timeout: 90000
+    },
+    async (t) => {
+        assert.ok(ready)
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-workspace-'))
+        const db = await createTestSource(),
+            pg = db.connection,
+            port = await freePort(),
+            url = 'http://127.0.0.1:' + port
+        const account = { email: 'workspace@example.invalid', password: randomUUID() + 'Aa1!' }
+        const modelKey = randomUUID()
+        const name = 'legacy-files',
+            otherName = 'other-files'
+        const env = dataEnv(dir, port, {
+            DATABASE_TYPE: 'postgres',
+            DATABASE_HOST: pg.host,
+            DATABASE_PORT: String(pg.port),
+            DATABASE_NAME: pg.database,
+            DATABASE_USER: pg.user,
+            DATABASE_PASSWORD: pg.password,
+            CUTTLELY_APP_DATABASE_STORES: '1',
+            CUTTLELY_LOCAL_USERS: 'true',
+            CUTTLELY_INITIAL_OWNER_EMAIL: account.email,
+            CUTTLELY_INITIAL_OWNER_PASSWORD: account.password,
+            CUTTLELY_SECRETKEY_OVERWRITE: randomUUID(),
+            CUTTLELY_NATIVE_PRIME_TEAMS: name + ',' + otherName,
+            INBOUND_ACCESS_V2: 'on',
+            KRAKEN_TICKET_KEY: modelKey,
+            KRAKEN_TICKET_DIR: dir
+        })
+        let server
+        t.after(async () => {
+            try {
+                await server?.stop()
+            } finally {
+                await db.cleanup()
+                fs.rmSync(dir, { recursive: true, force: true })
+            }
+        })
+        server = await startServer(nativePackageRoot() || root, env, {
+            preload: [path.join(root, 'scripts/fixtures/kraken-published-prediction-provider.cjs')]
+        })
+        await waitForPing(url, server)
+        const login = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
+        assert.equal(login.status, 200)
+        const api = async (route, body) => {
+            const r = await request(url + '/api/v1/' + route, { method: 'POST', cookie: login.cookie, body })
+            assert.equal(r.status, 200, route)
+            return r.json
+        }
+        const cred = await api('credentials', { name: 'Fixture', credentialName: 'xaiApi', plainDataObj: { xaiApiKey: modelKey } })
+        const graph = JSON.parse(JSON.parse(fs.readFileSync(root + '/samples/harnesses/calculator.canvas.json')).flowData)
+        graph.nodes.find((n) => n.data.name === 'harnessSpecialist').data.inputs.enableFileAccess = true
+        graph.nodes.find((n) => n.data.name === 'chatXAI').data.credential = cred.id
+        const save = (name) => api('chatflows', { name, type: 'HARNESS', apiAccessMode: 'private', flowData: JSON.stringify(graph) })
+        const first = await save(name),
+            other = await save(otherName)
+        const resources = [first, other].map((x) => ({ resourceType: 'HARNESS', resourceId: x.id }))
+        const scopedKey = async (keyName) =>
+            (
+                await api('apikey', {
+                    keyName,
+                    permissions: ['chatflows:view'],
+                    accessPolicy: { scopes: ['predict', 'harness:run'] },
+                    resources
+                })
+            ).find((row) => row.keyName === keyName)
+        const key = await scopedKey('old-caller'),
+            second = await scopedKey('another-caller')
+        const { tryIdForFlow, tryProfileName, specialistProfileName } = await import('../packages/harness/profile.mjs')
+        const parent = tryProfileName(tryIdForFlow(first.id, 'api:' + key.id)),
+            specialist = specialistProfileName(parent, 'math')
+        const sticky = path.join(dir, 'workspaces', specialist),
+            note = path.join(sticky, 'handoff-note.txt')
+        const markerDir = path.join(env.CUTTLELY_HERMES_HOME, 'profiles', parent)
+        fs.mkdirSync(markerDir, { recursive: true })
+        fs.writeFileSync(path.join(markerDir, 'harness-try-keep'), parent + '\n')
+        fs.mkdirSync(sticky, { recursive: true })
+        fs.writeFileSync(note, 'Synthetic shift handoff.')
+        const predict = async (resource, caller, ticket, session) => {
+            const transport = caller ? 'prediction' : 'internal-prediction'
+            const headers = caller ? { authorization: 'Bearer ' + caller.apiKey } : { cookie: login.cookie, 'x-request-from': 'internal' }
+            const r = await fetch(url + '/api/v1/' + transport + '/' + resource.id, {
+                method: 'POST',
+                headers: { ...headers, 'content-type': 'application/json' },
+                body: JSON.stringify({ mode: 'agent', question: 'Open ' + ticket, ...session }),
+                signal: AbortSignal.timeout(15000)
+            })
+            const b = await r.json()
+            assert.doesNotMatch(JSON.stringify(b), /handoff-note|Synthetic shift handoff|\/workspaces\/|harness-try-keep/)
+            return { status: r.status, body: b }
+        }
+        const denied = async (resource, caller, ticket) => {
+            const r = await predict(resource, caller, ticket)
+            assert.notEqual(r.status, 200, 'preexisting user files must stop the native prediction')
+            assert.match(r.body.message, /existing workspace files need owner-scoped upload/)
+            assert.equal(fs.existsSync(path.join(dir, ticket + '.entered')), false)
+        }
+        const accepted = async (resource, caller, ticket, session) => {
+            const r = await predict(resource, caller, ticket, session)
+            assert.equal(r.status, 200)
+            assert.equal(r.body.text, 'Receipt ' + ticket)
+            assert.ok(fs.existsSync(path.join(dir, ticket + '.entered')))
+            return { chatId: r.body.chatId, sessionToken: r.body.sessionToken }
+        }
+        const [operator] = await db.query('SELECT id FROM "user" WHERE email=$1', [account.email])
+        const operatorProfile = tryProfileName(tryIdForFlow(first.id, 'user:' + operator.id))
+        const operatorWorkspace = path.join(dir, 'workspaces', specialistProfileName(operatorProfile, 'math'))
+        fs.mkdirSync(operatorWorkspace, { recursive: true })
+        const operatorNote = path.join(operatorWorkspace, 'handoff-note.txt')
+        fs.writeFileSync(operatorNote, 'Synthetic shift handoff.')
+        await denied(first, null, 'TKT-700')
+        assert.equal(fs.readFileSync(operatorNote, 'utf8'), 'Synthetic shift handoff.')
+        await denied(first, key, 'TKT-701')
+        assert.deepEqual(fs.readdirSync(markerDir), ['harness-try-keep'])
+        assert.equal(fs.readFileSync(note, 'utf8'), 'Synthetic shift handoff.')
+        const supervisor = path.join(dir, 'hermes-supervisor.json')
+        fs.writeFileSync(supervisor, JSON.stringify({ state: 'down' }))
+        try {
+            const unavailable = await predict(first, key, 'TKT-707')
+            assert.equal(unavailable.status, 503)
+            assert.ok(!fs.existsSync(path.join(dir, 'TKT-707.entered')))
+            await accepted(first, second, 'TKT-708')
+        } finally {
+            fs.unlinkSync(supervisor)
+        }
+        const ownChat = await accepted(first, second, 'TKT-702')
+        await accepted(other, key, 'TKT-703')
+        // An interrupted disk restore might leave only the workspace. Admission cannot schedule it for deletion.
+        fs.unlinkSync(path.join(markerDir, 'harness-try-keep'))
+        await denied(first, key, 'TKT-704')
+        assert.equal(fs.readFileSync(note, 'utf8'), 'Synthetic shift handoff.')
+        const deployed = path.join(dir, 'workspaces', specialistProfileName(name, 'math'))
+        fs.mkdirSync(deployed, { recursive: true })
+        fs.writeFileSync(path.join(deployed, 'handoff-note.txt'), 'Synthetic shift handoff.')
+        await denied(first, second, 'TKT-705')
+        fs.unlinkSync(path.join(deployed, 'handoff-note.txt'))
+        const continued = await accepted(first, second, 'TKT-706', ownChat)
+        assert.equal(continued.chatId, ownChat.chatId)
+        assert.equal(fs.readFileSync(note, 'utf8'), 'Synthetic shift handoff.')
+    }
+)

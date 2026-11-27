@@ -24,11 +24,22 @@ export function bindCanvasOwner(roster, published, livePrediction = false) {
         roster.description = saved.description || ''
     }
     if (published && saved?.createdAt && !saved.tryId) {
-        roster[publishedCanvas] = Object.freeze({ generation: saved.createdAt, revision: saved.updatedAt, livePrediction })
+        roster[publishedCanvas] = Object.freeze({
+            generation: saved.createdAt,
+            revision: saved.updatedAt,
+            livePrediction,
+            // Only the trusted canvas selector supplies this Try id, derived from the flow and authenticated caller.
+            callerTryId: /^(?:api|user):[^\s]{1,160}$/.test(roster.tryOwner || '') ? roster.tryId : undefined
+        })
     } else if (!roster.tryId) {
         throw new HarnessError('harness_changed', 'The published canvas owner could not be verified.')
     }
     return roster
+}
+
+// Use only with the verified published source. Exported Try fields cannot name a caller workspace.
+export function publishedCallerTryId(roster) {
+    return roster[publishedCanvas]?.callerTryId
 }
 
 export function publishedCanvasSource(roster, { livePrediction = false } = {}) {
