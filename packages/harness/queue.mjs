@@ -252,12 +252,25 @@ export function stopQueueJobs(drained) {
     })
 }
 
+function requestJobCancellation(db, id) {
+    db.prepare(
+        "UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ? AND cancel_requested = 0 AND status IN ('queued','running')"
+    ).run(Date.now(), id)
+}
+
 export function markCancel(id) {
-    database()
-        .prepare(
-            "UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ? AND cancel_requested = 0 AND status IN ('queued','running')"
-        )
-        .run(Date.now(), id)
+    requestJobCancellation(database(), id)
+}
+
+// The same writer fence used to finish jobs decides which side of the deadline won.
+// A previously requested cancellation does not renew the lease or settle the job.
+function statusAtWaitTimeout(id) {
+    return immediate((db) => {
+        requestJobCancellation(db, id)
+        const row = db.prepare('SELECT status FROM jobs WHERE id = ?').get(id)
+        if (!row) throw new HarnessError('not_found', `Harness job ${id} was not found.`)
+        return row.status
+    })
 }
 
 export function cancelRequested(id) {
@@ -305,6 +318,10 @@ export function readJob(id) {
     const row = database()
         .prepare('SELECT id, status, result, error_code, error_message, updated_at, cancel_requested FROM jobs WHERE id = ?')
         .get(id)
+    return jobFromRow(row)
+}
+
+function jobFromRow(row) {
     if (!row) return null
     let result = null
     if (row.result) {
@@ -578,6 +595,31 @@ export function forgetJobImageBytes(id, result) {
     database().prepare('UPDATE jobs SET result = ? WHERE id = ?').run(JSON.stringify(lean), id)
 }
 
+function deliverSQLiteEvents(id, seq, onEvent) {
+    for (const row of readEvents(id, seq)) {
+        seq = row.seq
+        onEvent?.(row.event)
+    }
+    return seq
+}
+
+function readJobUpdate(id, seq, onEvent) {
+    const db = database()
+    if (db.dialect === 'postgres') {
+        const row = db.pollJob(id, seq, journalPrefix)
+        for (const encoded of row?.events || []) {
+            const event = JSON.parse(encoded)
+            onEvent?.(event)
+        }
+        return { job: jobFromRow(row), seq: row?.last_seq ?? seq }
+    }
+    // SQLite uses separate reads. Flush a final event committed after the first read.
+    seq = deliverSQLiteEvents(id, seq, onEvent)
+    const job = readJob(id)
+    if (job?.status === 'succeeded') seq = deliverSQLiteEvents(id, seq, onEvent)
+    return { job, seq }
+}
+
 export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
     const onAbort = () => markCancel(id)
     signal?.addEventListener('abort', onAbort)
@@ -587,27 +629,15 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
         for (;;) {
             assertJobsAllowed()
             if (signal?.aborted) markCancel(id)
-            for (const row of readEvents(id, seq)) {
-                seq = row.seq
-                onEvent?.(row.event)
-            }
-            const job = readJob(id)
-            if (!job) {
-                const { HarnessError } = await import('./errors.mjs')
-                throw new HarnessError('not_found', `Harness job ${id} was not found.`)
-            }
+            const update = readJobUpdate(id, seq, onEvent)
+            seq = update.seq
+            const job = update.job
+            if (!job) throw new HarnessError('not_found', `Harness job ${id} was not found.`)
             if (job.status === 'succeeded') {
-                // The worker can write its last events and finish the job between the read above and this one, so
-                // read the events once more: the final event carries the run header's token totals.
-                for (const row of readEvents(id, seq)) {
-                    seq = row.seq
-                    onEvent?.(row.event)
-                }
                 forgetJobImageBytes(id, job.result)
                 return job.result
             }
             if (job.status === 'failed' || job.status === 'cancelled') {
-                const { HarnessError } = await import('./errors.mjs')
                 const error = new HarnessError(job.errorCode || 'harness_failed', job.errorMessage || 'The harness job failed.')
                 if (error.code === 'RUNTIME_UNAVAILABLE') Object.assign(error, { statusCode: 503, retryAfterSeconds: 5 })
                 const saved = savedRunId({ id: job.result?.runId })
@@ -620,9 +650,10 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
                 immediate((db) => failExpiredWorker(db, id, now - stale, now))
                 continue
             }
-            if (deadline && Date.now() > deadline) {
-                markCancel(id)
-                const { HarnessError } = await import('./errors.mjs')
+            if (deadline && Date.now() >= deadline) {
+                const status = statusAtWaitTimeout(id)
+                // Flush terminal events committed after this poll, using its advanced cursor.
+                if (status === 'succeeded' || status === 'cancelled' || status === 'failed') continue
                 throw new HarnessError('worker_timeout', 'The harness job did not finish before its wait elapsed.')
             }
             await delay(15)

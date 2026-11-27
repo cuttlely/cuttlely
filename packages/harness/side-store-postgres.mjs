@@ -55,6 +55,9 @@ export function openHarnessPostgres(scope) {
     request({ scope, op: 'open' })
     return {
         dialect: 'postgres',
+        pollJob(id, seq, privateEventPrefix) {
+            return request({ scope, op: 'pollJob', params: [id, seq, privateEventPrefix] })
+        },
         creditUsage(workspaceId, flowId, result, at) {
             const { usageLinesFromRun } = requireServer('./dist/services/usage/lines.js')
             const lines = usageLinesFromRun(result)

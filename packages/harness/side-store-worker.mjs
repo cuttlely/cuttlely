@@ -34,7 +34,38 @@ async function finish(client, command) {
     client.release()
 }
 
+// One committed snapshot covers both the public events and terminal status. An accepted
+// worker writes its final event before settling the job, so the final delta cannot be missed.
+// The pooled connection retains the installation's search path. Resolve tables, aggregates and
+// operators explicitly, just as the transactional queue path selects its own schema.
+const queueSchema = harnessSchema('queue')
+const pollSql = `SELECT j.id,j.status,j.result,j.error_code,j.error_message,j.updated_at,j.cancel_requested,
+           e.events,e.last_seq FROM ${queueSchema}.jobs j CROSS JOIN LATERAL (
+             SELECT pg_catalog.array_agg(event ORDER BY seq) FILTER (WHERE event OPERATOR(pg_catalog.!~~) $3) AS events,
+                    pg_catalog.max(seq) AS last_seq FROM ${queueSchema}.job_events
+             WHERE job_id OPERATOR(pg_catalog.=) j.id AND seq OPERATOR(pg_catalog.>) $2) e
+       WHERE j.id OPERATOR(pg_catalog.=) $1`
+
+function normalizeBigInts(response) {
+    for (const { name, dataTypeID } of response.fields) {
+        if (dataTypeID !== 20) continue
+        for (const row of response.rows) {
+            if (row[name] === null) continue
+            const value = Number(row[name])
+            if (!Number.isSafeInteger(value)) throw new RangeError('Harness integer exceeds safe JavaScript range.')
+            row[name] = value
+        }
+    }
+}
+
 async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
+    if (op === 'pollJob') {
+        if (scope !== 'queue') throw new Error('Job polling requires the queue store.')
+        const reader = transactions.get(scope) || pool
+        const response = await reader.query(pollSql, params)
+        normalizeBigInts(response)
+        return response.rows[0] || null
+    }
     if (op === 'saveRuntimeSetting') {
         const client = await pool.connect()
         try {
@@ -126,15 +157,7 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
             }
         } else {
             const response = await client.query(sql, params)
-            for (const { name, dataTypeID } of response.fields) {
-                if (dataTypeID !== 20) continue
-                for (const row of response.rows) {
-                    if (row[name] === null) continue
-                    const value = Number(row[name])
-                    if (!Number.isSafeInteger(value)) throw new RangeError('Harness integer exceeds safe JavaScript range.')
-                    row[name] = value
-                }
-            }
+            normalizeBigInts(response)
             result = op === 'run' ? { changes: response.rowCount } : op === 'get' ? response.rows[0] : response.rows
         }
     } catch (error) {

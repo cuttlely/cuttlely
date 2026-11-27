@@ -545,3 +545,176 @@ test(
         assert.equal(getRunResult(rejected.harness, rejected.id)?.text, payload.text)
     }
 )
+
+test('PostgreSQL queue poll snapshots deliver ordered public events once and preserve terminal fences', { skip: skipReason }, async (t) => {
+    const db = await createTestDatabase()
+    const { configureHarnessPostgres } = await import('../packages/harness/side-store-postgres.mjs')
+    const { database, closeQueueDb } = await import('../packages/harness/lock.mjs')
+    const { enqueueHarnessJob, claimJob, appendEvent, finishJob, waitForJob, markCancel, cancelRequested, readJob } = await import(
+        '../packages/harness/queue.mjs'
+    )
+    const { Pool } = createRequire(new URL('../packages/server/package.json', import.meta.url))('pg')
+    const connection = { ...db.connection, options: '-c lock_timeout=1000ms -c search_path=paper_operations,pg_catalog' }
+    const pool = new Pool(connection)
+    configureHarnessPostgres(connection)
+    t.after(async () => {
+        closeQueueDb()
+        configureHarnessPostgres(null)
+        await pool.end()
+        await db.cleanup()
+    })
+    await pool.query('CREATE SCHEMA paper_operations')
+    // The operator's own schema can legitimately contain unrelated tables with these names.
+    await pool.query('CREATE TABLE paper_operations.jobs (id BIGINT PRIMARY KEY)')
+    await pool.query('CREATE TABLE paper_operations.job_events (id BIGINT PRIMARY KEY)')
+    assert.equal((await pool.query('SELECT current_schema() AS schema')).rows[0].schema, 'paper_operations')
+    const enqueue = () => enqueueHarnessJob({ name: 'Paper', chatId: randomUUID() }).id
+    const other = enqueue()
+    appendEvent(other, { type: 'foreign' })
+    finishJob(other, { status: 'succeeded', result: { text: 'unrelated' } })
+    const job = enqueue()
+    appendEvent(job, { type: 'nativeToolReceipt', phase: 'dispatched' })
+    appendEvent(job, { type: 'partial', text: 'Approved' })
+    const events = []
+    const result = await waitForJob(job, {
+        timeoutMs: 3000,
+        onEvent(event) {
+            events.push(event)
+            if (event.type === 'partial') {
+                // This writer commits after the waiter's first statement snapshot.
+                appendEvent(job, { type: 'final', tokens: { prompt: 7, completion: 2 } })
+                finishJob(job, { status: 'succeeded', result: { text: 'Approved' } })
+            }
+        }
+    })
+    assert.deepEqual(events, [
+        { type: 'partial', text: 'Approved' },
+        { type: 'final', tokens: { prompt: 7, completion: 2 } }
+    ])
+    assert.deepEqual(result, { text: 'Approved' })
+    // A writer holds the normal queue fence and has not committed the final event or status.
+    // The reader can observe the previous state and its visible event, then the terminal pair.
+    const concurrent = enqueue()
+    appendEvent(concurrent, { type: 'visible' })
+    const writer = await pool.connect()
+    try {
+        await writer.query('BEGIN')
+        await writer.query("SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue'))")
+        await writer.query('INSERT INTO cuttlely_harness_queue.job_events(job_id,seq,event) VALUES ($1,2,$2)', [
+            concurrent,
+            JSON.stringify({ type: 'final' })
+        ])
+        await writer.query("UPDATE cuttlely_harness_queue.jobs SET status='succeeded', result=$2 WHERE id=$1", [
+            concurrent,
+            JSON.stringify({ text: 'committed' })
+        ])
+        const before = database().pollJob(concurrent, 0, '{"type":"nativeToolReceipt",%')
+        assert.equal(before.status, 'queued')
+        assert.deepEqual(
+            before.events.map((event) => JSON.parse(event)),
+            [{ type: 'visible' }]
+        )
+        await writer.query('COMMIT')
+        const visible = []
+        assert.deepEqual(await waitForJob(concurrent, { onEvent: (event) => visible.push(event) }), { text: 'committed' })
+        assert.deepEqual(visible, [{ type: 'visible' }, { type: 'final' }])
+    } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+    }
+    const cancelled = enqueue(),
+        controller = new AbortController(),
+        runId = 'run_' + randomUUID()
+    appendEvent(cancelled, { type: 'starting' })
+    await assert.rejects(
+        waitForJob(cancelled, {
+            signal: controller.signal,
+            timeoutMs: 3000,
+            onEvent() {
+                controller.abort()
+                assert.ok(cancelRequested(cancelled))
+                finishJob(cancelled, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'cancelled', result: { runId } })
+            }
+        }),
+        (error) => error.code === 'aborted' && error.runId === runId
+    )
+    const lost = enqueue()
+    assert.equal(claimJob().id, lost)
+    appendEvent(lost, { type: 'nativeToolReceipt', callId: 'paper-call', phase: 'dispatched' })
+    database().prepare('UPDATE jobs SET updated_at = 1 WHERE id = ?').run(lost)
+    const visible = []
+    await assert.rejects(waitForJob(lost, { onEvent: (event) => visible.push(event), timeoutMs: 3000 }), { code: 'worker_lost' })
+    assert.deepEqual(visible, [])
+    assert.equal(readJob(lost).errorCode, 'worker_lost')
+    assert.equal(
+        database().prepare('SELECT count(*) AS n FROM job_events WHERE job_id=? AND event LIKE ?').get(lost, '%"phase":"uncertain"%').n,
+        1
+    )
+    await assert.rejects(waitForJob('job_' + randomUUID()), { code: 'not_found' })
+    // Change the real job immediately after capturing a snapshot. The waiter then reaches exactly
+    // its deadline, without relying on the listener, wall-clock delays or interprocess timing.
+    async function atDeadline(id, action, expectedPolls, onEvent) {
+        const store = database()
+        const original = store.pollJob.bind(store)
+        let now = Date.now()
+        let polls = 0
+        const clock = t.mock.method(Date, 'now', () => now)
+        const reader = t.mock.method(store, 'pollJob', (...args) => {
+            const snapshot = original(...args)
+            if (++polls === 1) {
+                action()
+                now += 30
+            } else now++
+            return snapshot
+        })
+        try {
+            return await waitForJob(id, { timeoutMs: 30, onEvent })
+        } finally {
+            reader.mock.restore()
+            clock.mock.restore()
+            assert.equal(polls, expectedPolls)
+        }
+    }
+    const crossing = enqueue()
+    appendEvent(crossing, { type: 'partial' })
+    const delivered = []
+    const outcome = await atDeadline(
+        crossing,
+        () => {
+            appendEvent(crossing, { type: 'final' })
+            finishJob(crossing, { status: 'succeeded', result: { text: 'settled' } })
+        },
+        2,
+        (event) => delivered.push(event.type)
+    )
+    assert.equal(outcome.text, 'settled')
+    assert.deepEqual(delivered, ['partial', 'final'])
+    const failed = enqueue()
+    await assert.rejects(
+        atDeadline(failed, () => finishJob(failed, { status: 'failed', errorCode: 'bad_model', errorMessage: 'rejected' }), 2),
+        { code: 'bad_model' }
+    )
+    const expired = enqueue()
+    markCancel(expired)
+    const beforeTimeout = readJob(expired).updatedAt
+    await assert.rejects(
+        atDeadline(expired, () => {}, 1),
+        { code: 'worker_timeout' }
+    )
+    assert.equal(cancelRequested(expired), true)
+    assert.equal(readJob(expired).updatedAt, beforeTimeout)
+    const active = enqueue()
+    await assert.rejects(
+        atDeadline(active, () => {}, 1),
+        { code: 'worker_timeout' }
+    )
+    assert.equal(cancelRequested(active), true)
+    const removed = enqueue()
+    await assert.rejects(
+        atDeadline(removed, () => database().prepare('DELETE FROM jobs WHERE id = ?').run(removed), 1),
+        { code: 'not_found' }
+    )
+    const corrupt = enqueue()
+    database().prepare('INSERT INTO job_events(job_id,seq,event) VALUES (?,1,?)').run(corrupt, 'incomplete public event')
+    await assert.rejects(waitForJob(corrupt), SyntaxError)
+})
