@@ -163,6 +163,7 @@ type Coordinator = {
     jobsPaused: () => boolean
     paused: () => boolean
     failure: () => CoordinatorFailure | null
+    progress: () => { activity: { action: string; message: string; startedAt: number } | null; failure: CoordinatorFailure | null }
     status: () => Promise<unknown>
     close: () => Promise<void>
     transition: (
@@ -200,6 +201,7 @@ export function sideStoreAdmission(req: Request, res: Response, next: NextFuncti
     next()
 }
 
+export const storageProgress = () => coordinator?.progress() || { activity: null, failure: null }
 export const storageStatus = () => coordinator?.status() || { available: false }
 export async function changeSideStores(
     action: 'upgrade' | 'rollback' | 'stop-jobs' | 'check-stop' | 'resume-jobs',
