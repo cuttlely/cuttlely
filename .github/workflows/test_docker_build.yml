@@ -70,6 +70,8 @@ jobs:
                   docker run --rm --user 1000870001:0 --cap-drop ALL --security-opt no-new-privileges \
                     --read-only --network none --env HOME=/root --tmpfs /tmp:rw,mode=1777 \
                     --tmpfs /var/cuttlely:rw,mode=0770,gid=0 cuttlely bash -ec '
+                      test -x "$SHELL"
+                      test -w "$LOG_PATH"
                       test -w "$HOME"
                       test -w "$CUTTLELY_DATA_DIR/hermes"
                       test -r packages/server/dist/commands/start.js
