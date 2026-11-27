@@ -69,26 +69,60 @@ function dbPath(harnessName, scope, create) {
 // re-running the schema on every turn cost tens of milliseconds on a Windows-mounted drive.
 const connections = new Map()
 
+function sessionFileStat(file) {
+    return fs.statSync(file, { bigint: true, throwIfNoEntry: false })
+}
+
+function sameSessionFile(left, right) {
+    return Boolean(left && right && left.dev === right.dev && left.ino === right.ino)
+}
+
+// Retain the identity SQLite actually opened. The profile may be retired and another worker can
+// create a new sessions.sqlite at the same pathname while this worker still holds its old handle.
+function openSqliteSession(file, expected) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    if (!expected) {
+        // Let SQLite create the empty file with its regular deployment permissions and establish
+        // an identity before opening the long-lived handle, just as for an existing session.
+        new DatabaseSync(file).close()
+        expected = sessionFileStat(file)
+    }
+    const db = new DatabaseSync(file)
+    const current = () => {
+        if (!sameSessionFile(expected, sessionFileStat(file)))
+            throw new HarnessError('harness_changed', 'The session database was replaced while opening it.')
+    }
+    try {
+        current()
+        db.exec(`PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        ${SESSION_SCHEMA}`)
+        current()
+        return { db, identity: { dev: expected.dev, ino: expected.ino } }
+    } catch (error) {
+        db.close()
+        throw error
+    }
+}
+
 function connection(harnessName, { create, scope }) {
     assertStorageReady()
     const postgres = harnessUsesPostgres()
     const diskPath = dbPath(harnessName, scope, postgres ? false : create)
     const identity = postgres && scope === undefined ? publishedSessionScope(harnessName) : 'draft:' + scope
     const file = postgres ? identity : diskPath
+    const stat = postgres ? undefined : sessionFileStat(file)
     const cached = connections.get(file)
     if (cached) {
-        if (postgres || fs.existsSync(file)) return cached
+        // Some filesystems return no inode. They can still open sessions without reusing an unidentifiable handle.
+        if (postgres || (stat?.ino && sameSessionFile(stat, cached.identity))) return cached
         closeConnection(file)
     }
-    if (!postgres && !create && !fs.existsSync(file)) return null
-    if (!postgres) fs.mkdirSync(path.dirname(file), { recursive: true })
-    const db = postgres ? openHarnessPostgres(identity) : new DatabaseSync(file)
-    if (!postgres)
-        db.exec(`PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
-        ${SESSION_SCHEMA}`)
+    if (!postgres && !create && !stat) return null
+    const opened = postgres ? { db: openHarnessPostgres(identity) } : openSqliteSession(file, stat)
+    const { db } = opened
     const entry = {
-        db,
+        ...opened,
         ensure: db.prepare(
             `INSERT INTO sessions (session_key, harness_name, chat_id, created_at)
              VALUES (?, ?, ?, ?)

@@ -138,3 +138,72 @@ for (const backend of ['sqlite', 'postgres']) {
         }
     )
 }
+
+test('a session reader follows the replacement database without damaging its live SQLite journal', async (t) => {
+    const { spawn } = await import('node:child_process')
+    const { once } = await import('node:events')
+    const { profileDir } = await import('./paths.mjs')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'session-replacement-'))
+    const old = process.env.CUTTLELY_DATA_DIR
+    process.env.CUTTLELY_DATA_DIR = root
+    const name = 'compat-file-owner',
+        chatId = 'same-chat'
+    let writer
+    t.after(async () => {
+        if (writer?.exitCode === null && writer.signalCode === null) {
+            const finished = once(writer, 'exit')
+            writer.kill()
+            await finished
+        }
+        closeSessions()
+        if (old === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = old
+        fs.rmSync(root, { recursive: true, force: true })
+    })
+    appendTurn(name, chatId, 'earlier question', 'earlier answer')
+    appendTurn(name, chatId, 'continued question', 'continued answer')
+    assert.deepEqual(clean(readMessages(name, chatId)).slice(-2), [
+        ['user', 'continued question'],
+        ['assistant', 'continued answer']
+    ])
+    const profile = profileDir(name),
+        file = path.join(profile, 'sessions.sqlite')
+    const oldInode = fs.statSync(file, { bigint: true }).ino
+    fs.renameSync(profile, path.join(root, 'retired'))
+    // A second ordinary application connection creates and keeps the replacement generation open.
+    const source = `
+        import {appendTurn,readMessages,closeSessions} from ${JSON.stringify(new URL('./session.mjs', import.meta.url).href)}
+        const [name,chat]=process.argv.slice(1)
+        appendTurn(name,chat,'current question','current answer')
+        process.send('ready')
+        process.on('message',(message)=>{if(message==='close'){closeSessions();process.disconnect();return}process.send(readMessages(name,chat).map(row=>row.content))})
+    `
+    writer = spawn(process.execPath, ['--input-type=module', '-e', source, name, chatId], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] })
+    assert.equal((await once(writer, 'message', { signal: AbortSignal.timeout(15000) }))[0], 'ready')
+    assert.notEqual(fs.statSync(file, { bigint: true }).ino, oldInode)
+    const journals = ['-wal', '-shm'].map((suffix) => ({ path: file + suffix, stat: fs.statSync(file + suffix, { bigint: true }) }))
+    assert.ok(journals[0].stat.size > 0n)
+    assert.deepEqual(clean(readMessages(name, chatId)), [
+        ['user', 'current question'],
+        ['assistant', 'current answer']
+    ])
+    appendTurn(name, chatId, 'new question', 'new answer')
+    for (const j of journals) assert.equal(fs.statSync(j.path, { bigint: true }).ino, j.stat.ino)
+    const checked = once(writer, 'message', { signal: AbortSignal.timeout(15000) })
+    writer.send('read')
+    assert.deepEqual((await checked)[0], ['current question', 'current answer', 'new question', 'new answer'])
+    assert.deepEqual(clean(readMessages(name, chatId)).slice(-2), [
+        ['user', 'new question'],
+        ['assistant', 'new answer']
+    ])
+    const stopped = once(writer, 'exit')
+    writer.send('close')
+    await stopped
+    closeSessions()
+    assert.deepEqual(clean(readMessages(name, chatId)), [
+        ['user', 'current question'],
+        ['assistant', 'current answer'],
+        ['user', 'new question'],
+        ['assistant', 'new answer']
+    ])
+})
