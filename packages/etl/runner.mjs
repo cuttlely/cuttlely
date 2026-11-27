@@ -35,8 +35,7 @@ export function runnerStopping() {
 
 // Register work before its first await, including admission and queue handoff.
 function admitted(work) {
-    if (etlStore.gate.closed())
-        throw new EtlError('store_moving', 'ETL is moving to the application database. Try again in a minute.', 503, 30)
+    etlStore.gate.assertOpen()
     if (runnerStopping()) throw new EtlError('restarting', 'Cuttlely is restarting to apply new settings. Try again in a minute.', 503)
     return track(Promise.resolve().then(work))
 }
