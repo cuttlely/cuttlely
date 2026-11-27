@@ -177,7 +177,7 @@ import {
     turnImages,
     withPromptImages
 } from './images.mjs'
-import { withPredictionAttachments } from './prediction-files.mjs'
+import { managedUploadActor, withPredictionAttachments } from './prediction-files.mjs'
 import { defaultUploadRoots, parseUploadStubs, prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
@@ -375,7 +375,7 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
     let result
     let failure = null
     const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
-    if (tryName) noteLiveTry(tryName)
+    if (tryName && discardOwnedTry) noteLiveTry(tryName)
     try {
         // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
         const rawResult = await runHarnessTurn({
@@ -402,7 +402,7 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
                 // A folder that cannot be removed is left for the next workspace cleanup.
             }
         }
-        if (args.record?.tryId) {
+        if (discardOwnedTry) {
             try {
                 await discardOwnedTry()
             } catch (error) {
@@ -423,6 +423,7 @@ async function runHarnessBody(args = {}, discardOwnedTry) {
 
 async function runHarnessTurn({
     [admittedAgentEngine]: admittedEngine,
+    [admittedNativePrediction]: nativePrediction,
     [admittedNativeRolePin]: admittedRolePin,
     mode,
     name,
@@ -456,7 +457,7 @@ async function runHarnessTurn({
     if (!chatId) {
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }
-    const turnLock = acquireTurn(name, chatId)
+    const turnLock = nativePrediction?.lease || acquireTurn(name, chatId)
     const deadlines = [turnBudgetMs(budgetMs), timeoutMs ?? agentRunTimeoutMs()].filter((ms) => ms > 0)
     const stopRenewal = startTurnRenewal(turnLock, {
         signal: readClientSignal(signal),
@@ -471,6 +472,7 @@ async function runHarnessTurn({
                     journalOwner: turnLock.owner,
                     engine,
                     rolePin,
+                    nativePrediction,
                     mode,
                     name,
                     chatId,
@@ -500,7 +502,7 @@ async function runHarnessTurn({
         )
     } finally {
         stopRenewal()
-        releaseTurn(turnLock)
+        if (!nativePrediction) releaseTurn(turnLock)
     }
 }
 
@@ -519,11 +521,55 @@ export async function runHarness(args = {}) {
     return trackStorageJob((stop) => runManagedHarness({ ...args, signal: caller ? AbortSignal.any([caller, stop]) : stop }))
 }
 
+// A live native prediction can share an owner’s canvas across chats when no role uses a physical profile.
+const admittedNativePrediction = Symbol('admittedNativePrediction')
+
+function nativePredictionOwner(args, engine) {
+    if (engine !== 'native' || args.replay) return
+    const { record, flowOptions } = args
+    const caller = flowOptions?.harnessCaller
+    const actor = flowOptions?.nestedFlowCaller
+    const authenticatedOwner = managedUploadActor(actor)
+    if (!authenticatedOwner || authenticatedOwner !== record.tryOwner || actor.via !== caller?.via || actor.apiKeyId !== caller.apiKeyId)
+        return
+    const roles = record.specialists
+    if (
+        !Array.isArray(roles) ||
+        !roles.length ||
+        !roles.every(
+            (role) =>
+                !needsAgentLoop(role) &&
+                !role.preset &&
+                !role.trustedOutputs?.length &&
+                !role.trustedInterpretation &&
+                !role.pinFirst &&
+                !role.pinFirstRules?.length &&
+                (role.modules || []).every((binding) => ['calculator', 'currentDateTime'].includes(binding.nodeName))
+        )
+    )
+        return
+    assertHarnessWorkspace(args.name, flowOptions, record)
+    return publishedCanvasSource(record, { livePrediction: true })
+}
+
 async function runManagedHarness(args) {
     if (args.record?.tryId) {
         // Copy the draft: callers may reuse it for another turn. Both canvas entrypoints reach this gate.
         const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId, args.record.tryOwner) : args.record.tryId
         args = { ...args, record: { ...args.record, tryId } }
+        const engine = args[admittedAgentEngine] ?? selectAgentEngine(args.name)
+        const owner = nativePredictionOwner(args, engine)
+        if (owner)
+            return guardHarnessRun(args.name, async () => {
+                const lease = acquireTurn(args.name, args.chatId)
+                const admission = { owner, lease, active: true }
+                try {
+                    return await runHarnessBody({ ...args, [admittedNativePrediction]: admission, [admittedAgentEngine]: engine })
+                } finally {
+                    admission.active = false
+                    releaseTurn(lease)
+                }
+            })
         return withTryProfile(tryId, (discard) => guardHarnessRun(args.name, () => runHarnessBody(args, discard)))
     }
     return guardHarnessRun(args?.name, () => runHarnessBody(args))
@@ -539,6 +585,7 @@ async function runTurn(
         journalOwner,
         engine,
         rolePin,
+        nativePrediction,
         mode,
         name,
         chatId,
@@ -573,6 +620,7 @@ async function runTurn(
             journalOwner,
             engine,
             rolePin,
+            nativePrediction,
             mode,
             name,
             chatId,
@@ -618,6 +666,7 @@ async function runTurnBody(
         journalOwner,
         engine,
         rolePin,
+        nativePrediction,
         mode,
         name,
         chatId,
@@ -648,7 +697,7 @@ async function runTurnBody(
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
     const nativeSpecialists = useNativeSpecialists(harness, engine, rolePin)
-    const pinnedCanvas = rolePin && publishedCanvasSource(harness)
+    const pinnedCanvas = nativePrediction?.owner || (rolePin && publishedCanvasSource(harness))
     const roleWork = rolePin ? new AbortController() : undefined
     const nativePrime = nativeSpecialists && mode === 'agent'
     const needsHermes =
@@ -698,15 +747,16 @@ async function runTurnBody(
             : undefined,
         // Check saved grants at public delivery even when a provider started before the roster changed.
         checkNativeDelivery:
-            nativeSpecialists && (rolePin || roster.specialists.some((role) => role.playbooks?.length))
+            nativeSpecialists && (nativePrediction || rolePin || roster.specialists.some((role) => role.playbooks?.length))
                 ? () => context.assertNativeAuthority()
                 : undefined,
         nativeResults: [],
         assertNativeAuthority() {
             context.workSignal?.throwIfAborted()
             if (harness.tryId) {
-                // This request holds the exclusive Try lock and owns its in-memory canvas.
-                if (!isLiveTry(tryProfileName(harness.tryId))) throw new HarnessError('harness_changed', 'This preview has ended.')
+                // Native published turns hold a chat lease. Physical Try turns hold the profile lock.
+                if (nativePrediction ? !nativePrediction.active : !isLiveTry(tryProfileName(harness.tryId)))
+                    throw new HarnessError('harness_changed', 'This preview has ended.')
                 const published = publishedCanvasSource(harness)
                 if (pinnedCanvas && !isDeepStrictEqual(published, pinnedCanvas))
                     throw new HarnessError('harness_changed', 'The published canvas changed during this turn.')
@@ -987,6 +1037,18 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
     }
 }
 
+// A caller can ask Prime to repeat supplied text without assigning work to a specialist.
+// Match the complete directive and the actual reply. A conditional or extra instruction may require source evidence.
+function repeatsCallerLiteral(input, answer) {
+    if (typeof input !== 'string' || input.length > 512 || typeof answer !== 'string') return false
+    const request = input.trim().replace(/\s+do not (?:delegate or )?use (?:any )?tools[.!]?$/i, '')
+    const match =
+        /^(?:please\s+)?(?:echo|repeat(?: verbatim)?|(?:return|reply(?: with)?|respond with) (?:only|exactly))\s+(?:"([\p{L}\p{N} _-]{1,160})"|'([\p{L}\p{N} _-]{1,160})'|([\p{L}\p{N}_-]{1,160}))(?: from this (?:message|question))?[.!]?$/iu.exec(
+            request
+        )
+    return !!match && answer === (match[1] ?? match[2] ?? match[3])
+}
+
 async function nativeChiefAnswer(context, input, delegate, messages, budget, recall) {
     context.assertNativeAuthority()
     if (rosterAnalysts(context.roster.specialists).length && analystPageRequest(input)) {
@@ -1022,7 +1084,7 @@ async function nativeChiefAnswer(context, input, delegate, messages, budget, rec
     if (!protectedAnalysts.length || context.nativeResults.some((result) => result?.trustedOutput)) return answer
     // A direct Prime answer carries no provenance. Ask the saved owner when a verified team never got a source call.
     // A mixed team can still complete unrelated work through its designated non-Analyst specialists.
-    if (context.nativeResults.length && !analystDataTask(context, input)) return answer
+    if ((context.nativeResults.length || repeatsCallerLiteral(input, answer)) && !analystDataTask(context, input)) return answer
     const steps =
         protectedAnalysts.length === 1
             ? [{ specialist: protectedAnalysts[0], task: input }]

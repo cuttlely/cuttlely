@@ -15,7 +15,7 @@ function sameCanvas(saved, roster) {
     )
 }
 
-export function bindCanvasOwner(roster, published) {
+export function bindCanvasOwner(roster, published, livePrediction = false) {
     const saved = getHarness(roster.name)
     if (saved && !sameCanvas(saved, roster)) throw new HarnessError('wrong_workspace', 'The selected canvas does not own this agent team.')
     if (saved) {
@@ -24,16 +24,16 @@ export function bindCanvasOwner(roster, published) {
         roster.description = saved.description || ''
     }
     if (published && saved?.createdAt && !saved.tryId) {
-        roster[publishedCanvas] = Object.freeze({ generation: saved.createdAt, revision: saved.updatedAt })
+        roster[publishedCanvas] = Object.freeze({ generation: saved.createdAt, revision: saved.updatedAt, livePrediction })
     } else if (!roster.tryId) {
         throw new HarnessError('harness_changed', 'The published canvas owner could not be verified.')
     }
     return roster
 }
 
-export function publishedCanvasSource(roster) {
+export function publishedCanvasSource(roster, { livePrediction = false } = {}) {
     const owner = roster[publishedCanvas]
-    if (!owner) return
+    if (!owner || (livePrediction && !owner.livePrediction)) return
     const current = getHarness(roster.name)
     if (!sameCanvas(current, roster) || current.createdAt !== owner.generation || current.updatedAt !== owner.revision || current.tryId)
         throw new HarnessError('harness_changed', 'The published canvas changed during this turn.')

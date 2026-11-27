@@ -272,13 +272,13 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
 }
 
 // Only call this with the database-selected canvas and its authenticated Try owner.
-export function rosterForCanvasRun(args, { published, tryOwner } = {}) {
+export function rosterForCanvasRun(args, { published, tryOwner, livePrediction } = {}) {
     const roster = rosterFromFlow(args, { inheritSavedFields: false })
     if (tryOwner) {
         roster.tryOwner = tryOwner
         roster.tryId = tryIdForFlow(roster.chatflowId, tryOwner)
     }
-    return bindCanvasOwner(roster, published === true)
+    return bindCanvasOwner(roster, published === true, livePrediction === true)
 }
 
 // A draft save checks only the record limits. A draft may still lack a model, a name or a wire that a full

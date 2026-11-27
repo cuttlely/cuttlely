@@ -25,6 +25,14 @@ The v1.7.15 Field Team sample has an interactive browser specialist and a Python
 
 Selection applies to both router and agent mode. The default native policy, `strict`, checks the whole team before a model or tool runs. The runtime can return `native_unsupported` with the affected specialists and grants. If the bundled supervisor is unavailable and preflight cannot admit the team, the service reports runtime unavailable. A supported configuration can still fail at execution if a credential is revoked, a destination is unavailable, or a query needs to be tested against its destination again.
 
+### Running several published chats with one key
+
+For a private, published team, a scoped access key can issue concurrent `POST /api/v1/prediction/:id` requests for different chats. This applies when every specialist is model-only or uses only Calculator or Current Date Time. Each request holds the team's existing lock for its own chat. Credentials, caller permissions and the saved publication are checked as usual. Changing the publication while a request is running can fail that request before its answer is delivered.
+
+Start each new conversation without a previous session token. Keep the returned `chatId` and `sessionToken` together and send both when continuing that chat. Starting a second turn in the same chat while the first is active returns HTTP 409. Wait for the first turn before retrying. Another key presenting that token receives a separate conversation. An existing signed conversation can continue after API replacement with its original owner and history.
+
+Published predictions that use preset roles, playbooks, file access, MCP, pin-first or trusted interpretation/output, shell, browser, code execution or other canvas tools retain the exclusive profile for that canvas and caller. The same applies to draft and authoring previews, anonymous predictions, and teams using the bundled runtime. Check the actual request route when planning capacity. A direct published canvas prediction runs in the API process even when named team runs use an external worker.
+
 ### Trying a mixed team on demand
 
 On the full installation, select the native team as above. Set `CUTTLELY_NATIVE_ROLE_POLICY=on-demand` on processes that admit new turns and restart them. The policy applies to native admissions only. A native-only installation selects every team for native execution, so this setting applies to every eligible published team there. Use `strict` or remove the setting to restore whole-team checks for new turns. Queued native turns retain their admitted policy when a worker restarts. Older queued native turns remain strict.
@@ -102,6 +110,8 @@ Each workspace is limited to 256 files and 64 MiB of decoded content. It uses th
 An existing shared workspace may contain files without a reliable owner. A nonempty legacy workspace blocks this team’s native cutover. Back it up, review its contents, and re-upload the required files through the owner's chat before retiring the original workspace. Preserve older copies until the owner confirms the required outputs.
 
 ### Reporting on an uploaded CSV
+
+A direct request to repeat a short caller-supplied literal can complete without invoking an Analyst. A conditional answer, request for data, or request for a verified report still needs source evidence.
 
 An authenticated chat or API client can attach a CSV and ask for a table or bar chart. Use a specialist with File Access and an eligible PostgreSQL Analyst query grant. An on-demand code specialist with File Access can also process the verified upload directly. The CSV operation uses the uploaded bytes and requires no database grant for that path. The report tool reads the verified original upload, including small CSVs that the chat displays inline. Each worker must be able to reopen the original stored bytes. PostgreSQL and hybrid installations use their configured file store. A changed file fails verification and the caller can send it again.
 

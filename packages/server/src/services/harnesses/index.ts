@@ -1903,7 +1903,7 @@ const startCanvasRun = async (
             workspaceId: chatflow.workspaceId,
             componentNodes: opts.runtime ? opts.runtime.componentNodes : getRunningExpressApp().nodesPool?.componentNodes
         },
-        { published: selection.published, tryOwner }
+        { published: selection.published, tryOwner, livePrediction: canvas === 'live' }
     )
     return await startRun(chatflow.name, body, {
         ...runOpts,

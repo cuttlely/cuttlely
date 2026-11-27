@@ -310,6 +310,7 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     saveHarness(saved)
     let skipSource = false
     let bypassDelegation = false
+    let primeText = 'Unverified fabricated model answer'
     class Model {
         async init() {
             return {
@@ -321,7 +322,7 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
                     return {
                         async invoke(messages) {
                             if ((chief && bypassDelegation) || messages.at(-1)._getType() === 'tool' || (!chief && skipSource))
-                                return { content: 'Unverified fabricated model answer' }
+                                return { content: chief && bypassDelegation ? primeText : 'Unverified fabricated model answer' }
                             return {
                                 content: '',
                                 tool_calls: [
@@ -371,6 +372,28 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     })
     assert.ok(!rejectedEvents.some((event) => event.type === 'final' || (event.type === 'partial' && event.phase === 'answer')))
     assert.equal(readMessages(teamName, run.chatId).at(-1).content, 'First sourced report')
+    // A specialist's source contract also applies to mixed or conditional requests.
+    // An exact caller-supplied literal is an ordinary reply with no data or attachment claim.
+    for (const [input, expected] of [
+        ['Please repeat verbatim "Ready for review".', 'Ready for review'],
+        ['Return only TICKET-47. Do not delegate or use any tools.', 'TICKET-47']
+    ]) {
+        primeText = expected
+        const echo = await runHarness({ ...run, chatId: randomUUID(), input })
+        assert.equal(echo.text, expected)
+        assert.ok(!echo.trustedOutput)
+        assert.deepEqual(echo.agents, [])
+        assert.equal(echo.artifacts?.length || 0, 0)
+    }
+    for (const [input, reply] of [
+        ['Return only TICKET-47.', 'A different reply'],
+        ['Return only TICKET-47 if the verified report confirms it.', 'TICKET-47'],
+        ['Echo "Ready for review". Also return the verified report.', 'Ready for review'],
+        ['Echo "database rows".', 'database rows']
+    ]) {
+        primeText = reply
+        await assert.rejects(runHarness({ ...run, chatId: randomUUID(), input }), { code: 'trusted_output' })
+    }
 
     // Two independent delegations must preserve both attachments, their bytes, and their references.
     const csvTeam = teamName + '-files'
