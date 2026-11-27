@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import envelope from './credential-envelope.cjs'
-import { supportsNativeCanvasBinding } from './native-canvas-bindings.mjs'
+import { profileIndependentRetriever, supportsNativeCanvasBinding } from './native-canvas-bindings.mjs'
 
 function retriever() {
     return {
@@ -32,6 +32,87 @@ function retriever() {
         }
     }
 }
+
+test('published concurrent retrieval needs a fixed read-only collection and saved workspace credentials', () => {
+    const fixed = retriever()
+    const store = fixed.upstream.retriever
+    store.inputs.fileUpload = false
+    for (const namespace of ['qa', undefined, '']) {
+        store.inputs.pineconeNamespace = namespace
+        assert.equal(profileIndependentRetriever(fixed), true)
+    }
+    for (const changed of [
+        { fileUpload: true },
+        { pineconeNamespace: '{{chatId}}' },
+        { pineconeMetadataFilter: { team: 'other' } },
+        { topK: 65 }
+    ]) {
+        const copy = structuredClone(fixed)
+        Object.assign(copy.upstream.retriever.inputs, changed)
+        assert.equal(profileIndependentRetriever(copy), false)
+    }
+    for (const flag of [false, true, 'false', 'true', undefined, '']) {
+        fixed.inputs.returnSourceDocuments = flag
+        assert.equal(profileIndependentRetriever(fixed), true)
+    }
+    for (const malformed of ['False', 'TRUE', '0', 1, {}]) {
+        fixed.inputs.returnSourceDocuments = malformed
+        assert.equal(profileIndependentRetriever(fixed), false)
+    }
+    fixed.inputs.returnSourceDocuments = true
+    for (const field of ['inputs', 'outputs', 'upstream']) {
+        for (const malformed of [false, 0, '', []]) {
+            const copy = structuredClone(fixed)
+            copy.upstream.retriever.upstream.embeddings[field] = malformed
+            assert.equal(profileIndependentRetriever(copy), false)
+        }
+    }
+    // Form serialization preserves unused input slots even after the compiler removes wired node references.
+    Object.assign(fixed.inputs, { retrieverToolMetadataFilter: '' })
+    Object.assign(store.inputs, {
+        document: [],
+        recordManager: '',
+        pineconeTextKey: '',
+        pineconeMetadataFilter: '',
+        searchType: 'similarity',
+        fetchK: '10',
+        lambda: '0.5',
+        FLOWISE_CREDENTIAL_ID: store.credential
+    })
+    Object.assign(store.upstream.embeddings.inputs, {
+        stripNewLines: true,
+        batchSize: 100,
+        timeout: '',
+        dimensions: '',
+        basepath: '',
+        FLOWISE_CREDENTIAL_ID: store.upstream.embeddings.credential
+    })
+    assert.equal(profileIndependentRetriever(fixed), true)
+    for (const [layer, inputs] of [
+        ['tool', { retrieverToolMetadataFilter: {} }],
+        ['store', { document: ['other'] }],
+        ['store', { recordManager: 'other' }],
+        ['store', { searchType: 'mmr' }],
+        ['store', { FLOWISE_CREDENTIAL_ID: 'different' }],
+        ['store', { pineconeTextKey: 'other' }],
+        ['embedding', { baseOptions: '{}' }],
+        ['embedding', { FLOWISE_CREDENTIAL_ID: 'different' }],
+        ['embedding', { batchSize: -1 }]
+    ]) {
+        const copy = structuredClone(fixed),
+            copyStore = copy.upstream.retriever
+        Object.assign((layer === 'store' ? copyStore : layer === 'tool' ? copy : copyStore.upstream.embeddings).inputs, inputs)
+        assert.equal(profileIndependentRetriever(copy), false)
+    }
+    const attached = structuredClone(fixed)
+    attached.upstream.retriever.upstream.document = { nodeName: 'plainText', inputs: { text: 'real input' } }
+    assert.equal(profileIndependentRetriever(attached), false)
+    store.upstream.embeddings.inputs.basepath = 'https://embedding.invalid'
+    assert.equal(profileIndependentRetriever(fixed), false)
+    delete store.upstream.embeddings.inputs.basepath
+    store.credential = ''
+    assert.equal(profileIndependentRetriever(fixed), false)
+})
 
 test('native canvas preflight accepts the saved clock and retrieval graph and refuses unsupported dependencies before initialization', () => {
     assert.equal(supportsNativeCanvasBinding({ nodeName: 'currentDateTime', inputs: { timezone: 'Australia/Sydney' } }), true)

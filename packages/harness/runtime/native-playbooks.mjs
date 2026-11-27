@@ -227,15 +227,44 @@ function readManifestBooks(roster, specialist, parent, profile, assets) {
     return needsOwner
 }
 
+// Cache only the syntax of the same authored text. Manifest and owner checks stay live.
+const parsedBooks = new WeakMap()
+
+function playbookProfilePlan(books) {
+    if (!books.length) return
+    let preprocess = false
+    const dependencies = books.map((book) => {
+        let info = parsedBooks.get(book)
+        if (!info || info.name !== book.name || info.description !== book.description || info.content !== book.content) {
+            const markdown = playbookMarkdown(book)
+            info = {
+                name: book.name,
+                description: book.description,
+                content: book.content,
+                preprocess: template.test(markdown) || inline.test(markdown),
+                items: playbookDependencies(book)
+            }
+            if (book && typeof book === 'object') parsedBooks.set(book, info)
+        }
+        preprocess ||= info.preprocess
+        return [book, info.items]
+    })
+    if (preprocess || process.env.CUTTLELY_HOST_FILE_MANIFEST || dependencies.some(([, items]) => items.relative.size))
+        return { preprocess, dependencies }
+}
+
+export function needsNativePlaybookProfile(books) {
+    return Boolean(playbookProfilePlan(books))
+}
+
 // Build a private snapshot solely from the admitted roster and immutable deployment declarations.
 // No model argument chooses a principal, profile, manifest or host directory.
 export function prepareNativePlaybooks(roster, specialist, chatId, turnId) {
     const books = specialist.playbooks || []
     const result = { gaps: [], assets: new Map(), templateVars: true, sessionId: null }
-    if (!books.length) return result
-    const preprocess = books.some((book) => template.test(playbookMarkdown(book)) || inline.test(playbookMarkdown(book)))
-    const dependencies = books.map((book) => [book, playbookDependencies(book)])
-    if (!preprocess && !process.env.CUTTLELY_HOST_FILE_MANIFEST && !dependencies.some(([, items]) => items.relative.size)) return result
+    const plan = playbookProfilePlan(books)
+    if (!plan) return result
+    const { preprocess, dependencies } = plan
     const host = publishedCanvasSource(roster) || roster
     const parent = host.tryId ? tryProfileName(host.tryId) : host.name
     if (!validId(parent) || typeof specialist.name !== 'string' || !specialist.name.trim()) {

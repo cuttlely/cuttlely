@@ -32,7 +32,7 @@ import {
     estimateTokens,
     specialistContextTokens
 } from './context.mjs'
-import { localCustomRetrieverBinding, unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
+import { localCustomRetrieverBinding, profileIndependentRetriever, unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
 import { sameModelBinding, withModelFallback } from './fallback.mjs'
 import {
     callPrepared,
@@ -114,6 +114,7 @@ import {
     assignedPlaybookFile,
     playbookCallLimit,
     playbookTools,
+    needsNativePlaybookProfile,
     prepareNativePlaybooks,
     readPlaybookTool
 } from './runtime/native-playbooks.mjs'
@@ -527,6 +528,21 @@ export async function runHarness(args = {}) {
 // A live native prediction can share an owner’s canvas across chats when no role uses a physical profile.
 const admittedNativePrediction = Symbol('admittedNativePrediction')
 
+function profileIndependentPredictionRole(role) {
+    return (
+        (!needsAgentLoop(role) ||
+            (role.playbooks?.length && !needsAgentLoop({ ...role, playbooks: [] }) && !needsNativePlaybookProfile(role.playbooks))) &&
+        !role.preset &&
+        !role.trustedOutputs?.length &&
+        !role.trustedInterpretation &&
+        !role.pinFirst &&
+        !role.pinFirstRules?.length &&
+        (role.modules || []).every(
+            (binding) => ['calculator', 'currentDateTime'].includes(binding.nodeName) || profileIndependentRetriever(binding)
+        )
+    )
+}
+
 function nativePredictionOwner(args, engine) {
     if (engine !== 'native' || args.replay) return
     const { record, flowOptions } = args
@@ -536,21 +552,7 @@ function nativePredictionOwner(args, engine) {
     if (!authenticatedOwner || authenticatedOwner !== record.tryOwner || actor.via !== caller?.via || actor.apiKeyId !== caller.apiKeyId)
         return
     const roles = record.specialists
-    if (
-        !Array.isArray(roles) ||
-        !roles.length ||
-        !roles.every(
-            (role) =>
-                !needsAgentLoop(role) &&
-                !role.preset &&
-                !role.trustedOutputs?.length &&
-                !role.trustedInterpretation &&
-                !role.pinFirst &&
-                !role.pinFirstRules?.length &&
-                (role.modules || []).every((binding) => ['calculator', 'currentDateTime'].includes(binding.nodeName))
-        )
-    )
-        return
+    if (!Array.isArray(roles) || !roles.length || !roles.every(profileIndependentPredictionRole)) return
     assertHarnessWorkspace(args.name, flowOptions, record)
     return publishedCanvasSource(record, { livePrediction: true })
 }

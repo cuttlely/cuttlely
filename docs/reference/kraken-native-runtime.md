@@ -29,13 +29,13 @@ Selection applies to both router and agent mode. The default native policy, `str
 
 ### Running several published chats with one key
 
-For a private, published team, a scoped access key can issue concurrent `POST /api/v1/prediction/:id` requests for different chats. This applies when every specialist is model-only or uses only Calculator or Current Date Time. Each request holds the team's existing lock for its own chat. Credentials, caller permissions and the saved publication are checked as usual. Changing the publication while a request is running can fail that request before its answer is delivered.
+For a private, published team, a scoped access key can issue concurrent `POST /api/v1/prediction/:id` requests for different chats. Each specialist must be able to run without a private profile on disk. Model-only specialists, Calculator and Current Date Time qualify. A specialist can also read its saved Markdown playbooks directly and search a fixed Pinecone collection with saved OpenAI embeddings. The default Pinecone namespace qualifies. A published team can combine these configurations. Each request holds the team's existing lock for its own chat. Credentials, caller permissions and the saved publication are checked as usual. Changing the publication while a request is running can fail that request before its answer is delivered.
 
 On two physical CPU cores, a cold wave of 32 distinct signed chats using one scoped key completed 32/32 on Kraken `5245ced7`. Tagged v1.7.15 (`bb119132`) completed 1/32 and returned HTTP 409 to the other 31. The real published prediction endpoint ran the Calculator canvas in agent mode with a 450 ms simulated model. The chief answered directly. The first wave after restart reached 32 simultaneous model calls on Kraken and one on the tag. Both used the default key rate limit; immediately repeated waves can also receive HTTP 429.
 
 Start each new conversation without a previous session token. Keep the returned `chatId` and `sessionToken` together and send both when continuing that chat. Starting a second turn in the same chat while the first is active returns HTTP 409. Wait for the first turn before retrying. Another key presenting that token receives a separate conversation. An existing signed conversation can continue after API replacement with its original owner and history.
 
-Published predictions that use preset roles, playbooks, file access, MCP, pin-first or trusted interpretation/output, shell, browser, code execution or other canvas tools retain the exclusive profile for that canvas and caller. The same applies to draft and authoring previews, anonymous predictions, and teams using the bundled runtime. Check the actual request route when planning capacity. A direct published canvas prediction runs in the API process even when named team runs use an external worker.
+A playbook that needs a companion file, a session or skill-directory substitution, inline processing or a host file manifest keeps the exclusive profile for that canvas and caller. A retriever with chat uploads, metadata filters or a custom embedding endpoint also keeps that profile. The same rule covers preset roles, file access, MCP, pin-first, trusted interpretation or outputs, shell, browser, code execution and other canvas tools. The same applies to draft and authoring previews, anonymous predictions, and teams using the bundled runtime. Check the actual request route when planning capacity. A direct published canvas prediction runs in the API process even when named team runs use an external worker.
 
 ### Trying a mixed team on demand
 
@@ -169,7 +169,7 @@ A successful preflight establishes that the runtime recognizes the saved configu
 
 ## Previewing an installation without the bundled runtime
 
-Run the named-team canary and the team’s real workflow first. A native-only image selects the native engine for every team. A team that fails strict admission receives a runtime-unavailable response. A team admitted on demand can still fail later when it selects a blocked specialist or requests an unsupported action. On the standard image, keep that team on the bundled engine.
+Run the named-team canary and the team’s real workflow first. A native-only image selects the native engine for every team. For example, a named team with an interactive browser role receives HTTP 503 (`RUNTIME_UNAVAILABLE`) before a model or tool runs in a native-only image. The same request on a healthy full installation that selects the team for native execution returns HTTP 422 and identifies the browser requirement. Run preflight on the saved team to find which role needs the bundled runtime. A team admitted on demand can still fail later when it selects a blocked specialist or requests an unsupported action. On the standard image, keep that team on the bundled engine.
 
 Build the preview locally with the same source revision on the API and workers.
 

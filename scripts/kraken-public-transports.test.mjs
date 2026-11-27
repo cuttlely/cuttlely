@@ -235,7 +235,7 @@ for (const postgresStores of [false, true])
                 CUTTLELY_LOCAL_USERS: 'true',
                 CUTTLELY_INITIAL_OWNER_EMAIL: account.email,
                 CUTTLELY_INITIAL_OWNER_PASSWORD: account.password,
-                CUTTLELY_NATIVE_PRIME_TEAMS: name + ',' + name + '-guide',
+                CUTTLELY_NATIVE_PRIME_TEAMS: [name, name + '-guide', name + '-catalog', name + '-manual'].join(','),
                 CUTTLELY_HARNESS_QUEUE: 'external',
                 CUTTLELY_HARNESS_WORKERS: '0',
                 CUTTLELY_SECRETKEY_OVERWRITE: randomUUID(),
@@ -288,7 +288,7 @@ for (const postgresStores of [false, true])
             }
             const first = await scopedKey('publisher'),
                 second = await scopedKey('other')
-            async function predict(token, question, session, resourceId = published.id) {
+            async function predict(token, question, session, resourceId = published.id, mode = 'agent') {
                 const res = await fetch(base + 'prediction/' + resourceId, {
                     method: 'POST',
                     headers: {
@@ -296,14 +296,21 @@ for (const postgresStores of [false, true])
                         ...(token ? { authorization: 'Bearer ' + token } : {})
                     },
                     body: JSON.stringify({
-                        mode: 'agent',
+                        mode,
                         question,
                         ...(session && { chatId: session.chatId, sessionToken: session.sessionToken })
                     }),
                     signal: AbortSignal.timeout(30000)
                 })
                 const body = await res.json()
-                return { status: res.status, error: body.message, text: body.text, chatId: body.chatId, sessionToken: body.sessionToken }
+                return {
+                    status: res.status,
+                    error: body.message,
+                    text: body.text,
+                    chatId: body.chatId,
+                    sessionToken: body.sessionToken,
+                    sources: body.sourceDocuments || body.sources || []
+                }
             }
             const hold = (ticket) => fs.writeFileSync(path.join(dir, ticket + '.hold'), '')
             const release = (ticket) => fs.rmSync(path.join(dir, ticket + '.hold'), { force: true })
@@ -383,8 +390,121 @@ for (const postgresStores of [false, true])
             assert.equal((await predict(first, 'Calculate 17 * 3.', b)).text, 'Checked 51')
             assert.deepEqual(activeTryPaths(), [])
             assert.equal(sidecarRequests, sidecarBefore)
+            const catalog = structuredClone(graph)
+            const card = catalog.nodes.find((n) => n.data.name === 'calculator')
+            Object.assign(card.data, {
+                name: 'retrieverTool',
+                inputs: { name: 'catalog', description: 'Read the assigned catalog', returnSourceDocuments: 'true' }
+            })
+            const embeddingKey = await api('credentials', {
+                name: 'Embedding fixture',
+                credentialName: 'openAIApi',
+                plainDataObj: { openAIApiKey: modelKey }
+            })
+            const indexKey = await api('credentials', {
+                name: 'Vector store fixture',
+                credentialName: 'pineconeApi',
+                plainDataObj: { pineconeApiKey: modelKey }
+            })
+            function upstream(id, name, category, inputs, credential, target, input, outputs = {}) {
+                catalog.nodes.push({ id, data: { id, name, label: name, category, inputs, credential, outputs } })
+                catalog.edges.push({ id, source: id, target, targetHandle: target + '-input-' + input })
+            }
+            upstream(
+                'index',
+                'pinecone',
+                'Vector Stores',
+                { pineconeIndex: 'tickets', pineconeNamespace: 'catalog', topK: 1 },
+                indexKey.id,
+                card.id,
+                'retriever',
+                { output: 'retriever' }
+            )
+            upstream(
+                'emb',
+                'openAIEmbeddings',
+                'Embeddings',
+                { modelName: 'text-embedding-3-small' },
+                embeddingKey.id,
+                'index',
+                'embeddings'
+            )
+            const savedCatalog = await api('chatflows', {
+                name: name + '-catalog',
+                type: 'HARNESS',
+                apiAccessMode: 'private',
+                flowData: JSON.stringify(catalog)
+            })
+            const catalogKey = await scopedKey('catalog-reader', savedCatalog.id)
+            const lookups = ['TKT-501', 'TKT-502']
+            lookups.forEach(hold)
+            const reads = Promise.all(
+                lookups.map((ticket) => predict(catalogKey, JSON.stringify({ input: ticket }), undefined, savedCatalog.id, 'router'))
+            )
+            try {
+                await waitFor(lookups)
+                assert.deepEqual(activeTryPaths(), [])
+            } finally {
+                lookups.forEach(release)
+            }
+            const documents = await reads
+            for (const [i, item] of documents.entries()) {
+                assert.equal(item.status, 200)
+                assert.ok(item.text.includes('Catalog receipt ' + lookups[i]))
+                assert.ok(!item.text.includes(lookups[1 - i]))
+                assert.ok(JSON.stringify(item.sources).includes(lookups[i]))
+                assert.ok(!JSON.stringify(item.sources).includes(lookups[1 - i]))
+            }
+            assert.notEqual(documents[0].chatId, documents[1].chatId)
+            const reader = catalog.nodes.find((node) => node.data.name === 'harnessSpecialist')
+            reader.data.inputs.playbooks = [{ name: 'manual', description: 'Ticket manual', content: 'Read the assigned ticket catalog.' }]
+            // The canvas editor persists these defaults and unused MMR fields on an ordinary similarity reader.
+            Object.assign(card.data.inputs, { returnSourceDocuments: 'false', retrieverToolMetadataFilter: '' })
+            Object.assign(catalog.nodes.find((node) => node.id === 'index').data.inputs, {
+                document: '',
+                recordManager: '',
+                fileUpload: '',
+                pineconeTextKey: '',
+                pineconeMetadataFilter: '',
+                topK: '5',
+                searchType: 'similarity',
+                fetchK: '30',
+                lambda: ''
+            })
+            Object.assign(catalog.nodes.find((node) => node.id === 'emb').data.inputs, {
+                stripNewLines: '',
+                batchSize: '',
+                timeout: '',
+                basepath: '',
+                dimensions: ''
+            })
+            const manual = await api('chatflows', {
+                name: name + '-manual',
+                type: 'HARNESS',
+                apiAccessMode: 'private',
+                flowData: JSON.stringify(catalog)
+            })
+            const manualKey = await scopedKey('manual-reader', manual.id)
+            const bookTickets = ['TKT-503', 'TKT-504']
+            bookTickets.forEach(hold)
+            const bound = Promise.all(
+                bookTickets.map((ticket, i) => predict(manualKey, 'Read ' + ticket, undefined, manual.id, i ? 'router' : 'agent'))
+            )
+            try {
+                await waitFor(bookTickets)
+                assert.deepEqual(activeTryPaths(), [])
+            } finally {
+                bookTickets.forEach(release)
+            }
+            for (const [i, row] of (await bound).entries()) {
+                assert.equal(row.status, 200)
+                assert.equal(row.text, 'Catalog receipt ' + bookTickets[i])
+                assert.deepEqual(row.sources, [])
+            }
             const role = graph.nodes.find((node) => node.data.name === 'harnessSpecialist')
-            role.data.inputs.playbooks = [{ name: 'guide', description: 'Desk guide', content: 'Review the dispatch receipt.' }]
+            role.data.inputs.playbooks = [
+                { name: 'guide', description: 'Desk guide', content: 'Review the dispatch receipt for ${HERMES_SESSION_ID}.' }
+            ]
             const guide = await api('chatflows', {
                 name: name + '-guide',
                 type: 'HARNESS',

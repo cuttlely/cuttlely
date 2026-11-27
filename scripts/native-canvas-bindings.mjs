@@ -187,6 +187,80 @@ export function supportsNativeCanvasBinding(binding) {
     return Object.hasOwn(supported, binding?.nodeName) && matches(binding, supported[binding.nodeName])
 }
 
+// Only a fixed read-only collection can share a published prediction across chats.
+// Keep chat-upload filters, other metadata overrides and custom endpoints on the regular Try path.
+export function profileIndependentRetriever(binding) {
+    if (binding?.nodeName !== 'retrieverTool' || !supportsNativeCanvasBinding(binding)) return false
+    const store = binding.upstream.retriever
+    if (store?.nodeName !== 'pinecone' || store.upstream?.embeddings?.nodeName !== 'openAIEmbeddings') return false
+    const embeddings = store.upstream.embeddings
+    const source = store.inputs
+    const plain = (value) => value != null && typeof value === 'object' && [null, Object.prototype].includes(Object.getPrototypeOf(value))
+    if (![binding, store, embeddings, binding.upstream, store.upstream, store.outputs, binding.inputs, source].every(plain)) return false
+    for (const node of [binding, store, embeddings]) {
+        if ([node.inputs, node.outputs, node.upstream].some((value) => value != null && !plain(value))) return false
+    }
+    const empty = (value) => value == null || value === ''
+    const only = (inputs, names) => Object.keys(inputs).every((key) => names.includes(key))
+    const id = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value)
+    const count = (value) =>
+        (typeof value === 'number' || typeof value === 'string') && /^[1-9]\d?$/.test(String(value)) && Number(value) <= 64
+    const tool = binding.inputs,
+        embedding = embeddings.inputs || {}
+    // Only the released similarity reader is used. It does not consume MMR fetchK/lambda,
+    // ingestion documents, or the embedding document-batch size when embedding a single query.
+    return (
+        only(tool, ['name', 'description', 'returnSourceDocuments', 'retrieverToolMetadataFilter']) &&
+        (tool.name == null || typeof tool.name === 'string') &&
+        (tool.description == null || typeof tool.description === 'string') &&
+        (empty(tool.returnSourceDocuments) || [false, true, 'false', 'true'].includes(tool.returnSourceDocuments)) &&
+        empty(tool.retrieverToolMetadataFilter) &&
+        empty(binding.credential) &&
+        only(source, [
+            'pineconeIndex',
+            'pineconeNamespace',
+            'topK',
+            'fileUpload',
+            'document',
+            'recordManager',
+            'pineconeTextKey',
+            'pineconeMetadataFilter',
+            'searchType',
+            'fetchK',
+            'lambda',
+            'FLOWISE_CREDENTIAL_ID'
+        ]) &&
+        id(source.pineconeIndex) &&
+        (empty(source.pineconeNamespace) || id(source.pineconeNamespace)) &&
+        (empty(source.fileUpload) || source.fileUpload === false) &&
+        (empty(source.topK) || count(source.topK)) &&
+        (empty(source.document) || (Array.isArray(source.document) && !source.document.length)) &&
+        [source.recordManager, source.pineconeTextKey, source.pineconeMetadataFilter].every(empty) &&
+        [store.outputs.searchType, source.searchType].every((type) => empty(type) || type === 'similarity') &&
+        (empty(source.fetchK) || count(source.fetchK)) &&
+        (empty(source.lambda) ||
+            (['string', 'number'].includes(typeof source.lambda) && /^(?:0(?:\.\d{1,6})?|1(?:\.0{1,6})?)$/.test(String(source.lambda)))) &&
+        (empty(source.FLOWISE_CREDENTIAL_ID) || source.FLOWISE_CREDENTIAL_ID === store.credential) &&
+        only(embedding, [
+            'modelName',
+            'credentialId',
+            'FLOWISE_CREDENTIAL_ID',
+            'stripNewLines',
+            'batchSize',
+            'timeout',
+            'basepath',
+            'baseOptions',
+            'dimensions',
+            'encodingFormat'
+        ]) &&
+        (empty(embedding.modelName) || id(embedding.modelName)) &&
+        [embedding.credentialId, embedding.FLOWISE_CREDENTIAL_ID].every((key) => empty(key) || key === embeddings.credential) &&
+        [embedding.timeout, embedding.basepath, embedding.baseOptions, embedding.dimensions, embedding.encodingFormat].every(empty) &&
+        (empty(embedding.stripNewLines) || typeof embedding.stripNewLines === 'boolean') &&
+        (empty(embedding.batchSize) || embedding.batchSize === 100 || embedding.batchSize === '100')
+    )
+}
+
 export function needsNativeCanvasCredential(binding) {
     return Boolean(supported[binding?.nodeName]?.credential && (typeof binding.credential !== 'string' || !binding.credential.trim()))
 }

@@ -7,7 +7,32 @@ import { test } from 'node:test'
 import { profileDir } from '../paths.mjs'
 import { playbookMarkdown, PLAYBOOK_DIR, specialistProfileName } from '../profile.mjs'
 import { specialistSessionId } from '../specialist-run.mjs'
-import { assignedPlaybookFile, prepareNativePlaybooks, readPlaybookTool } from '../runtime/native-playbooks.mjs'
+import { assignedPlaybookFile, needsNativePlaybookProfile, prepareNativePlaybooks, readPlaybookTool } from '../runtime/native-playbooks.mjs'
+
+test('literal playbooks need no profile until their text or deployment declaration changes', (t) => {
+    const key = 'CUTTLELY_HOST_FILE_MANIFEST',
+        old = process.env[key]
+    t.after(() => {
+        if (old === undefined) delete process.env[key]
+        else process.env[key] = old
+    })
+    delete process.env[key]
+    const book = { name: 'manual', description: 'Ticket manual', content: 'Read the assigned ticket catalog.' }
+    assert.equal(needsNativePlaybookProfile([book]), false)
+    for (const text of ['Read [instructions](references/guide.md).', 'Run !`date`.', 'The session is ${HERMES_SESSION_ID}.']) {
+        book.content = text
+        assert.equal(needsNativePlaybookProfile([book]), true)
+    }
+    book.content = 'An example:\n\n```text\nRead references/guide.md\n```'
+    assert.equal(needsNativePlaybookProfile([book]), false)
+    book.description = 'Read ${HERMES_SKILL_DIR}.'
+    assert.equal(needsNativePlaybookProfile([book]), true)
+    book.description = 'Ticket manual'
+    process.env[key] = 'deployment.json'
+    assert.equal(needsNativePlaybookProfile([book]), true)
+    delete process.env[key]
+    assert.equal(needsNativePlaybookProfile([book]), false)
+})
 
 test('native skills expand the admitted session, serve only assigned immutable text and preserve raw reads', (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'playbook-scope-'))
