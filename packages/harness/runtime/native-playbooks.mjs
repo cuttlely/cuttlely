@@ -59,9 +59,11 @@ function readBounded(file, max, optional) {
 }
 
 const companionPath = /^(?:\.\/)?(?:references|templates|assets|scripts)\//
-const fileAction = /\b(?:read|open|load|run|execute|source|invoke|apply|consult|include)\s*$/i
-const actionPath =
-    /\b(?:read|open|load|run|execute|source|invoke|apply|consult|include)\s+((?:\.\/)?(?:references|templates|assets|scripts)\/[^\s"'`()<>\],;]+)/gi
+const imperativeStart = String.raw`(?:^|[.!?;:,]\s+|\bthen\s+)`
+const modalStart = String.raw`\b(?:must|should|needs?\s+to|ha(?:s|ve)\s+to|required\s+to|expected\s+to|be\s+sure\s+to)\s+`
+const instruction = `(?:${imperativeStart}|${modalStart})(?:(?:please|first|also|always|carefully|directly)\\s+){0,3}(?:read|open|load|run|execute|source|invoke|apply|consult|include)`
+const fileAction = new RegExp(instruction + '\\s*$', 'i')
+const actionPath = new RegExp(instruction + `\\s+((?:\\.\\/)?(?:references|templates|assets|scripts)\\/[^\\s"'\`()<>,;\\]]+)`, 'gim')
 
 // Markdown examples are not file assignments. A local link, a directory template used in
 // prose, or an instruction to open a relative path is. Disabled inline shell stays literal.
@@ -91,7 +93,7 @@ function playbookDependencies(book) {
             } else if (node.type === 'inlineCode' && fileAction.test(parent.children[i - 1]?.value || '')) {
                 add(node.value)
             }
-            if (node.children) queue.push(node)
+            if (node.children && !['link', 'image', 'linkReference', 'imageReference'].includes(node.type)) queue.push(node)
         }
     }
     for (const id of used) add(definitions.get(id))
@@ -125,7 +127,8 @@ function effectiveSkillFlags(profile) {
 }
 
 function needsAsset(text, assets) {
-    for (const match of text.matchAll(linkedToken)) {
+    const localText = text.replace(/\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s<>'"`]+/gi, '')
+    for (const match of localText.matchAll(linkedToken)) {
         const tail = match.input.slice(match.index + match[0].length)
         // A bare directory can be displayed. A following path must be a complete literal
         // logical name, delimited by prose or shell quoting rather than interpolation.

@@ -21,7 +21,7 @@ import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
 import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
-import { loadUploadPolicy } from './uploadPolicy'
+import { loadUploadPolicy, UploadPolicy } from './uploadPolicy'
 
 export interface PreparedPredictionUpload {
     digest?: string
@@ -34,6 +34,28 @@ export interface PreparedPredictionUpload {
     size: number
     rows: number | null
     sheets: string[]
+}
+
+export interface AdmittedPredictionDocument {
+    name: string
+    mime: string
+    rows: number | null
+    digest: string
+    parts: string[]
+    path?: string
+}
+
+export async function issuePredictionUploadReceipts(
+    scope: Parameters<UploadPolicy['issueManagedUpload']>[0],
+    documents: AdmittedPredictionDocument[]
+) {
+    const policy = await loadUploadPolicy()
+    const receipts = []
+    for (const { parts, digest, ...document } of documents) {
+        const proof = await policy.issueManagedUpload(scope, parts, digest)
+        if (proof) receipts.push({ ...document, proof })
+    }
+    return receipts
 }
 
 const displayFileName = (filename: string): string => {

@@ -1,7 +1,6 @@
 import { accessContext } from '../services/accessKeys/authorization'
 import { Request } from 'express'
 import { assertFlowRuntimeAvailable, selectAgentEngine } from './runtimeAvailability'
-import { loadUploadPolicy } from './uploadPolicy'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { omit, cloneDeep } from 'lodash'
@@ -76,6 +75,8 @@ import {
     localStoredUploadPath,
     storeChatFolderUpload,
     preparePredictionUpload,
+    issuePredictionUploadReceipts,
+    AdmittedPredictionDocument,
     renderPredictionUploadQuestion
 } from './predictionUploads'
 import { coerceMultipartPredictionBody } from './multipartPredictionBody'
@@ -462,7 +463,7 @@ export const executeFlow = async ({
      */
     let fileUploads: IFileUpload[] = []
     let uploadedFilesContent = ''
-    const admittedDocuments: Array<{ name: string; mime: string; rows: number | null; digest: string; parts: string[]; path?: string }> = []
+    const admittedDocuments: AdmittedPredictionDocument[] = []
     const uploadScope = { workspace: workspaceId, flow: chatflowid, chat: chatId, caller: nestedOptions?.nestedFlowCaller }
     const renderStoredDocument = (name: string, prepared: Awaited<ReturnType<typeof preparePredictionUpload>>, parts: string[]) =>
         renderPredictionUploadQuestion(name, prepared, localStoredUploadPath(...parts), {
@@ -623,13 +624,7 @@ export const executeFlow = async ({
         // Only a Harness card asks for proofs after it has checked the caller's workspace and canvas.
         registerManagedPredictionUploads(nestedOptions.runNestedFlow, async (name) => {
             if (selectAgentEngine(name) !== 'native') return []
-            const policy = await loadUploadPolicy()
-            const receipts = []
-            for (const { parts, digest, ...document } of admittedDocuments) {
-                const proof = await policy.issueManagedUpload(uploadScope, parts, digest)
-                if (proof) receipts.push({ ...document, proof })
-            }
-            return receipts
+            return issuePredictionUploadReceipts(uploadScope, admittedDocuments)
         })
     }
 

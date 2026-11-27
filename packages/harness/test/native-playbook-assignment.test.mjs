@@ -130,10 +130,17 @@ test('native skills expand the admitted session, serve only assigned immutable t
     manifest()
     for (const content of [
         'Accounting tracks assets/liabilities quarterly.',
+        'Colleagues who read references/howto.md in their old project can skip this introduction.',
+        'Do not run scripts/obsolete.py.',
+        '[Read references/howto.md](https://example.invalid/overview)',
+        'The operator describes https://example.invalid/${HERMES_SKILL_DIR}/scripts/example.py.',
         'Further reading at https://example.invalid/references/manual.md and [site](https://example.invalid/scripts/sample.py).',
         'Example syntax: ```\nplaceholder\n```',
         ['Example only:', '```bash', 'Read references/manual.md', 'python ${HERMES_SKILL_DIR}/scripts/unused.py', '```'].join('\n'),
         '[unused]: references/unused.md',
+        'Someone who read references/example.md wrote the old guide.',
+        'You should not open references/unused.md.',
+        'You must not read `references/unused.md`.',
         'Older guides used the example `scripts/obsolete.py`.'
     ]) {
         const checkBook = { ...book, content }
@@ -178,6 +185,10 @@ test('native skills expand the admitted session, serve only assigned immutable t
         '[Read the guide](references/missing.md)',
         '[Read the guide][resource]\n\n[resource]: references/missing.md',
         'Read references/missing.md.',
+        'You must read references/missing.md before calculating.',
+        'You should first consult references/missing.md before publishing.',
+        'Before publishing, consult references/missing.md.',
+        'You are required to open `references/missing.md` before proceeding.',
         'Run `scripts/fixed.py` with supplied arguments.'
     ]) {
         assert.ok(open(team, { ...member, playbooks: [{ ...book, content }] }).gaps.includes('unverified playbook file dependency'))

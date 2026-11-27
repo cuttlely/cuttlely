@@ -23,6 +23,7 @@
             "packages/server/src/services/a2a/**",
             "packages/server/src/routes/runtimeAdmission.test.ts",
             "packages/components/nodes/harness/**",
+            "packages/components/src/managedUploadAdmission.ts",
             "packages/ui/src/views/harnesses/**",
             "packages/ui/src/views/chatmessage/Harness*",
             "packages/ui/src/api/harnesses.js",
@@ -571,6 +572,7 @@
                 "packages/server/src/controllers/harnesses/**",
                 "packages/server/src/routes/harnesses/**",
                 "packages/components/nodes/harness/**",
+                "packages/components/src/managedUploadAdmission.ts",
                 "packages/ui/src/views/harnesses/**",
                 "packages/ui/src/views/chatmessage/Harness*",
                 "packages/ui/src/api/harnesses.js",
@@ -608,6 +610,7 @@
             ],
             "entryPoints": [
                 "packages/components/nodes/harness/Harness/Harness.ts",
+                "packages/components/src/managedUploadAdmission.ts",
                 "packages/server/src/utils/apiKeyAccess.ts",
                 "packages/server/src/utils/flowHarnessCaller.ts",
                 "packages/server/src/utils/tryOwner.ts",
