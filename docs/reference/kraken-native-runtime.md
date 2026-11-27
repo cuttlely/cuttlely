@@ -85,6 +85,10 @@ For a PDF, Word document or Excel workbook, ask for the format by name. The repo
 
 The Docker image includes the Linux document renderer. For a source installation, install its pinned dependencies with `/usr/bin/python3 scripts/install-native-report-assets.py /opt/cuttlely-report-assets` and provide the DejaVu Sans regular and bold fonts. If the operator selects another dependency directory, set `CUTTLELY_NATIVE_REPORT_ASSETS` to the same absolute path on each worker. Rehearse an actual download after replacement.
 
+### Primary and fallback model responses
+
+A specialist with a single model streams text as it arrives. When a primary and fallback can compete, the native runtime waits for a winner before sending that specialist’s text. A slow primary or backup may already have generated a different draft. The client receives the selected answer once. Inspect the run trace to see which model answered and its token usage. If the provider omits usage, the count is unknown. A reported zero for cached prompt tokens is retained.
+
 ### Conversation search
 
 Signed-in users and identified API keys can use `session_search` on a saved agent-mode team for user/assistant exchanges whose ownership the installation recorded. Test with an existing chat, switch engines, then ask for a specific earlier answer. Verify a second caller and a different chat cannot retrieve it. A successful v1.7.15 queued turn can establish ownership when its saved caller, workspace, canvas generation and chat agree. An old bundled transcript can also exist without that association. Keep the bundled installation available for older transcripts or profile-wide memory awaiting operator review. The application’s ordinary stored chat messages, the search index and the bundled runtime’s private transcript have different recovery and access rules.

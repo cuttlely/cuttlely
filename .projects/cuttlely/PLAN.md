@@ -24,6 +24,8 @@ The public transport fixtures check the widget’s streamed result, anonymous se
 
 The optional native image builds from a source archive without the bundled runtime. The package fixtures cover the normal launcher, independent workers, empty-disk recovery and rollback. New calls carry a durable tool dispatch receipt so a worker loss can surface an uncertain result. See the canary guide for the preflight command and per-team acceptance checks.
 
+Native runs record the winning specialist model and retain provider-reported input, output and cached-token counts. A single model streams text immediately. When two models can compete for the same call, the client receives the selected answer after the race finishes.
+
 Full team parity and retirement of the bundled runtime remain open. General shell, code execution and interactive browser grants, other MCP actions, operator-supplied runtime dependencies and historical conversations without reliable ownership need further work. Keep the full installation available for teams that depend on those features.
 
 ## Milestones
