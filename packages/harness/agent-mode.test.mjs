@@ -195,6 +195,26 @@ for (const [chiefFails, postgres] of [
             return
         }
         const result = await pendingRun
+        if (postgres) {
+            const { openNativeRecall } = await import('./runtime/native-memory.mjs')
+            const { readRecallTurns } = await import('./session.mjs')
+            const { randomUUID } = await import('node:crypto')
+            function ownedTurns(apiKeyId) {
+                const recall = openNativeRecall({
+                    roster: record,
+                    chatId: 'fixture-chat',
+                    turnId: randomUUID(),
+                    caller: { via: 'api_key', apiKeyId },
+                    assertCurrent() {}
+                })
+                return readRecallTurns(name, recall.receipt, { limit: 4, contentChars: 128 })
+            }
+            assert.deepEqual(
+                ownedTurns('fixture-key').map((turn) => turn.answer),
+                ['Chief answer.']
+            )
+            assert.deepEqual(ownedTurns('other-key'), [])
+        }
         assert.equal(result.text, 'Chief answer.')
         assert.equal(result.mode, 'agent')
         assert.equal(result.trace.route.status, 'skipped')

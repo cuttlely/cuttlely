@@ -243,3 +243,10 @@ test('cutover copies verified receipts and can resume an older migration with no
     assert.equal(result.messages[1].content, 'recovered answer')
     assert.equal(ask(open({}), { query: 'legacy' }).count, 0)
 })
+
+test('a v8 turn without its server-admitted journal identity cannot issue an ownership receipt', () => {
+    const id = '367ecd99-0181-8035-9898-20270b90f7be'
+    assert.equal(open({ turnId: 'bad', admittedJournalId: 'bad' }).receipt, undefined)
+    assert.equal(open({ turnId: id }).receipt, undefined)
+    assert.equal(open({ turnId: id, admittedJournalId: randomUUID() }).receipt, undefined)
+})

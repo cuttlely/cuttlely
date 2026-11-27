@@ -133,6 +133,8 @@ On a PostgreSQL installation, rehearse a question that requires the bundled chie
 
 The full Kraken build can record bundled specialist progress in PostgreSQL for published agent-mode teams that use directly assigned chat models with basic generation options and model-only specialists or the packaged read-only Ops action. The progress record belongs to the live chat turn and saved team revision. Drafts, custom modules, other MCP actions, preset roles, playbooks and file-enabled roles need their own rollback rehearsal. Keep the previous working deployment and its storage available until that rehearsal succeeds.
 
+If you switch this team back to native, use the same account or access key and chat to search for a specific answer from the bundled turn. This checks the stored ownership record in addition to the visible chat history. Open an earlier attachment from the saved conversation to verify its download as well.
+
 ## Verification
 
 Run `pnpm harness:check` and `pnpm verify` on the Node version in `.nvmrc`. Configure the disposable PostgreSQL fixtures as described in the repository test setup. The Kraken suites exercise saved chatflow prediction, external workers, cancellation, PostgreSQL queries, trusted outputs, managed attachments, empty-disk replacement and rollback. Provider calls in these compatibility fixtures are simulated.

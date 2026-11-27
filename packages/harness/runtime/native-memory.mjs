@@ -35,7 +35,7 @@ const tool = {
 const fail = (error) => ({ success: false, error })
 const bound = (value, fallback, max) => (Number.isSafeInteger(value) ? Math.min(max, Math.max(1, value)) : fallback)
 const idOk = (s) => typeof s === 'string' && s.length > 0 && s.length <= 256 && !/[\x00-\x1f]/.test(s)
-const validUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const validUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[48][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function owner(caller) {
     if (caller?.via === 'api_key' && idOk(caller.apiKeyId)) return ['api_key', caller.apiKeyId]
@@ -239,7 +239,7 @@ function lookup(name, receipt, args) {
     }
 }
 
-export function openNativeRecall({ roster, chatId, turnId, caller, sessionScope, assertCurrent, signal, startedAt }) {
+export function openNativeRecall({ roster, chatId, turnId, admittedJournalId, caller, sessionScope, assertCurrent, signal, startedAt }) {
     const actor = owner(caller)
     const draft = Boolean(roster?.tryId)
     const draftOwner = actor?.[0] === 'api_key' ? 'api:' + actor[1] : actor?.[1]
@@ -248,7 +248,9 @@ export function openNativeRecall({ roster, chatId, turnId, caller, sessionScope,
         actor &&
         (draft ? idOk(roster.tryId) && draftOwner === roster.tryOwner : sessionScope === undefined && Number.isFinite(generation)) &&
         [roster.workspaceId, roster.chatflowId, roster.name, chatId].every(idOk) &&
+        // Only the run owner can supply its lease-bound journal ID. Public request fields do not reach this argument.
         validUuid.test(turnId) &&
+        (turnId[14] === '4' || admittedJournalId === turnId) &&
         typeof assertCurrent === 'function'
     const receipt = allowed
         ? Object.freeze({

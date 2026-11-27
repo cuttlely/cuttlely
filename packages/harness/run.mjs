@@ -647,6 +647,10 @@ async function runTurnBody(
     const clientSignal = readClientSignal(signal)
     const budget = turnBudgetMs(budgetMs)
     const budgetSignal = budget > 0 ? AbortSignal.timeout(budget) : undefined
+    const admittedJournalId =
+        !nativePrime && mode === 'agent' && harnessUsesPostgres() && journalTeam(harness)
+            ? journalTurnId(journalOwner, harness, chatId)
+            : undefined
     const context = {
         managedUploadReceipts,
         nativePrime,
@@ -725,10 +729,7 @@ async function runTurnBody(
         routeSteps: [],
         memoryBlock: '',
         promptMessages: [],
-        turnId:
-            !nativePrime && mode === 'agent' && harnessUsesPostgres() && journalTeam(harness)
-                ? journalTurnId(journalOwner, harness, chatId)
-                : crypto.randomUUID(),
+        turnId: admittedJournalId ?? crypto.randomUUID(),
         images: promptImages(images),
         turnFolders,
         recordInterpretationDiagnostic,
@@ -743,6 +744,7 @@ async function runTurnBody(
               roster: context.roster,
               chatId: context.chatId,
               turnId: context.turnId,
+              admittedJournalId,
               caller: context.moduleOptions.flowOptions?.nestedFlowCaller,
               sessionScope: context.sessionScope,
               signal: context.workSignal,
