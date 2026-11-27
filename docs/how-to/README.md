@@ -2,7 +2,7 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
-## Upcoming · New in 1.7.17
+## New in 1.7.17
 
 Use **Server Settings → Database → Upgrade storage** to move supported runtime data into PostgreSQL. Replacement containers recover committed messages, settings and memory notes using the original installation key. [Migration and recovery](./postgres-side-stores.md#chat-sessions-after-disk-loss).
 
