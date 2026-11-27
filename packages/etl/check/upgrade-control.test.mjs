@@ -125,7 +125,12 @@ test(
             return {
                 ...client,
                 execute: async (sql, params) => {
-                    if (interrupt && sql.startsWith('INSERT INTO cuttlely_session_')) throw new Error('synthetic interruption')
+                    if (interrupt && sql.startsWith('INSERT INTO cuttlely_session_')) {
+                        const activity = controller.progress().activity
+                        assert.equal(activity.action, 'upgrade')
+                        assert.match(activity.message, /Copying SQLite store [12] of 2/)
+                        throw new Error('synthetic interruption')
+                    }
                     return client.execute(sql, params)
                 }
             }
@@ -237,6 +242,7 @@ test(
             }
             await assert.rejects(controller.transition('upgrade', { availableBytes: before.requiredBytes }), /synthetic interruption/)
             assert.equal(controller.paused(), true)
+            assert.equal(controller.progress().activity, null)
             assert.equal((await controller.status()).phase, 'copying')
             assert.throws(() => readMessages('team', 'test'), { code: 'store_moving' })
             await controller.close()
@@ -570,7 +576,11 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
             await other.execute("SELECT pg_advisory_unlock_shared(hashtextextended('cuttlely-side-store-instances',516))")
             await other.release()
         }
-        const waiting = await stop()
+        const stopping = stop()
+        assert.equal(controller.progress().activity.action, 'stop-jobs')
+        const waiting = await stopping
+        assert.deepEqual(waiting.waitingFor, ['agent runs'])
+        assert.equal(controller.progress().activity, null)
         assert.equal(waiting.stopComplete, false)
         assert.equal(cancelled, true)
         assert.equal(claimJob(), null)
@@ -586,6 +596,7 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
         await live
         const ready = await controller.transition('check-stop')
         assert.equal(ready.stopComplete, true)
+        assert.deepEqual(ready.waitingFor, [])
         assert.ok(ready.stores.every((store) => !store.busy))
         assert.deepEqual(
             queue

@@ -1,4 +1,4 @@
-import { changeSideStores, storageStatus } from '../../utils/appStoreSource'
+import { changeSideStores, storageProgress, storageStatus } from '../../utils/appStoreSource'
 // Server settings API: /api/v1/server-settings. Host-designated instance operator and active owner only.
 // Other owners receive only a capability notice; keys and missing sessions are refused by the API gate.
 // Secret values are accepted but never returned or logged.
@@ -200,6 +200,7 @@ for (const action of ['request', 'claim', 'rebind', 'recover', 'transfer', 'revo
 }
 router.use(requireInstanceOperator(() => depsFactory().env))
 router.get('/storage', handle(storageStatus))
+router.get('/storage/progress', handle(storageProgress))
 router.post(
     '/storage/stop-jobs',
     handle((req) => changeSideStores('stop-jobs', req.body))

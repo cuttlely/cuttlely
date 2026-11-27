@@ -27,6 +27,7 @@ const operatorAction = (action, body) => client.post(`/server-settings/operator/
 
 export default {
     storagePause: () => client.get('/ping/storage-upgrade'),
+    storageProgress: () => client.get('/server-settings/storage/progress', { timeout: 5000, retry: false }),
     storageStatus: () => client.get('/server-settings/storage'),
     changeStorage: (action, body) => client.post('/server-settings/storage/' + action, body, { timeout: 0 }),
     getOperator,
