@@ -114,6 +114,15 @@ function reapStaleRunning(db, key, now) {
 function failExpiredWorker(db, id, cutoff, now) {
     const expired = db.prepare("SELECT 1 AS ok FROM jobs WHERE id = ? AND status = 'running' AND updated_at < ?").get(id, cutoff)
     if (!expired) return
+    const message = 'The harness worker stopped before the turn finished.' + markUnconfirmedToolCalls(db, id)
+    db.prepare(
+        `UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ?,
+         payload = ${finishedPayload(db)} WHERE id = ?`
+    ).run(message, now, id)
+}
+
+// The owning queue transaction has established that the worker can no longer acknowledge its calls.
+function markUnconfirmedToolCalls(db, id) {
     const entries = db.prepare('SELECT event FROM job_events WHERE job_id = ? AND event LIKE ? ORDER BY seq').all(id, journalPrefix)
     const calls = new Map()
     for (const row of entries) {
@@ -122,19 +131,9 @@ function failExpiredWorker(db, id, cutoff, now) {
     }
     const pending = [...calls.values()].filter((entry) => entry.phase === 'dispatched')
     for (const entry of pending) appendJobEvent(db, id, { ...entry, phase: 'uncertain' })
-    const message =
-        'The harness worker stopped before the turn finished.' +
-        (pending.length
-            ? ' The outcome of ' +
-              pending.length +
-              ' dispatched tool ' +
-              (pending.length === 1 ? 'call' : 'calls') +
-              ' could not be confirmed. Check the destination before retrying.'
-            : '')
-    db.prepare(
-        `UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ?,
-         payload = ${finishedPayload(db)} WHERE id = ?`
-    ).run(message, now, id)
+    if (!pending.length) return ''
+    const callsDescription = pending.length === 1 ? '1 dispatched tool call' : pending.length + ' dispatched tool calls'
+    return ' The outcome of ' + callsDescription + ' could not be confirmed. Check the destination before retrying.'
 }
 
 // Images and private admission receipts only travel to the consumer. Drop both in
@@ -184,13 +183,16 @@ export function claimJob() {
 export function stopQueueJobs(drained) {
     immediate((db) => {
         db.prepare("UPDATE jobs SET cancel_requested=1 WHERE status='running' AND cancel_requested=0").run()
-        const statuses = drained ? "('queued','running')" : "('queued')"
-        const where = 'status IN ' + statuses
-        forgetPayloadImages(db, where)
-        db.prepare(
-            "UPDATE jobs SET status='cancelled',cancel_requested=1,error_code='aborted',error_message=?,updated_at=? WHERE " + where
-        ).run('Stopped for a storage upgrade.', Date.now())
+        const message = 'Stopped for a storage upgrade.'
+        const now = Date.now()
+        const stop = `UPDATE jobs SET status='cancelled', cancel_requested=1, error_code='aborted', error_message=?, updated_at=?,
+                      payload=${finishedPayload(db)}`
+        db.prepare(stop + " WHERE status='queued'").run(message, now)
         if (drained) {
+            const finish = db.prepare(stop + " WHERE id=? AND status='running'")
+            for (const { id } of db.prepare("SELECT id FROM jobs WHERE status='running'").all()) {
+                finish.run(message + markUnconfirmedToolCalls(db, id), now, id)
+            }
             for (const table of ['turns', 'try_profile_turns', 'agent_turns']) {
                 if (db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?").get(table)) db.exec('DELETE FROM ' + table)
             }

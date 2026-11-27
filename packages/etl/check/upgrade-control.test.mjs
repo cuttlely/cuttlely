@@ -538,11 +538,18 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
     const stop = () => controller.transition('stop-jobs', { confirm: 'STOP' })
     try {
         const queue = database()
+        const payload = JSON.stringify({ chatId: 'chat', images: ['test image'], managedUploadReceipts: ['test upload'] })
         for (const status of ['queued', 'running', 'succeeded']) {
             queue
                 .prepare('INSERT INTO jobs (id,session_key,status,payload,created_at,updated_at) VALUES (?,?,?, ?,1,1)')
-                .run(status, status, status, '{}')
+                .run(status, status, status, payload)
         }
+        const phases = ['queued', 'dispatched', 'dispatched', 'confirmed']
+        phases.forEach((phase, index) => {
+            const callId = ['waiting', 'unconfirmed', 'done', 'done'][index]
+            const event = { type: 'nativeToolReceipt', callId, specialist: 'worker', name: 'ops_status', phase }
+            queue.prepare('INSERT INTO job_events (job_id, seq, event) VALUES (?, ?, ?)').run('running', index + 1, JSON.stringify(event))
+        })
         queue.exec(AGENT_SCHEMA)
         queue.exec(
             "INSERT INTO turns VALUES ('chat','orphan',0); INSERT INTO try_profile_turns VALUES ('draft','orphan',99999999,''); INSERT INTO agent_turns VALUES ('session','profile','chat','turn','[]')"
@@ -575,6 +582,8 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
         assert.equal(cancelled, true)
         assert.equal(claimJob(), null)
         assert.equal(queue.prepare("SELECT cancel_requested FROM jobs WHERE id='running'").get().cancel_requested, 1)
+        assert.equal(queue.prepare("SELECT payload FROM jobs WHERE id='running'").get().payload, payload)
+        assert.deepEqual(JSON.parse(queue.prepare("SELECT payload FROM jobs WHERE id='queued'").get().payload), { chatId: 'chat' })
         assert.equal(queue.prepare('SELECT count(*) AS n FROM turns').get().n, 1)
         assert.equal(db().prepare("SELECT status FROM runs WHERE id='orphan'").get().status, 'cancelled')
         const [peer] = await source.query(
@@ -587,6 +596,15 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
         const ready = await controller.transition('check-stop')
         assert.equal(ready.stopComplete, true)
         assert.ok(ready.stores.every((store) => !store.busy))
+        const stopped = queue.prepare("SELECT payload,error_message FROM jobs WHERE id='running'").get()
+        assert.deepEqual(JSON.parse(stopped.payload), { chatId: 'chat' })
+        assert.match(stopped.error_message, /outcome of 1 dispatched tool call could not be confirmed/)
+        const receipts = queue.prepare("SELECT event FROM job_events WHERE job_id='running' ORDER BY seq").all()
+        assert.deepEqual(
+            receipts.map((row) => JSON.parse(row.event).phase),
+            [...phases, 'uncertain']
+        )
+        assert.equal(JSON.parse(receipts.at(-1).event).callId, 'unconfirmed')
         assert.deepEqual(
             queue
                 .prepare('SELECT status FROM jobs ORDER BY id')
