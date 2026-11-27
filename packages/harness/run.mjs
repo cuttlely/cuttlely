@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
+import { trackStorageJob } from './side-store-maintenance.mjs'
 import { readClientSignal } from './abort.mjs'
 import { agentRunTimeoutMs, modelCallTimeoutMs, turnBudgetMs } from './budget.mjs'
 import {
@@ -491,6 +492,11 @@ export function setHarnessAvailabilityCheck(check) {
 }
 
 export async function runHarness(args = {}) {
+    const caller = readClientSignal(args.signal)
+    return trackStorageJob((stop) => runManagedHarness({ ...args, signal: caller ? AbortSignal.any([caller, stop]) : stop }))
+}
+
+async function runManagedHarness(args) {
     if (args.record?.tryId) {
         // Copy the draft: callers may reuse it for another turn. Both canvas entrypoints reach this gate.
         const tryId = args.record.chatflowId ? tryIdForFlow(args.record.chatflowId, args.record.tryOwner) : args.record.tryId

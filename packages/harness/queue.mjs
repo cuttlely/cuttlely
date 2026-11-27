@@ -1,3 +1,4 @@
+import { assertJobsAllowed, jobsStopped, trackStorageJob } from './side-store-maintenance.mjs'
 import { randomUUID } from 'node:crypto'
 import { assertHarnessCaller, serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
 import { HarnessError } from './errors.mjs'
@@ -145,6 +146,7 @@ function finishedPayload(db) {
 }
 
 export function enqueueHarnessJob(args) {
+    assertJobsAllowed()
     const key = sessionKey(args.name, args.chatId)
     const id = `job_${randomUUID()}`
     const now = Date.now()
@@ -165,6 +167,7 @@ export function enqueueHarnessJob(args) {
 }
 
 export function claimJob() {
+    if (jobsStopped()) return null
     const now = Date.now()
     const row = immediate((db) => {
         const found = db.prepare(`SELECT id, payload, cancel_requested FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1`).get()
@@ -175,6 +178,24 @@ export function claimJob() {
     })
     if (!row) return null
     return { id: row.id, payload: JSON.parse(row.payload), cancelRequested: row.cancel_requested === 1 }
+}
+
+// The coordinator owns the exclusive instance lock and has stopped queue admission.
+export function stopQueueJobs(drained) {
+    immediate((db) => {
+        db.prepare("UPDATE jobs SET cancel_requested=1 WHERE status='running' AND cancel_requested=0").run()
+        const statuses = drained ? "('queued','running')" : "('queued')"
+        const where = 'status IN ' + statuses
+        forgetPayloadImages(db, where)
+        db.prepare(
+            "UPDATE jobs SET status='cancelled',cancel_requested=1,error_code='aborted',error_message=?,updated_at=? WHERE " + where
+        ).run('Stopped for a storage upgrade.', Date.now())
+        if (drained) {
+            for (const table of ['turns', 'try_profile_turns', 'agent_turns']) {
+                if (db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?").get(table)) db.exec('DELETE FROM ' + table)
+            }
+        }
+    })
 }
 
 export function markCancel(id) {
@@ -377,6 +398,10 @@ function resultWithRunId(result, runId) {
 }
 
 export async function executeJob(job) {
+    return trackStorageJob(() => executeClaimedJob(job))
+}
+
+async function executeClaimedJob(job) {
     const local = localRuns.get(job.id)
     const controller = new AbortController()
     const onLocalAbort = () => {
@@ -506,6 +531,7 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
     const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : 0
     try {
         for (;;) {
+            assertJobsAllowed()
             if (signal?.aborted) markCancel(id)
             for (const row of readEvents(id, seq)) {
                 seq = row.seq

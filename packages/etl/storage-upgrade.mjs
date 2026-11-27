@@ -16,16 +16,19 @@ import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { configureHarnessPostgres } from '../harness/side-store-postgres.mjs'
 import { harnessPgConfig, registerSideSchema } from '../harness/side-store-identity.mjs'
-import { pauseStorage } from '../harness/side-store-maintenance.mjs'
+import { hasActiveTryProfiles } from '../harness/profile.mjs'
+import { stopQueueJobs } from '../harness/queue.mjs'
+import { interruptOpenRuns } from '../harness/history.mjs'
+import { pauseStorage, runningStorageJobs, stopJobs, resumeJobs } from '../harness/side-store-maintenance.mjs'
 import { closeQueueDb } from '../harness/lock.mjs'
 import { closeSessions } from '../harness/session.mjs'
-import { appDatabaseStoresOn, defaultDashFile, setDashStore } from '../harness/dashflows.mjs'
+import { appDatabaseStoresOn, dashStore, defaultDashFile, setDashStore } from '../harness/dashflows.mjs'
 import { copyDashStoreToAppDb, initDashStore, openPostgresDashStore } from '../harness/dashflows-postgres.mjs'
 import { closeDb, SCHEMA_VERSION } from './db.mjs'
 import { gate, drained, useBackend as selectEtlBackend } from './store.mjs'
 import { scheduleBusy as etlScheduleBusy } from './schedule.mjs'
 import { scheduleBusy as harnessScheduleBusy } from '../harness/schedule.mjs'
-import { hasActiveRuns } from './runner.mjs'
+import { hasActiveRuns, stopEtlJobs } from './runner.mjs'
 import { LocalVectorStore } from './stores.mjs'
 import { missingPrivilege, openPostgresEtlStore } from './store-postgres.mjs'
 import { copyEtlSnapshot, copyHarnessSnapshot, copyVectorSnapshot, snapshotSqlite, sqliteFingerprint } from './migrate-postgres.mjs'
@@ -60,6 +63,7 @@ export async function startStorageUpgrade({
     predictionFiles,
     blobTarget = 'postgres',
     versionHistory,
+    onJobsStopped = () => {},
     newPostgresApplication = false
 }) {
     const member = await source.session()
@@ -85,6 +89,16 @@ export async function startStorageUpgrade({
             leases.delete(key)
             throw error
         }
+    }
+    let holdingStopLock = false
+    let stopComplete = false
+    async function releaseJobPause() {
+        if (!holdingStopLock) return
+        await q('SELECT pg_advisory_unlock(' + lock + ')')
+        holdingStopLock = false
+        stopComplete = false
+        resumeJobs()
+        onJobsStopped(false)
     }
     let working = false
     let lost = false
@@ -187,6 +201,8 @@ export async function startStorageUpgrade({
             enabled,
             phase: state.phase,
             busy: working,
+            jobsPaused: holdingStopLock,
+            stopComplete,
             requiredBytes,
             harnessRecords: records.length,
             uploads: uploads.length,
@@ -326,6 +342,10 @@ export async function startStorageUpgrade({
     }
     async function transition(action, options = {}) {
         if (working || lost) refuse('Storage is busy or its database connection needs a restart.')
+        if (!['stop-jobs', 'check-stop', 'resume-jobs', 'upgrade', 'rollback'].includes(action)) refuse('Unknown storage action.')
+        if (action === 'stop-jobs' && (options.confirm !== 'STOP' || state.phase !== 'sqlite' || worker))
+            refuse('Confirm Stop all jobs before the storage upgrade.')
+        if (action === 'upgrade' && holdingStopLock && !stopComplete) refuse('Finish stopping jobs before upgrading.')
         if (!enabled && action === 'upgrade') refuse('Enable CUTTLELY_APP_DATABASE_STORES on the host and restart.')
         if (action === 'rollback' && options.confirm !== 'ROLLBACK') refuse('Confirm that later PostgreSQL writes will stay in PostgreSQL.')
         working = true
@@ -359,6 +379,43 @@ export async function startStorageUpgrade({
             locked = (await q('SELECT pg_try_advisory_lock(' + lock + ') AS ok'))[0].ok
             if (!locked)
                 refuse('Stop other application instances and external workers for the storage change, then restart them afterwards.')
+            if (action === 'resume-jobs') {
+                if (state.phase !== 'sqlite') refuse('Finish the storage change before resuming jobs.')
+                await releaseJobPause()
+                return status()
+            }
+            if (action === 'check-stop' && !holdingStopLock) return status()
+            if (action === 'stop-jobs' || action === 'check-stop') {
+                if (!holdingStopLock) {
+                    // Keep the exclusive membership lock between requests, including while the operator reviews the inventory.
+                    holdingStopLock = true
+                    locked = false
+                    stopJobs()
+                    onJobsStopped(true)
+                }
+                if (stopComplete) return status()
+                const inventory = discover().stores.map(inspectStore)
+                const hasStore = (kind) => inventory.some((store) => store.kind === kind && !store.retired && store.busy)
+                if (hasStore('queue')) stopQueueJobs(false)
+                if (hasStore('etl')) await stopEtlJobs()
+                if (hasStore('dash') && !state.pilot) await dashStore().cancelRefreshesForUpgrade()
+                if (
+                    !runningStorageJobs() &&
+                    !hasActiveTryProfiles() &&
+                    !hasActiveRuns() &&
+                    !leases.size &&
+                    !etlScheduleBusy() &&
+                    !harnessScheduleBusy() &&
+                    !options.jobsBusy?.()
+                ) {
+                    if (inventory.some((store) => store.kind === 'queue' && !store.retired)) {
+                        stopQueueJobs(true)
+                        interruptOpenRuns({ before: Date.now() + 1, message: 'Stopped for a storage upgrade.' })
+                    }
+                    stopComplete = true
+                }
+                return status()
+            }
             if (action === 'upgrade' && state.phase === 'postgres') return status()
             if (action === 'rollback' && !['postgres', 'restoring'].includes(state.phase)) refuse('Rollback requires a completed upgrade.')
             if (action === 'upgrade' && state.phase === 'restoring') refuse('Finish the interrupted rollback first.')
@@ -623,6 +680,7 @@ export async function startStorageUpgrade({
             }
             try {
                 await activate()
+                await releaseJobPause()
             } catch (error) {
                 lost = true
                 throw error
@@ -691,8 +749,10 @@ export async function startStorageUpgrade({
         return {
             status,
             transition,
+            jobsPaused: () => holdingStopLock,
             paused: () => lost || working || progressing(state.phase),
             close: async () => {
+                await releaseJobPause()
                 await q('SELECT pg_advisory_unlock_shared(' + lock + ')')
                 await member.release()
             }

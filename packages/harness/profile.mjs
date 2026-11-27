@@ -2763,6 +2763,9 @@ export async function resetTryProfileSession(tryId, chatId) {
 
 const tryTurns = new Map()
 
+export function hasActiveTryProfiles() {
+    return tryTurns.size > 0
+}
 // Hold the whole compile/run/discard lifecycle, including the runtime close. Only the callback receives
 // the owner's teardown function. Only explicit cleanup waits; colliding turns fail immediately.
 export async function withTryProfile(tryId, body, { wait = false } = {}) {
