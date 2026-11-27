@@ -229,6 +229,9 @@ export function appendMessage(harnessName, chatId, role, content) {
 const RAW_TURNS = 2
 const RAW_MESSAGES = RAW_TURNS * 2
 const SUMMARY_CHARS = 1600
+// Even an empty standalone message renders ": ", and each pair renders "Q:  A: ".
+// Keep an extra pair so a clipped boundary cannot change the part of the summary that fits.
+const CONTEXT_MESSAGES = RAW_MESSAGES + Math.ceil(SUMMARY_CHARS / 2) + 2
 const PIN_LIMIT = 8
 const PIN_CHARS = 160
 
@@ -264,20 +267,41 @@ function mergePins(existing, incoming) {
 
 function summarizeOlder(messages) {
     const lines = []
-    for (let i = 0; i < messages.length; ) {
+    let remaining = SUMMARY_CHARS
+    let i = messages.length - 1
+    while (i >= 0) {
         const current = messages[i]
-        const next = messages[i + 1]
-        if (current?.role === 'user' && next?.role === 'assistant') {
-            lines.push(`Q: ${oneLine(current.content, 120)} A: ${oneLine(next.content, 160)}`)
-            i += 2
-        } else if (current) {
-            lines.push(`${current.role}: ${oneLine(current.content, 120)}`)
-            i += 1
-        } else break
+        let line
+        if (current.role === 'assistant' && messages[i - 1]?.role === 'user') {
+            line = `Q: ${oneLine(messages[i - 1].content, 120)} A: ${oneLine(current.content, 160)}`
+            i--
+        } else {
+            line = `${current.role}: ${oneLine(current.content, 120)}`
+        }
+        if (line.length > remaining) {
+            if (!lines.length) lines.push(line.slice(-SUMMARY_CHARS))
+            break
+        }
+        lines.push(line)
+        remaining -= line.length + 1
+        i--
     }
-    while (lines.length > 1 && lines.join('\n').length > SUMMARY_CHARS) lines.shift()
-    const summary = lines.join('\n')
-    return summary.length > SUMMARY_CHARS ? summary.slice(summary.length - SUMMARY_CHARS) : summary
+    return { summary: lines.reverse().join('\n'), full: i >= 0 }
+}
+
+// Each query returns one complete snapshot, including the raw tail. Short messages
+// can fit many turns in the summary, so expand only while older lines might fit.
+function recentContext(entry, key) {
+    if (!entry) return { messages: [], summary: '' }
+    for (let limit = 32; ; limit = Math.min(CONTEXT_MESSAGES, limit * 4)) {
+        const rows = entry.recent.all(key, limit).reverse()
+        const older = rows.slice(0, -RAW_MESSAGES)
+        // A page can begin halfway through a question/answer pair. Skip an initial
+        // assistant message while its preceding question might be outside this page.
+        const more = rows.length === limit && limit < CONTEXT_MESSAGES
+        const { summary, full } = summarizeOlder(more && older[0]?.role === 'assistant' ? older.slice(1) : older)
+        if (full || !more) return { messages: rows.slice(-RAW_MESSAGES), summary }
+    }
 }
 
 function parsePins(raw) {
@@ -301,9 +325,7 @@ export function readMemory(harnessName, chatId, { scope } = {}) {
 function refreshMemory(harnessName, chatId, pins, scope) {
     const key = sessionKey(harnessName, chatId)
     const entry = connection(harnessName, { create: true, scope })
-    const all = entry.all.all(key)
-    const older = all.length > RAW_MESSAGES ? all.slice(0, all.length - RAW_MESSAGES) : []
-    const summary = summarizeOlder(older)
+    const { summary } = recentContext(entry, key)
     const prior = parsePins(entry.memoryGet.get(key)?.pins)
     entry.memoryPut.run(key, summary, JSON.stringify(mergePins(prior, pins)), new Date().toISOString())
 }
@@ -322,14 +344,18 @@ function scopedPromptContext(name, receipt) {
     // Even two empty lines render at least seven characters with the Q/A markers. A
     // bounded candidate set covers the complete summary budget plus the raw tail.
     const limit = Math.ceil(SUMMARY_CHARS / 7) + RAW_TURNS
-    const turns = readRecallTurns(name, receipt, { limit, contentChars: 512 }).reverse()
+    const previewChars = 512
+    const turns = readRecallTurns(name, receipt, { limit, contentChars: previewChars }).reverse()
     if (!turns.length) return empty
     const userAndAnswer = (t) => [
         { role: 'user', content: t.question, created_at: t.created_at },
         { role: 'assistant', content: t.answer, created_at: t.created_at }
     ]
     const older = turns.slice(0, -RAW_TURNS).flatMap(userAndAnswer)
+    // Use SQL's character counts: substr and length agree even for astral characters and SQLite text containing NUL.
+    const complete = (t) => Number(t.question_chars) <= previewChars && Number(t.answer_chars) <= previewChars
     const recent = turns.slice(-RAW_TURNS).flatMap((t) => {
+        if (complete(t)) return userAndAnswer(t)
         const [row] = readRecallTurns(name, receipt, { runtimeId: t.runtime_id, limit: 1, contentChars: 1024 * 1024 })
         if (!row) return []
         // A single oversized archived turn must not enlarge the provider context without bound.
@@ -339,10 +365,10 @@ function scopedPromptContext(name, receipt) {
     const entry = connection(name, { create: false, scope: receipt.storeScope })
     const privateKey = 'recall_' + receipt.ownerScope
     const legacyPins = turns
-        .filter((t) => t.source === 'cuttlely_queue' && Number(t.question_chars) <= 512 && Number(t.answer_chars) <= 512)
+        .filter((t) => t.source === 'cuttlely_queue' && complete(t))
         .flatMap((t) => [...pinsFromText(t.question), ...pinsFromText(t.answer)])
     const pins = mergePins(legacyPins, parsePins(entry?.memoryGet.get(privateKey)?.pins))
-    const summary = summarizeOlder(older)
+    const { summary } = summarizeOlder(older)
     const raw = entry?.selectionsGet.get(privateKey)?.selections
     let selections = []
     try {
@@ -360,19 +386,19 @@ export function readPromptContext(harnessName, chatId, { scope, recallScope } = 
         return scopedPromptContext(harnessName, recallScope)
     }
 
-    const all = readMessages(harnessName, chatId, undefined, { scope })
-    const older = all.length > RAW_MESSAGES ? all.slice(0, -RAW_MESSAGES) : []
+    const key = sessionKey(harnessName, chatId)
+    const entry = connection(harnessName, { create: false, scope })
+    const { messages, summary } = recentContext(entry, key)
     const stored = readMemory(harnessName, chatId, { scope })
-    const summary = summarizeOlder(older)
     const memory = { summary, pins: stored.pins }
-    const raw = connection(harnessName, { create: false, scope })?.selectionsGet.get(sessionKey(harnessName, chatId))?.selections
+    const raw = connection(harnessName, { create: false, scope })?.selectionsGet.get(key)?.selections
     let selections = []
     try {
         if (raw && raw.length <= 16000) selections = JSON.parse(raw)
     } catch {
         /* Older or damaged context is unavailable. */
     }
-    return { messages: all.slice(-RAW_MESSAGES), summary, pins: stored.pins, block: memoryBlock(memory), selections }
+    return { messages, summary, pins: stored.pins, block: memoryBlock(memory), selections }
 }
 
 export function appendTurn(harnessName, chatId, question, answer, pins = [], selections, { scope, recall, managedWorkspaces } = {}) {

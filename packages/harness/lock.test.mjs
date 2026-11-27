@@ -5,6 +5,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, test } from 'node:test'
+import { createTestDatabase, skipReason } from '../etl/check/pg-source.mjs'
+import { configureHarnessPostgres } from './side-store-postgres.mjs'
+import { beginGuardedQueryTurns, VERIFIED_QUERY_POLICY } from './verified-query-output.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-lock-'))
 process.env.CUTTLELY_DATA_DIR = dir
@@ -14,6 +17,39 @@ after(() => {
     fs.rmSync(dir, { recursive: true, force: true })
 })
 const lease = (held) => database().prepare('SELECT expires_at FROM turns WHERE session_key = ?').get(held.key)?.expires_at
+
+for (const backend of ['sqlite', 'postgres']) {
+    test(
+        `replacing an expired lease detaches the prior guarded query on ${backend}`,
+        { skip: backend === 'postgres' && skipReason },
+        async (t) => {
+            if (backend === 'postgres') {
+                const fixture = await createTestDatabase()
+                closeQueueDb()
+                configureHarnessPostgres(fixture.connection)
+                t.after(async () => {
+                    closeQueueDb()
+                    configureHarnessPostgres(null)
+                    await fixture.cleanup()
+                })
+            }
+            const held = acquireTurn('lease', 'guarded')
+            const role = { profileName: 'guarded-profile', trustedOutputPolicy: VERIFIED_QUERY_POLICY }
+            beginGuardedQueryTurns([role], 'guarded', 'previous', held.key)
+            const stored = database().prepare('SELECT session_key FROM guarded_query_turns WHERE profile = ? AND source_turn = ?')
+            const previous = () => stored.get(role.profileName, 'guarded-profile:guarded#turn-previous').session_key
+            assert.equal(previous(), held.key)
+            database().prepare('UPDATE turns SET expires_at = 0 WHERE session_key = ?').run(held.key)
+            const replacement = acquireTurn('lease', 'guarded')
+            try {
+                assert.notEqual(replacement.owner, held.owner)
+                assert.equal(previous(), null)
+            } finally {
+                releaseTurn(replacement)
+            }
+        }
+    )
+}
 
 test('renewal extends only its owner, reads the live TTL, and ignores released rows', (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: 1800000000000 })

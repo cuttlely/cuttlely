@@ -228,6 +228,8 @@ For release sign-off, pass all five configuration manifests to `node scripts/kra
 3. Report admission latency, end-to-end p50 and p95, successful completions per second, and API ping latency and failures. List request errors, timeouts and cancellations. At each matched load, the candidate must equal or exceed the tag’s fraction of requests with a correct result and its verified completions per second, with end-to-end p95 no higher. Record HTTP 409 chat conflicts and HTTP 429 rate limits separately, and include both in the submitted request count. Report the highest tested simultaneous connection count that met all criteria for each worker configuration.
 4. Require every successful answer to match its own input, caller, chat and saved run. For a tool workload, verify the expected specialist actually invoked its tool and the final answer contains the result for that request. Reconcile submitted requests with terminal jobs, confirmed tool calls and delivered events. A dropped or duplicated turn, an incorrect answer, a crossed owner or an unexpected timeout fails the comparison even when timings meet the thresholds.
 
+Repeat a representative run with an existing long conversation. Compare the recent messages, summary and pins with their original values. Verify that the stored transcript is intact and another caller cannot retrieve the conversation through session recall. Record the original transcript length and the end-to-end timing separately from fresh chats.
+
 Record the exact revisions, fixture and measured configurations. A result for one workload, temperature or worker count establishes performance only for those conditions. Acceptance also requires the functional and recovery checks above.
 
 ### v1.7.15 runtime patch coverage

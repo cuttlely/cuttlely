@@ -145,5 +145,34 @@ for (const backend of ['sqlite', 'postgres'])
             assert.match(answer(one, { query: 'detail', role_filter: 'assistant' }).error, /search budget/)
             assert.match(answer(one, { query: 'cobalt' }).error, /search budget/)
             assert.equal(answer(one, { query: 'lavender', exclude_session_ids: [longId] }).count, 1)
+
+            const reader = { via: 'session', tryOwner: 'user:preview-reader' }
+            const first = Date.parse('2026-03-02T00:00:00Z')
+            const owned = (input, output, startedAt) =>
+                appendTurn(name, chat, input, output, [], undefined, { recall: open(reader, { startedAt }).receipt })
+            const contents = () => prompt(open(reader)).messages.map((m) => m.content)
+            const boundary = '🐋'.repeat(512)
+            const longer = boundary + '界'
+            const earlier = ticket({ caller: reader, input: boundary, output: '', createdAt: first })
+            owned('', longer, first + 1)
+            assert.deepEqual(contents(), [boundary, '', '', longer])
+            // Withdrawing the released ticket removes it on the next prompt. Unrelated receipts remain.
+            database().prepare("UPDATE jobs SET status='failed' WHERE id=?").run(earlier)
+            assert.deepEqual(contents(), ['', longer])
+            ticket({ caller: reader, input: longer, output: boundary, createdAt: first + 2 })
+            owned(boundary, '終', first + 3)
+            assert.deepEqual(contents(), [longer, boundary, boundary, '終'])
+            if (backend === 'sqlite') {
+                // SQLite's length(TEXT) and substr(TEXT) both stop at the first NUL, including JSON ticket values.
+                ticket({ caller: reader, input: boundary + '\0hidden', output: 'x\0y', createdAt: first + 4 })
+                owned(longer + '\0hidden', 'a\0b', first + 5)
+                assert.deepEqual(contents(), [boundary, 'x', longer, 'a'])
+            }
+            const cap = 1024 * 1024
+            const oversized = 'x'.repeat(cap) + 'z'
+            owned(oversized, 'attested answer', first + 6)
+            ticket({ caller: reader, input: 'released question', output: oversized, createdAt: first + 7 })
+            assert.deepEqual(contents(), ['x'.repeat(cap) + '…', 'attested answer', 'released question', 'x'.repeat(cap) + '…'])
+            assert.deepEqual(prompt(open({ via: 'api_key', apiKeyId: reader.tryOwner })).messages, [])
         }
     )

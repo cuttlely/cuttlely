@@ -90,11 +90,18 @@ export function acquireTurn(name, chatId) {
     const key = sessionKey(name, chatId)
     const owner = `${process.pid}:${randomUUID()}`
     const now = Date.now()
+    const insert = 'INSERT INTO turns (session_key, owner, expires_at) VALUES (?, ?, ?)'
     try {
-        immediate((db) => {
-            db.prepare('DELETE FROM turns WHERE session_key = ? AND expires_at <= ?').run(key, now)
-            db.prepare('INSERT INTO turns (session_key, owner, expires_at) VALUES (?, ?, ?)').run(key, owner, expiresAt(now))
-        })
+        const acquired = database()
+            .prepare(insert + ' ON CONFLICT(session_key) DO NOTHING')
+            .run(key, owner, expiresAt(now))
+        if (!acquired.changes) {
+            // Expiry must delete the old lease so its guarded query receipts detach from this session.
+            immediate((db) => {
+                db.prepare('DELETE FROM turns WHERE session_key = ? AND expires_at <= ?').run(key, now)
+                db.prepare(insert).run(key, owner, expiresAt(now))
+            })
+        }
     } catch (error) {
         if (error?.code === 'busy') throw error
         if (isConstraint(error)) throw new HarnessError('busy', BUSY_MESSAGE)
