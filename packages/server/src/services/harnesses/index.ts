@@ -1562,6 +1562,12 @@ const startRun = async (
                 recorded = row
             }
         })
+        // The Live prediction controller may have deferred its verified final and artifacts.
+        // Check the saved generation once more before returning the payload for delivery.
+        if (opts.record && payload?.trace?.engine === 'native') {
+            const ownership = await loadHarness('canvas-ownership.mjs')
+            ownership.publishedCanvasSource(opts.record)
+        }
         // An external worker writes history in its own process, so onRecorded does not run here.
         // The worker puts that saved id on the job result. Drop it before the response is returned.
         const jobRunId = takeJobRunId(payload)
@@ -1593,7 +1599,10 @@ const startRun = async (
         }
         if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error, { runId: recordedId(recorded) })
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
-        wrapped.harnessRun = recorded
+        // A delivery refusal may arrive after the run was recorded. SSE errors can identify
+        // that run, but must not include its completed answer or attachments.
+        const id = recordedId(recorded)
+        wrapped.harnessRun = (error as { code?: string }).code === 'harness_changed' ? (id ? { id } : null) : recorded
         throw wrapped
     }
 }

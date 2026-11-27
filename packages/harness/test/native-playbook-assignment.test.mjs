@@ -211,7 +211,7 @@ test('a saved native specialist receives its own admitted playbook turn identifi
         t.after(() => (before === undefined ? delete process.env[key] : (process.env[key] = before)))
     }
     const { rosterFromFlow } = await import('../sync-from-flow.mjs')
-    const { saveHarness } = await import('../store.mjs')
+    const { getHarness, saveHarness } = await import('../store.mjs')
     const { runHarness } = await import('../run.mjs')
     const { closeSessions } = await import('../session.mjs')
     const { closeQueueDb } = await import('../lock.mjs')
@@ -230,6 +230,7 @@ test('a saved native specialist receives its own admitted playbook turn identifi
     const workspaceId = 'qa-workspace'
     saveHarness(rosterFromFlow({ name, workspaceId, chatflowId: 'qa-flow', flowData: JSON.stringify(canvas) }))
     const calls = []
+    let afterRead = () => {}
     class Model {
         async init() {
             return {
@@ -257,6 +258,7 @@ test('a saved native specialist receives its own admitted playbook turn identifi
                                 return call('skill_view', { name: 'record', file_path: 'SKILL.md' })
                             }
                             assert.equal(out.content, playbookMarkdown(book))
+                            await afterRead()
                             return { content: 'Verified assigned turn and guide.' }
                         }
                     }
@@ -264,16 +266,61 @@ test('a saved native specialist receives its own admitted playbook turn identifi
             }
         }
     }
-    const result = await runHarness({
-        name,
-        input: 'Check the assigned guide.',
-        mode: 'agent',
-        chatId: 'qa-chat',
-        loadNode: async () => Model,
-        flowOptions: { workspaceId, appDataSource: {}, harnessCaller: { via: 'session' } }
-    })
+    const run = (options = {}) =>
+        runHarness({
+            name,
+            input: 'Check the assigned guide.',
+            mode: 'agent',
+            chatId: 'qa-chat',
+            loadNode: async () => Model,
+            flowOptions: { workspaceId, appDataSource: {}, harnessCaller: { via: 'session' } },
+            ...options
+        })
+    const events = []
+    const result = await run({ onEvent: (event) => events.push(event) })
+    assert.ok(events.some((event) => event.type === 'partial' && event.text === 'Verified assigned turn and guide.'))
     assert.equal(result.trace.engine, 'native')
     assert.equal(result.agents[0].status, 'completed', result.agents[0].error)
     assert.equal(result.text, 'Verified assigned turn and guide.')
     assert.deepEqual(calls, ['render', 'raw'])
+
+    // A provider completion can arrive after the revision changed or the caller cancelled.
+    // Neither completion may release the fixture answer as a partial or final event.
+    const controller = new AbortController()
+    for (const action of ['cancel', 'change']) {
+        events.length = 0
+        let reached = false
+        afterRead = () => {
+            reached = true
+            if (action === 'cancel') controller.abort()
+            else {
+                const record = getHarness(name)
+                saveHarness({ ...record, chief: { ...record.chief, instructions: 'Updated fixture instructions.' } }, { overwrite: true })
+            }
+        }
+        const pending = run({ onEvent: (event) => events.push(event), signal: action === 'cancel' ? controller.signal : undefined })
+        if (action === 'change') await assert.rejects(pending, { code: 'harness_changed' })
+        else await assert.rejects(pending)
+        assert.ok(reached, 'The simulated model must read the fixture before the change or cancellation.')
+        assert.ok(
+            !events.some((event) => event.type === 'final' || (event.type === 'partial' && event.text.includes('Verified assigned turn')))
+        )
+    }
+})
+
+test('protected native model deltas preserve text while grouping public sends independently of token count', async (t) => {
+    const { bufferStream } = await import('../run.mjs')
+    let time = 1
+    t.mock.method(performance, 'now', () => time)
+    const guard = { checkPlaybookDelivery: () => {} }
+    const sent = []
+    const push = (text) => sent.push(text)
+    bufferStream(guard, 'fixture', 'One. ', false, push)
+    for (let n = 0; n < 100; n++) bufferStream(guard, 'fixture', 'word ', false, push)
+    assert.equal(sent.length, 1)
+    time += 251
+    bufferStream(guard, 'fixture', 'Last. ', false, push)
+    bufferStream(guard, 'fixture', '', true, push)
+    assert.equal(sent.join(''), 'One. ' + 'word '.repeat(100) + 'Last. ')
+    assert.ok(sent.length <= 3)
 })

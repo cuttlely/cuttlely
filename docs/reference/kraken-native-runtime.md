@@ -55,7 +55,7 @@ The normal `skill_view` call expands `${HERMES_SESSION_ID}` for the current spec
 ]
 ```
 
-The example assigns `references/guide.md` to the `handbook` playbook of specialist `reader` on team `demo`. An owned draft also needs its exact `tryId` and draft profile path. Older manifest rows containing only a path and digest need a separate matching digest for the compiled parent harness-roster.json, with the same canvas generation and saved assignment. Rehearse on a replacement worker with the same manifest and files. Preflight reports unresolved dependencies. Inline shell execution in a playbook requires the bundled runtime.
+The example assigns `references/guide.md` to the `handbook` playbook of specialist `reader` on team `demo`. An owned draft also needs its exact `tryId` and draft profile path. Older manifest rows containing only a path and digest need a separate matching digest for the compiled parent harness-roster.json, with the same canvas generation and saved assignment. Rehearse on a replacement worker with the same manifest and files. Preflight reports unresolved dependencies. Inline shell execution in a playbook requires the bundled runtime. If the saved team changes during a run that uses a playbook, the worker checks the revision again before sending more answer text or attachments. A client can retry on the new revision.
 
 ### Workspace MCP status endpoint
 

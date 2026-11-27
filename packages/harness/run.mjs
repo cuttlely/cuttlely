@@ -645,6 +645,12 @@ async function runTurnBody(
         managedUploadReceipts,
         nativePrime,
         nativeSpecialists,
+        // A playbook can supply installation-owned content. Authorize each public release,
+        // including text received from a model that started before a roster update.
+        checkPlaybookDelivery:
+            nativeSpecialists && roster.specialists.some((role) => role.playbooks?.length)
+                ? () => context.assertNativeAuthority()
+                : undefined,
         nativeResults: [],
         assertNativeAuthority() {
             context.workSignal?.throwIfAborted()
@@ -1757,6 +1763,7 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
 
 function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
+    if (type === 'partial' || type === 'final') context?.checkPlaybookDelivery?.()
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
     // maskWorkspacePaths masks a "detail" field with maskDetail, so an encoded tool detail stays valid JSON.
     emitHarnessEvent(context?.onEvent, {
@@ -2042,6 +2049,7 @@ async function callModel(context, model, request) {
     let winner = model
     let usedFallback = false
     const startedAt = Date.now()
+    context.checkPlaybookDelivery?.()
     const reply = await withModelFallback({
         primary: model,
         fallback,
@@ -2053,7 +2061,7 @@ async function callModel(context, model, request) {
             winner = binding
             return invokeOne(context, binding, request, windowMs, controlSignal)
         }
-    })
+    }).finally(() => context.checkPlaybookDelivery?.())
     const endedAt = Date.now()
     const tokens = noteUsage(context, reply)
     if (!context.calls) context.calls = []
@@ -3578,7 +3586,17 @@ export function bufferStream(context, key, delta, flush, send, root = specialist
         state = workspaceMaskState()
         context._deltaTail.set(key, state)
     }
-    const shown = scanWorkspaceText(state, delta, root, flush)
+    let shown = scanWorkspaceText(state, delta, root, flush)
+    if (context.checkPlaybookDelivery) {
+        // Keep live progress while bounding authorization checks independently of provider token size.
+        // Every released chunk includes only text verified at its own send boundary.
+        const now = performance.now()
+        state.pendingPublicText = (state.pendingPublicText || '') + shown
+        if (!flush && now < (state.nextPublicRelease || 0) && state.pendingPublicText.length < 4096) return
+        shown = state.pendingPublicText
+        state.pendingPublicText = ''
+        if (shown) state.nextPublicRelease = now + 250
+    }
     if (shown) send(shown)
     if (flush) context._deltaTail.delete(key)
 }

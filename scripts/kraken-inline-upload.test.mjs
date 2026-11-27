@@ -59,10 +59,10 @@ test(
             CUTTLELY_NATIVE_PRIME_TEAMS: name,
             CUTTLELY_ANALYST: 'off'
         })
-        // A named canary must also accept uploads when only its native engine is available.
-        fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'down' }))
         server = await startServer(root, env, { preload: [path.join(root, 'scripts/fixtures/kraken-inline-upload-provider.cjs')] })
         await waitForPing(url.slice(0, -8), server)
+        // A named canary must also accept uploads when only its native engine is available.
+        fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'down' }))
         const { cookie, status } = await request(url + 'auth/local/login', { method: 'POST', body: account })
         assert.equal(status, 200)
         assert.ok(cookie)

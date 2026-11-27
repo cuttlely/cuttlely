@@ -197,3 +197,38 @@ it.each([undefined, 'agent'])('records background mode %s before starting execut
     expect(queued).toHaveBeenCalledWith(expect.objectContaining({ mode: mode ?? 'router', name: harness.name }))
     expect(dispatch).not.toHaveBeenCalled()
 })
+
+it('returns only the run id if native canvas delivery loses authorization after the completed row is recorded', async () => {
+    const record = { ...harness, chatflowId: 'fixture-canvas' }
+    setHarnessModuleLoader(async (file) => {
+        if (file === 'store.mjs') return { getHarness: () => record }
+        if (file === 'run.mjs')
+            return {
+                runHarness: async (options: any) => {
+                    options.onRecorded({ id: 'run-example', text: 'fixture answer' })
+                    return { text: 'fixture answer', trace: { engine: 'native' } }
+                }
+            }
+        if (file === 'canvas-ownership.mjs')
+            return {
+                publishedCanvasSource: () => {
+                    throw Object.assign(new Error('Updated fixture revision.'), { code: 'harness_changed' })
+                }
+            }
+        throw new Error(`Unexpected harness module: ${file}`)
+    })
+    const failure = await harnessesService
+        .startRun(
+            'bakery',
+            { question: 'Read the guide.' },
+            {
+                workspaceId: 'team-a',
+                caller,
+                record,
+                runtime: { componentNodes: {}, appDataSource: {} } as any
+            }
+        )
+        .catch((error: unknown) => error)
+    expect(failure).toMatchObject({ statusCode: 409 })
+    expect(failure).toHaveProperty('harnessRun', { id: 'run-example' })
+})
