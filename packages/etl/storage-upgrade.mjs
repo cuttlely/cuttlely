@@ -71,7 +71,7 @@ export async function startStorageUpgrade({
     let state = { phase: 'sqlite', files: [] }
     const leases = new Set()
     async function tryLease(key) {
-        if (lost || leases.has(key)) return null
+        if (failure || leases.has(key)) return null
         leases.add(key)
         try {
             if (!(await q('SELECT pg_try_advisory_lock(hashtextextended($1,517)) AS ok', [key]))[0].ok) {
@@ -92,24 +92,32 @@ export async function startStorageUpgrade({
     }
     let holdingStopLock = false
     let stopComplete = false
-    async function releaseJobPause() {
+    async function releaseJobPause(unlock = true) {
         if (!holdingStopLock) return
-        await q('SELECT pg_advisory_unlock(' + lock + ')')
+        if (unlock) await q('SELECT pg_advisory_unlock(' + lock + ')')
         holdingStopLock = false
         stopComplete = false
         resumeJobs()
         onJobsStopped(false)
     }
     let working = false
-    let lost = false
+    let memberLost = false
+    let failure = null
     function maintenance(on) {
-        pauseStorage(on)
-        if (on) gate.close('upgrade')
+        const blocked = on || Boolean(failure)
+        pauseStorage(blocked, failure)
+        if (blocked) gate.close(failure)
         else gate.open()
     }
-    member.onLost?.(() => {
-        lost = true
+    function fail(code, message) {
+        if (failure) return
+        failure = { code, message }
         maintenance(true)
+        log.error?.(`${code}: ${message}`)
+    }
+    member.onLost?.(() => {
+        memberLost = true
+        fail('coordinator_connection_lost', 'The storage coordinator lost its PostgreSQL connection. Restart Cuttlely to restore service.')
     })
     function closeStores() {
         closeDb()
@@ -203,6 +211,7 @@ export async function startStorageUpgrade({
             busy: working,
             jobsPaused: holdingStopLock,
             stopComplete,
+            ...(failure && { failure }),
             requiredBytes,
             harnessRecords: records.length,
             uploads: uploads.length,
@@ -341,7 +350,8 @@ export async function startStorageUpgrade({
             refuse('Wait for the active draft turn to finish.')
     }
     async function transition(action, options = {}) {
-        if (working || lost) refuse('Storage is busy or its database connection needs a restart.')
+        if (failure) refuse(failure.message)
+        if (working) refuse('Storage is busy.')
         if (!['stop-jobs', 'check-stop', 'resume-jobs', 'upgrade', 'rollback'].includes(action)) refuse('Unknown storage action.')
         if (action === 'stop-jobs' && (options.confirm !== 'STOP' || state.phase !== 'sqlite' || worker))
             refuse('Confirm Stop all jobs before the storage upgrade.')
@@ -682,15 +692,21 @@ export async function startStorageUpgrade({
                 await activate()
                 await releaseJobPause()
             } catch (error) {
-                lost = true
+                fail(
+                    'storage_activation_failed',
+                    'Cuttlely could not activate its side stores. Restart Cuttlely to verify storage and restore service.'
+                )
                 throw error
             }
             return await status()
         } finally {
-            for (const file of guards.keys()) unguard(file)
-            if (locked) await q('SELECT pg_advisory_unlock(' + lock + ')')
-            maintenance(lost || progressing(state.phase))
-            working = false
+            try {
+                for (const file of guards.keys()) unguard(file)
+                if (locked && !memberLost) await q('SELECT pg_advisory_unlock(' + lock + ')')
+            } finally {
+                working = false
+                maintenance(progressing(state.phase))
+            }
         }
     }
     try {
@@ -750,11 +766,19 @@ export async function startStorageUpgrade({
             status,
             transition,
             jobsPaused: () => holdingStopLock,
-            paused: () => lost || working || progressing(state.phase),
+            paused: () => working || progressing(state.phase),
+            failure: () => failure,
             close: async () => {
-                await releaseJobPause()
-                await q('SELECT pg_advisory_unlock_shared(' + lock + ')')
-                await member.release()
+                let closeError
+                try {
+                    await releaseJobPause(!memberLost)
+                    if (!memberLost) await q('SELECT pg_advisory_unlock_shared(' + lock + ')')
+                } catch (error) {
+                    closeError = error
+                    throw error
+                } finally {
+                    await member.release(closeError)
+                }
             }
         }
     } catch (error) {
