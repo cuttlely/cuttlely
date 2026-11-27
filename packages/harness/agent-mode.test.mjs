@@ -29,16 +29,48 @@ after(() => {
     fs.rmSync(dir, { recursive: true, force: true })
 })
 
-for (const chiefFails of [false, true])
-    test(`agent mode retains roster steps when the chief ${chiefFails ? 'fails' : 'completes'}`, async (t) => {
+const statusSample = JSON.parse(fs.readFileSync(new URL('../../samples/harnesses/ops.canvas.json', import.meta.url)))
+const statusModel = JSON.parse(statusSample.flowData).nodes.find((node) => node.data.category === 'Chat Models').data.name
+
+for (const [chiefFails, postgres] of [
+    [false, false],
+    [true, false],
+    [false, true]
+])
+    test(`agent mode retains roster steps when the chief ${chiefFails ? 'fails' : 'completes'} on ${
+        postgres ? 'PostgreSQL' : 'SQLite'
+    }`, async (t) => {
+        if (postgres) {
+            const { createTestSource, skipReason } = await import('../etl/check/pg-source.mjs')
+            if (skipReason) return t.skip(skipReason)
+            const db = await createTestSource()
+            const { initializeRuntimeSessions } = await import('../etl/runtime-sessions.mjs')
+            await initializeRuntimeSessions(db, [], db.connection)
+            const previousKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+            process.env.CUTTLELY_SECRETKEY_OVERWRITE = (await import('node:crypto')).randomUUID()
+            t.after(() =>
+                previousKey === undefined
+                    ? delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+                    : (process.env.CUTTLELY_SECRETKEY_OVERWRITE = previousKey)
+            )
+            const { configureHarnessPostgres } = await import('./side-store-postgres.mjs')
+            configureHarnessPostgres(db.connection)
+            t.after(async () => {
+                closeSessions()
+                closeQueueDb()
+                configureHarnessPostgres(undefined)
+                await db.cleanup()
+            })
+        }
         const gateway = await startGateway({ port: 0 })
         process.env.CUTTLELY_HARNESS_GATEWAY_PORT = String(gateway.port)
-        const name = chiefFails ? 'agent-failure' : 'agent-fixture'
+        const name = postgres ? 'agent-postgres' : chiefFails ? 'agent-failure' : 'agent-fixture'
         const record = saveHarness({
             name,
             workspaceId: 'fixture-workspace',
-            chief: { model: { nodeName: 'fixtureChat', inputs: { modelName: 'chief-model' } } },
-            specialists: [{ name: 'worker', codeExecution: true }]
+            ...(postgres ? { chatflowId: 'fixture-graph' } : {}),
+            chief: { model: { nodeName: postgres ? statusModel : 'fixtureChat', inputs: { modelName: 'chief-model' } } },
+            specialists: [{ name: 'worker', codeExecution: !postgres }]
         })
         const calls = []
         let sessionId
@@ -632,3 +664,103 @@ for (const draft of [false, true])
         await run('Check the order. '.repeat(100), 'unlimited-prompt', 0)
         assert.equal(bodies[2].conversation_history.length, 4, 'zero keeps the unlimited text budget')
     })
+
+test('bundled progress can update only its live PostgreSQL lease, team revision and pending role slot', async (t) => {
+    const { createTestDatabase, skipReason } = await import('../etl/check/pg-source.mjs')
+    if (skipReason) return t.skip(skipReason)
+    const db = await createTestDatabase()
+    const { configureHarnessPostgres } = await import('./side-store-postgres.mjs')
+    const { acquireTurn, releaseTurn, closeQueueDb, database } = await import('./lock.mjs')
+    const { beginAgentTurn, agentTurn, updateBundledJournal } = await import('./agent-run-context.mjs')
+    const { journalTeam, journalTurnId } = await import('./roster-journal.mjs')
+    const { specialistSessionId } = await import('./specialist-run.mjs')
+    const { randomUUID } = await import('node:crypto')
+    configureHarnessPostgres(db.connection)
+    t.after(async () => {
+        closeQueueDb()
+        configureHarnessPostgres(undefined)
+        await db.cleanup()
+    })
+    const role = { name: 'operator', modules: [], mcpServers: [] }
+    const record = {
+        name: 'ops',
+        chief: { model: { nodeName: statusModel, inputs: { modelName: 'saved' } } },
+        workspaceId: randomUUID(),
+        chatflowId: randomUUID(),
+        createdAt: 'created',
+        updatedAt: 'revision',
+        specialists: [role]
+    }
+    const chat = randomUUID()
+    const lock = acquireTurn(record.name, chat)
+    const turn = journalTurnId(lock.owner, record, chat)
+    const sessionId = specialistSessionId(record.name, chat, turn)
+    const chief = { role: 'chief', harnessName: record.name }
+    const begin = { phase: 'begin', sessionId, name: role.name, task: 'Read status.' }
+    const end = { phase: 'end', sessionId, name: role.name, slot: 0, status: 'completed', prompt: 3, completion: 4 }
+    beginAgentTurn(record.name, sessionId, chat, turn)
+    assert.equal(journalTeam(record), true)
+    for (const grant of [
+        { shell: true },
+        { browser: true },
+        { codeExecution: true },
+        { fileAccess: true },
+        { modules: [{}] },
+        { model: { nodeName: statusModel, upstream: { tool: [{}] } } },
+        { model: { nodeName: 'customMCP', inputs: {} } },
+        { model: { nodeName: statusModel, inputs: { baseURL: 'https://example.invalid' } } },
+        { playbooks: [{}] },
+        { mcpServers: [{ nodeName: 'customMCP', inputs: { mcpServerConfig: { url: 'https://example.invalid' } } }] }
+    ]) {
+        assert.throws(() => updateBundledJournal(chief, { ...record, specialists: [{ ...role, ...grant }] }, begin), /no longer active/)
+    }
+    for (const changed of [
+        { workspaceId: randomUUID() },
+        { chatflowId: randomUUID() },
+        { createdAt: 'new' },
+        { updatedAt: 'new' },
+        { chief: { ...record.chief, instructions: 'changed' } },
+        { tryId: 'draft' }
+    ])
+        assert.throws(() => updateBundledJournal(chief, { ...record, ...changed }, begin), /no longer active/)
+    for (const token of [
+        { ...chief, role: 'specialist' },
+        { ...chief, harnessName: 'other' },
+        { ...chief, tryProfile: true }
+    ])
+        assert.throws(() => updateBundledJournal(token, record, begin), /no longer active/)
+    for (const extra of [{ name: 'other' }, { url: 'https://example.invalid' }, { command: 'unused' }, { sessionId: sessionId + 'x' }])
+        assert.throws(() => updateBundledJournal(chief, record, { ...begin, ...extra }), /no longer active/)
+    assert.deepEqual(updateBundledJournal(chief, record, begin), { slot: 0, chatId: chat, turnId: turn })
+    assert.throws(() => updateBundledJournal(chief, record, { ...end, slot: 1 }), /no longer active/)
+    assert.deepEqual(updateBundledJournal(chief, record, end), { recorded: true })
+    assert.throws(() => updateBundledJournal(chief, record, end), /no longer active/)
+    assert.deepEqual(agentTurn(record.name, sessionId).steps[0].tokens, { prompt: 3, completion: 4 })
+    const { Worker } = await import('node:worker_threads')
+    const writers = ['one', 'two'].map(
+        (task) =>
+            new Worker(new URL('./test/fixtures/bundled-journal-writer.mjs', import.meta.url), {
+                workerData: { connection: db.connection, chief, record, begin: { ...begin, task } }
+            })
+    )
+    t.after(() => Promise.all(writers.map((worker) => worker.terminate())))
+    await Promise.all(writers.map((worker) => once(worker, 'message').then(([ready]) => assert.equal(ready, 'ready'))))
+    const finished = writers.map((worker) => once(worker, 'message'))
+    for (const worker of writers) worker.postMessage('start')
+    assert.deepEqual((await Promise.all(finished)).map(([slot]) => slot).sort(), [1, 2])
+    const steps = agentTurn(record.name, sessionId).steps
+    assert.deepEqual(
+        steps
+            .slice(1)
+            .map((step) => step.task)
+            .sort(),
+        ['one', 'two']
+    )
+    assert.ok(steps.every((step) => step.status === 'completed'))
+    database().prepare('UPDATE turns SET expires_at = ? WHERE session_key = ?').run(1, lock.key)
+    assert.throws(() => updateBundledJournal(chief, record, begin), /no longer active/)
+    const replacement = acquireTurn(record.name, chat)
+    assert.throws(() => updateBundledJournal(chief, record, begin), /no longer active/)
+    releaseTurn(replacement)
+    assert.throws(() => updateBundledJournal(chief, record, begin), /no longer active/)
+})

@@ -6,6 +6,7 @@
     "main": "dist/src/index",
     "types": "dist/src/index.d.ts",
     "exports": {
+        "./packaged-ops": "./nodes/harness/packaged-ops.cjs",
         "./module-catalog": "./nodes/module-catalog.json",
         "./native-canvas-bindings": "./nodes/harness/native-canvas-bindings.json",
         ".": {

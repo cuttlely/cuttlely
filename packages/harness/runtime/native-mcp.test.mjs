@@ -144,3 +144,53 @@ test('cancelling an outstanding protocol operation closes its process and preven
     assert.equal(closed.length, 2)
     for (const pid of closed) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' })
 })
+
+test('bundled discovery and invocation resolve only the originally approved shipped Ops configuration', async (t) => {
+    setGrant(t)
+    const path = await import('node:path')
+    const os = await import('node:os')
+    const originalCwd = process.cwd()
+    const disk = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-alias-'))
+    // A similarly named file in a launch directory must never become the packaged server.
+    fs.mkdirSync(path.join(disk, 'samples'))
+    fs.writeFileSync(path.join(disk, 'samples', 'ops-mcp-server.mjs'), 'throw new Error("wrong package");')
+    process.chdir(disk)
+    t.after(() => {
+        process.chdir(originalCwd)
+        fs.rmSync(disk, { recursive: true, force: true })
+    })
+    const pkg = path.resolve(path.dirname(components.resolve('@cuttlely/components/module-catalog')), '..')
+    const { nodeClass: Card } = components(path.join(pkg, 'dist/nodes/tools/MCP/CustomMCP/CustomMCP.js'))
+    const card = new Card()
+    const toolkits = []
+    const options = { cachePool: { getMCPCache: async () => undefined, addMCPCache: async (_key, { toolkit }) => toolkits.push(toolkit) } }
+    t.after(() => Promise.all(toolkits.map((toolkit) => toolkit.client?.close())))
+    assert.deepEqual(
+        (await card.loadMethods.listActions(binding, options)).map((action) => action.name),
+        ['ops_status']
+    )
+    const [tool] = await card.init(binding, '', options)
+    assert.match(await tool.invoke({}), /ops-status: allowlisted MCP tool responded/)
+    const packaged = components('@cuttlely/components/packaged-ops')
+    const original = JSON.parse(binding.inputs.mcpServerConfig)
+    const canonical = packaged(original)
+    assert.equal(canonical.command, process.execPath)
+    assert.equal(canonical.args[0], path.resolve(pkg, '../../samples/ops-mcp-server.mjs'))
+    for (const config of [
+        { command: 'other', args: original.args },
+        { ...original, args: [...original.args, 'extra'] },
+        { ...original, args: ['other/ops-mcp-server.mjs'] },
+        { ...original, env: {} },
+        { ...original, cwd: disk }
+    ])
+        assert.equal(packaged(config), config)
+    const realpath = fs.realpathSync
+    const mocked = t.mock.method(fs, 'realpathSync', (file) =>
+        file === canonical.args[0] ? path.join(disk, 'target.mjs') : realpath(file)
+    )
+    assert.throws(() => packaged(original), /unavailable/)
+    mocked.mock.restore()
+    delete process.env.CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS
+    assert.equal((await card.loadMethods.listActions(binding, options))[0].name, 'error')
+    await assert.rejects(card.init(binding, '', options), /Security validation failed/)
+})

@@ -5,6 +5,8 @@ import { ICommonObject, IDatabaseEntity, INode, INodeData, INodeOptionsValue, IN
 import { getVars, parseJsonBody, prepareSandboxVars } from '../../../../src/utils'
 import { MCPToolkit, validateMCPServerConfig } from '../core'
 
+const packagedOpsServer = require('@cuttlely/components/packaged-ops')
+
 const mcpServerConfig = `{
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/files"]
@@ -183,7 +185,8 @@ class Custom_MCP implements INode {
 
             // Compatible with stdio and SSE
             let toolkit: MCPToolkit
-            if (process.env.CUSTOM_MCP_PROTOCOL === 'stdio' && serverParams!.command) toolkit = new MCPToolkit(serverParams, 'stdio')
+            if (process.env.CUSTOM_MCP_PROTOCOL === 'stdio' && serverParams!.command)
+                toolkit = new MCPToolkit(packagedOpsServer(serverParams), 'stdio')
             else toolkit = new MCPToolkit(serverParams, 'sse')
 
             await toolkit.initialize()

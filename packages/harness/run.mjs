@@ -1,6 +1,8 @@
 import { openManagedFiles, withManagedUploads } from './runtime/native-files.mjs'
 import { publishedCanvasSource } from './canvas-ownership.mjs'
 import { openNativeTabularReport, renderTabularEvidence } from './runtime/native-tabular-report.mjs'
+import { harnessUsesPostgres } from './side-store-postgres.mjs'
+import { journalTeam, journalTurnId } from './roster-journal.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
@@ -443,6 +445,7 @@ async function runHarnessTurn({
             analystScope,
             () =>
                 runTurn(harness, {
+                    journalOwner: turnLock.owner,
                     engine,
                     mode,
                     name,
@@ -504,6 +507,7 @@ export async function runQueuedHarness(args) {
 async function runTurn(
     harness,
     {
+        journalOwner,
         engine,
         mode,
         name,
@@ -536,6 +540,7 @@ async function runTurn(
     const callerContextToken = callerWorkspace ? noteCallerFlowOptions(harness.name, flowOptions, chatId) : undefined
     try {
         return await runTurnBody(harness, {
+            journalOwner,
             engine,
             mode,
             name,
@@ -579,6 +584,7 @@ function canvasSessionScope(harness) {
 async function runTurnBody(
     harness,
     {
+        journalOwner,
         engine,
         mode,
         name,
@@ -719,7 +725,10 @@ async function runTurnBody(
         routeSteps: [],
         memoryBlock: '',
         promptMessages: [],
-        turnId: crypto.randomUUID(),
+        turnId:
+            !nativePrime && mode === 'agent' && harnessUsesPostgres() && journalTeam(harness)
+                ? journalTurnId(journalOwner, harness, chatId)
+                : crypto.randomUUID(),
         images: promptImages(images),
         turnFolders,
         recordInterpretationDiagnostic,

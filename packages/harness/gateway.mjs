@@ -1,3 +1,7 @@
+import { assertPackagedOpsStatusGrant } from './runtime/native-mcp.mjs'
+import { journalSession } from './roster-journal.mjs'
+import { harnessUsesPostgres } from './side-store-postgres.mjs'
+import { agentTurn, updateBundledJournal } from './agent-run-context.mjs'
 import { recordExists, readRecord } from './record-files.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -732,6 +736,21 @@ async function onRequest(req, res) {
         }
         if (req.method === 'POST' && pathName === '/v1/chat/completions') {
             await completeChat(req, res, meta)
+            return
+        }
+        if (req.method === 'POST' && pathName === '/harness/roster/journal') {
+            if (!harnessUsesPostgres() || meta.role !== 'chief' || meta.tryProfile)
+                throw Object.assign(new Error('Unauthorized'), { statusCode: 403 })
+            const body = await parseJson(req)
+            assertStillValid(meta)
+            const admitted = journalSession(body.sessionId) && agentTurn(meta.harnessName, body.sessionId)
+            if (!admitted) throw Object.assign(new Error('The agent turn is no longer active.'), { statusCode: 403 })
+            await ownerContext(requireHarness(meta), admitted.chatId)
+            assertStillValid(meta)
+            const current = requireHarness(meta)
+            const selected = specialistOf(current, body.name)
+            for (const binding of selected?.mcpServers || []) assertPackagedOpsStatusGrant(binding)
+            sendJson(res, 200, updateBundledJournal(meta, current, body))
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/list') {

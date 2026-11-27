@@ -33,6 +33,25 @@ function packagedBinding(binding) {
     return { entry, config, actions }
 }
 
+export function isPackagedOpsStatus(binding) {
+    const packaged = packagedBinding(binding)
+    return (
+        packaged?.entry === 'samples/ops-mcp-server.mjs' &&
+        packaged.actions.length === 1 &&
+        packaged.actions[0] === 'ops_status' &&
+        Object.keys(binding.inputs || {}).every((key) => ['mcpServerConfig', 'mcpActions'].includes(key)) &&
+        Object.keys(binding).every((key) =>
+            ['nodeId', 'nodeName', 'label', 'description', 'category', 'inputs', 'outputs', 'upstream'].includes(key)
+        )
+    )
+}
+
+export function assertPackagedOpsStatusGrant(binding) {
+    if (!isPackagedOpsStatus(binding) || process.env.CUSTOM_MCP_SECURITY_CHECK === 'false')
+        throw new HarnessError('forbidden', 'The packaged status action requires an explicit host grant.')
+    assertHostGrant(packagedBinding(binding).config)
+}
+
 export function nativeMcpBindingSupported(binding, workspaceId) {
     return Boolean(packagedBinding(binding) || remoteBinding(binding, workspaceId))
 }
@@ -99,8 +118,7 @@ export async function openNativeMcpTools(bindings, { signal, assertCurrent, scop
         }
         const client = new ScopedClient({ name: 'cuttlely', version: '1.0.0' })
         const transport = new StdioClientTransport({
-            command: process.execPath,
-            args: [path.join(repoRoot(), server.entry)],
+            ...components('@cuttlely/components/packaged-ops')({ command: 'node', args: [server.entry] }),
             cwd: repoRoot(),
             stderr: 'ignore',
             maxBufferSize: 1024 * 1024

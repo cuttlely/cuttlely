@@ -8,6 +8,9 @@ import { createMcpStdio } from './mcp-stdio.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
+import { readProfileEnv } from './profile.mjs'
+import { publicTask, redactSecrets } from './trace.mjs'
+import { journalSession, journalTeam } from './roster-journal.mjs'
 import { agentTurn, recordAgentStep } from './agent-run-context.mjs'
 
 const harnessName = flag('--harness')
@@ -126,6 +129,32 @@ async function handle(body) {
     send(message.id, {})
 }
 
+async function journal(body, signal) {
+    const env = readProfileEnv(harnessName)
+    const target = new URL(env.OPENAI_BASE_URL)
+    if (
+        target.protocol !== 'http:' ||
+        target.hostname !== '127.0.0.1' ||
+        target.pathname !== '/v1' ||
+        target.username ||
+        target.password ||
+        target.search ||
+        target.hash ||
+        !env.OPENAI_API_KEY ||
+        !journalTeam(roster)
+    )
+        throw new Error('The agent turn is no longer active.')
+    const response = await fetch(new URL('/harness/roster/journal', target), {
+        method: 'POST',
+        redirect: 'error',
+        headers: { authorization: 'Bearer ' + env.OPENAI_API_KEY, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000)
+    })
+    if (!response.ok) throw new Error('The agent turn is no longer active.')
+    return response.json()
+}
+
 async function runSpecialist(args, signal) {
     const name = String(args.name || '').trim()
     const task = String(args.task || '').trim()
@@ -134,11 +163,14 @@ async function runSpecialist(args, signal) {
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
     // The runtime replaces this hidden argument with its own session id, even if the model supplied one.
     const sessionId = args._cuttlelyScope
-    const turn = agentTurn(harnessName, sessionId)
+    const remote = journalSession(sessionId)
+    const turn = remote
+        ? await journal({ phase: 'begin', name, task: publicTask(redactSecrets(task)), sessionId }, signal)
+        : agentTurn(harnessName, sessionId)
     if (sessionId && !turn) throw new Error('The agent turn is no longer active.')
     const body = rosterSpecialistBody(specialist, task, turn?.turnId, roster?.chief, turn?.chatId)
     const step = { name, task, startedAt: Date.now(), status: 'running' }
-    const slot = turn ? recordAgentStep(harnessName, sessionId, step) : undefined
+    const slot = remote ? turn.slot : turn ? recordAgentStep(harnessName, sessionId, step) : undefined
     const timeoutMs = agentRunTimeoutMs()
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0
@@ -167,7 +199,18 @@ async function runSpecialist(args, signal) {
         step.status = signal.aborted || error.name === 'AbortError' || step.status === 'cancelled' ? 'cancelled' : 'failed'
         throw error
     } finally {
-        if (slot !== undefined) recordAgentStep(harnessName, sessionId, step, slot)
+        if (remote) {
+            const usage = step.usage || {}
+            await journal({
+                phase: 'end',
+                sessionId,
+                name,
+                slot,
+                status: step.status,
+                prompt: Number(usage.prompt_tokens ?? usage.input_tokens) || 0,
+                completion: Number(usage.completion_tokens ?? usage.output_tokens) || 0
+            })
+        } else if (slot !== undefined) recordAgentStep(harnessName, sessionId, step, slot)
     }
 }
 

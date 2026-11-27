@@ -26,6 +26,8 @@ The optional native image builds from a source archive without the bundled runti
 
 Native runs record the winning specialist model and retain provider-reported input, output and cached-token counts. A single model streams text immediately. When two models can compete for the same call, the client receives the selected answer after the race finishes.
 
+For published agent-mode teams with direct chat models, the full build can record a bundled specialist’s progress against the active PostgreSQL turn during rollback. This covers model-only specialists and the packaged read-only Ops action. The latter resolves its installed script from the package when the worker starts in another directory. Other team configurations still need a rollback rehearsal.
+
 Full team parity and retirement of the bundled runtime remain open. General shell, code execution and interactive browser grants, other MCP actions, operator-supplied runtime dependencies and historical conversations without reliable ownership need further work. Keep the full installation available for teams that depend on those features.
 
 ## Milestones

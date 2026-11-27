@@ -89,6 +89,8 @@ The Docker image includes the Linux document renderer. For a source installation
 
 A specialist with a single model streams text as it arrives. When a primary and fallback can compete, the native runtime waits for a winner before sending that specialist’s text. A slow primary or backup may already have generated a different draft. The client receives the selected answer once. Inspect the run trace to see which model answered and its token usage. If the provider omits usage, the count is unknown. A reported zero for cached prompt tokens is retained.
 
+For custom streaming clients, `harness.final` contains the complete answer. Render it as the completed message. Appending it to the accumulated partial text will duplicate the answer. In agent mode, v1.7.15 could flush a buffered partial after the final event. Native flushes that text before the final event. Both engines send `harness.recorded` when conversation metadata is available.
+
 ### Conversation search
 
 Signed-in users and identified API keys can use `session_search` on a saved agent-mode team for user/assistant exchanges whose ownership the installation recorded. Test with an existing chat, switch engines, then ask for a specific earlier answer. Verify a second caller and a different chat cannot retrieve it. A successful v1.7.15 queued turn can establish ownership when its saved caller, workspace, canvas generation and chat agree. An old bundled transcript can also exist without that association. Keep the bundled installation available for older transcripts or profile-wide memory awaiting operator review. The application’s ordinary stored chat messages, the search index and the bundled runtime’s private transcript have different recovery and access rules.
@@ -126,6 +128,10 @@ The package gate covers a fresh install and replacement of an existing installat
 ## Rollback
 
 Remove the team name from `CUTTLELY_NATIVE_PRIME_TEAMS` and restart the admitting processes. New turns use the bundled runtime. Let previously admitted turns drain on their recorded engine before removing their workers. Continue the same chat and check that the prior response and any stored attachments are available. Engine selection does not change the application's storage mode.
+
+On a PostgreSQL installation, rehearse a question that requires the bundled chief to delegate. Check that the run records the intended specialist as completed and that the answer contains the expected tool result. A direct answer from the chief cannot establish this. For the published read-only Ops example, keep the operator’s existing grants for the saved command and script on every worker.
+
+The full Kraken build can record bundled specialist progress in PostgreSQL for published agent-mode teams that use directly assigned chat models with basic generation options and model-only specialists or the packaged read-only Ops action. The progress record belongs to the live chat turn and saved team revision. Drafts, custom modules, other MCP actions, preset roles, playbooks and file-enabled roles need their own rollback rehearsal. Keep the previous working deployment and its storage available until that rehearsal succeeds.
 
 ## Verification
 
