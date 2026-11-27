@@ -99,23 +99,47 @@ export function compareCalculatorRounds(rounds) {
     }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-    const manifest = process.argv[2]
-    assert.ok(manifest && process.argv.length === 3, 'Usage: node scripts/kraken-calculator-parity.mjs MANIFEST.json')
-    const rounds = JSON.parse(fs.readFileSync(manifest, 'utf8')).rounds
-    const result = compareCalculatorRounds(
-        rounds.map(({ report, ...metadata }) => {
-            const filename = path.resolve(path.dirname(manifest), report)
-            return {
-                ...metadata,
-                rows: fs
-                    .readFileSync(filename, 'utf8')
-                    .trim()
-                    .split(/\r?\n/)
-                    .map((line) => JSON.parse(line))
-            }
-        })
+export function compareCalculatorMatrix(groups) {
+    const cells = groups.map(compareCalculatorRounds)
+    const configurations = cells.map(({ config }) => [config.clients, config.workers]).sort(([a, b], [c, d]) => a - c || b - d)
+    assert.deepEqual(
+        configurations,
+        [
+            [1, 1],
+            [8, 1],
+            [32, 1],
+            [32, 2],
+            [32, 4]
+        ],
+        'Provide each required client and worker count once.'
     )
+    const { candidate, client } = cells[0]
+    for (const cell of cells) {
+        assert.equal(cell.candidate, candidate, 'The performance matrix requires a single tested candidate.')
+        assert.equal(cell.client, client, 'The performance matrix requires the same load client.')
+    }
+    return { passed: cells.every((cell) => cell.passed), released, candidate, client, cells }
+}
+
+function loadRounds(manifest) {
+    return JSON.parse(fs.readFileSync(manifest, 'utf8')).rounds.map(({ report, ...metadata }) => {
+        const filename = path.resolve(path.dirname(manifest), report)
+        return {
+            ...metadata,
+            rows: fs
+                .readFileSync(filename, 'utf8')
+                .trim()
+                .split(/\r?\n/)
+                .map((line) => JSON.parse(line))
+        }
+    })
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+    const args = process.argv.slice(2)
+    const matrix = args[0] === '--matrix'
+    assert.ok(matrix ? args.length === 6 : args.length === 1, 'Provide one manifest, or --matrix followed by all five manifests.')
+    const result = matrix ? compareCalculatorMatrix(args.slice(1).map(loadRounds)) : compareCalculatorRounds(loadRounds(args[0]))
     console.log(JSON.stringify(result, null, 2))
     if (!result.passed) process.exitCode = 1
 }

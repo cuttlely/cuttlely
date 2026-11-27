@@ -5,7 +5,7 @@ import http from 'node:http'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { compareCalculatorRounds } from './kraken-calculator-parity.mjs'
+import { compareCalculatorMatrix, compareCalculatorRounds } from './kraken-calculator-parity.mjs'
 
 const config = {
     clients: 8,
@@ -17,31 +17,50 @@ const config = {
     provider: 'simulated',
     settings: 'default queue'
 }
-function matched() {
+function matched(clients = 8, workers = 1) {
     return ['bundled', 'native', 'native', 'bundled'].map((engine, i) => ({
         engine,
         revision: engine === 'bundled' ? 'bb1191321688de52a405dfb88ab43826250c814f' : 'a'.repeat(40),
-        config: { ...config },
+        config: { ...config, clients, workers },
         deployment: 'restore-' + i,
         rows: ['fresh', 'warm'].map((cohort) => ({
             engine,
             cohort,
             sampleId: 'sample-' + i,
             clientSha256: 'e'.repeat(64),
-            submitted: 8,
-            verified: 8,
-            recorded: 8,
-            tcpConnections: 8,
-            peakRequestsOnWire: 8,
-            peakOpenSseResponses: 2,
+            submitted: clients,
+            verified: clients,
+            recorded: clients,
+            tcpConnections: clients,
+            peakRequestsOnWire: clients,
+            peakOpenSseResponses: Math.min(2, clients),
             wallMs: 100,
-            turnDurationsMs: [10, 20, 30, 40, 50, 60, 70, 80],
-            headerDurationsMs: Array(8).fill(2),
+            turnDurationsMs: Array.from({ length: clients }, (_, index) => 10 * (1 + (index % 8))),
+            headerDurationsMs: Array(clients).fill(2),
             pingDurationsMs: [5],
             ping: { http200: 1 }
         }))
     }))
 }
+
+test('the release matrix requires all five configurations from one candidate and fails on any missed threshold', () => {
+    const groups = [matched(32, 4), matched(1), matched(32, 2), matched(8), matched(32)]
+    assert.equal(compareCalculatorMatrix(groups).passed, true)
+    assert.throws(() => compareCalculatorMatrix(groups.slice(1)), /each required/)
+    assert.throws(() => compareCalculatorMatrix([groups[1], ...groups.slice(1)]), /each required/)
+    for (const round of groups[0]) {
+        for (const row of round.rows) row.clientSha256 = '9'.repeat(64)
+    }
+    assert.throws(() => compareCalculatorMatrix(groups), /same load client/)
+    groups[0] = matched(32, 4)
+    for (const round of groups[0].filter((r) => r.engine === 'native')) round.revision = 'b'.repeat(40)
+    assert.throws(() => compareCalculatorMatrix(groups), /single tested candidate/)
+    groups[0] = matched(32, 4)
+    groups[0][1].rows[1].wallMs *= 2
+    const result = compareCalculatorMatrix(groups)
+    assert.equal(result.passed, false)
+    assert.equal(result.cells.filter((cell) => cell.passed).length, 4)
+})
 
 test('matching cold and warm cohorts allow equality and report individual round spread', () => {
     const result = compareCalculatorRounds(matched())
