@@ -86,6 +86,7 @@ RUN if [ "$CUTTLELY_OMIT_GEOIP" = "true" ]; then \
         && node scripts/omit-geoip-database.mjs; \
     fi
 
+# The shipped application tree must be readable by an arbitrary container UID, including builds from a private checkout.
 # Opt-in slim build. 1 (the default) keeps every node pack. 0 leaves them out.
 ARG INCLUDE_NODE_PACKS=1
 RUN if [ "$INCLUDE_NODE_PACKS" != "0" ] && [ "$INCLUDE_NODE_PACKS" != "1" ]; then \
@@ -98,7 +99,8 @@ RUN if [ "$INCLUDE_NODE_PACKS" != "0" ] && [ "$INCLUDE_NODE_PACKS" != "1" ]; the
     && if [ "$INCLUDE_NODE_PACKS" = "0" ]; then \
         echo "Cuttlely image: leaving out optional node packs" \
         && INCLUDE_NODE_PACKS=0 node scripts/omit-node-packs.mjs; \
-    fi
+    fi \
+    && chmod -R go=rX /usr/src/cuttlely
 
 FROM node:24-trixie-slim
 
