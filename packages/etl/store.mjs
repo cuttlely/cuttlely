@@ -43,7 +43,12 @@ function statements(live) {
 
 function checkGate() {
     if (!gateOpen) {
-        throw new EtlError('store_moving', 'ETL is moving to the application database. Try again in a minute.', 503, 30)
+        throw new EtlError(
+            gateReason?.code ?? 'store_moving',
+            gateReason?.message ?? 'ETL is moving to the application database. Try again in a minute.',
+            503,
+            30
+        )
     }
 }
 
@@ -80,6 +85,7 @@ export function backendName() {
 
 export const gate = {
     closed: () => !gateOpen,
+    assertOpen: checkGate,
     close: (reason) => {
         gateOpen = false
         gateReason = reason || null

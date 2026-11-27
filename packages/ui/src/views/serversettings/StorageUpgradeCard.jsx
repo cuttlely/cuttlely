@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, FormControlLabel, Paper, Stack, Typography } from '@mui/material'
+import PropTypes from 'prop-types'
+import { Alert, Button, Checkbox, FormControlLabel, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import serverSettingsApi from '@/api/serverSettings'
 
 const storagePhase = {
@@ -11,16 +12,106 @@ const storagePhase = {
 }
 const rowCount = (number) => number + (number === 1 ? ' row' : ' rows')
 
+const actionLabels = {
+    'stop-jobs': 'Stopping all jobs',
+    'check-stop': 'Checking remaining work',
+    'resume-jobs': 'Resuming new jobs',
+    upgrade: 'Upgrading storage to PostgreSQL',
+    rollback: 'Restoring SQLite storage'
+}
+function StorageActivity({ action, initial, waitingFor, onIdle }) {
+    const [activity, setActivity] = useState(initial)
+    const [lastResponse, setLastResponse] = useState(initial ? Date.now() : null)
+    const [unreachable, setUnreachable] = useState(false)
+    const [failure, setFailure] = useState(null)
+    const [openedAt] = useState(Date.now)
+    const [now, setNow] = useState(Date.now)
+    useEffect(() => {
+        let live = true
+        let timer
+        const check = async () => {
+            try {
+                const { data } = await serverSettingsApi.storageProgress()
+                if (!live) return
+                setLastResponse(Date.now())
+                setFailure(data.failure)
+                setUnreachable(false)
+                setActivity(data.activity)
+                if (!data.activity && onIdle) {
+                    onIdle()
+                    return
+                }
+            } catch {
+                if (live) setUnreachable(true)
+            }
+            if (live) timer = setTimeout(check, 2000)
+        }
+        check()
+        const clock = setInterval(() => setNow(Date.now()), 1000)
+        return () => {
+            live = false
+            clearTimeout(timer)
+            clearInterval(clock)
+        }
+    }, [onIdle])
+    const seconds = Math.max(0, Math.floor((now - (initial?.startedAt || openedAt)) / 1000))
+    const message =
+        activity?.message || (waitingFor?.length ? 'Waiting for ' + waitingFor.join(', ') + ' to finish.' : 'Waiting for the server…')
+    return (
+        <Stack spacing={0.5}>
+            <Typography role='status'>
+                <strong>{actionLabels[activity?.action || action]}</strong> ·{' '}
+                {failure?.message || (unreachable ? 'Server status unavailable. Reconnecting…' : message)}
+            </Typography>
+            {!failure && <LinearProgress aria-label='Storage operation in progress' />}
+            <Typography variant='caption'>
+                Elapsed {Math.floor(seconds / 60)}m {seconds % 60}s
+                {lastResponse && ' · Last server response ' + Math.max(0, Math.floor((now - lastResponse) / 1000)) + 's ago'}
+            </Typography>
+        </Stack>
+    )
+}
+
+StorageActivity.propTypes = {
+    action: PropTypes.string.isRequired,
+    initial: PropTypes.shape({ action: PropTypes.string, message: PropTypes.string, startedAt: PropTypes.number }),
+    waitingFor: PropTypes.arrayOf(PropTypes.string),
+    onIdle: PropTypes.func
+}
+
 export default function StorageUpgradeCard() {
     const [state, setState] = useState(null)
-    const [busy, setBusy] = useState(false)
+    const [pending, setPending] = useState('loading')
+    const [observed, setObserved] = useState(null)
+    const busy = Boolean(pending || observed)
     const [error, setError] = useState('')
     const [confirmStop, setConfirmStop] = useState(false)
     const [confirmedFor, setConfirmedFor] = useState(null)
     const refresh = useCallback(async () => setState((await serverSettingsApi.storageStatus()).data), [])
-    useEffect(() => {
-        refresh().catch(() => setError('Storage status could not be loaded.'))
+    const readPanel = useCallback(async () => {
+        const { data } = await serverSettingsApi.storageProgress()
+        if (data.failure) {
+            setState(null)
+            throw new Error(data.failure.message)
+        }
+        setObserved(data.activity)
+        if (!data.activity) await refresh()
     }, [refresh])
+    const recheck = useCallback(async () => {
+        setPending('loading')
+        setObserved(null)
+        setError('')
+        try {
+            await readPanel()
+        } catch (e) {
+            setError(e.response?.data?.message || e.message || 'Storage status could not be loaded.')
+        } finally {
+            setPending(null)
+        }
+    }, [readPanel])
+    useEffect(() => {
+        recheck()
+    }, [recheck])
     const stopping = state?.jobsPaused && !state?.stopComplete && state.phase === 'sqlite'
     useEffect(() => {
         if (!stopping || busy || error) return
@@ -42,7 +133,7 @@ export default function StorageUpgradeCard() {
             clearTimeout(timer)
         }
     }, [stopping, busy, error])
-    if (!state?.available && !error) return null
+    if (!state?.available && !error && !busy) return null
     const rollback = state?.phase === 'postgres' || state?.phase === 'restoring'
     const needsCapacity = state?.phase === 'sqlite'
     const active = needsCapacity
@@ -65,19 +156,8 @@ export default function StorageUpgradeCard() {
     const minimumMiB = Math.ceil(minimumBytes / 1048576)
     const confirmationKey = state?.phase + '/' + minimumMiB
     const confirmed = confirmedFor === confirmationKey
-    async function recheck() {
-        setBusy(true)
-        setError('')
-        try {
-            await refresh()
-        } catch {
-            setError('Storage status could not be loaded.')
-        } finally {
-            setBusy(false)
-        }
-    }
     async function changeJobs(stop) {
-        setBusy(true)
+        setPending(stop ? 'stop-jobs' : 'resume-jobs')
         setError('')
         setConfirmStop(false)
         try {
@@ -85,42 +165,72 @@ export default function StorageUpgradeCard() {
             setState(data)
         } catch (e) {
             setError(e.response?.data?.message || 'Could not change job admission. Check again for the current status.')
-            await refresh().catch(() => {})
+            await readPanel().catch(() => {})
         } finally {
-            setBusy(false)
+            setPending(null)
         }
     }
     async function submit() {
-        setBusy(true)
+        setPending(rollback ? 'rollback' : 'upgrade')
         setError('')
         try {
-            await serverSettingsApi.changeStorage(rollback ? 'rollback' : 'upgrade', {
+            const { data } = await serverSettingsApi.changeStorage(rollback ? 'rollback' : 'upgrade', {
                 availableBytes: needsCapacity ? minimumMiB * 1048576 : 0,
                 confirm: rollback ? 'ROLLBACK' : undefined
             })
+            setState(data)
             setConfirmedFor(null)
         } catch (e) {
             setError(e.response?.data?.message || 'The request did not finish. Check storage status before retrying.')
+            await readPanel().catch(() => {})
         } finally {
-            try {
-                await refresh()
-            } catch {
-                setError('Storage status could not be loaded.')
-            }
-            setBusy(false)
+            setPending(null)
         }
     }
     return (
         <Paper variant='outlined' sx={{ p: 2.5, mb: 3, maxWidth: 880 }}>
             <Stack spacing={1.5}>
                 <Typography variant='h3'>Application database storage</Typography>
-                {error && <Alert severity='error'>{error}</Alert>}
+                {error && (
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button disabled={busy} onClick={recheck}>
+                                Check again
+                            </Button>
+                        }
+                    >
+                        {error}
+                    </Alert>
+                )}
+                {observed || (pending && pending !== 'loading') || (stopping && !error && !pending) ? (
+                    <StorageActivity
+                        key={observed?.action || pending || 'stop-jobs'}
+                        action={observed?.action || pending || 'stop-jobs'}
+                        initial={observed}
+                        waitingFor={stopping ? state.waitingFor : undefined}
+                        onIdle={observed ? recheck : undefined}
+                    />
+                ) : pending === 'loading' ? (
+                    <Stack spacing={0.5}>
+                        <Typography role='status'>Checking storage and available upgrade actions…</Typography>
+                        <LinearProgress aria-label='Checking storage' />
+                    </Stack>
+                ) : null}
+                {state?.failure && <Alert severity='error'>{state.failure.message}</Alert>}
                 {state?.available && (
                     <>
                         <Typography>
                             Storage status: {storagePhase[state.phase] || state.phase}. ETL, vector collections and agent team stores can
                             share the application PostgreSQL database.
                         </Typography>
+                        {!busy && ['copying', 'retiring', 'restoring'].includes(state.phase) && (
+                            <Alert severity='warning'>
+                                {rollback
+                                    ? 'The restore is paused. Confirm below to resume it.'
+                                    : 'The upgrade is paused. Confirm below to resume it.'}
+                            </Alert>
+                        )}
                         {blockers.length > 0 && (
                             <Alert
                                 severity='warning'
@@ -141,11 +251,11 @@ export default function StorageUpgradeCard() {
                         {needsCapacity &&
                             (state.jobsPaused ? (
                                 <Stack alignItems='flex-start'>
-                                    <Typography role='status'>
-                                        {stopping
-                                            ? 'Stopping jobs and clearing abandoned waits…'
-                                            : 'New jobs are paused for the storage upgrade.'}
-                                    </Typography>
+                                    {!stopping && (
+                                        <Typography role='status'>
+                                            Jobs have stopped. New jobs are paused for the storage upgrade.
+                                        </Typography>
+                                    )}
                                     <Button disabled={busy} onClick={() => changeJobs(false)}>
                                         Resume new jobs
                                     </Button>
@@ -190,14 +300,12 @@ export default function StorageUpgradeCard() {
                                     : 'I have backed up the application database and am ready to resume the upgrade.'
                             }
                         />
-                        <Button variant='contained' disabled={busy || !confirmed || blockers.length > 0} onClick={submit}>
-                            {busy
-                                ? 'Working…'
-                                : rollback
-                                ? 'Restore retained SQLite files'
-                                : needsCapacity
-                                ? 'Upgrade storage'
-                                : 'Resume storage upgrade'}
+                        <Button
+                            variant='contained'
+                            disabled={busy || Boolean(state.failure) || !confirmed || blockers.length > 0}
+                            onClick={submit}
+                        >
+                            {rollback ? 'Restore retained SQLite files' : needsCapacity ? 'Upgrade storage' : 'Resume storage upgrade'}
                         </Button>
                         {needsCapacity && state.runtimeFiles?.length > 0 && (
                             <Alert severity='info'>

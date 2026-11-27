@@ -9,6 +9,7 @@ import {
     unavailableHarnessCount
 } from '../../services/harnesses/bootGate'
 import { runtimeState } from '../../utils/runtimeAvailability'
+import { storageCoordinatorFailure } from '../../utils/appStoreSource'
 
 function pingDetails(body: string, dataDir: string | undefined): string {
     const state = runtimeState(dataDir)
@@ -88,6 +89,9 @@ const healthHandler = (live: boolean) => async (req: Request, res: Response, nex
             const body = `database unreachable: ${db.reason}`
             return res.status(503).send(live ? body : pingDetails(body, process.env.CUTTLELY_DATA_DIR))
         }
+        // Only a replacement process can reacquire the shared storage lock and verify the selected stores.
+        const failure = storageCoordinatorFailure()
+        if (failure) return res.status(503).send(failure.code)
         // On the container's first boot the startup page and the compile above keep liveness at 503 until Node can
         // serve the app. After a restart in place liveness answers as soon as the server listens.
         return live ? res.status(200).send('pong') : res.status(health.code).send(health.body)

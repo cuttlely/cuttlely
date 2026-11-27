@@ -71,7 +71,7 @@ export async function startStorageUpgrade({
     let state = { phase: 'sqlite', files: [] }
     const leases = new Set()
     async function tryLease(key) {
-        if (lost || leases.has(key)) return null
+        if (failure || leases.has(key)) return null
         leases.add(key)
         try {
             if (!(await q('SELECT pg_try_advisory_lock(hashtextextended($1,517)) AS ok', [key]))[0].ok) {
@@ -92,24 +92,37 @@ export async function startStorageUpgrade({
     }
     let holdingStopLock = false
     let stopComplete = false
-    async function releaseJobPause() {
+    async function releaseJobPause(unlock = true) {
         if (!holdingStopLock) return
-        await q('SELECT pg_advisory_unlock(' + lock + ')')
+        if (unlock) await q('SELECT pg_advisory_unlock(' + lock + ')')
         holdingStopLock = false
         stopComplete = false
+        waitingFor = []
         resumeJobs()
         onJobsStopped(false)
     }
-    let working = false
-    let lost = false
+    let activity = null
+    let waitingFor = []
+    function stage(message) {
+        activity = { ...activity, message }
+    }
+    let memberLost = false
+    let failure = null
     function maintenance(on) {
-        pauseStorage(on)
-        if (on) gate.close('upgrade')
+        const blocked = on || Boolean(failure)
+        pauseStorage(blocked, failure)
+        if (blocked) gate.close(failure)
         else gate.open()
     }
-    member.onLost?.(() => {
-        lost = true
+    function fail(code, message) {
+        if (failure) return
+        failure = { code, message }
         maintenance(true)
+        log.error?.(`${code}: ${message}`)
+    }
+    member.onLost?.(() => {
+        memberLost = true
+        fail('coordinator_connection_lost', 'The storage coordinator lost its PostgreSQL connection. Restart Cuttlely to restore service.')
     })
     function closeStores() {
         closeDb()
@@ -200,9 +213,11 @@ export async function startStorageUpgrade({
             temporary,
             enabled,
             phase: state.phase,
-            busy: working,
+            busy: Boolean(activity),
+            waitingFor: holdingStopLock && !stopComplete ? waitingFor : [],
             jobsPaused: holdingStopLock,
             stopComplete,
+            ...(failure && { failure }),
             requiredBytes,
             harnessRecords: records.length,
             uploads: uploads.length,
@@ -341,14 +356,15 @@ export async function startStorageUpgrade({
             refuse('Wait for the active draft turn to finish.')
     }
     async function transition(action, options = {}) {
-        if (working || lost) refuse('Storage is busy or its database connection needs a restart.')
+        if (failure) refuse(failure.message)
+        if (activity) refuse('Storage is busy.')
         if (!['stop-jobs', 'check-stop', 'resume-jobs', 'upgrade', 'rollback'].includes(action)) refuse('Unknown storage action.')
         if (action === 'stop-jobs' && (options.confirm !== 'STOP' || state.phase !== 'sqlite' || worker))
             refuse('Confirm Stop all jobs before the storage upgrade.')
         if (action === 'upgrade' && holdingStopLock && !stopComplete) refuse('Finish stopping jobs before upgrading.')
         if (!enabled && action === 'upgrade') refuse('Enable CUTTLELY_APP_DATABASE_STORES on the host and restart.')
         if (action === 'rollback' && options.confirm !== 'ROLLBACK') refuse('Confirm that later PostgreSQL writes will stay in PostgreSQL.')
-        working = true
+        activity = { action, startedAt: Date.now(), message: 'Checking for other storage workers…' }
         let locked = false
         const guards = new Map()
         function guard(entry) {
@@ -382,9 +398,9 @@ export async function startStorageUpgrade({
             if (action === 'resume-jobs') {
                 if (state.phase !== 'sqlite') refuse('Finish the storage change before resuming jobs.')
                 await releaseJobPause()
-                return status()
+                return await status()
             }
-            if (action === 'check-stop' && !holdingStopLock) return status()
+            if (action === 'check-stop' && !holdingStopLock) return await status()
             if (action === 'stop-jobs' || action === 'check-stop') {
                 if (!holdingStopLock) {
                     // Keep the exclusive membership lock between requests, including while the operator reviews the inventory.
@@ -393,44 +409,49 @@ export async function startStorageUpgrade({
                     stopJobs()
                     onJobsStopped(true)
                 }
-                if (stopComplete) return status()
+                if (stopComplete) return await status()
+                stage('Cancelling jobs and checking active workers…')
                 const inventory = discover().stores.map(inspectStore)
                 const hasStore = (kind) => inventory.some((store) => store.kind === kind && !store.retired && store.busy)
                 if (hasStore('queue')) stopQueueJobs(false)
                 if (hasStore('etl')) await stopEtlJobs()
                 if (hasStore('dash') && !state.pilot) await dashStore().cancelRefreshesForUpgrade()
-                if (
-                    !runningStorageJobs() &&
-                    !hasActiveTryProfiles() &&
-                    !hasActiveRuns() &&
-                    !leases.size &&
-                    !etlScheduleBusy() &&
-                    !harnessScheduleBusy() &&
-                    !options.jobsBusy?.()
-                ) {
+                waitingFor = [
+                    runningStorageJobs() && 'agent runs',
+                    hasActiveTryProfiles() && 'draft agent sessions',
+                    hasActiveRuns() && 'ETL runs',
+                    leases.size && 'storage leases',
+                    (etlScheduleBusy() || harnessScheduleBusy()) && 'schedulers',
+                    options.jobsBusy?.() && 'application requests or background runs'
+                ].filter(Boolean)
+                if (!waitingFor.length) {
+                    stage('Clearing abandoned jobs and waits…')
                     if (inventory.some((store) => store.kind === 'queue' && !store.retired)) {
                         stopQueueJobs(true)
                         interruptOpenRuns({ before: Date.now() + 1, message: 'Stopped for a storage upgrade.' })
                     }
                     stopComplete = true
                 }
-                return status()
+                return await status()
             }
-            if (action === 'upgrade' && state.phase === 'postgres') return status()
+            if (action === 'upgrade' && state.phase === 'postgres') return await status()
             if (action === 'rollback' && !['postgres', 'restoring'].includes(state.phase)) refuse('Rollback requires a completed upgrade.')
             if (action === 'upgrade' && state.phase === 'restoring') refuse('Finish the interrupted rollback first.')
             if (hasActiveRuns() || leases.size || etlScheduleBusy() || harnessScheduleBusy()) refuse('Wait for active ETL runs to finish.')
             maintenance(true)
+            stage('Waiting for active storage requests to finish…')
             await drained()
             if (options.drain) await options.drain()
             if (state.phase === 'postgres' && action === 'rollback') await checkPostgresIdle()
             if (action === 'upgrade' && state.phase === 'sqlite') {
+                stage('Checking source files, database permissions and capacity…')
                 const info = await status()
                 await preflight(info, options.availableBytes)
                 const generation = randomUUID()
                 if (info.runtimeFiles.length || info.local.length) runtimeSnapshotKey(generation)
                 closeStores()
                 const files = []
+                stage('Backing up SQLite stores…')
                 for (const item of info.stores) {
                     if (item.retired || (item.kind === 'dash' && state.pilot)) continue
                     const file = fileFor(item)
@@ -469,6 +490,7 @@ export async function startStorageUpgrade({
                 })
             }
             if (state.phase === 'copying' || state.phase === 'retiring') {
+                stage('Verifying source files against their backups…')
                 const inventory = discover({ inspectCaches: true, hostFiles: verifiedHostFiles(state.hostFiles) })
                 const runtimeFiles = await inventoryRuntimeFiles(inventory.runtimeFiles)
                 const saved = state.runtimeFiles || []
@@ -530,22 +552,26 @@ export async function startStorageUpgrade({
                 state = next
             }
             if (state.phase === 'copying') {
+                stage('Migrating runtime sessions…')
                 const sessions = discover().local
                 await initializeRuntimeSessions(source, sessions, config)
                 const report = { runtimeSessions: sessions }
                 let verifiedUploads = state.uploads
                 if (versionHistory) {
                     const expected = (state.versions === undefined ? await versionHistory.inspect() : state.versions)?.head || null
+                    stage('Copying flow version history…')
                     await versionHistory.copy(source, expected)
                     report.versionHistory = { head: expected }
                 } else if (state.versions?.head) refuse('Resume from the application server to migrate its version history.')
                 if (state.pilot) report.dashflowsPilot = 'Already using PostgreSQL'
                 if (state.files.some((entry) => entry.kind === 'dash')) report.dashflowsQueryCache = 'Rebuilt on demand'
-                for (const entry of state.files) {
+                for (const [index, entry] of state.files.entries()) {
+                    stage(`Copying SQLite store ${index + 1} of ${state.files.length} (${entry.kind})…`)
                     const key = [entry.kind, entry.name].filter(Boolean).join('/')
                     report[key] = await copy(entry)
                 }
                 if (fileRoots || state.uploads?.length) {
+                    stage('Verifying uploaded files…')
                     const actual = await inventoryUploads(source, fileRoots)
                     if (!matchingDurableUploads(actual, state.uploads)) refuse('Use the original upload files to finish the upgrade.')
                     const accepted = new Map(state.uploads?.map((entry) => [JSON.stringify(entry.key), entry.sha256]))
@@ -567,29 +593,35 @@ export async function startStorageUpgrade({
                         }
                     }
                     const postgresFiles = predictionFiles ? verified.filter((item) => item.root === 'etlUploads') : verified
+                    stage('Copying uploaded files…')
                     await copyUploads(await openPostgresFiles(source), fileRoots, postgresFiles)
                     verifiedUploads = verified
                     report.uploads = { count: verified.length }
                 }
                 let runtimeFiles = state.runtimeFiles
                 if (runtimeFiles?.length) {
+                    stage('Copying runtime settings and memory…')
                     runtimeFiles = await copyRuntimeFiles(await openPostgresFiles(source), runtimeFiles, state.promptGeneration)
                     report.runtimeFiles = { count: runtimeFiles.length }
                 }
                 if (state.prompts?.length) {
+                    stage('Copying profile prompts…')
                     await copyPrompts(await openPostgresFiles(source), state.prompts)
                     report.profilePrompts = { count: state.prompts.length }
                 }
+                stage('Copying saved agent teams…')
                 await copyHarnessRecords(source, state.records)
                 report.harnessRecords = { count: state.records.length }
                 await save({ ...state, uploads: verifiedUploads, runtimeFiles, phase: 'retiring', report })
             }
             if (state.phase === 'retiring') {
                 const files = []
-                for (const entry of state.files) {
+                for (const [index, entry] of state.files.entries()) {
+                    stage(`Retaining SQLite original ${index + 1} of ${state.files.length}…`)
                     unguard(fileFor(entry))
                     files.push({ ...entry, retained: await retire(entry) })
                 }
+                stage('Verifying PostgreSQL tables…')
                 // Capture the tables that must be restored together before a replacement is allowed to recreate schemas.
                 await openPostgresEtlStore(source)
                 await openPostgresFiles(source)
@@ -607,6 +639,7 @@ export async function startStorageUpgrade({
                 })
                 log.info('Verified PostgreSQL side-store upgrade ' + JSON.stringify(state.report))
             } else if (action === 'rollback') {
+                stage('Verifying original files before restoring SQLite…')
                 const originals = harnessRecordInventory()
                 if (
                     state.records &&
@@ -641,6 +674,7 @@ export async function startStorageUpgrade({
                         refuse('A live SQLite file already exists beside a retained file.')
                 }
                 if (state.phase !== 'restoring') await save({ ...state, phase: 'restoring' })
+                stage('Restoring verified SQLite files…')
                 closeStores()
                 for (const entry of state.files) {
                     const file = fileFor(entry)
@@ -654,6 +688,7 @@ export async function startStorageUpgrade({
                     }
                     fs.chmodSync(file, 0o600)
                 }
+                stage('Archiving PostgreSQL schemas…')
                 // Keep PostgreSQL-only writes available for recovery, under archive schemas. Re-upgrading can copy
                 // subsequent SQLite edits into fresh targets without overwriting either generation.
                 const next = { ...state, phase: 'sqlite', report: {} }
@@ -679,18 +714,26 @@ export async function startStorageUpgrade({
                 log.info('Restored pre-upgrade SQLite side stores. Later PostgreSQL writes remain in PostgreSQL.')
             }
             try {
+                stage('Activating the selected storage…')
                 await activate()
                 await releaseJobPause()
             } catch (error) {
-                lost = true
+                fail(
+                    'storage_activation_failed',
+                    'Cuttlely could not activate its side stores. Restart Cuttlely to verify storage and restore service.'
+                )
                 throw error
             }
+            stage('Checking the final storage status…')
             return await status()
         } finally {
-            for (const file of guards.keys()) unguard(file)
-            if (locked) await q('SELECT pg_advisory_unlock(' + lock + ')')
-            maintenance(lost || progressing(state.phase))
-            working = false
+            try {
+                for (const file of guards.keys()) unguard(file)
+                if (locked && !memberLost) await q('SELECT pg_advisory_unlock(' + lock + ')')
+            } finally {
+                activity = null
+                maintenance(progressing(state.phase))
+            }
         }
     }
     try {
@@ -750,11 +793,20 @@ export async function startStorageUpgrade({
             status,
             transition,
             jobsPaused: () => holdingStopLock,
-            paused: () => lost || working || progressing(state.phase),
+            progress: () => ({ activity, failure }),
+            paused: () => Boolean(activity) || progressing(state.phase),
+            failure: () => failure,
             close: async () => {
-                await releaseJobPause()
-                await q('SELECT pg_advisory_unlock_shared(' + lock + ')')
-                await member.release()
+                let closeError
+                try {
+                    await releaseJobPause(!memberLost)
+                    if (!memberLost) await q('SELECT pg_advisory_unlock_shared(' + lock + ')')
+                } catch (error) {
+                    closeError = error
+                    throw error
+                } finally {
+                    await member.release(closeError)
+                }
             }
         }
     } catch (error) {

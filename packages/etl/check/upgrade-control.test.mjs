@@ -1,9 +1,10 @@
-import { createPredictionAttachment, withPredictionAttachments } from '../../harness/prediction-files.mjs'
+import { createPredictionAttachment, selectPredictionFiles, withPredictionAttachments } from '../../harness/prediction-files.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { hermesHome } from '../../harness/paths.mjs'
 import { Readable } from 'node:stream'
 import { saveUpload } from '../api.mjs'
 import { sourceUnits } from '../sources.mjs'
+import { selectEtlUploads } from '../stored-uploads.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -18,7 +19,96 @@ import { configureHarnessPostgres } from '../../harness/side-store-postgres.mjs'
 import { db, closeDb } from '../db.mjs'
 import { saveHarness, getHarness, setHarnessCategory } from '../../harness/store.mjs'
 import { gate, useBackend } from '../store.mjs'
-import { pauseStorage } from '../../harness/side-store-maintenance.mjs'
+import { assertStorageReady, jobsStopped, pauseStorage } from '../../harness/side-store-maintenance.mjs'
+
+test('coordinator loss closes storage access without marking idle phases as upgrades', { skip: skipReason }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'coordinator-loss-'))
+    const priorData = process.env.CUTTLELY_DATA_DIR
+    const priorEtl = process.env.CUTTLELY_ETL_DIR
+    const source = await createTestSource()
+    const openSession = source.session
+    const errors = []
+    const log = { info() {}, warn() {}, error: (message) => errors.push(message) }
+    const code = 'coordinator_connection_lost'
+    let disconnect
+    source.session = async () => {
+        const session = await openSession()
+        let lost = false
+        return {
+            onLost(listener) {
+                disconnect = () => {
+                    lost = true
+                    listener()
+                }
+            },
+            execute(sql, params) {
+                assert.equal(lost, false, 'a lost session must not be reused')
+                return session.execute(sql, params)
+            },
+            release: (error) => session.release(error || lost)
+        }
+    }
+    async function checkPhase({ enabled, phase, newPostgresApplication = false, stopJobsBeforeLoss = false }) {
+        const controller = await startStorageUpgrade({ source, config: source.connection, enabled, log, newPostgresApplication })
+        try {
+            if (stopJobsBeforeLoss) {
+                await controller.transition('stop-jobs', { confirm: 'STOP' })
+                assert.equal(controller.jobsPaused(), true)
+            }
+            const active = ['copying', 'retiring', 'restoring'].includes(phase)
+            assert.equal((await controller.status()).phase, phase)
+            assert.equal(controller.paused(), active)
+            assert.equal(controller.failure(), null)
+            if (active) assert.throws(assertStorageReady, { code: 'store_moving' })
+            else assert.doesNotThrow(assertStorageReady)
+
+            const previousErrors = errors.length
+            disconnect()
+            disconnect()
+            assert.equal(errors.length, previousErrors + 1)
+            assert.match(errors.at(-1), /coordinator_connection_lost/)
+            assert.equal(controller.paused(), active)
+            assert.equal(controller.failure().code, code)
+            assert.deepEqual((await controller.status()).failure, controller.failure())
+            assert.throws(assertStorageReady, { code, status: 503 })
+            assert.throws(gate.assertOpen, { code, status: 503 })
+            await assert.rejects(controller.transition('upgrade'), /lost its PostgreSQL connection/)
+        } finally {
+            await controller.close()
+        }
+        assert.equal(jobsStopped(), false)
+    }
+    try {
+        process.env.CUTTLELY_DATA_DIR = root
+        process.env.CUTTLELY_ETL_DIR = path.join(root, 'etl')
+        await checkPhase({ enabled: false, phase: 'sqlite' })
+        await checkPhase({ enabled: true, phase: 'sqlite', stopJobsBeforeLoss: true })
+        assert.equal((await source.query("SELECT to_regclass('cuttlely_storage.upgrade') AS control"))[0].control, null)
+        await checkPhase({ enabled: true, phase: 'postgres', newPostgresApplication: true })
+        for (const phase of ['copying', 'retiring', 'restoring']) {
+            await source.query("UPDATE cuttlely_storage.upgrade SET state=jsonb_set(state,'{phase}',to_jsonb($1::text)) WHERE id=1", [
+                phase
+            ])
+            await checkPhase({ enabled: true, phase })
+        }
+    } finally {
+        closeDb()
+        closeQueueDb()
+        closeSessions()
+        configureHarnessPostgres(null)
+        useBackend(null)
+        selectEtlUploads(null)
+        selectPredictionFiles(null)
+        pauseStorage(false)
+        gate.open()
+        await source.cleanup()
+        if (priorData === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = priorData
+        if (priorEtl === undefined) delete process.env.CUTTLELY_ETL_DIR
+        else process.env.CUTTLELY_ETL_DIR = priorEtl
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
 
 test(
     'operator upgrade resumes a failed store, blocks concurrent instances and restores the exact SQLite snapshot',
@@ -35,7 +125,12 @@ test(
             return {
                 ...client,
                 execute: async (sql, params) => {
-                    if (interrupt && sql.startsWith('INSERT INTO cuttlely_session_')) throw new Error('synthetic interruption')
+                    if (interrupt && sql.startsWith('INSERT INTO cuttlely_session_')) {
+                        const activity = controller.progress().activity
+                        assert.equal(activity.action, 'upgrade')
+                        assert.match(activity.message, /Copying SQLite store [12] of 2/)
+                        throw new Error('synthetic interruption')
+                    }
                     return client.execute(sql, params)
                 }
             }
@@ -147,6 +242,7 @@ test(
             }
             await assert.rejects(controller.transition('upgrade', { availableBytes: before.requiredBytes }), /synthetic interruption/)
             assert.equal(controller.paused(), true)
+            assert.equal(controller.progress().activity, null)
             assert.equal((await controller.status()).phase, 'copying')
             assert.throws(() => readMessages('team', 'test'), { code: 'store_moving' })
             await controller.close()
@@ -480,7 +576,11 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
             await other.execute("SELECT pg_advisory_unlock_shared(hashtextextended('cuttlely-side-store-instances',516))")
             await other.release()
         }
-        const waiting = await stop()
+        const stopping = stop()
+        assert.equal(controller.progress().activity.action, 'stop-jobs')
+        const waiting = await stopping
+        assert.deepEqual(waiting.waitingFor, ['agent runs'])
+        assert.equal(controller.progress().activity, null)
         assert.equal(waiting.stopComplete, false)
         assert.equal(cancelled, true)
         assert.equal(claimJob(), null)
@@ -496,6 +596,7 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
         await live
         const ready = await controller.transition('check-stop')
         assert.equal(ready.stopComplete, true)
+        assert.deepEqual(ready.waitingFor, [])
         assert.ok(ready.stores.every((store) => !store.busy))
         assert.deepEqual(
             queue

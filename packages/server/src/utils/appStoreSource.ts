@@ -107,7 +107,7 @@ export async function loadStoreModule(pkg: string, file: string) {
 export async function registerAppStoreSource<FileStore = unknown>(
     dataSource: DataSource,
     log: Log,
-    loadModule = () => loadStoreModule('harness', 'dashflows-postgres.mjs'),
+    loadModule = loadStoreModule,
     options: {
         versionHistory?: {
             inspect(): Promise<{ head: string; bytes: number } | null>
@@ -124,7 +124,7 @@ export async function registerAppStoreSource<FileStore = unknown>(
     const source = makeAppStoreSource(dataSource)
     if (source.dialect === 'postgres') {
         try {
-            const { startStorageUpgrade } = await loadStoreModule('etl', 'storage-upgrade.mjs')
+            const { startStorageUpgrade } = await loadModule('etl', 'storage-upgrade.mjs')
             coordinator = await startStorageUpgrade({
                 source,
                 log,
@@ -146,7 +146,7 @@ export async function registerAppStoreSource<FileStore = unknown>(
         }
     }
     try {
-        const { initDashStore } = await loadModule()
+        const { initDashStore } = await loadModule('harness', 'dashflows-postgres.mjs')
         return await initDashStore({ source: makeAppStoreSource(dataSource), log })
     } catch (error) {
         log.warn(
@@ -158,9 +158,12 @@ export async function registerAppStoreSource<FileStore = unknown>(
     }
 }
 
+type CoordinatorFailure = { code: string; message: string }
 type Coordinator = {
     jobsPaused: () => boolean
     paused: () => boolean
+    failure: () => CoordinatorFailure | null
+    progress: () => { activity: { action: string; message: string; startedAt: number } | null; failure: CoordinatorFailure | null }
     status: () => Promise<unknown>
     close: () => Promise<void>
     transition: (
@@ -171,8 +174,12 @@ type Coordinator = {
 let coordinator: Coordinator | undefined
 let admitted = 0
 
+export const storageCoordinatorFailure = () => coordinator?.failure()
+
 export function sideStoreAdmission(req: Request, res: Response, next: NextFunction) {
-    if (req.method === 'GET' && req.path === '/api/v1/ping/storage-upgrade') return res.json({ paused: coordinator?.paused() || false })
+    const failure = storageCoordinatorFailure()
+    if (req.method === 'GET' && req.path === '/api/v1/ping/storage-upgrade')
+        return res.json({ paused: coordinator?.paused() || false, ...(failure && { reason: failure.code }) })
     if (req.method === 'GET' && req.path === '/api/v1/server-settings') return next()
     if (
         !coordinator ||
@@ -180,12 +187,12 @@ export function sideStoreAdmission(req: Request, res: Response, next: NextFuncti
         /^\/api\/v1\/(?:server-settings\/storage(?:\/|$)|auth(?:\/|$)|ping(?:\/|$))/.test(req.path)
     )
         return next()
-    if (coordinator.jobsPaused() && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    if (!failure && coordinator.jobsPaused() && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
         return res.status(503).json({ code: 'jobs_paused', message: 'Jobs are paused for the storage upgrade.' })
     }
-    if (coordinator.paused()) {
+    if (failure || coordinator.paused()) {
         res.setHeader('Retry-After', '30')
-        return res.status(503).json({ code: 'store_moving', message: 'Storage upgrade in progress. Try again in 30 seconds.' })
+        return res.status(503).json(failure || { code: 'store_moving', message: 'Storage upgrade in progress. Try again in 30 seconds.' })
     }
     admitted++
     res.once('close', () => {
@@ -194,6 +201,7 @@ export function sideStoreAdmission(req: Request, res: Response, next: NextFuncti
     next()
 }
 
+export const storageProgress = () => coordinator?.progress() || { activity: null, failure: null }
 export const storageStatus = () => coordinator?.status() || { available: false }
 export async function changeSideStores(
     action: 'upgrade' | 'rollback' | 'stop-jobs' | 'check-stop' | 'resume-jobs',
@@ -210,6 +218,8 @@ export async function changeSideStores(
             }
         })
     } catch (error) {
+        const failure = storageCoordinatorFailure()
+        if (failure) throw new SettingsError(503, failure.code, failure.message)
         if (error instanceof Error && (error as Error & { status?: number }).status === 409)
             throw new SettingsError(409, 'STORAGE_UPGRADE', error.message)
         throw new SettingsError(

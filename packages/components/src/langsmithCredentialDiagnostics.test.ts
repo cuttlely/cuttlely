@@ -22,12 +22,42 @@ describe('langSmithClientConfig with quoted keys', () => {
     })
 
     it('handles a long run of nested quotes in linear time', () => {
-        const raw = '"'.repeat(200_000) + 'k' + '"'.repeat(200_000)
-        // This checks the normalization work, independently of time the CI scheduler deschedules the worker.
-        const started = process.cpuUsage()
-        expect(langSmithClientConfig(raw, undefined)?.apiKey).toBe('k')
-        const elapsed = process.cpuUsage(started)
-        expect(elapsed.user + elapsed.system).toBeLessThan(1_000_000)
+        const n = 100_000
+        const n2 = 200_000
+        const rawN = '"'.repeat(n) + 'k' + '"'.repeat(n)
+        const raw2N = '"'.repeat(n2) + 'k' + '"'.repeat(n2)
+
+        // Untimed warmup at 2n
+        expect(langSmithClientConfig(raw2N, undefined)?.apiKey).toBe('k')
+
+        // 5 interleaved timed reps at n and 2n. CPU time (user+system) measures the normalization work,
+        // independently of time the CI scheduler deschedules the worker.
+        const timingsN: number[] = []
+        const timings2N: number[] = []
+
+        for (let i = 0; i < 5; i++) {
+            const startN = process.cpuUsage()
+            expect(langSmithClientConfig(rawN, undefined)?.apiKey).toBe('k')
+            const elapsedN = process.cpuUsage(startN)
+            timingsN.push(elapsedN.user + elapsedN.system)
+
+            const start2N = process.cpuUsage()
+            expect(langSmithClientConfig(raw2N, undefined)?.apiKey).toBe('k')
+            const elapsed2N = process.cpuUsage(start2N)
+            timings2N.push(elapsed2N.user + elapsed2N.system)
+        }
+
+        // Take medians
+        const sortedN = [...timingsN].sort((a, b) => a - b)
+        const sorted2N = [...timings2N].sort((a, b) => a - b)
+        const medianN = sortedN[2]
+        const median2N = sorted2N[2]
+        const ratio = median2N / medianN
+
+        console.info(`[langsmith-linear-time] n=${n} medianN=${medianN}µs median2n=${median2N}µs ratio=${ratio.toFixed(2)}`)
+
+        expect(medianN).toBeGreaterThan(0)
+        expect(ratio).toBeLessThan(3)
     })
 
     it.each(['""', '" "', '"\'\'"', '\' " " \''])('gives no client for %s', (raw) => {

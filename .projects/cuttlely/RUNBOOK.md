@@ -6,7 +6,7 @@ Terminal settings are exported before Hermes imports its tools. Routed multiplex
 
 ## Active jobs before a storage upgrade
 
-On the migration web instance, use **Server Settings → Database → Application database storage → Stop all jobs**. Confirm cancellation after stopping other instances that share the source files. Allow the panel to finish checking the workers before selecting **Upgrade storage**. Use **Resume new jobs** if postponing the change. The [storage guide](../../docs/how-to/postgres-side-stores.md#before-the-upgrade) covers backup and replacement checks.
+On the migration web instance, use **Server Settings → Database → Application database storage → Stop all jobs**. Confirm cancellation after stopping other instances that share the source files. The panel lists work still stopping. Once jobs have stopped, select **Upgrade storage** to follow the current step and elapsed time. Reopen the panel to check a running operation. Use **Resume new jobs** if postponing the change. The [storage guide](../../docs/how-to/postgres-side-stores.md#before-the-upgrade) covers backup and replacement checks.
 
 ## Fileless preview and first publication
 

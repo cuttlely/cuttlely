@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Instance Operators can select **Stop all jobs** in the storage upgrade panel to cancel active work, clear abandoned waits and pause new jobs through cutover. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#before-the-upgrade)
+-   Instance Operators can select **Stop all jobs** in the storage upgrade panel to cancel active work, clear abandoned waits and pause new jobs through cutover. The panel shows what is still stopping, the live upgrade or restore step, and elapsed time. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#before-the-upgrade)
 
 ### Security
 

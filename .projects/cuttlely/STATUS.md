@@ -1,3 +1,7 @@
+## PostgreSQL storage coordinator health
+
+If the PostgreSQL storage coordinator loses its session, the public storage status and blocked API requests report `coordinator_connection_lost`. The storage status shows a pause only during an upgrade or rollback. Readiness and liveness return 503 after the session is lost. Restarting Cuttlely reacquires the shared advisory lock and checks the durable storage state before admitting new work.
+
 ## 1.7.15 release
 
 The annotated tag `v1.7.15` points to `bb119132`. It includes PostgreSQL disk-loss recovery and the private-issuer OIDC test fixture. Release preparation passed all 30 gates on `184c08ff`, built the candidate image and started it successfully. The merged release tree matches the prepared tree. [Storage PR #586](https://github.com/cuttlely/cuttlely/pull/586) · [OIDC fixture #587](https://github.com/cuttlely/cuttlely/pull/587) · [Version PR #589](https://github.com/cuttlely/cuttlely/pull/589) · [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/45731884738)
