@@ -27,7 +27,7 @@ async function begin(scope, eventJobId) {
                        eventJobId
                    )}))`
             : `SELECT pg_catalog.pg_advisory_xact_lock(${schemaKey})`
-        const transaction = append ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
+        const transaction = scope === 'queue' ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
         await client.query(`${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`)
         return client
     } catch (error) {

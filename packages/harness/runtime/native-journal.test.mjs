@@ -322,7 +322,7 @@ test('PostgreSQL workers reserve a chat once and observe cancellation on their n
     const pg = await createTestSource()
     const { Client } = createRequire(new URL('../../server/package.json', import.meta.url))('pg')
     const writer = new Client(pg.connection)
-    configureHarnessPostgres(pg.connection)
+    configureHarnessPostgres({ ...pg.connection, options: '-c default_transaction_isolation=repeatable\\ read' })
     closeQueueDb()
     t.after(async () => {
         await writer.end()
@@ -331,6 +331,7 @@ test('PostgreSQL workers reserve a chat once and observe cancellation on their n
         await pg.cleanup()
     })
     const args = { name: 'Reservation', chatId: 'same-chat', input: 'Count items.' }
+    assert.equal(database().prepare("SELECT current_setting('default_transaction_isolation') AS setting").get().setting, 'repeatable read')
     const first = enqueueHarnessJob(args)
     assert.equal(claimJob().id, first.id)
     assert.equal(claimJob(), null)
@@ -348,14 +349,25 @@ test('PostgreSQL workers reserve a chat once and observe cancellation on their n
          VALUES ($1, $2, 'queued', '{}', 0, $3, $3)`,
         ['other-worker-job', first.sessionKey, Date.now()]
     )
-    const commit = writer.query('SELECT pg_sleep(0.05); COMMIT')
-    assert.throws(() => enqueueHarnessJob(args), { code: 'busy' })
-    await commit
+    const commit = writer.query('SELECT pg_sleep(0.15); COMMIT')
+    try {
+        assert.throws(() => enqueueHarnessJob(args), { code: 'busy' })
+    } finally {
+        await commit
+    }
     assert.equal(claimJob().id, 'other-worker-job')
     assert.equal(claimJob(), null)
     finishJob('other-worker-job', { status: 'succeeded', result: { text: 'Done.' } })
     const next = enqueueHarnessJob(args)
     assert.equal(claimJob().id, next.id)
+    // A truly expired worker, unlike the committed reservation, frees this chat for one new claim.
+    recordToolPhase(next.id, { callId: 'stale-call', specialist: 'math', name: 'calculator', phase: 'dispatched' })
+    database().prepare('UPDATE jobs SET updated_at = 0 WHERE id = ?').run(next.id)
+    const replacement = enqueueHarnessJob(args)
+    assert.equal(readJob(next.id).errorCode, 'worker_lost')
+    assert.match(readJob(next.id).errorMessage, /outcome of 1 dispatched tool call could not be confirmed/)
+    assert.equal(claimJob().id, replacement.id)
+    assert.equal(claimJob(), null)
 })
 
 test(
