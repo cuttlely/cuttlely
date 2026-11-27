@@ -10,7 +10,6 @@ import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
-import { createTestDatabase, skipReason } from '../packages/etl/check/pg-source.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 import { smokeFlow } from './smoke-server.mjs'
 
@@ -107,10 +106,6 @@ async function runWorker() {
     }
 }
 
-if (process.env.CUTTLELY_VERIFY_DISK_LOSS === '1' && skipReason) {
-    throw new Error('Release verification requires the PostgreSQL disk-loss tests to run. ' + skipReason)
-}
-
 if (process.argv.includes('--fixture-worker')) {
     try {
         await runWorker()
@@ -118,7 +113,11 @@ if (process.argv.includes('--fixture-worker')) {
         process.stderr.write(String(error.stack) + '\n')
         process.exitCode = 1
     }
-} else
+} else {
+    const { createTestDatabase, skipReason } = await import('../packages/etl/check/pg-source.mjs')
+    if (process.env.CUTTLELY_VERIFY_DISK_LOSS === '1' && skipReason) {
+        throw new Error('Release verification requires the PostgreSQL disk-loss tests to run. ' + skipReason)
+    }
     for (const initial of ['new-postgres', 'existing-postgres', 'sqlite', 'shell-post-cutover-crash', 'managed-post-cutover-crash'])
         test(initial + ' recovers on empty server and worker disks', { skip: skipReason }, async () => {
             const crash = initial.endsWith('post-cutover-crash')
@@ -467,3 +466,4 @@ with closing(connect()) as pg:
                 fs.rmSync(rootDir, { recursive: true, force: true })
             }
         })
+}
