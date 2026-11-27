@@ -3,9 +3,7 @@ import hash from 'object-hash'
 import { DataSource } from 'typeorm'
 import { ICommonObject, IDatabaseEntity, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../../src/Interface'
 import { getVars, parseJsonBody, prepareSandboxVars } from '../../../../src/utils'
-import { MCPToolkit, validateMCPServerConfig } from '../core'
-
-const packagedOpsServer = require('@cuttlely/components/packaged-ops')
+import { MCPToolkit, packagedOpsServer, validateMCPServerConfig } from '../core'
 
 const mcpServerConfig = `{
     "command": "npx",

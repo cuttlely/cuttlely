@@ -171,7 +171,7 @@ test('bundled discovery and invocation resolve only the originally approved ship
     )
     const [tool] = await card.init(binding, '', options)
     assert.match(await tool.invoke({}), /ops-status: allowlisted MCP tool responded/)
-    const packaged = components('@cuttlely/components/packaged-ops')
+    const packaged = components('@cuttlely/components/nodes').packagedOpsServer
     const original = JSON.parse(binding.inputs.mcpServerConfig)
     const canonical = packaged(original)
     assert.equal(canonical.command, process.execPath)

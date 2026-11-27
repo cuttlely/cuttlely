@@ -118,7 +118,7 @@ export async function openNativeMcpTools(bindings, { signal, assertCurrent, scop
         }
         const client = new ScopedClient({ name: 'cuttlely', version: '1.0.0' })
         const transport = new StdioClientTransport({
-            ...components('@cuttlely/components/packaged-ops')({ command: 'node', args: [server.entry] }),
+            ...components('@cuttlely/components/nodes').packagedOpsServer({ command: 'node', args: [server.entry] }),
             cwd: repoRoot(),
             stderr: 'ignore',
             maxBufferSize: 1024 * 1024

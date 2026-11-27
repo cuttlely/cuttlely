@@ -1,3 +1,5 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { BaseToolkit, tool, Tool } from '@langchain/core/tools'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
@@ -5,6 +7,19 @@ import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotoc
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { CallToolRequest, CallToolResultSchema, ListToolsResult, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { checkDenyList, secureFetch } from '../../../src/httpSecurity'
+
+// Call after checking the operator's grant against the original configuration. Only the shipped
+// node command with its sole, literal script argument can select the installation's Ops sample.
+export function packagedOpsServer(config: Record<string, unknown>) {
+    if (config?.command !== 'node' || Object.keys(config).length !== 2 || !Array.isArray(config.args) || config.args.length !== 1)
+        return config
+    const sample = 'samples/ops-mcp-server.mjs'
+    const root = path.resolve(path.dirname(require.resolve('@cuttlely/components/module-catalog')), '../../..')
+    const script = path.join(root, sample)
+    if (![sample, './' + sample, script].includes(config.args[0])) return config
+    if (fs.realpathSync(script) !== script || !fs.statSync(script).isFile()) throw new Error('The packaged Ops server is unavailable.')
+    return { command: process.execPath, args: [script] }
+}
 
 const DEFAULT_MCP_TOOL_DESCRIPTION_MAX_LENGTH = 1024
 const DEFAULT_MCP_TOOL_NAME_MAX_LENGTH = 128

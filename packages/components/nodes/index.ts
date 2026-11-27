@@ -5,6 +5,7 @@
 export {
     MCPToolkit,
     MCPTool,
+    packagedOpsServer,
     validateArgsForLocalFileAccess,
     validateCommandInjection,
     validateEnvironmentVariables,
