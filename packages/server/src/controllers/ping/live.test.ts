@@ -6,6 +6,7 @@ import { apiV1Auth } from '../../identity/apiGate'
 import { WHITELIST_URLS } from '../../utils/constants'
 import { beginBootPass, finishBootPass, resetBootPass } from '../../services/harnesses/bootGate'
 import { DatabaseHealth, setDatabaseHealth } from '../../startup/databaseHealth'
+import * as appStoreSource from '../../utils/appStoreSource'
 
 describe('public application liveness', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-live-'))
@@ -105,6 +106,30 @@ describe('public application liveness', () => {
             expect(response.text).toMatch(/database unreachable/)
         }
         up = true
+        expect((await get('/api/v1/ping/live')).status).toBe(200)
+    })
+
+    test('both probes report coordinator loss even when the database answers', async () => {
+        const code = 'coordinator_connection_lost'
+        const failure = jest.spyOn(appStoreSource, 'storageCoordinatorFailure').mockReturnValue({ code, message: 'Restart Cuttlely.' })
+        setDatabaseHealth(
+            new DatabaseHealth(
+                async () => undefined,
+                () => 'test database',
+                { info: () => undefined, error: () => undefined } as any,
+                { cacheMs: 0 }
+            )
+        )
+        try {
+            for (const route of ['/api/v1/ping', '/api/v1/ping/live']) {
+                const response = await get(route)
+                expect(response.headers['x-cuttlely-database']).toBe('up')
+                expect(response.status).toBe(503)
+                expect(response.text).toBe(code)
+            }
+        } finally {
+            failure.mockRestore()
+        }
         expect((await get('/api/v1/ping/live')).status).toBe(200)
     })
 })
