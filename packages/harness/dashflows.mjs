@@ -474,6 +474,23 @@ function sqliteDashStore(file) {
         const progress = { ...JSON.parse(stored.progress), runId: stored.token }
         return progress.status === 'running' && row.lease_until <= Date.now() ? { ...progress, status: 'interrupted' } : progress
     }
+    const cancelRefresh = (id, workspace, runId, status) => {
+        const row = rowFor(id, workspace)
+        if (!runId || row.lease !== runId) fail('The refresh changed or already finished. Reload its status before cancelling.', 409)
+        db.prepare('UPDATE dash_flow SET lease=NULL,lease_until=0,next_refresh=?,error=NULL WHERE id=? AND workspace=? AND lease=?').run(
+            JSON.parse(row.definition).intervalSeconds === 604800 ? Date.now() + 604800000 : 0,
+            id,
+            workspace,
+            runId
+        )
+        const stored = db
+            .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=? AND token=?')
+            .get(id, workspace, runId)
+        const now = new Date().toISOString()
+        const progress = { ...(stored ? JSON.parse(stored.progress) : {}), status, active: [], finishedAt: now, updatedAt: now }
+        db.prepare('INSERT OR REPLACE INTO dash_flow_refresh_status VALUES(?,?,?,?)').run(id, workspace, runId, JSON.stringify(progress))
+        return { id, refreshing: false, refreshProgress: { ...progress, runId }, error: null }
+    }
     const decode = (row) => ({
         id: row.id,
         revision: row.revision,
@@ -630,25 +647,12 @@ function sqliteDashStore(file) {
                 .run(Date.now() + 90000, id, workspace, claim.token, claim.revision, Date.now()).changes
         },
         cancel(id, workspace, runId, status = 'cancelled') {
-            return writeTransaction(() => {
-                const row = rowFor(id, workspace)
-                if (!runId || row.lease !== runId)
-                    fail('The refresh changed or already finished. Reload its status before cancelling.', 409)
-                db.prepare(
-                    'UPDATE dash_flow SET lease=NULL,lease_until=0,next_refresh=?,error=NULL WHERE id=? AND workspace=? AND lease=?'
-                ).run(JSON.parse(row.definition).intervalSeconds === 604800 ? Date.now() + 604800000 : 0, id, workspace, runId)
-                const stored = db
-                    .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=? AND token=?')
-                    .get(id, workspace, runId)
-                const now = new Date().toISOString()
-                const progress = { ...(stored ? JSON.parse(stored.progress) : {}), status, active: [], finishedAt: now, updatedAt: now }
-                db.prepare('INSERT OR REPLACE INTO dash_flow_refresh_status VALUES(?,?,?,?)').run(
-                    id,
-                    workspace,
-                    runId,
-                    JSON.stringify(progress)
-                )
-                return { id, refreshing: false, refreshProgress: { ...progress, runId }, error: null }
+            return writeTransaction(() => cancelRefresh(id, workspace, runId, status))
+        },
+        cancelRefreshesForUpgrade() {
+            writeTransaction(() => {
+                const claims = db.prepare('SELECT id,workspace,lease FROM dash_flow WHERE lease IS NOT NULL').all()
+                for (const row of claims) cancelRefresh(row.id, row.workspace, row.lease, 'cancelled')
             })
         },
         progress(id, workspace, claim, detail) {

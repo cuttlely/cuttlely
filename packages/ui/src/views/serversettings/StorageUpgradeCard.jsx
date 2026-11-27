@@ -15,11 +15,33 @@ export default function StorageUpgradeCard() {
     const [state, setState] = useState(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const [confirmStop, setConfirmStop] = useState(false)
     const [confirmedFor, setConfirmedFor] = useState(null)
     const refresh = useCallback(async () => setState((await serverSettingsApi.storageStatus()).data), [])
     useEffect(() => {
         refresh().catch(() => setError('Storage status could not be loaded.'))
     }, [refresh])
+    const stopping = state?.jobsPaused && !state?.stopComplete && state.phase === 'sqlite'
+    useEffect(() => {
+        if (!stopping || busy || error) return
+        let cancelled = false
+        let timer
+        const check = async () => {
+            try {
+                const { data } = await serverSettingsApi.changeStorage('check-stop', {})
+                if (cancelled) return
+                setState(data)
+                if (data.jobsPaused && !data.stopComplete) timer = setTimeout(check, 2000)
+            } catch (e) {
+                if (!cancelled) setError(e.response?.data?.message || 'Could not check job cancellation. Select Check again to retry.')
+            }
+        }
+        timer = setTimeout(check, 2000)
+        return () => {
+            cancelled = true
+            clearTimeout(timer)
+        }
+    }, [stopping, busy, error])
     if (!state?.available && !error) return null
     const rollback = state?.phase === 'postgres' || state?.phase === 'restoring'
     const needsCapacity = state?.phase === 'sqlite'
@@ -31,7 +53,8 @@ export default function StorageUpgradeCard() {
     const blockers = []
     if (!rollback && state?.available) {
         if (!state.enabled) blockers.push('Set CUTTLELY_APP_DATABASE_STORES=1 on the server and restart it.')
-        if (active.length) blockers.push('Finish or stop active work (' + active.join(', ') + ').')
+        if (stopping) blockers.push('Waiting for active work to stop before upgrading.')
+        else if (active.length) blockers.push('Finish or stop active work (' + active.join(', ') + ').')
         if (unresolvedCount)
             blockers.push(
                 'Review ' + unresolvedCount + ' local ' + (unresolvedCount === 1 ? 'path' : 'paths') + ' under Local files below.'
@@ -49,6 +72,20 @@ export default function StorageUpgradeCard() {
             await refresh()
         } catch {
             setError('Storage status could not be loaded.')
+        } finally {
+            setBusy(false)
+        }
+    }
+    async function changeJobs(stop) {
+        setBusy(true)
+        setError('')
+        setConfirmStop(false)
+        try {
+            const { data } = await serverSettingsApi.changeStorage(stop ? 'stop-jobs' : 'resume-jobs', stop ? { confirm: 'STOP' } : {})
+            setState(data)
+        } catch (e) {
+            setError(e.response?.data?.message || 'Could not change job admission. Check again for the current status.')
+            await refresh().catch(() => {})
         } finally {
             setBusy(false)
         }
@@ -101,6 +138,36 @@ export default function StorageUpgradeCard() {
                                 </ul>
                             </Alert>
                         )}
+                        {needsCapacity &&
+                            (state.jobsPaused ? (
+                                <Stack alignItems='flex-start'>
+                                    <Typography role='status'>
+                                        {stopping
+                                            ? 'Stopping jobs and clearing abandoned waits…'
+                                            : 'New jobs are paused for the storage upgrade.'}
+                                    </Typography>
+                                    <Button disabled={busy} onClick={() => changeJobs(false)}>
+                                        Resume new jobs
+                                    </Button>
+                                </Stack>
+                            ) : confirmStop ? (
+                                <Alert severity='warning'>
+                                    Stop jobs for every team and pause new work on this instance for the upgrade? Running jobs may have
+                                    already performed part of their work. Stop standalone workers that share the old files first.
+                                    <Stack direction='row' spacing={1}>
+                                        <Button color='error' disabled={busy} onClick={() => changeJobs(true)}>
+                                            Stop jobs and pause new work
+                                        </Button>
+                                        <Button disabled={busy} onClick={() => setConfirmStop(false)}>
+                                            Keep jobs running
+                                        </Button>
+                                    </Stack>
+                                </Alert>
+                            ) : (
+                                <Button sx={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => setConfirmStop(true)}>
+                                    Stop all jobs
+                                </Button>
+                            ))}
                         <Alert severity='info'>
                             PostgreSQL restores saved chats, runtime settings and memory notes. Files created by code execution, such as
                             documents and images, can disappear when a container is replaced. Direct shell edits to runtime settings also

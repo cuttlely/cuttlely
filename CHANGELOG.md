@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Instance Operators can select **Stop all jobs** in the storage upgrade panel to cancel active work, clear abandoned waits and pause new jobs through cutover. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#before-the-upgrade)
+
 ### Security
 
 -   The agent runtime's OpenTelemetry SDK moves to 1.45.2, which fixes a quadratic traceparent parsing DoS ([GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg)).
