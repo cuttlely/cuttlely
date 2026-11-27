@@ -299,6 +299,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 -   [Docker](./docs/how-to/docker.md)。SQLite を使い、一つのコンテナで Cuttlely をインストールして動かします。`npx cuttlely` も同じイメージを起動します。
 -   [ソースからビルドして開発サーバーを動かす](./docs/how-to/from-source.md)。Cuttlely を自分でビルドして動かし、ライブリロードでコードを変更します。
 -   [ハーネス](./docs/how-to/harnesses.md)。エージェントチームを作り、試し、チャットフローから呼び出します。
+-   [Kraken のカナリアテストガイド](./docs/reference/kraken-native-runtime.md)では、Kraken 2.0 開発ブランチで保存済みのチームを試し、ツールとダウンロードしたファイルを確認してから、同梱のランタイムに戻す手順を説明します。
 -   [コンテキストとトークン](./docs/how-to/context-and-tokens.md)。チームが各プロンプトを目の前の仕事だけに絞る仕組みと、実行が使ったトークンを確認できる場所。
 -   [アナリストモード](./docs/how-to/analyst.md)。スペシャリストに専用のデータベースを持たせます。
 -   [ETL](./docs/how-to/etl.md)。自分のデータを読み込み、埋め込み、検索します。

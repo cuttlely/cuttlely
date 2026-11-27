@@ -299,6 +299,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 -   [Docker](./docs/how-to/docker.md). SQLite를 사용해 컨테이너 하나로 Cuttlely를 설치하고 실행합니다. `npx cuttlely`도 같은 이미지를 시작합니다.
 -   [소스에서 빌드하고 개발 서버 실행하기](./docs/how-to/from-source.md). Cuttlely를 직접 빌드해 실행하고, 라이브 리로드로 코드를 바꿉니다.
 -   [하네스](./docs/how-to/harnesses.md). 에이전트 팀을 만들고, 사용해 보고, 챗플로우에서 호출합니다.
+-   [Kraken 카나리 테스트 가이드](./docs/reference/kraken-native-runtime.md)에서 Kraken 2.0 개발 브랜치로 저장된 팀을 테스트하고, 도구와 다운로드한 파일을 확인한 뒤 기본 제공 런타임으로 돌아가는 방법을 알아보세요.
 -   [컨텍스트와 토큰](./docs/how-to/context-and-tokens.md). 팀이 각 프롬프트를 눈앞의 일로만 한정하는 방법과, 실행이 사용한 토큰을 보여 주는 위치.
 -   [애널리스트 모드](./docs/how-to/analyst.md). 스페셜리스트에게 전용 데이터베이스를 줍니다.
 -   [ETL](./docs/how-to/etl.md). 여러분의 데이터를 불러오고, 임베딩하고, 검색합니다.
