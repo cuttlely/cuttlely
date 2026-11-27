@@ -61,8 +61,9 @@ export function nativeCompatibilityGaps(roster, { admitUnavailableTools = false,
             // not deny a sibling role. A host key may have made the released tool operational: require rebinding.
             if (admitUnavailableTools && unboundNativeSerp(binding) && !process.env.SERPAPI_API_KEY) continue
             if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding)) {
-                const credential = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
-                capabilities.add('canvas tool ' + nativeNodeLabel(binding) + credential)
+                let hint = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
+                if (binding?.nodeName === 'customRetriever' && !binding.upstream?.vectorStore) hint = ' (connect a supported vector store)'
+                capabilities.add('canvas tool ' + nativeNodeLabel(binding) + hint)
             }
         }
         for (const binding of specialist.mcpServers || []) {

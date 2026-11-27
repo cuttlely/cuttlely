@@ -39,7 +39,8 @@ const cards: Record<string, { name: string; description: string; usecases: strin
     },
     'samples/harnesses/research.canvas.json': {
         name: 'Research Harness',
-        description: 'Harness Prime answers from one specialist bound to a custom retriever.',
+        description:
+            'A researcher answers from a named local note using Local Hash Embeddings. Select a chat model credential and ask when the example archive opens.',
         usecases: ['Research']
     },
     'samples/chatflows/upload.chatflow.json': {

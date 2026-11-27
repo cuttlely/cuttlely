@@ -32,7 +32,7 @@ import {
     estimateTokens,
     specialistContextTokens
 } from './context.mjs'
-import { unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
+import { localTextRetrieverBinding, unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
 import { sameModelBinding, withModelFallback } from './fallback.mjs'
 import {
     callPrepared,
@@ -4046,6 +4046,29 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                     () => ({ content: reason, error: true })
                 )
                 used.add(name)
+                continue
+            }
+            if (localTextRetrieverBinding(binding)) {
+                const nodeCache = new Map()
+                const name = toolName({ binding }, index, used)
+                const description = toolSpec(binding, 'Connected node', name)
+                register(
+                    { type: 'function', function: { name, description: description.description, parameters: description.inputSchema } },
+                    async (args) => {
+                        // The inline router used the delegated task. A gateway call used its own requested query.
+                        const input = context.nativePrime || needsAgentLoop(specialist) ? args.input ?? args.query ?? task : task
+                        if (typeof input !== 'string') throw new HarnessError('bad_input', 'A retrieval query must be text.')
+                        const item = await raceSignal(signal, () => {
+                            assertCurrent()
+                            // Keep the local index for this delegation. The outer card computes text for each new query.
+                            nodeCache.delete(binding.nodeId)
+                            return prepareModule(binding, input, { ...context.moduleOptions, nodeCache })
+                        })
+                        assertCurrent()
+                        // This card returns plain text. Source-like delimiters in a saved document are ordinary content.
+                        return item.ready
+                    }
+                )
                 continue
             }
             const item = await prepareModule(binding, task, context.moduleOptions)

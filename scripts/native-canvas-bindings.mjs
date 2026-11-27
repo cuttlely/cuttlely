@@ -84,7 +84,23 @@ export function localMemoryStoreBinding(binding, output = 'retriever') {
     )
 }
 
+// This saved retrieval card returns its own formatted text, including the document's source label.
+export function localTextRetrieverBinding(binding) {
+    if (binding?.nodeName !== 'customRetriever' || binding.nodeData || binding.credential || binding.outputs?.output !== 'text')
+        return false
+    const inputs = binding.inputs || {}
+    if (Object.keys(inputs).some((key) => !['query', 'resultFormat', 'topK'].includes(key))) return false
+    if (inputs.resultFormat !== '{{context}}\nSource: {{metadata.source}}') return false
+    if (inputs.query != null && (typeof inputs.query !== 'string' || inputs.query.length > 4096 || /{{|}}/.test(inputs.query))) return false
+    const topK = inputs.topK
+    if (topK != null && topK !== '') {
+        if (!['number', 'string'].includes(typeof topK) || !/^[1-9][0-9]?$/.test(String(topK)) || Number(topK) > 64) return false
+    }
+    return Object.keys(binding.upstream || {}).length === 1 && localMemoryStoreBinding(binding.upstream.vectorStore, 'vectorStore')
+}
+
 export function supportsNativeCanvasBinding(binding) {
+    if (binding?.nodeName === 'customRetriever') return localTextRetrieverBinding(binding)
     if (binding?.nodeName === 'memoryVectorStore') return localMemoryStoreBinding(binding)
     return Object.hasOwn(supported, binding?.nodeName) && matches(binding, supported[binding.nodeName])
 }

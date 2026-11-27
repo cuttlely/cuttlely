@@ -41,15 +41,10 @@ describe('harness recipe', () => {
         expect(samples).toHaveLength(6)
     })
 
-    // The Research sample's Custom Retriever has nothing in its required Vector Store plug, so the builder
-    // does not learn from it.
-    const unfit = ['Research Harness']
-
-    it.each(sampleFlows.map((s) => [s.name, s.flow]))('the bundled "%s" passes the check as a plan', (name, flow) => {
+    it.each(sampleFlows.map((s) => [s.name, s.flow]))('the bundled "%s" passes the check as a plan', (_name, flow) => {
         const plan = { ...asPlan(flow), starterQuestions: ['a?', 'b?', 'c?'] }
         const problems = planProblems(harnessRecipe, plan, ctx)
-        if (unfit.includes(name)) expect(problems.join('\n')).toMatch(/needs something in its vectorStore plug/)
-        else expect(problems).toEqual([])
+        expect(problems).toEqual([])
     })
 
     it.each(sampleFlows.map((s) => [s.name, s.flow]))('the bundled "%s" rebuilds into clear, connected cards', (_name, flow) => {
@@ -93,7 +88,7 @@ describe('harness recipe', () => {
         expect(examples.length).toBeLessThanOrEqual(4)
         for (const example of examples) expect(example.plan.nodes.some((n) => n.name === 'harnessChief')).toBe(true)
         const checked = harnessExamples('research documents retriever', ctx)
-        expect(checked.map((e) => e.title)).not.toContain('Research Harness')
+        expect(checked.map((e) => e.title)).toContain('Research Harness')
         for (const example of checked) expect(harnessRecipe.check(example.plan, ctx)).toEqual([])
     })
 
