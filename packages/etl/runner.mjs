@@ -143,7 +143,7 @@ export async function pauseRun(runId) {
                 await fault({ faults: runnerFaults }, 'pauseAfterRead', run, t)
                 const job = active.get(runId)
                 if (job) refuseFinishing(run)
-                else if (run.status !== 'queued' && !((includeInterrupted || etlStore.sharedExecution()) && run.status === 'running'))
+                else if (run.status !== 'queued' && !(etlStore.sharedExecution() && run.status === 'running'))
                     throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
                 return { run, job }
             })
