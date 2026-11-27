@@ -32,7 +32,7 @@ import {
     estimateTokens,
     specialistContextTokens
 } from './context.mjs'
-import { localTextRetrieverBinding, unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
+import { localCustomRetrieverBinding, unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
 import { sameModelBinding, withModelFallback } from './fallback.mjs'
 import {
     callPrepared,
@@ -4048,25 +4048,32 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 used.add(name)
                 continue
             }
-            if (localTextRetrieverBinding(binding)) {
+            if (localCustomRetrieverBinding(binding)) {
                 const nodeCache = new Map()
+                const output = binding.outputs.output
+                const gatewayCall = context.nativePrime || needsAgentLoop(specialist)
                 const name = toolName({ binding }, index, used)
                 const description = toolSpec(binding, 'Connected node', name)
                 register(
                     { type: 'function', function: { name, description: description.description, parameters: description.inputSchema } },
                     async (args) => {
-                        // The inline router used the delegated task. A gateway call used its own requested query.
-                        const input = context.nativePrime || needsAgentLoop(specialist) ? args.input ?? args.query ?? task : task
+                        // The inline router initialized text/document with its delegated task. A retriever runs on the tool query.
+                        const query = args.input ?? args.query ?? task
+                        const input = gatewayCall || output === 'retriever' ? query : task
                         if (typeof input !== 'string') throw new HarnessError('bad_input', 'A retrieval query must be text.')
-                        const item = await raceSignal(signal, () => {
+                        const raw = await raceSignal(signal, async () => {
                             assertCurrent()
-                            // Keep the local index for this delegation. The outer card computes text for each new query.
-                            nodeCache.delete(binding.nodeId)
-                            return prepareModule(binding, input, { ...context.moduleOptions, nodeCache })
+                            if (output !== 'retriever') nodeCache.delete(binding.nodeId)
+                            const item = await prepareModule(binding, input, { ...context.moduleOptions, nodeCache })
+                            assertCurrent()
+                            return output === 'retriever' ? callPrepared(item, input, assertCurrent) : item.ready
                         })
                         assertCurrent()
-                        // This card returns plain text. Source-like delimiters in a saved document are ordinary content.
-                        return item.ready
+                        // Text from the card is ordinary document content. Only the router published structured document results.
+                        if (output === 'text') return raw
+                        const result = splitToolOutput(raw)
+                        if (!gatewayCall) sources.push(...result.documents)
+                        return result.text
                     }
                 )
                 continue

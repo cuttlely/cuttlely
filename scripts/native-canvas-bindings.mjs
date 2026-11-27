@@ -130,9 +130,14 @@ function boundedRetrieverFormat(format, store) {
     return true
 }
 
-// This saved retrieval card returns its own formatted text, including the document's source label.
-export function localTextRetrieverBinding(binding) {
-    if (binding?.nodeName !== 'customRetriever' || binding.nodeData || binding.credential || binding.outputs?.output !== 'text')
+// All three released outputs share the same read-only local store. Only text and document render the saved format.
+export function localCustomRetrieverBinding(binding) {
+    if (
+        binding?.nodeName !== 'customRetriever' ||
+        binding.nodeData ||
+        binding.credential ||
+        !['text', 'document', 'retriever'].includes(binding.outputs?.output)
+    )
         return false
     const inputs = binding.inputs || {}
     if (Object.keys(inputs).some((key) => !['query', 'resultFormat', 'topK'].includes(key))) return false
@@ -145,12 +150,12 @@ export function localTextRetrieverBinding(binding) {
     return (
         Object.keys(binding.upstream || {}).length === 1 &&
         localMemoryStoreBinding(store, 'vectorStore') &&
-        boundedRetrieverFormat(inputs.resultFormat, store)
+        (binding.outputs.output === 'retriever' || boundedRetrieverFormat(inputs.resultFormat, store))
     )
 }
 
 export function supportsNativeCanvasBinding(binding) {
-    if (binding?.nodeName === 'customRetriever') return localTextRetrieverBinding(binding)
+    if (binding?.nodeName === 'customRetriever') return localCustomRetrieverBinding(binding)
     if (binding?.nodeName === 'memoryVectorStore') return localMemoryStoreBinding(binding)
     return Object.hasOwn(supported, binding?.nodeName) && matches(binding, supported[binding.nodeName])
 }

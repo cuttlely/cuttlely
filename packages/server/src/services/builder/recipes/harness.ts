@@ -54,7 +54,9 @@ export function harnessSampleAsPlan(flow: { nodes: any[]; edges: any[] }): Plan 
 // The closest bundled harnesses. With a context, a sample whose plan would not pass the check is skipped.
 export function harnessExamples(request: string, ctx?: RecipeContext) {
     const samples = sampleTemplates()
-        .filter((template) => template.type === 'Harness')
+        // The generic plan rebuilds Research's explicit text card as BaseRetriever and loses its source-label format.
+        // The complete example remains available to import in the marketplace.
+        .filter((template) => template.type === 'Harness' && template.templateName !== 'Research Harness')
         .map((t) => ({
             title: t.templateName,
             description: t.description,

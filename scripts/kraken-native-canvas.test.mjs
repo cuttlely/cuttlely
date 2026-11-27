@@ -401,7 +401,7 @@ test('Research requires a connected local store and preserves the saved formatte
             doc.inputs.text = '$&'.repeat(6000)
             b.inputs.resultFormat = '{{context}}'.repeat(200)
         },
-        (b) => (b.outputs.output = 'document'),
+        (b) => (b.outputs.output = 'other'),
         (b) => (b.inputs.vectorStore = 'external reference'),
         (b) => (b.upstream.extra = { nodeName: 'plainText' }),
         (b) => (b.nodeData = { inputs: {} }),
@@ -413,6 +413,13 @@ test('Research requires a connected local store and preserves the saved formatte
         const changed = structuredClone(binding)
         mutate(changed)
         assert.equal(supportsNativeCanvasBinding(changed), false)
+    }
+    for (const output of ['document', 'retriever']) {
+        const changed = structuredClone(binding)
+        changed.outputs.output = output
+        assert.equal(supportsNativeCanvasBinding(changed), true)
+        delete changed.inputs.resultFormat
+        assert.equal(supportsNativeCanvasBinding(changed), output === 'retriever')
     }
     // v1.7.15 shipped this card without its required store. An old install needs an operator-selected source.
     const retriever = graph.nodes.find((n) => n.data.name === 'customRetriever')

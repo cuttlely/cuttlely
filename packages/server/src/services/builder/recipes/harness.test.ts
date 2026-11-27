@@ -88,7 +88,7 @@ describe('harness recipe', () => {
         expect(examples.length).toBeLessThanOrEqual(4)
         for (const example of examples) expect(example.plan.nodes.some((n) => n.name === 'harnessChief')).toBe(true)
         const checked = harnessExamples('research documents retriever', ctx)
-        expect(checked.map((e) => e.title)).toContain('Research Harness')
+        expect(checked.map((e) => e.title)).not.toContain('Research Harness')
         for (const example of checked) expect(harnessRecipe.check(example.plan, ctx)).toEqual([])
     })
 

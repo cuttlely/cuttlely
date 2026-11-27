@@ -14,8 +14,10 @@ function respond(tools, messages) {
         const content = String(last.content)
         if (names.includes('In-Memory_Vector_Store') && content.includes('Local Hash Embeddings built the vectors'))
             fs.appendFileSync(process.env.KRAKEN_RESEARCH_CALLS, 'staff-source\n')
-        if (names.includes('Custom_Retriever') && content.includes('09:00 UTC') && content.includes('Source: Research Handbook'))
-            fs.appendFileSync(process.env.KRAKEN_RESEARCH_CALLS, 'research-source\n')
+        if (names.includes('Custom_Retriever') && content.includes('09:00 UTC')) {
+            const receipt = content.includes('Source: Research Handbook') ? 'research-source' : 'research-raw'
+            fs.appendFileSync(process.env.KRAKEN_RESEARCH_CALLS, receipt + '\n')
+        }
     }
     const question = /archive/i.test(visible)
         ? 'When does the example archive open?'
@@ -24,8 +26,9 @@ function respond(tools, messages) {
     if (system.startsWith('You name chat sessions.')) return { content: 'Local research' }
     if (system.includes('You route work for')) return { content: JSON.stringify({ steps: [{ specialist: 'researcher', task: question }] }) }
     if (last?._getType?.() === 'tool' || !names.length) {
-        if (visible.includes('09:00 UTC') && visible.includes('Source: Research Handbook'))
-            return { content: '09:00 UTC. Source: Research Handbook.' }
+        const evidence = last?._getType?.() === 'tool' ? String(last.content) : visible
+        if (evidence.includes('09:00 UTC'))
+            return { content: evidence.includes('Source: Research Handbook') ? '09:00 UTC. Source: Research Handbook.' : '09:00 UTC.' }
         if (visible.includes('Local Hash Embeddings built the vectors')) return { content: 'Local Hash Embeddings built the vectors.' }
     }
     if (names.includes('run_specialist')) return call('run_specialist', { name: 'researcher', task: question })

@@ -10,6 +10,7 @@ import { nativePackageRoot } from './kraken-package-fixture.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+const teamName = ({ sample, output }) => 'qa-' + sample + (output ? '-' + output : '')
 const cases = [
     {
         sample: 'chief-of-staff',
@@ -18,13 +19,14 @@ const cases = [
         tool: 'In-Memory_Vector_Store',
         documents: true
     },
-    {
+    ...['text', 'document', 'retriever'].map((output) => ({
         sample: 'research',
+        output,
         question: 'When does the example archive open?',
-        answer: '09:00 UTC. Source: Research Handbook.',
+        answer: output === 'retriever' ? '09:00 UTC.' : '09:00 UTC. Source: Research Handbook.',
         tool: 'Custom_Retriever',
-        documents: false
-    }
+        documents: output !== 'text'
+    }))
 ]
 
 for (const storage of ['sqlite', 'postgres'])
@@ -73,7 +75,7 @@ for (const storage of ['sqlite', 'postgres'])
                     install,
                     dataEnv(path.join(dir, folder), port, {
                         ...database,
-                        CUTTLELY_NATIVE_PRIME_TEAMS: cases.map((item) => 'qa-' + item.sample).join(','),
+                        CUTTLELY_NATIVE_PRIME_TEAMS: cases.map(teamName).join(','),
                         CUTTLELY_LOCAL_USERS: 'true',
                         CUTTLELY_INITIAL_OWNER_EMAIL: auth.email,
                         CUTTLELY_INITIAL_OWNER_PASSWORD: auth.password,
@@ -104,9 +106,10 @@ for (const storage of ['sqlite', 'postgres'])
             })
             const saved = []
             for (const item of cases) {
-                const name = 'qa-' + item.sample
+                const name = teamName(item)
                 const wrapper = JSON.parse(fs.readFileSync(path.join(install, 'samples/harnesses', item.sample + '.canvas.json')))
                 const graph = JSON.parse(wrapper.flowData)
+                if (item.output) graph.nodes.find((node) => node.data.name === 'customRetriever').data.outputs.output = item.output
                 const models = graph.nodes.filter((n) => n.data.name === 'chatXAI')
                 assert.equal(models.length, 1)
                 models[0].data.credential = credential.id
@@ -159,16 +162,19 @@ for (const storage of ['sqlite', 'postgres'])
                     assert.equal(researcher.status, 'completed')
                     assert.ok(researcher.tools.some((tool) => String(tool.name || tool).includes(item.tool)))
                     const docs = run.sources || []
-                    if (item.documents && mode === 'router')
+                    if (item.documents && mode === 'router') {
+                        const expected = item.output === 'document' ? item.source + '\nSource: Research Handbook' : item.source
                         assert.deepEqual(
                             docs.map((doc) => doc.pageContent),
-                            [item.source]
+                            [expected]
                         )
-                    else assert.deepEqual(docs, [])
+                        if (item.output) assert.equal(docs[0].metadata.source, 'Research Handbook')
+                    } else assert.deepEqual(docs, [])
                     assert.ok(fs.statSync(calls).size > before)
                     if (mode === 'agent') {
                         const received = fs.readFileSync(calls, 'utf8').slice(before).split('\n')
-                        assert.ok(received.includes(item.documents ? 'staff-source' : 'research-source'))
+                        const receipt = item.output === 'retriever' ? 'research-raw' : item.output ? 'research-source' : 'staff-source'
+                        assert.ok(received.includes(receipt))
                         assert.deepEqual(researcher.sources || [], [])
                     }
                 }
