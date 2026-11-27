@@ -113,6 +113,14 @@ test('the image keeps node packs unless INCLUDE_NODE_PACKS=0', () => {
     }
 })
 
+test('the native image ships the package-owned Cuttlely recovery protocol', () => {
+    const recovery = 'cuttlely_session_store.py'
+    const packaged = fs.readFileSync(path.join(ROOT, 'packages/etl/runtime-recovery', recovery))
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /^ARG INCLUDE_BUNDLED_RUNTIME=1$/m)
+    assert.ok(packaged.length > 0)
+})
+
 test('the production image checks that the built UI is present and the UI libraries are not', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
     assert.match(dockerfile, /node scripts\/check-static-ui-image\.mjs/)

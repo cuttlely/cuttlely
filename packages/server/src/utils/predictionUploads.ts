@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
@@ -23,6 +24,7 @@ import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
 import { loadUploadPolicy } from './uploadPolicy'
 
 export interface PreparedPredictionUpload {
+    digest?: string
     mime: string
     field: string
     document: boolean
@@ -91,6 +93,7 @@ export const preparePredictionUpload = async (
             text: '',
             truncated: false,
             stub: true,
+            digest: createHash('sha256').update(buffer).digest('hex'),
             size: buffer.length,
             rows: shape.rows,
             sheets: shape.sheets
@@ -141,7 +144,13 @@ export const renderPredictionUploadQuestion = async (
     filename: string,
     prepared: PreparedPredictionUpload,
     absolutePath?: string,
-    stored?: { workspace: string; flow: string; chat: string; parts: string[] }
+    stored?: {
+        workspace: string
+        flow: string
+        chat: string
+        parts: string[]
+        caller?: { via: string; tryOwner?: string; apiKeyId?: string }
+    }
 ): Promise<string> => {
     const policy = await loadUploadPolicy()
     try {
@@ -164,6 +173,10 @@ export const renderPredictionUploadQuestion = async (
             extractedText: prepared.text,
             extractedTruncated: prepared.truncated
         })
+        if (prepared.stub && prepared.digest && stored?.caller) {
+            const proof = await policy.issueManagedUpload(stored, stored.parts, prepared.digest)
+            if (proof) return part.block.replace('<file ', `<file proof='${proof}' `)
+        }
         return part.block
     } catch (error) {
         const message = error instanceof Error ? error.message : `Could not read any text from ${displayFileName(filename)}`

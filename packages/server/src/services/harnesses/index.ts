@@ -1307,26 +1307,42 @@ const requireHarness = async (name: string, workspaceId?: string | null, dataSou
 }
 
 // apiKeyId null is a signed-in person, who sees every run. A key sees only the runs it started.
-type CallerScope = { apiKeyId?: string | null }
+type CallerScope = { apiKeyId?: string | null; sessionUserId?: string }
+
+export async function managedFileOwnerTag(scope: CallerScope, workspaceId: string, chatId: string): Promise<string | null> {
+    const caller = scope.apiKeyId
+        ? { via: 'api_key', apiKeyId: scope.apiKeyId }
+        : { via: 'session', tryOwner: scope.sessionUserId ? 'user:' + scope.sessionUserId : '' }
+    const uploads = await loadHarness('prediction-files.mjs')
+    return uploads.managedFileOwnerTag(caller, workspaceId, chatId)
+}
+
+async function visibleManagedRun(run: any, workspaceId: string | null | undefined, scope: CallerScope) {
+    if (!run?.trace?.managedFileOwner) return true
+    if (!workspaceId) return false
+    return run.trace.managedFileOwner === (await managedFileOwnerTag(scope, workspaceId, run.chatId))
+}
 
 const listRuns = async (name: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
-    return history.listRuns(name, { limit: 50, apiKeyId: scope.apiKeyId ?? null })
+    const runs = history.listRuns(name, { limit: 50, apiKeyId: scope.apiKeyId ?? null })
+    const visible = await Promise.all(runs.map((run: unknown) => visibleManagedRun(run, workspaceId, scope)))
+    return runs.filter((_run: unknown, i: number) => visible[i])
 }
 
 const getRun = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
     const run = history.getRun(name, runId, { apiKeyId: scope.apiKeyId ?? null })
-    if (!run) {
+    if (!run || !(await visibleManagedRun(run, workspaceId, scope))) {
         throw new AppError(StatusCodes.NOT_FOUND, `Run ${runId} was not found.`)
     }
     return run
 }
 
-const getRunDiagnostics = async (name: string, runId: string, workspaceId?: string | null) => {
-    await getRun(name, runId, workspaceId)
+const getRunDiagnostics = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {
+    await getRun(name, runId, workspaceId, scope)
     const history = await loadHarness('history.mjs')
     return history.getRunDiagnostics(name, runId)
 }

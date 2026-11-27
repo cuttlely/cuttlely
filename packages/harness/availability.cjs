@@ -6,7 +6,12 @@ let availabilityCheck = null
 const fs = require('node:fs')
 const path = require('node:path')
 
+// The native build creates this file inside the installed server package. Ignore operator
+// data and environment flags here: a bundled deployment still defaults to the legacy engine.
+const nativeDistribution = fs.existsSync(path.join(__dirname, 'native-distribution.json'))
+
 function runtimeState(dataDir = process.env.CUTTLELY_DATA_DIR) {
+    if (nativeDistribution) return 'native'
     if (!dataDir) return 'unknown'
     try {
         const body = JSON.parse(fs.readFileSync(path.join(dataDir, 'hermes-supervisor.json'), 'utf8'))
@@ -18,11 +23,12 @@ function runtimeState(dataDir = process.env.CUTTLELY_DATA_DIR) {
 }
 
 function selectAgentEngine(name) {
+    if (nativeDistribution) return 'native'
     return process.env.CUTTLELY_NATIVE_PRIME_TEAMS?.split(',').some((entry) => entry.trim() && entry.trim() === name) ? 'native' : 'hermes'
 }
 
 function supervisorUnavailable(dataDir) {
-    return ['down', 'restarting', 'cooldown', 'exhausted'].includes(runtimeState(dataDir))
+    return nativeDistribution || ['down', 'restarting', 'cooldown', 'exhausted'].includes(runtimeState(dataDir))
 }
 
 // Call only after caller and resource authorization. Never echo supervisor details to an API caller.
@@ -94,6 +100,7 @@ module.exports = {
     setHarnessAvailabilityCheck,
     guardHarnessRun,
     runtimeState,
+    supervisorUnavailable,
     assertRuntimeAvailable,
     selectAgentEngine,
     assertSelectedHarnessAvailable

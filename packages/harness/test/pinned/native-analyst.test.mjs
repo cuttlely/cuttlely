@@ -5,12 +5,18 @@ import path from 'node:path'
 import os from 'node:os'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
+import { openNativeRecall } from '../../runtime/native-memory.mjs'
 import { createTestDatabase, skipReason } from '../../../etl/check/pg-source.mjs'
 import { latestAnalystCursor, takeAnalystResults } from '../../analyst-capture.mjs'
 import { renderTrustedOutputs } from '../../trusted-output.mjs'
 import { specialistSessionId } from '../../specialist-run.mjs'
 import { analystScopeKey, endAnalystRun } from '../../runtime/analyst-store.mjs'
-import { nativeAnalystBinding, nativeAnalystSpecialistSupported, openNativeAnalyst } from '../../runtime/native-analyst.mjs'
+import {
+    analystCaptureIdentity,
+    nativeAnalystBinding,
+    nativeAnalystSpecialistSupported,
+    openNativeAnalyst
+} from '../../runtime/native-analyst.mjs'
 import { compilePinned } from '../../runtime/pinned-query.mjs'
 import { computeStamp, stampPayload } from '../../runtime/pinned-stamp.mjs'
 
@@ -108,9 +114,16 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     assert.equal(nativeAnalystBinding({ ...binding, upstream: { arbitrary: {} } }), false)
     assert.equal(nativeAnalystSpecialistSupported(specialist), true)
     assert.equal(nativeAnalystSpecialistSupported({ ...specialist, trustedOutputs: [{ pin: 'pq_other' }] }), false)
-    const record = { name: 'qa-team', workspaceId, specialists: [specialist] }
+    const record = {
+        name: 'qa-team',
+        createdAt: new Date().toISOString(),
+        chatflowId: randomUUID(),
+        workspaceId,
+        specialists: [specialist]
+    }
     const context = {
         name: record.name,
+        nativeSpecialists: true,
         roster: record,
         chatId: randomUUID(),
         turnId: randomUUID(),
@@ -123,7 +136,16 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
             flowOptions: { appDataSource: {}, workspaceId }
         }
     }
-    t.after(() => endAnalystRun(analystScopeKey(record.name, context.chatId)))
+    const person = { via: 'session', tryOwner: 'user:alice' }
+    function asCaller(caller, options = {}) {
+        const next = { ...context, ...options, turnId: randomUUID() }
+        next.recall = openNativeRecall({ ...next, caller, assertCurrent() {} })
+        return next
+    }
+    context.recall = asCaller(person).recall
+    assert.ok(context.recall.receipt?.ownerScope)
+    const identity = analystCaptureIdentity(context)
+    t.after(() => endAnalystRun(analystScopeKey(identity.harness, identity.chatId)))
     let revoked = false
     const options = {
         context,
@@ -138,7 +160,7 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     const raw = await opened.execute(pin.name, {})
     assert.ok(!raw.includes('_cuttlelyTraceSql'))
     const sourceTurn = specialistSessionId(specialist.profileName, context.chatId, context.turnId)
-    const captured = takeAnalystResults({ harness: record.name, specialist: specialist.name, chatId: context.chatId, sourceTurn })
+    const captured = takeAnalystResults({ ...identity, specialist: specialist.name, sourceTurn })
     assert.equal(captured.length, 1)
     assert.equal(captured[0].pinned.hash, statementHash)
     assert.equal((await renderTrustedOutputs(specialist, captured)).text, 'First sourced report')
@@ -150,15 +172,42 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     )
     assert.ok(first.cursor)
     assert.equal(first._cuttlelyReadOnlyQuery, undefined)
-    assert.equal(latestAnalystCursor({ harness: record.name, chatId: context.chatId }).token, first.cursor)
-    const outsiderContext = { ...context, chatId: randomUUID(), turnId: randomUUID() }
-    t.after(() => endAnalystRun(analystScopeKey(record.name, outsiderContext.chatId)))
+    assert.equal(latestAnalystCursor(identity).token, first.cursor)
+    const outsiderContext = asCaller({ via: 'session', tryOwner: 'user:bob' })
+    const outsiderIdentity = analystCaptureIdentity(outsiderContext)
+    assert.ok(!latestAnalystCursor(outsiderIdentity)?.token)
+    assert.ok(!latestAnalystCursor({ harness: record.name, chatId: identity.chatId })?.token)
+    assert.notDeepEqual(analystCaptureIdentity({ ...context, recall: undefined }), identity)
+    assert.notDeepEqual(
+        analystCaptureIdentity({ ...context, recall: undefined, turnId: randomUUID() }),
+        analystCaptureIdentity({ ...context, recall: undefined })
+    )
+    t.after(() => endAnalystRun(analystScopeKey(outsiderIdentity.harness, outsiderIdentity.chatId)))
     const outsider = await openNativeAnalyst({ ...options, context: outsiderContext })
     t.after(() => outsider.close())
     const otherPage = await outsider.execute('query', { cursor: first.cursor })
     assert.equal(otherPage.error, true)
     assert.ok(JSON.parse(otherPage.content).error)
-    const continued = JSON.parse(await opened.execute('query', { cursor: first.cursor }))
+    for (const foreign of [
+        asCaller({ via: 'api_key', apiKeyId: 'other-key' }),
+        asCaller(person, { roster: { ...record, createdAt: new Date(Date.now() - 10000).toISOString() } }),
+        asCaller(undefined)
+    ]) {
+        assert.ok(!latestAnalystCursor(analystCaptureIdentity(foreign))?.token)
+        const foreignReader = await openNativeAnalyst({ ...options, context: foreign })
+        try {
+            assert.equal((await foreignReader.execute('query', { cursor: first.cursor })).error, true)
+        } finally {
+            foreignReader.close()
+            const key = analystCaptureIdentity(foreign)
+            await endAnalystRun(analystScopeKey(key.harness, key.chatId))
+        }
+    }
+    const resumed = asCaller(person)
+    assert.deepEqual(analystCaptureIdentity(resumed), identity)
+    const resumedReader = await openNativeAnalyst({ ...options, context: resumed })
+    t.after(() => resumedReader.close())
+    const continued = JSON.parse(await resumedReader.execute('query', { cursor: first.cursor }))
     assert.deepEqual(
         continued.rows.map((row) => Number(row.id)),
         [3]
@@ -185,10 +234,18 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
     const controller = new AbortController()
     const makeReader = async (signal) => {
         const chatId = randomUUID()
-        const reader = await openNativeAnalyst({ ...options, context: { ...context, chatId, turnId: randomUUID(), workSignal: signal } })
+        const localContext = {
+            ...context,
+            recall: { receipt: { ownerScope: randomUUID() } },
+            chatId,
+            turnId: randomUUID(),
+            workSignal: signal
+        }
+        const reader = await openNativeAnalyst({ ...options, context: localContext })
+        const localIdentity = analystCaptureIdentity(localContext)
         t.after(() => {
             reader.close()
-            return endAnalystRun(analystScopeKey(record.name, chatId))
+            return endAnalystRun(analystScopeKey(localIdentity.harness, localIdentity.chatId))
         })
         return reader
     }

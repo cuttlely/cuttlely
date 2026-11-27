@@ -6,6 +6,7 @@ import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
+import { nativeToolJournal } from './runtime/native-journal.mjs'
 import { admittedAgentEngine, selectAgentEngine } from './runtime/native-prime.mjs'
 
 const localRuns = new Map()
@@ -102,12 +103,38 @@ function reapStaleRunning(db, key, now) {
     const ttl = lockTtlMs()
     if (!ttl) return
     const cutoff = now - (ttl + 15000)
-    db.prepare(
-        `UPDATE jobs
-         SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ?
-         WHERE session_key = ? AND status = 'running' AND updated_at < ?`
-    ).run('The harness worker stopped before the turn finished.', now, key, cutoff)
-    forgetPayloadImages(db, `session_key = ? AND status = 'failed' AND error_code = 'worker_lost'`, key)
+    const stale = db.prepare("SELECT id FROM jobs WHERE session_key = ? AND status = 'running' AND updated_at < ?").all(key, cutoff)
+    for (const row of stale) failExpiredWorker(db, row.id, cutoff, now)
+}
+
+// Both expiry paths hold the queue transaction while checking the lease and
+// reconciling committed call receipts. A refreshed or finished job wins the race.
+function failExpiredWorker(db, id, cutoff, now) {
+    const expired = db.prepare("SELECT 1 AS ok FROM jobs WHERE id = ? AND status = 'running' AND updated_at < ?").get(id, cutoff)
+    if (!expired) return
+    const entries = db.prepare('SELECT event FROM job_events WHERE job_id = ? AND event LIKE ? ORDER BY seq').all(id, journalPrefix)
+    const calls = new Map()
+    for (const row of entries) {
+        const entry = JSON.parse(row.event)
+        calls.set(entry.callId, entry)
+    }
+    const pending = [...calls.values()].filter((entry) => entry.phase === 'dispatched')
+    for (const entry of pending) appendJobEvent(db, id, { ...entry, phase: 'uncertain' })
+    const message =
+        'The harness worker stopped before the turn finished.' +
+        (pending.length
+            ? ' The outcome of ' +
+              pending.length +
+              ' dispatched tool ' +
+              (pending.length === 1 ? 'call' : 'calls') +
+              ' could not be confirmed. Check the destination before retrying.'
+            : '')
+    db.prepare("UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ? WHERE id = ?").run(
+        message,
+        now,
+        id
+    )
+    forgetPayloadImages(db, 'id = ?', id)
 }
 
 // Attached images only ride to the worker. A finished row drops them, so the queue database does not keep people's
@@ -160,7 +187,11 @@ export function claimJob() {
 }
 
 export function markCancel(id) {
-    database().prepare('UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?').run(Date.now(), id)
+    database()
+        .prepare(
+            "UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ? AND cancel_requested = 0 AND status IN ('queued','running')"
+        )
+        .run(Date.now(), id)
 }
 
 export function cancelRequested(id) {
@@ -172,19 +203,35 @@ export function touchJob(id) {
     database().prepare(`UPDATE jobs SET updated_at = ? WHERE id = ? AND status = 'running'`).run(Date.now(), id)
 }
 
+const journalType = 'nativeToolReceipt'
+const journalPrefix = '{"type":"nativeToolReceipt",%'
+
+function appendJobEvent(db, id, event) {
+    const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM job_events WHERE job_id = ?').get(id)
+    db.prepare('INSERT INTO job_events (job_id, seq, event) VALUES (?, ?, ?)').run(id, Number(row?.seq || 0) + 1, JSON.stringify(event))
+}
+
 export function appendEvent(id, event) {
-    const body = JSON.stringify(event)
     immediate((db) => {
-        const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM job_events WHERE job_id = ?').get(id)
-        db.prepare('INSERT INTO job_events (job_id, seq, event) VALUES (?, ?, ?)').run(id, Number(row?.seq || 0) + 1, body)
+        appendJobEvent(db, id, event)
+        db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(Date.now(), id)
+    })
+}
+
+function recordToolPhase(id, { callId, specialist, name, phase }) {
+    immediate((db) => {
+        const job = db.prepare('SELECT status, cancel_requested FROM jobs WHERE id = ?').get(id)
+        if (job?.status !== 'running') throw new HarnessError('worker_lost', 'The harness job no longer owns this turn.')
+        if (phase !== 'confirmed' && job.cancel_requested) throw new HarnessError('aborted', 'Client disconnected')
+        appendJobEvent(db, id, { type: journalType, callId, specialist, name, phase })
         db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(Date.now(), id)
     })
 }
 
 export function readEvents(id, afterSeq) {
     return database()
-        .prepare('SELECT seq, event FROM job_events WHERE job_id = ? AND seq > ? ORDER BY seq')
-        .all(id, afterSeq)
+        .prepare('SELECT seq, event FROM job_events WHERE job_id = ? AND seq > ? AND event NOT LIKE ? ORDER BY seq')
+        .all(id, afterSeq, journalPrefix)
         .map((row) => ({ seq: row.seq, event: JSON.parse(row.event) }))
 }
 
@@ -407,7 +454,7 @@ export async function executeJob(job) {
             forceSpecialistFailure: local?.forceSpecialistFailure,
             ...(job.payload.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
             modelBaseUrl: local?.modelBaseUrl,
-            flowOptions: runtime.flowOptions,
+            flowOptions: { ...runtime.flowOptions, [nativeToolJournal]: (entry) => recordToolPhase(job.id, entry) },
             signal: controller.signal,
             // Tracer callbacks exist only in the process that queued the job. A worker elsewhere runs untraced.
             callbacks: local?.callbacks,
@@ -498,13 +545,9 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
             }
             const stale = staleAfter()
             if (stale && job.status === 'running' && Date.now() - job.updatedAt > stale) {
-                finishJob(id, {
-                    status: 'failed',
-                    errorCode: 'worker_lost',
-                    errorMessage: 'The harness worker stopped before the turn finished.'
-                })
-                const { HarnessError } = await import('./errors.mjs')
-                throw new HarnessError('worker_lost', 'The harness worker stopped before the turn finished.')
+                const now = Date.now()
+                immediate((db) => failExpiredWorker(db, id, now - stale, now))
+                continue
             }
             if (deadline && Date.now() > deadline) {
                 markCancel(id)

@@ -3,10 +3,27 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { registerSideSchema } from '../harness/side-store-identity.mjs'
 import { hermesHome, vendoredHermesDir } from '../harness/paths.mjs'
 
 export const runtimeTables = ['cuttlely_runtime.runtime_settings', 'cuttlely_runtime.session_blocks', 'cuttlely_runtime.session_heads']
+
+const nativePackage = fs.existsSync(new URL('../harness/native-distribution.json', import.meta.url))
+
+export function runtimeRecoveryHelper() {
+    if (nativePackage) {
+        return {
+            python: process.env.CUTTLELY_RECOVERY_PYTHON || 'python3',
+            script: fileURLToPath(new URL('./runtime-recovery/cuttlely_session_store.py', import.meta.url))
+        }
+    }
+    const bundled = path.join(vendoredHermesDir(), '.venv', 'bin', 'python')
+    return {
+        python: process.env.HERMES_PYTHON || (fs.existsSync(bundled) ? bundled : 'python3'),
+        script: path.join(vendoredHermesDir(), 'cuttlely_session_store.py')
+    }
+}
 
 export async function initializeRuntimeSessions(source, local, config) {
     await source.transaction(async (tx) => {
@@ -32,9 +49,8 @@ export async function initializeRuntimeSessions(source, local, config) {
     )
     const scopes = [...new Set([...local.map((name) => name.replace(/^profile\//, 'profiles/')), ...rows.map(({ scope }) => scope)])]
     if (!scopes.length) return
-    const bundled = path.join(vendoredHermesDir(), '.venv', 'bin', 'python')
-    const python = process.env.HERMES_PYTHON || (fs.existsSync(bundled) ? bundled : 'python3')
-    const child = spawn(python, [path.join(vendoredHermesDir(), 'cuttlely_session_store.py'), hermesHome()], {
+    const { python, script } = runtimeRecoveryHelper()
+    const child = spawn(python, nativePackage ? ['-I', script, hermesHome()] : [script, hermesHome()], {
         env: {
             ...process.env,
             DATABASE_HOST: config.host,

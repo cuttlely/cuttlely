@@ -273,6 +273,14 @@ export async function copyHarnessSnapshot(source, snapshot, scope) {
                 if (!saved)
                     await query('ALTER TABLE messages ALTER COLUMN id RESTART WITH ' + ((highest > highWater ? highest : highWater) + 1n))
             }
+            // Older cutovers could not record these tables. copyTable has verified both
+            // copies before an empty table may be omitted from the historical receipt.
+            if (saved && scope !== 'queue') {
+                const verified = JSON.parse(saved.report)
+                for (const table of ['recall_turns', 'managed_file_workspaces']) {
+                    if (report[table]?.count === 0 && !Object.hasOwn(verified, table)) delete report[table]
+                }
+            }
             if (saved && saved.report !== JSON.stringify(report)) throw new Error('Harness snapshot differs from the verified migration.')
             if (!saved) await query('INSERT INTO storage_migration VALUES ($1,$2)', [scope, JSON.stringify(report)])
             return report

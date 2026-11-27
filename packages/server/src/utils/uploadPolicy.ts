@@ -18,6 +18,11 @@ export interface UploadQuestionPart {
 }
 
 export interface UploadPolicy {
+    issueManagedUpload(
+        scope: { workspace: string; flow: string; chat: string; caller?: { via: string; tryOwner?: string; apiKeyId?: string } },
+        parts: string[],
+        digest: string
+    ): Promise<string>
     canCreatePredictionAttachment(): boolean
     createPredictionAttachment(scope: { workspace: string; flow: string; chat: string }, parts: string[]): string
     uploadHasText(buffer: Buffer): boolean

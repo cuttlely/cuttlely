@@ -7,15 +7,19 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { createTestDatabase, skipReason } from '../packages/etl/check/pg-source.mjs'
+import { createTestSource, skipReason } from '../packages/etl/check/pg-source.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
+
+import { nativePackageRoot } from './kraken-package-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 test(
     'the saved Ops team runs its actual granted MCP tool through the authenticated API and an external native worker',
     { skip: skipReason },
     async (t) => {
-        const db = await createTestDatabase()
+        const nativeInstall = nativePackageRoot()
+        const install = nativeInstall || root
+        const db = await createTestSource()
         const { host, port: pgPort, user, password, database } = db.connection
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-ops-'))
         const name = 'kraken-ops'
@@ -23,6 +27,7 @@ test(
         const account = { email: 'qa@example.invalid', password: randomUUID() + 'Aa1!' }
         const port = await freePort()
         const url = 'http://127.0.0.1:' + port
+        const receiptLatch = path.join(dir, 'hold-tool-ack')
         const provider = path.join(root, 'scripts/fixtures/kraken-ops-provider.cjs')
         const config = {
             DATABASE_TYPE: 'postgres',
@@ -44,6 +49,7 @@ test(
             CUSTOM_MCP_ALLOWED_COMMANDS: 'node',
             CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: 'samples/ops-mcp-server.mjs',
             KRAKEN_OPS_MODEL_KEY: key,
+            KRAKEN_OPS_LATCH: receiptLatch,
             HERMES_API_URL: 'http://127.0.0.1:' + (await freePort())
         }
         let api, worker
@@ -68,10 +74,18 @@ test(
                 }
             }
         })
-        api = await startServer(root, dataEnv(path.join(dir, 'api'), port, config), { preload: [provider] })
+        if (nativeInstall) {
+            config.CUTTLELY_NATIVE_PRIME_TEAMS = ''
+            config.CUTTLELY_HARNESS_WORKERS = '0'
+            config.HERMES_PYTHON = path.join(install, 'missing-python')
+        }
+        api = await startServer(install, dataEnv(path.join(dir, 'api'), port, config), {
+            preload: [provider],
+            launcher: Boolean(nativeInstall)
+        })
         await waitForPing(url, api)
-        worker = spawn(process.execPath, ['-r', provider, path.join(root, 'packages/harness/worker.mjs')], {
-            cwd: root,
+        worker = spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
+            cwd: install,
             env: dataEnv(path.join(dir, 'worker'), port, { ...config, CUTTLELY_NATIVE_PRIME_TEAMS: '' }),
             stdio: 'ignore'
         })
@@ -123,9 +137,12 @@ test(
             assert.equal(res.status, 503, route + ' ' + res.status)
             assert.ok(JSON.stringify(res.json).includes('RUNTIME_UNAVAILABLE'))
         }
-        for (const team of [legacyName, name + '-unsupported'])
+        for (const team of nativeInstall ? [name + '-unsupported'] : [legacyName, name + '-unsupported'])
             await unavailable('harnesses/' + team + '/runs', { mode: 'agent', chatId: randomUUID(), question: 'Check the ops status.' })
-        await unavailable('prediction/' + caller.id, { question: 'Check the ops status.', overrideConfig: { harnessName: legacyName } })
+        await unavailable('prediction/' + caller.id, {
+            question: 'Check the ops status.',
+            overrideConfig: { harnessName: nativeInstall ? name + '-unsupported' : legacyName }
+        })
         const called = await post('prediction/' + caller.id, {
             question: 'Check the ops status.',
             overrideConfig: { sessionId: randomUUID() }
@@ -143,5 +160,43 @@ test(
             assert.ok(run.report.tokens.prompt > 0)
             t.diagnostic(mode + ' received the MCP response using the saved specialist binding')
         }
+        // Pause *after* the actual protocol server has returned, but before the
+        // worker can acknowledge its call. The next API poll recovers this lease.
+        fs.writeFileSync(receiptLatch, '')
+        const interruptedChat = randomUUID()
+        const pending = request(url + '/api/v1/harnesses/' + name + '/runs', {
+            method: 'POST',
+            cookie,
+            body: { mode: 'agent', chatId: interruptedChat, question: 'Check the ops status.' },
+            timeoutMs: 45000
+        })
+        const received = receiptLatch + '.received'
+        const until = Date.now() + 20000
+        while (!fs.existsSync(received) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50))
+        assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
+        worker.kill('SIGKILL')
+        await workerExit
+        const [lost] = await db.query("SELECT id FROM cuttlely_harness_queue.jobs WHERE payload::jsonb->>'chatId' = $1", [interruptedChat])
+        assert.ok(lost)
+        await db.query('UPDATE cuttlely_harness_queue.jobs SET updated_at = 0 WHERE id = $1', [lost.id])
+        const failed = await pending
+        assert.equal(failed.status, 422)
+        assert.match(failed.json.message, /could not be confirmed/)
+        const receipts = await db.query(
+            "SELECT event::jsonb AS e FROM cuttlely_harness_queue.job_events WHERE job_id = $1 AND event::jsonb->>'type' = 'nativeToolReceipt' ORDER BY seq",
+            [lost.id]
+        )
+        assert.deepEqual(
+            receipts.map(({ e }) => e.phase),
+            ['queued', 'dispatched', 'uncertain']
+        )
+        assert.equal(new Set(receipts.map(({ e }) => e.callId)).size, 1)
+        assert.deepEqual(Object.keys(receipts[0].e).sort(), ['callId', 'name', 'phase', 'specialist', 'type'])
+        assert.equal(receipts[0].e.name, 'ops_status')
+        const [confirmed] = await db.query(
+            "SELECT count(*)::int AS count FROM cuttlely_harness_queue.job_events WHERE event::jsonb->>'type' = 'nativeToolReceipt' AND event::jsonb->>'phase' = 'confirmed'"
+        )
+        assert.ok(confirmed.count >= 3, 'each previously successful native run confirmed the actual tool call')
+        assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
     }
 )

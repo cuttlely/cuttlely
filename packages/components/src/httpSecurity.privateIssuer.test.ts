@@ -84,3 +84,37 @@ describe('private issuer host address policy', () => {
         expect(mockedFetch).not.toHaveBeenCalled()
     })
 })
+
+describe('public source-page fetch', () => {
+    const origin = 'https://docs.example.org'
+    const page = () => secureFetch(origin + '/article', undefined, 5, { publicPageOrigin: origin })
+    it('keeps every redirect on the user-selected origin and checks all DNS answers again', async () => {
+        process.env.HTTP_SECURITY_CHECK = 'false'
+        const lookup = jest.spyOn(dns, 'lookup').mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never)
+        mockedFetch.mockResolvedValueOnce(new Response(undefined, { status: 302, headers: { location: '/next' } }))
+        mockedFetch.mockResolvedValueOnce(new Response('Public content'))
+        await expect(page()).resolves.toHaveProperty('status', 200)
+        expect(lookup).toHaveBeenCalledTimes(2)
+        mockedFetch.mockResolvedValueOnce(new Response(undefined, { status: 302, headers: { location: 'https://other.example/' } }))
+        await expect(page()).rejects.toThrow(/outside the requested public site/)
+        expect(mockedFetch).toHaveBeenCalledTimes(3)
+        lookup.mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }] as never)
+        lookup.mockResolvedValueOnce([{ address: '100.64.0.1', family: 4 }] as never)
+        mockedFetch.mockResolvedValueOnce(new Response(undefined, { status: 302, headers: { location: '/another' } }))
+        await expect(page()).rejects.toThrow(/denied/)
+        expect(mockedFetch).toHaveBeenCalledTimes(4)
+    })
+    it('refuses mixed DNS answers, loopback, and embedded credentials before contacting the host', async () => {
+        process.env.HTTP_SECURITY_CHECK = 'false'
+        jest.spyOn(dns, 'lookup').mockResolvedValue([
+            { address: '93.184.216.34', family: 4 },
+            { address: '::1', family: 6 }
+        ] as never)
+        await expect(page()).rejects.toThrow(/denied/)
+        await expect(secureFetch('https://127.0.0.1/a', undefined, 5, { publicPageOrigin: 'https://127.0.0.1' })).rejects.toThrow(/denied/)
+        await expect(secureFetch('https://user:secret@docs.example.org/a', undefined, 5, { publicPageOrigin: origin })).rejects.toThrow(
+            /outside/
+        )
+        expect(mockedFetch).not.toHaveBeenCalled()
+    })
+})

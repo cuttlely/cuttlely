@@ -484,7 +484,13 @@ export const executeFlow = async ({
                         upload.name,
                         prepared,
                         localStoredUploadPath(orgId, chatflowid, chatId, storedName),
-                        { workspace: workspaceId, flow: chatflowid, chat: chatId, parts: [orgId, chatflowid, chatId, storedName] }
+                        {
+                            workspace: workspaceId,
+                            flow: chatflowid,
+                            chat: chatId,
+                            caller: nestedOptions?.nestedFlowCaller,
+                            parts: [orgId, chatflowid, chatId, storedName]
+                        }
                     )
                 }
                 fileUploads[i] = { name: storedName, type: 'stored-file:full', mime: prepared.mime }
@@ -587,7 +593,13 @@ export const executeFlow = async ({
                         file.originalname,
                         prepared,
                         localStoredUploadPath(orgId, chatflowid, storedOnDisk),
-                        { workspace: workspaceId, flow: chatflowid, chat: chatId, parts: [orgId, chatflowid, storedOnDisk] }
+                        {
+                            workspace: workspaceId,
+                            flow: chatflowid,
+                            chat: chatId,
+                            caller: nestedOptions?.nestedFlowCaller,
+                            parts: [orgId, chatflowid, storedOnDisk]
+                        }
                     )
                     fileUploads.push({
                         type: 'stored-file:full',
@@ -1075,7 +1087,7 @@ export const executeFlow = async ({
                         artifacts: result.artifacts || [],
                         ...(result.timings ? { timings: result.timings } : {}),
                         ...(result.report ? { report: result.report } : {}),
-                        ...(result.trace ? { trace: result.trace } : {})
+                        ...(result.trace || result.harnessPayload?.trace ? { trace: result.trace || result.harnessPayload?.trace } : {})
                     }
                     apiMessage.content = result.text || resultText
                     apiMessage.harnessPayload = JSON.stringify(harnessPayload)

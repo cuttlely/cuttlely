@@ -32,6 +32,20 @@ wait_for() {
 }
 wait_for docker exec "$database" pg_isready -h 127.0.0.1 -U postgres -d cuttlely
 
+if [[ "${2:-}" == native ]]; then
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    docker run --rm --name "$web" --network "$fixture" --user 1000:0 --cap-drop ALL \
+        --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,mode=1777 \
+        --tmpfs /home/node:rw,uid=1000,gid=0 --tmpfs /var/cuttlely:rw,mode=0770,gid=0 \
+        -e PGPASSWORD -e CUTTLELY_TEST_PG_HOST="$database" -e CUTTLELY_TEST_PG_REQUIRED=1 \
+        -e CUTTLELY_TEST_NATIVE_FILES_REQUIRED=1 -e CUTTLELY_TEST_NATIVE_PACKAGE=/usr/src/cuttlely "$image" bash -ec '
+            test ! -e hermes
+            test ! -w packages/harness
+            test -f packages/harness/native-distribution.json
+            node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-remote-mcp.test.mjs'
+    exit
+fi
+
 start_web() {
     docker run -d --name "$web" --network "$fixture" --user 1000870001:0 --cap-drop ALL \
         --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,mode=1777 \

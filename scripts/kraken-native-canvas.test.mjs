@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -36,6 +37,16 @@ test('native canvas preflight accepts the saved clock and retrieval graph and re
     assert.equal(supportsNativeCanvasBinding({ nodeName: 'currentDateTime', inputs: { timezone: 'Australia/Sydney' } }), true)
     assert.equal(supportsNativeCanvasBinding({ nodeName: 'currentDateTime', upstream: { timezone: {} } }), false)
     assert.equal(supportsNativeCanvasBinding(retriever()), true)
+    const page = {
+        nodeName: 'webBrowser',
+        inputs: { readSource: true },
+        upstream: { model: { nodeName: 'chatOpenAI' }, embeddings: { nodeName: 'openAIEmbeddings' } }
+    }
+    assert.equal(supportsNativeCanvasBinding(page), true)
+    for (const value of [false, undefined, 'true'])
+        assert.equal(supportsNativeCanvasBinding({ ...page, inputs: { readSource: value } }), false)
+    assert.equal(supportsNativeCanvasBinding({ ...page, upstream: { ...page.upstream, other: {} } }), false)
+    assert.equal(supportsNativeCanvasBinding({ ...page, upstream: { ...page.upstream, model: { nodeName: 'customFunction' } } }), false)
     const search = { nodeName: 'serpAPI', credential: 'search-key' }
     assert.equal(supportsNativeCanvasBinding(search), true)
     assert.equal(supportsNativeCanvasBinding({ ...search, credential: '' }), false)
@@ -136,6 +147,9 @@ test('native delegation uses the saved clock, search, and vector credentials and
     attach(tool, math.id, 'attached', 'Tools')
     attach(store, tool.nodeId, 'retriever', 'Vector Stores')
     attach(store.upstream.embeddings, store.nodeId, 'embeddings', 'Embeddings')
+    attach({ nodeName: 'webBrowser', nodeId: 'page', inputs: { readSource: true } }, math.id, 'attached', 'Tools')
+    attach({ nodeName: 'chatOpenAI', nodeId: 'unused-model', inputs: {}, credential: 'unused' }, 'page', 'model', 'Chat Models')
+    attach({ nodeName: 'openAIEmbeddings', nodeId: 'unused-emb', inputs: {}, credential: 'unused' }, 'page', 'embeddings', 'Embeddings')
     saveHarness(rosterFromFlow({ name, workspaceId, chatflowId: randomUUID(), flowData: JSON.stringify(graph) }))
 
     const values = {
@@ -164,6 +178,17 @@ test('native delegation uses the saved clock, search, and vector credentials and
     }
     let lookups = 0,
         searches = 0
+    let pages = 0
+    const address = 'https://example.invalid/article'
+    const components = createRequire(new URL('../packages/components/package.json', import.meta.url))
+    t.mock.method(components('@cuttlely/components/httpSecurity'), 'secureFetch', async (url, init, maxRedirects, policy) => {
+        assert.equal(url, address)
+        assert.equal(maxRedirects, 5)
+        assert.equal(policy.publicPageOrigin, 'https://example.invalid')
+        assert.ok(init.signal)
+        pages++
+        return { ok: true, status: 200, url, headers: { get: () => 'text/plain' }, text: async () => 'The source page confirms 19.' }
+    })
     t.mock.method(globalThis, 'fetch', async (input, init) => {
         const req = new Request(input, init)
         const url = new URL(req.url)
@@ -245,10 +270,11 @@ test('native delegation uses the saved clock, search, and vector credentials and
                         if (last._getType() !== 'tool') return call('current_date_time', {})
                         if (last.content.includes('Asia/Tokyo')) return call('search', { input: 'What is the catalog code?' })
                         if (last.content.includes('Look up the catalog entry.')) return call('catalog', { input: 'catalog' })
+                        if (last.content.includes('The source page confirms 19.')) return { content: 'The catalog number is 19.' }
                         assert.match(last.content, /The catalog number is 19/)
                         assert.ok(last.content.includes('https://example.invalid/manual'))
                         assert.ok(!last.content.includes('/private/workspace'))
-                        return { content: 'The catalog number is 19.' }
+                        return call('web-browser', { input: address })
                     }
                 })
             }
@@ -258,7 +284,7 @@ test('native delegation uses the saved clock, search, and vector credentials and
         name,
         mode: 'agent',
         chatId,
-        input: 'Catalog number?',
+        input: 'Catalog number? Check ' + address,
         flowOptions,
         fetchImpl: assert.fail,
         loadNode: async (node) => (node === 'chatXAI' ? Model : (await loadFlowiseNode(node)).constructor)
@@ -270,7 +296,8 @@ test('native delegation uses the saved clock, search, and vector credentials and
     assert.equal(result.text, 'The catalog number is 19.')
     assert.equal(searches, 1)
     assert.equal(lookups, 1)
-    assert.deepEqual(result.agents[0].sources, [{ name: 'https://example.invalid/manual' }])
+    assert.equal(pages, 1)
+    assert.deepEqual(result.agents[0].sources, [{ name: 'https://example.invalid/manual' }, { name: address }])
     assert.equal(result.sources[0].metadata.file_path, 'manual.md')
     for (const [id, service] of [
         ['search-key', 'SerpAPI'],
@@ -292,4 +319,20 @@ test('native delegation uses the saved clock, search, and vector credentials and
     assert.deepEqual(denied.sources, [])
     assert.equal(searches, 1)
     assert.equal(lookups, 1)
+})
+
+test('the offline preflight uses the saved graph and outputs only capability labels for blocked tools', async () => {
+    const { inspectExport } = await import('./kraken-preflight.mjs')
+    const canvas = JSON.parse(fs.readFileSync(new URL('../samples/harnesses/calculator.canvas.json', import.meta.url)))
+    assert.equal(inspectExport(canvas)[0].status, 'ready-for-runtime-test')
+    const graph = JSON.parse(canvas.flowData)
+    const specialist = graph.nodes.find((node) => node.data.name === 'harnessSpecialist')
+    specialist.data.inputs.enableShell = true
+    const calculator = graph.nodes.find((node) => node.data.name === 'calculator')
+    calculator.data.inputs = { privateInput: 'never-print-this' }
+    const [team] = inspectExport([{ type: 'CHATFLOW' }, { ...canvas, flowData: JSON.stringify(graph) }])
+    assert.equal(team.status, 'requires-bundled-runtime')
+    assert.ok(team.gaps[0].capabilities.includes('shell'))
+    assert.ok(!JSON.stringify(team).includes('never-print-this'))
+    assert.deepEqual(inspectExport({ type: 'HARNESS', flowData: '{' }), [{ team: null, status: 'invalid-canvas' }])
 })

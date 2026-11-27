@@ -12,6 +12,8 @@ import { test } from 'node:test'
 import { createTestDatabase, skipReason } from '../packages/etl/check/pg-source.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 
+import { nativePackageRoot, rejectCorruptRecovery, seedLegacyRuntime, verifyLegacyRecovery } from './kraken-package-fixture.mjs'
+
 const root = fileURLToPath(new URL('../', import.meta.url))
 
 test('the saved Ops canvas initializes, discovers and calls its allowlisted tool with the installed MCP client', async () => {
@@ -54,6 +56,9 @@ test(
         const busyKey = randomUUID()
         const secretKey = randomUUID()
         const account = { email: 'qa@example.invalid', password: randomUUID() + 'aA1!' }
+        const nativeInstall = nativePackageRoot()
+        const historySession = randomUUID()
+        const historyMessage = 'preserved ' + randomUUID()
         let current
         let worker
         const provider = path.join(root, 'scripts/fixtures/kraken-provider.cjs')
@@ -128,16 +133,31 @@ test(
                 HERMES_API_URL: 'http://127.0.0.1:' + legacy.address().port,
                 CUTTLELY_ANALYST: 'off'
             }
-            current = await startServer(root, dataEnv(disk, port, cfg), {
-                preload: [provider]
-            })
+            const packaged = stage === 'native' && nativeInstall
+            const install = packaged || root
+            const apiEnv = dataEnv(disk, port, cfg)
+            if (packaged) {
+                apiEnv.CUTTLELY_NATIVE_PRIME_TEAMS = ''
+                apiEnv.CUTTLELY_HARNESS_WORKERS = '0'
+                apiEnv.HERMES_PYTHON = path.join(install, 'missing-python')
+            }
+            current = await startServer(install, apiEnv, { preload: [provider], launcher: Boolean(packaged) })
             await waitForPing(url, current)
+            if (nativeInstall && stage === 'original') seedLegacyRuntime(root, apiEnv, historySession, historyMessage)
+            if (nativeInstall && stage !== 'original') verifyLegacyRecovery(disk, historySession, historyMessage)
+            if (packaged) {
+                assert.ok(current.logs.some((line) => line.includes('using the native agent runtime')))
+                rejectCorruptRecovery(
+                    install,
+                    dataEnv(path.join(dir, 'wrong-key'), port, { ...cfg, CUTTLELY_SECRETKEY_OVERWRITE: randomUUID() })
+                )
+            }
             if (stage !== 'original') {
                 const workerDisk = path.join(dir, stage + '-worker')
                 fs.mkdirSync(workerDisk)
                 // Exercise a replacement worker with the opposite canary setting and an empty local disk.
-                worker = spawn(process.execPath, ['-r', provider, path.join(root, 'packages/harness/worker.mjs')], {
-                    cwd: root,
+                worker = spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
+                    cwd: install,
                     env: dataEnv(workerDisk, port, {
                         ...cfg,
                         CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? '' : [name, bookTeam].join(',')
@@ -228,6 +248,7 @@ test(
         const result = await run()
         assert.equal(result.text, 'Native verified 51.')
         assert.equal(result.trace.engine, 'native')
+        if (nativeInstall) verifyLegacyRecovery(path.join(dir, 'native-worker'), historySession, historyMessage)
         assert.deepEqual(
             result.agents.map((a) => [a.name, a.status]),
             [['math', 'completed']]

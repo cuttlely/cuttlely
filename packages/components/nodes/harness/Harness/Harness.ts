@@ -1050,6 +1050,7 @@ async function runNamedHarness(
             chatId,
             input,
             source: 'prediction',
+            ...(caller?.via === 'api_key' ? { apiKeyId: caller.apiKeyId } : {}),
             ...(isHarnessReplay(options) ? { trustedOutputPreview: true } : {}),
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,

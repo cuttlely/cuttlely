@@ -193,33 +193,46 @@ if [[ -n "$NODE_FLAG" ]]; then
 fi
 echo "Cuttlely node: $NODE_BIN ($("$NODE_BIN" -v))"
 
-mkdir -p "$HERMES_HOME"
-PYTHON="$(hermes_python)"
-if ! command -v "$PYTHON" >/dev/null 2>&1; then
-    echo "Hermes Python not found: $PYTHON" >&2
-    hermes_setup_help
-    exit 1
+native_package=0
+if [[ -f "$ROOT/packages/harness/native-distribution.json" ]]; then
+    native_package=1
 fi
-# The runtime import creates default prompts and caches. Probe outside the installation
-# so the storage inventory can distinguish a fresh database from existing operator data.
-check_hermes_import() (
-    local probe
-    probe="$(mktemp -d)" || return 1
-    trap 'rm -rf -- "$probe"' EXIT
-    cd "$ROOT/hermes" || return 1
-    CUTTLELY_DATA_DIR="$probe" CUTTLELY_HERMES_HOME="$probe/hermes" HERMES_HOME="$probe/hermes" \
-        CUTTLELY_APP_DATABASE_STORES=0 "$PYTHON" -c 'import aiohttp, cli'
-)
-if ! IMPORT_ERROR="$(check_hermes_import 2>&1)"; then
-    echo "Hermes Python $PYTHON cannot import the vendored Hermes runtime:" >&2
-    echo "    $(printf '%s\n' "$IMPORT_ERROR" | tail -n 1)" >&2
-    hermes_setup_help
-    exit 1
+if [[ "$native_package" -eq 1 ]]; then
+    if [[ ! -r "$ROOT/packages/etl/runtime-recovery/cuttlely_session_store.py" ]] ||
+        ! "${CUTTLELY_RECOVERY_PYTHON:-python3}" -I -c 'import pg8000.native, sqlite3; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; assert hasattr(sqlite3.Connection, "serialize")'; then
+        echo "The native package needs its PostgreSQL recovery helper, Python sqlite3 serialization, pg8000 and cryptography." >&2
+        exit 1
+    fi
+else
+    mkdir -p "$HERMES_HOME"
+    PYTHON="$(hermes_python)"
+    if ! command -v "$PYTHON" >/dev/null 2>&1; then
+        echo "Hermes Python not found: $PYTHON" >&2
+        hermes_setup_help
+        exit 1
+    fi
+    # The runtime import creates default prompts and caches. Probe outside the installation
+    # so the storage inventory can distinguish a fresh database from existing operator data.
+    check_hermes_import() (
+        local probe
+        probe="$(mktemp -d)" || return 1
+        trap 'rm -rf -- "$probe"' EXIT
+        cd "$ROOT/hermes" || return 1
+        CUTTLELY_DATA_DIR="$probe" CUTTLELY_HERMES_HOME="$probe/hermes" HERMES_HOME="$probe/hermes" \
+            CUTTLELY_APP_DATABASE_STORES=0 "$PYTHON" -c 'import aiohttp, cli'
+    )
+    if ! IMPORT_ERROR="$(check_hermes_import 2>&1)"; then
+        echo "Hermes Python $PYTHON cannot import the vendored Hermes runtime:" >&2
+        echo "    $(printf '%s\n' "$IMPORT_ERROR" | tail -n 1)" >&2
+        hermes_setup_help
+        exit 1
+    fi
+    echo "Hermes Python: $PYTHON"
 fi
-echo "Hermes Python: $PYTHON"
 
 # Restart budgets cover consecutive failures; successful health checks replenish the budget.
 HERMES_STOP="$DATA/hermes-supervisor.stop"
+if [[ "$native_package" -eq 1 ]]; then HERMES_STOP="$DATA/harness-workers.stop"; fi
 HERMES_PARENT_PID=$$
 rm -f "$HERMES_STOP"
 hermes_number() {
@@ -669,16 +682,16 @@ cleanup() {
         wait "$CUTTLELY_PID" 2>/dev/null || true
     fi
     printf '%s\n' "$shutdown_deadline" > "$HERMES_STOP"
-    if [[ -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
+    if [[ "${native_package:-0}" -eq 0 && -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
         kill "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
         wait "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
     fi
-    if [[ -f "$DATA/hermes-supervisor.json" ]]; then
+    if [[ "${native_package:-0}" -eq 0 && -f "$DATA/hermes-supervisor.json" ]]; then
         local pid
         pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$DATA/hermes-supervisor.json")"
         # Wait for it to go, so a restart in place does not find the Hermes port still taken.
         kill_hermes_pid "$pid"
-    elif [[ -n "${HERMES_PID:-}" ]]; then
+    elif [[ "${native_package:-0}" -eq 0 && -n "${HERMES_PID:-}" ]]; then
         kill_hermes_pid "$HERMES_PID"
     fi
     stop_worker_pids 5 "${WORKER_PIDS[@]}"
@@ -700,7 +713,9 @@ CUTTLELY_PID=$!
 # inherit them. The *_FILE paths stay: they name a file, not a secret.
 unset CUTTLELY_INITIAL_OWNER_PASSWORD CUTTLELY_INITIAL_OWNER_PASSWORD_HASH
 cd "$ROOT"
-if ! wait_for_gateway; then
+if [[ "$native_package" -eq 1 ]]; then
+    echo "Cuttlely boot, step 2 of 2: using the native agent runtime."
+elif ! wait_for_gateway; then
     if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
         # After a restart in place the wait is capped short, so a server that is still loading has simply not answered
         # yet. Keep waiting in the background rather than leave the runtime down until the next restart.
@@ -733,7 +748,7 @@ if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
         WORKER_PIDS+=("$!")
         i=$((i + 1))
     done
-    echo "Harness workers: ${#WORKER_PIDS[@]} (queue external, each worker boots the Cuttlely node pool, Hermes stays on 127.0.0.1)"
+    echo "Harness workers: ${#WORKER_PIDS[@]} (queue external, each worker boots the Cuttlely node pool)"
 else
     echo "Harness queue: ${CUTTLELY_HARNESS_QUEUE:-inline}"
 fi

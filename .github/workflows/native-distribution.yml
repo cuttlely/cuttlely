@@ -1,0 +1,41 @@
+name: Native distribution
+
+on:
+    workflow_dispatch:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - '.github/workflows/native-distribution.yml'
+            - 'Dockerfile'
+            - '.dockerignore'
+            - 'packages/components/**'
+            - 'packages/etl/**'
+            - 'packages/harness/**'
+            - 'packages/server/**'
+            - 'pnpm-lock.yaml'
+            - 'scripts/kraken-*'
+            - 'scripts/fixtures/kraken-*'
+            - 'scripts/container-storage-recovery.sh'
+            - 'scripts/render-entrypoint.sh'
+            - 'scripts/start-cuttlely.sh'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: native-distribution-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    native-distribution:
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+            - name: Build from source with the entire bundled runtime excluded
+              run: |
+                  set -o pipefail
+                  git archive HEAD -- . ':(exclude)hermes' |
+                    docker build --build-arg INCLUDE_BUNDLED_RUNTIME=0 --build-arg INCLUDE_BROWSER=0 -t cuttlely-native -
+            - name: Run an authenticated team on a read-only installation with an external worker
+              run: bash scripts/container-storage-recovery.sh cuttlely-native native

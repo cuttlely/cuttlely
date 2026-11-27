@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { nativeCompatibilityGaps, runNativePrime, runNativeToolLoop, useNativePrime } from '../runtime/native-prime.mjs'
+import { managedFilesReady } from '../runtime/native-files.mjs'
 import { readPlaybookTool } from '../runtime/native-playbooks.mjs'
 import { playbookMarkdown } from '../profile.mjs'
 import { executeAgentRun } from '../runtime/agent-run.mjs'
@@ -145,16 +146,17 @@ test('native preflight lists all affected specialists and excludes endpoint, cre
         ]
     }
     const gaps = nativeCompatibilityGaps(roster)
+    const fileGaps = managedFilesReady() ? [] : ['workspace files']
     assert.deepEqual(gaps, [
         { specialist: 'a', capabilities: ['shell', 'canvas tool customTool'] },
-        { specialist: 'b', capabilities: ['workspace files', 'runtime playbook templates', 'MCP configuration for customMCP'] }
+        { specialist: 'b', capabilities: [...fileGaps, 'runtime playbook templates', 'MCP configuration for customMCP'] }
     ])
     assert.throws(
         () => useNativePrime(roster, 'agent', 'native'),
         (error) =>
             error.code === 'native_unsupported' &&
             error.message.includes('customTool') &&
-            error.message.includes('workspace files') &&
+            error.message.includes('workspace files') === Boolean(fileGaps.length) &&
             !/private-|fixture-id/.test(error.message)
     )
 })
@@ -316,5 +318,37 @@ test('the unchanged 1.7.15 Calculator canvas runs directly and through native Pr
     )
     assert.ok(native.report.tokens.prompt >= 20)
     assert.equal(readMessages(name, 'one').at(-1).content, native.text)
+    // A saved chat provider can lack bindTools. It must still be able to delegate via the public tool-choice JSON contract.
+    const choices = []
+    class JsonOnlyModel {
+        async init() {
+            return {
+                async invoke(messages) {
+                    const last = messages.at(-1)
+                    const system = messages.find((message) => message._getType() === 'system').content
+                    assert.match(system, /Reply with JSON only/)
+                    const finished = last._getType() === 'tool'
+                    const chief = system.includes('- run_specialist:')
+                    const response = finished
+                        ? { answer: '51' }
+                        : chief
+                        ? { tool: 'run_specialist', arguments: { name: 'math', task: '17 * 3' } }
+                        : { tool: 'calculator', arguments: { input: '17 * 3' } }
+                    choices.push(finished ? last.content : response.tool)
+                    return { content: JSON.stringify(response), usage_metadata: { input_tokens: 9, output_tokens: 4 } }
+                }
+            }
+        }
+    }
+    const jsonOnly = await runHarness({
+        ...args,
+        chatId: 'json-model',
+        mode: 'agent',
+        loadNode: async (node) => (node === 'chatXAI' ? JsonOnlyModel : (await loadFlowiseNode(node)).constructor)
+    })
+    assert.equal(jsonOnly.text, '51')
+    assert.deepEqual(choices, ['run_specialist', 'calculator', '51'])
+    assert.equal(jsonOnly.agents[0].status, 'completed')
+    assert.ok(jsonOnly.report.tokens.prompt >= 18)
     assert.equal(fs.existsSync(path.join(dir, 'runtime', 'profiles', name, 'config.yaml')), false)
 })

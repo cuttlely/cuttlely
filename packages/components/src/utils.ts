@@ -608,6 +608,12 @@ const getEncryptionKey = async (): Promise<string> => {
 export const pinnedQueriesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
     env?.CUTTLELY_PINNED_QUERIES === '1' || env?.CUTTLELY_PINNED_QUERIES === 'true'
 
+// A dedicated application-key derivation authenticates managed upload receipts independently of other services.
+export const getManagedUploadKey = async (): Promise<Buffer> =>
+    createHmac('sha256', await getEncryptionKey())
+        .update('cuttlely-managed-upload-v1')
+        .digest()
+
 const PINNED_QUERY_PURPOSE = 'cuttlely-pinned-query-v1'
 let pinnedQueryKeyCache: { secret: string; key: Buffer } | undefined
 

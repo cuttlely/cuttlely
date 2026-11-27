@@ -1,3 +1,4 @@
+import { legacyRecallRows } from './runtime/native-memory-legacy.mjs'
 import { publishedSessionScope } from './session-scope.mjs'
 import { assertStorageReady } from './side-store-maintenance.mjs'
 import { dropDraftPostgres, harnessUsesPostgres, openHarnessPostgres } from './side-store-postgres.mjs'
@@ -145,15 +146,70 @@ export function removeDraftSessions(canvas) {
     fs.rmSync(path.dirname(file), { recursive: true, force: true })
 }
 
-function writeMessages(harnessName, chatId, messages, selections, scope) {
+// The model never supplies the workspace identity or the expected revision. A single commit
+// publishes all completed specialist workspaces together with the visible chat turn.
+export function readManagedWorkspace(harnessName, scope, scopeKey) {
+    const entry = connection(harnessName, { create: false, scope })
+    return entry?.db.prepare('SELECT revision,manifest FROM managed_file_workspaces WHERE scope_key=?').get(scopeKey)
+}
+
+function storeManagedWorkspaces(entry, changes) {
+    if (!changes) return
+    for (const { scopeKey, manifest, revision } of changes || []) {
+        const args = [scopeKey, JSON.stringify(manifest), revision]
+        const result =
+            revision === 0
+                ? entry.db
+                      .prepare(
+                          'INSERT INTO managed_file_workspaces(scope_key,manifest,revision) VALUES(?,?,1) ON CONFLICT(scope_key) DO NOTHING'
+                      )
+                      .run(...args.slice(0, 2))
+                : entry.db
+                      .prepare('UPDATE managed_file_workspaces SET manifest=?,revision=revision+1 WHERE scope_key=? AND revision=?')
+                      .run(args[1], args[0], revision)
+        if (Number(result.changes) !== 1)
+            throw new HarnessError(
+                'workspace_changed',
+                'The specialist workspace changed during this turn. Retry to read the current files.',
+                409
+            )
+    }
+    const total = entry.db.prepare('SELECT count(*) AS count,coalesce(sum(length(manifest)),0) AS bytes FROM managed_file_workspaces').get()
+    if (Number(total.count) > 1024 || Number(total.bytes) > 512 * 1024 * 1024)
+        throw new HarnessError('file_limit', 'The team has reached its managed workspace storage limit.')
+}
+
+function writeMessages(harnessName, chatId, messages, selections, scope, recall, pins = [], managedWorkspaces) {
     const key = sessionKey(harnessName, chatId)
     const entry = connection(harnessName, { create: true, scope })
     const now = new Date().toISOString()
     entry.db.exec('BEGIN')
     try {
         entry.ensure.run(key, harnessName, chatId, now)
-        for (const [role, content] of messages) entry.insert.run(key, role, content, now)
+        storeManagedWorkspaces(entry, managedWorkspaces)
+        if (recall) {
+            if (recall.sessionKey !== key || recall.storeScope !== scope || messages.length !== 2)
+                throw new HarnessError('bad_session', 'Invalid recall turn.')
+            const insert = entry.db.prepare(
+                'INSERT INTO messages (session_key, role, content, created_at) VALUES (?, ?, ?, ?) RETURNING id'
+            )
+            const ids = messages.map(([role, content]) => insert.get(key, role, content, now).id)
+            entry.db
+                .prepare(
+                    'INSERT INTO recall_turns (runtime_id,owner_scope,session_key,question_id,answer_id,model,started_at) VALUES (?,?,?,?,?,?,?)'
+                )
+                .run(recall.runtimeId, recall.ownerScope, key, ...ids, recall.model, recall.startedAt)
+        } else {
+            for (const [role, content] of messages) entry.insert.run(key, role, content, now)
+        }
         if (selections?.length) entry.selectionsPut.run(key, JSON.stringify(selections))
+        if (recall) {
+            // A separate key without a colon cannot collide with an ordinary harness:chat session.
+            const privateKey = 'recall_' + recall.ownerScope
+            if (selections?.length) entry.selectionsPut.run(privateKey, JSON.stringify(selections))
+            const prior = parsePins(entry.memoryGet.get(privateKey)?.pins)
+            entry.memoryPut.run(privateKey, '', JSON.stringify(mergePins(prior, pins)), now)
+        }
         entry.db.exec('COMMIT')
     } catch (error) {
         entry.db.exec('ROLLBACK')
@@ -260,7 +316,50 @@ export function memoryBlock(memory) {
 }
 
 // Prompt context is the rolling summary, the pin list, and the last two turns. The sqlite transcript stays on disk.
-export function readPromptContext(harnessName, chatId, { scope } = {}) {
+function scopedPromptContext(name, receipt) {
+    const empty = { messages: [], summary: '', pins: [], block: '', selections: [] }
+    if (!receipt) return empty
+    // Even two empty lines render at least seven characters with the Q/A markers. A
+    // bounded candidate set covers the complete summary budget plus the raw tail.
+    const limit = Math.ceil(SUMMARY_CHARS / 7) + RAW_TURNS
+    const turns = readRecallTurns(name, receipt, { limit, contentChars: 512 }).reverse()
+    if (!turns.length) return empty
+    const userAndAnswer = (t) => [
+        { role: 'user', content: t.question, created_at: t.created_at },
+        { role: 'assistant', content: t.answer, created_at: t.created_at }
+    ]
+    const older = turns.slice(0, -RAW_TURNS).flatMap(userAndAnswer)
+    const recent = turns.slice(-RAW_TURNS).flatMap((t) => {
+        const [row] = readRecallTurns(name, receipt, { runtimeId: t.runtime_id, limit: 1, contentChars: 1024 * 1024 })
+        if (!row) return []
+        // A single oversized archived turn must not enlarge the provider context without bound.
+        for (const side of ['question', 'answer']) if (Number(row[side + '_chars']) > 1024 * 1024) row[side] += '…'
+        return userAndAnswer(row)
+    })
+    const entry = connection(name, { create: false, scope: receipt.storeScope })
+    const privateKey = 'recall_' + receipt.ownerScope
+    const legacyPins = turns
+        .filter((t) => t.source === 'cuttlely_queue' && Number(t.question_chars) <= 512 && Number(t.answer_chars) <= 512)
+        .flatMap((t) => [...pinsFromText(t.question), ...pinsFromText(t.answer)])
+    const pins = mergePins(legacyPins, parsePins(entry?.memoryGet.get(privateKey)?.pins))
+    const summary = summarizeOlder(older)
+    const raw = entry?.selectionsGet.get(privateKey)?.selections
+    let selections = []
+    try {
+        if (raw && raw.length <= 16000) selections = JSON.parse(raw)
+    } catch {
+        /* Ignore an unreadable optional selection. */
+    }
+    return { messages: recent, summary, pins, block: memoryBlock({ summary, pins }), selections }
+}
+
+export function readPromptContext(harnessName, chatId, { scope, recallScope } = {}) {
+    if (recallScope !== undefined) {
+        if (recallScope && (recallScope.sessionKey !== sessionKey(harnessName, chatId) || recallScope.storeScope !== scope))
+            throw new HarnessError('bad_session', 'Invalid recall scope.')
+        return scopedPromptContext(harnessName, recallScope)
+    }
+
     const all = readMessages(harnessName, chatId, undefined, { scope })
     const older = all.length > RAW_MESSAGES ? all.slice(0, -RAW_MESSAGES) : []
     const stored = readMemory(harnessName, chatId, { scope })
@@ -276,7 +375,8 @@ export function readPromptContext(harnessName, chatId, { scope } = {}) {
     return { messages: all.slice(-RAW_MESSAGES), summary, pins: stored.pins, block: memoryBlock(memory), selections }
 }
 
-export function appendTurn(harnessName, chatId, question, answer, pins = [], selections, { scope } = {}) {
+export function appendTurn(harnessName, chatId, question, answer, pins = [], selections, { scope, recall, managedWorkspaces } = {}) {
+    const incoming = [...pinsFromText(question), ...pinsFromText(answer), ...pins]
     const key = writeMessages(
         harnessName,
         chatId,
@@ -285,9 +385,12 @@ export function appendTurn(harnessName, chatId, question, answer, pins = [], sel
             ['assistant', answer]
         ],
         selections,
-        scope
+        scope,
+        recall,
+        incoming,
+        managedWorkspaces
     )
-    refreshMemory(harnessName, chatId, [...pinsFromText(question), ...pinsFromText(answer), ...pins], scope)
+    refreshMemory(harnessName, chatId, incoming, scope)
     return key
 }
 
@@ -320,4 +423,38 @@ export function readMessages(harnessName, chatId, limit, { scope } = {}) {
 
 export function sessionExists(harnessName, chatId) {
     return readMessages(harnessName, chatId, 1).length > 0
+}
+
+// Each row is linked to the two public messages written in the same transaction. Historical rows
+// without a receipt, roles from another session, and unowned chats are never candidates.
+export function readRecallTurns(name, receipt, { runtimeId, after, before, limit, contentChars }) {
+    const legacy = legacyRecallRows(receipt, { runtimeId, after, before, limit, contentChars })
+    const db = connection(name, { create: false, scope: receipt.storeScope })?.db
+    if (!db || (runtimeId && legacy.length)) return legacy
+    const conditions = ['r.owner_scope = ?', 'r.session_key = ?', 'r.runtime_id <> ?']
+    const params = [receipt.ownerScope, receipt.sessionKey, receipt.runtimeId]
+    for (const [test, value] of [
+        ['r.runtime_id = ?', runtimeId],
+        ['r.started_at >= ?', after],
+        ['r.started_at < ?', before]
+    ]) {
+        if (value !== undefined) {
+            conditions.push(test)
+            params.push(value)
+        }
+    }
+    const attested = db
+        .prepare(
+            `SELECT r.runtime_id,r.started_at,r.model,q.id AS question_id,a.id AS answer_id,
+                         length(q.content) AS question_chars,length(a.content) AS answer_chars,
+                         substr(q.content,1,?) AS question,substr(a.content,1,?) AS answer,a.created_at
+                      FROM recall_turns r
+                      JOIN messages q ON q.id=r.question_id AND q.session_key=r.session_key AND q.role='user'
+                      JOIN messages a ON a.id=r.answer_id AND a.session_key=r.session_key AND a.role='assistant'
+                      WHERE ${conditions.join(' AND ')} ORDER BY r.started_at DESC,r.runtime_id DESC LIMIT ?`
+        )
+        .all(contentChars, contentChars, ...params, limit)
+    return [...attested, ...legacy]
+        .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.runtime_id.localeCompare(a.runtime_id))
+        .slice(0, limit)
 }

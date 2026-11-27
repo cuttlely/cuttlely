@@ -71,7 +71,10 @@ const deleteHarness = async (req: Request, res: Response, next: NextFunction) =>
 
 const listRuns = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const runs = await harnessesService.listRuns(req.params.name, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
+        const runs = await harnessesService.listRuns(req.params.name, activeWorkspace(req), {
+            apiKeyId: callerApiKeyId(req),
+            sessionUserId: req.user?.id
+        })
         await completeAccessKeyAdmission(req)
         return res.json(runs)
     } catch (error) {
@@ -82,7 +85,8 @@ const listRuns = async (req: Request, res: Response, next: NextFunction) => {
 const getRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const run = await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req), {
-            apiKeyId: callerApiKeyId(req)
+            apiKeyId: callerApiKeyId(req),
+            sessionUserId: req.user?.id
         })
         await completeAccessKeyAdmission(req)
         return res.json(run)
@@ -95,7 +99,11 @@ const getRunDiagnostics = async (req: Request, res: Response, next: NextFunction
     try {
         // Rejected claims are author diagnostics, never a public-chat or API-key response surface.
         if (isApiKeyCaller(req)) return res.status(StatusCodes.FORBIDDEN).json({ message: 'Diagnostics require a signed-in author.' })
-        return res.json(await harnessesService.getRunDiagnostics(req.params.name, req.params.runId, activeWorkspace(req)))
+        return res.json(
+            await harnessesService.getRunDiagnostics(req.params.name, req.params.runId, activeWorkspace(req), {
+                sessionUserId: req.user?.id
+            })
+        )
     } catch (error) {
         next(error)
     }
@@ -190,7 +198,8 @@ const getRunResult = async (req: Request, res: Response, next: NextFunction) => 
     try {
         res.setHeader('Cache-Control', 'no-store')
         const result = await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req), {
-            apiKeyId: callerApiKeyId(req)
+            apiKeyId: callerApiKeyId(req),
+            sessionUserId: req.user?.id
         })
         await completeAccessKeyAdmission(req)
         return res.json(result)

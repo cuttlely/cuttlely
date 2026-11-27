@@ -1,6 +1,16 @@
 # Testing a saved team on Kraken
 
-Kraken is the development branch for the 2.0 agent runtime. The bundled runtime remains the default. Keep it available during a canary and rollback.
+Kraken is the development branch for the 2.0 agent runtime. The standard image selects the bundled runtime by default. Use it to canary one team at a time. Keep the full image and its exact revision available for rollback.
+
+## Checking a team before cutover
+
+Export the saved harness canvas, then run the following command inside a built Kraken checkout or image. The command accepts a single export, a JSON array, or `-` for standard input.
+
+```sh
+node scripts/kraken-preflight.mjs ./team.canvas.json
+```
+
+Exit code 0 means the graph passed the capability check and is ready for a runtime test. Exit code 1 lists the specialists and assignments that need the bundled runtime. Exit code 2 identifies an unreadable or invalid export or an input containing no harness. Run the check on the target worker image. It reads the exported assignments and probes local prerequisites for workspace files. Live credentials, host permissions, stored memory and destination-specific query stamps still need a rehearsal on the target installation.
 
 ## Enabling a canary
 
@@ -23,7 +33,59 @@ Selection applies to both router and agent mode. Native preflight checks every s
 | Packaged Ops MCP example                    | The specialist can discover and call the saved read-only action. The host’s stdio policy and command/script grants still apply. Cancellation closes the tool process.                                                                                                                                                                      |
 | PostgreSQL Analyst                          | Eligible URL-backed cards expose their configured guarded actions and verified saved queries. Destination-specific stamps, selected relations, secure parameters, query budgets and chat-scoped paging remain in force. A trusted report requires evidence from the actual query. Check the content and owner of each returned attachment. |
 
+The Web Browser card’s **Return source text** mode reads a public HTTP(S) page whose URL the caller includes in the current message. The reader follows same-site redirects, checks every network destination and returns bounded text and source metadata. The link must be present in the original message even when Prime rewrites the specialist’s task. Interactive browser automation and links selected solely by the model still require the bundled runtime.
+
+### Workspace MCP status endpoint
+
+A saved Custom MCP Server Tool can use Streamable HTTP or SSE for the read-only `ops_status` action. Register its exact workspace, saved server ID, URL and action on the API and the workers using `CUTTLELY_NATIVE_MCP_ENDPOINTS`. An example configuration follows.
+
+```json
+[{ "workspaceId": "<workspace>", "serverId": "<saved-server-uuid>", "url": "https://ops.example.org/mcp", "actions": ["ops_status"] }]
+```
+
+For SSE, add `ssePostUrl` with the exact same-origin message endpoint. Keep the Authorization or X-API-Key header in the existing encrypted server credential. The runtime checks the server record, grant and tool schema before dispatch. A missing grant, revoked credential or changed schema stops the action. An offline export needs its saved workspace ID to match this grant during preflight.
+
+### Specialist workspace files
+
+On a supported Linux host, a file-enabled specialist can read, write, search and patch its own workspace and return files saved under `output/` to the chat. Use a signed-in account or an identified API key. Upload a representative file through the chat, ask the specialist to transform it, download the result and check the bytes. Repeat under the original identity after replacing a worker. Other users and keys may choose the same chat ID and retain separate workspaces.
+
+Each workspace is limited to 256 files and 64 MiB of decoded content. It uses the selected harness session store. PostgreSQL preserves these workspaces across empty-disk replacements. SQLite requires a retained data volume. The image ships a fixed document decoder and search binary. The worker requires Linux Landlock ABI 3 or later and libseccomp. On a host that cannot enforce the file boundary, preflight identifies the team as requiring the bundled engine. Measure compatibility with your own documents, especially scanned PDFs or files that require an external application.
+
+An existing shared workspace may contain files without a reliable owner. A nonempty legacy workspace blocks this team’s native cutover. Back it up, review its contents, and re-upload the required files through the owner's chat before retiring the original workspace. Preserve older copies until the owner confirms the required outputs.
+
+### Conversation search
+
+Signed-in users and identified API keys can use `session_search` on a saved agent-mode team for user/assistant exchanges whose ownership the installation recorded. Test with an existing chat, switch engines, then ask for a specific earlier answer. Verify a second caller and a different chat cannot retrieve it. A successful v1.7.15 queued turn can establish ownership when its saved caller, workspace, canvas generation and chat agree. An old bundled transcript can also exist without that association. Keep the bundled installation available for older transcripts or profile-wide memory awaiting operator review. The application’s ordinary stored chat messages, the search index and the bundled runtime’s private transcript have different recovery and access rules.
+
+### If a worker stops during a tool call
+
+Queued native calls record their selection, dispatch and acknowledgement in the application queue. If a worker disappears before acknowledgement, the job reports an uncertain outcome and retains the call ID for investigation. Check the destination before retrying an external action. A call still queued has not reached its tool. A confirmed call has already returned to the worker. The public event stream keeps its existing event types. Call arguments and tool results are excluded from these receipts.
+
 A successful preflight establishes that the runtime recognizes the saved configuration. Exercise the actual question and tools. A direct Prime answer alone does not test specialist execution.
+
+## Previewing an installation without the bundled runtime
+
+Run the named-team canary and the team’s real workflow first. A native-only image selects the native engine for every team. A team that requires a capability absent from the native engine receives a runtime-unavailable response. On the standard image, keep that team on the bundled engine.
+
+Build the preview locally with the same source revision on the API and workers.
+
+```sh
+docker build --build-arg INCLUDE_BUNDLED_RUNTIME=0 -t cuttlely-native .
+```
+
+Use the normal image entrypoint. The application starts the native runtime directly. An external worker starts with `node packages/harness/worker.mjs`. Set `CUTTLELY_HARNESS_QUEUE=external` and `CUTTLELY_HARNESS_WORKERS=0` on the API when deploying workers as separate services. Keep the API and worker on the same application database and installation key. Confirm strict readiness at `/api/v1/ping`, submit a real team run, and check the worker’s resulting answer and tool trace. A fresh data directory is sufficient after a verified PostgreSQL storage cutover. SQLite needs a retained volume. Hybrid uses the same durable PostgreSQL stores and the configured private object bucket for managed files. Operator-provided local dependencies still need to be available on each replacement host.
+
+The native image can be built from a checkout that omits the entire bundled runtime source directory. It ships the Cuttlely-authored recovery helper from the ETL package. The full-checkout compatibility gate checks that this file matches its copy in the bundled runtime byte for byte. The image uses that recovery code for encrypted runtime settings and SQLite session images stored in PostgreSQL. An incorrect installation key stops recovery. To roll back, drain native jobs and redeploy the full image on the API and every worker with the same database and key. Clear any named canary selection before admitting bundled jobs. A binary rollback and a storage rollback are separate operations.
+
+Run `bash scripts/check-kraken-package.sh` from a full, built checkout to create the isolated source export and exercise the complete package gate. The gate needs the pinned Node and pnpm, disposable PostgreSQL and a standalone Python with sqlite3 serialization, pg8000 and cryptography. Set `CUTTLELY_RECOVERY_PYTHON` to that interpreter when it differs from `python3`. The script removes its temporary install on exit.
+
+To verify an existing local native build, set `CUTTLELY_TEST_NATIVE_PACKAGE` to the absolute path of the separate installed native package and run the following command in a built full checkout with the bundled runtime available. The tests start their own API and worker, use disposable PostgreSQL databases and simulate the model.
+
+```sh
+node --test scripts/kraken-ops.test.mjs scripts/kraken-upgrade.test.mjs
+```
+
+The package gate covers a fresh install and replacement of an existing installation with separate empty API and worker disks. It checks the saved caller, team, credential, schedule and chat, exercises the Ops MCP tool and restores encrypted settings and a real bundled SQLite transcript. It also checks rejection of an incorrect key and recovery after redeploying the full package.
 
 ## Rollback
 

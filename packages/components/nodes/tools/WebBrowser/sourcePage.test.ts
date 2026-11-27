@@ -59,3 +59,37 @@ test('raw excerpts and receipts remain bounded and do not promote linked destina
         )
     ).toBe(true)
 })
+
+test('native source reads use the original user URL, survive same-site redirects, and retain the released excerpt', async () => {
+    const url = 'https://example.org/guide'
+    const page = fetched('<html><title>Guide</title><main>Order received.</main></html>')
+    const current = jest.fn()
+    const turn = { question: 'Please summarize [the guide](' + url + ').', assertCurrent: current }
+    const released = await readSourcePage(url, page)
+    expect(await readSourcePage('"' + url + '", "purchase"', page, turn)).toBe(released)
+    expect(page.mock.calls.at(-1)).toEqual([
+        url,
+        expect.objectContaining({ size: 2097152 }),
+        5,
+        { publicPageOrigin: 'https://example.org' }
+    ])
+    expect(current).toHaveBeenCalledTimes(2)
+    const trailing = fetched('User page', 'text/plain')
+    await readSourcePage(url + '/', trailing, { ...turn, question: 'Read ' + url + '/' })
+    expect(trailing.mock.calls[0][0]).toBe(url + '/')
+    for (const other of ['https://example.org/other', 'https://example.org:8080/guide', 'https://other.example/guide']) {
+        await expect(readSourcePage(other, page, turn)).rejects.toThrow(/exact public page URL/)
+    }
+    expect(page).toHaveBeenCalledTimes(2)
+    const stop = new AbortController()
+    const blocked = jest.fn(async (_url: string, init?: RequestInit) => {
+        const signal = init?.signal
+        return new Promise<never>((_resolve, reject) => signal?.addEventListener('abort', () => reject(new Error('stopped'))))
+    })
+    const pending = readSourcePage(url, blocked, { ...turn, signal: stop.signal })
+    stop.abort()
+    await expect(pending).rejects.toThrow(/stopped/)
+    await expect(readSourcePage('https://other.example/', page, { ...turn, question: 'https://other.example/' })).rejects.toThrow(
+        /redirected/
+    )
+})

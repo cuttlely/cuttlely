@@ -378,6 +378,21 @@ describe('Harness node workspace refusal', () => {
         )
     })
 
+    it('records the admitted key on queued card turns and never takes the owner from a prediction field', async () => {
+        const node = new HarnessNode()
+        mockHarnessRuns.current = { text: 'Two loaves.' }
+        for (const caller of [{ via: 'api_key', apiKeyId: 'granted-key', harnesses: ['other'] }, { via: 'session' }]) {
+            await node.run(nodeData as never, 'How many loaves?', {
+                chatId: 'c1',
+                workspaceId: 'ws-1',
+                harnessCaller: caller,
+                apiKeyId: 'untrusted-field'
+            })
+            const args = queuedRun.mock.calls.at(-1)?.[0] as Record<string, unknown>
+            expect(args.apiKeyId).toBe(caller.apiKeyId)
+        }
+    })
+
     it('refuses a harness name that is a list or an object before any check or run, on a keyless flow too', async () => {
         const node = new HarnessNode()
         for (const harnessName of [['payroll'], { name: 'payroll' }, 7]) {

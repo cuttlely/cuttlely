@@ -1,3 +1,5 @@
+import { callerApiKeyId } from '../../services/harnesses/apiAccess'
+import { managedFileOwnerTag } from '../../services/harnesses'
 import { Request, Response, NextFunction } from 'express'
 import { ChatType, IReactFlowObject } from '../../Interface'
 import chatflowsService from '../../services/chatflows'
@@ -21,7 +23,7 @@ const createChatMessage = async (req: Request, res: Response, next: NextFunction
             )
         }
         const apiResponse = await chatMessagesService.createChatMessage(req.body)
-        return res.json(parseAPIResponse(apiResponse))
+        return res.json(await visibleChatMessages(req, apiResponse))
     } catch (error) {
         next(error)
     }
@@ -74,7 +76,7 @@ const getAllChatMessages = async (req: Request, res: Response, next: NextFunctio
             page,
             limit
         )
-        return res.json(parseAPIResponse(apiResponse))
+        return res.json(await visibleChatMessages(req, apiResponse))
     } catch (error) {
         next(error)
     }
@@ -106,7 +108,7 @@ const getAllInternalChatMessages = async (req: Request, res: Response, next: Nex
             feedbackTypes,
             activeWorkspaceId
         )
-        return res.json(parseAPIResponse(apiResponse))
+        return res.json(await visibleChatMessages(req, apiResponse))
     } catch (error) {
         next(error)
     }
@@ -287,6 +289,31 @@ const abortChatMessage = async (req: Request, res: Response, next: NextFunction)
     } catch (error) {
         next(error)
     }
+}
+
+// Workspace viewers retain released chat-history access. A row containing a managed file
+// result is visible only to the actor attested by that result when it was produced.
+async function visibleChatMessages(req: Request, input: ChatMessage | ChatMessage[]) {
+    const parsed = parseAPIResponse(input)
+    const workspace = req.user?.activeWorkspaceId || ''
+    const caller = { apiKeyId: callerApiKeyId(req), sessionUserId: req.user?.id }
+    const expected = new Map<string, Promise<string | null>>()
+    async function visible(row: ChatMessage) {
+        let payload: { trace?: { managedFileOwner?: string } } | undefined
+        try {
+            payload = typeof row.harnessPayload === 'string' ? JSON.parse(row.harnessPayload) : (row.harnessPayload as typeof payload)
+        } catch {
+            return false
+        }
+        const tag = payload?.trace?.managedFileOwner
+        if (!tag) return true
+        if (!row.chatId || !workspace) return false
+        if (!expected.has(row.chatId)) expected.set(row.chatId, managedFileOwnerTag(caller, workspace, row.chatId))
+        return tag === (await expected.get(row.chatId))
+    }
+    if (!Array.isArray(parsed)) return (await visible(parsed)) ? parsed : []
+    const allowed = await Promise.all(parsed.map(visible))
+    return parsed.filter((_row, index) => allowed[index])
 }
 
 const parseAPIResponse = (apiResponse: ChatMessage | ChatMessage[]): ChatMessage | ChatMessage[] => {

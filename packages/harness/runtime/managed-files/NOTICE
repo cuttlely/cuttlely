@@ -1,0 +1,4 @@
+The document extraction, file result formatting, secret redaction, fuzzy matching and V4A
+algorithms in this directory are derived from the MIT-licensed Hermes Agent distribution
+vendored by this repository. Its copyright and license appear in LICENSE-hermes. The
+worker uses these algorithms as local libraries and has no agent gateway dependency.

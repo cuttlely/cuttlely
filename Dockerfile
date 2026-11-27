@@ -1,5 +1,6 @@
 # Build Cuttlely and the vendored Hermes runtime.
 # docker build -t cuttlely .
+# Native preview: docker build --build-arg INCLUDE_BUNDLED_RUNTIME=0 -t cuttlely-native .
 #
 # Hermes uv.lock installs on CPython 3.14 with glibc wheels. Alpine/musl is not
 # that lockfile's environment. Bookworm is glibc 2.36, and the sqlite3 napi
@@ -18,6 +19,7 @@ FROM node:24-trixie-slim AS build
 # uv is pinned to the release hermes/pm/lock.json pins and checked against the same sha256. To update it, change
 # UV_VERSION and both checksums (linux-x64 and linux-arm64 in hermes/pm/lock.json).
 ARG TARGETARCH
+ARG INCLUDE_BUNDLED_RUNTIME=1
 ARG UV_VERSION=0.12.3
 
 RUN echo "Cuttlely image, step 1 of 5: build tools (a few minutes on the first build)" \
@@ -38,7 +40,9 @@ RUN echo "Cuttlely image, step 1 of 5: build tools (a few minutes on the first b
         librsvg2-dev \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g pnpm@10.33.4 \
-    && case "${TARGETARCH:-amd64}" in \
+    && mkdir -p /opt/cuttlely-runtime-tools \
+    && if [ "$INCLUDE_BUNDLED_RUNTIME" = "1" ]; then \
+       case "${TARGETARCH:-amd64}" in \
         amd64) UV_ARCH=x86_64; UV_SHA256=600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101 ;; \
         arm64) UV_ARCH=aarch64; UV_SHA256=bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2 ;; \
         *) echo "No pinned uv for ${TARGETARCH}" >&2; exit 1 ;; \
@@ -47,7 +51,8 @@ RUN echo "Cuttlely image, step 1 of 5: build tools (a few minutes on the first b
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
     && rm /tmp/uv.tar.gz \
-    && uv --version
+    && uv --version \
+    && cp /usr/local/bin/uv /usr/local/bin/uvx /opt/cuttlely-runtime-tools/; fi
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV CYPRESS_INSTALL_BINARY=0
@@ -59,18 +64,27 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 WORKDIR /usr/src/cuttlely
 
 COPY . .
+RUN python3 scripts/install-native-file-decoder.py /opt/cuttlely-file-decoder
 
 # After the build, node_modules is installed again from the store with production packages only. That install
 # skips install scripts (the root one sets up git hooks), so the native drivers are built again and the sqlite3
 # check confirms the server can open a database.
-RUN mkdir -p /opt/uv-python \
+# The native preview retains the Cuttlely-owned storage helper so releases can read each other's encrypted data.
+RUN case "$INCLUDE_BUNDLED_RUNTIME" in \
+        1) ;; \
+        0) test -s packages/etl/runtime-recovery/cuttlely_session_store.py \
+            && printf '%s\n' '{"engine":"native"}' > packages/harness/native-distribution.json \
+            && rm -rf hermes ;; \
+        *) echo "INCLUDE_BUNDLED_RUNTIME must be 0 or 1" >&2; exit 1 ;; \
+    esac \
+    && mkdir -p /opt/uv-python \
     && chmod 755 scripts/render-entrypoint.sh scripts/start-cuttlely.sh scripts/setup-hermes.sh \
     && echo "Cuttlely image, step 2 of 5: installing packages (several minutes on the first build)" \
     && pnpm install --frozen-lockfile \
     && echo "Cuttlely image, step 3 of 5: building Cuttlely (several minutes)" \
     && pnpm build:docker \
     && echo "Cuttlely image, step 4 of 5: setting up the agent runtime" \
-    && bash scripts/setup-hermes.sh \
+    && if [ "$INCLUDE_BUNDLED_RUNTIME" = "1" ]; then bash scripts/setup-hermes.sh; fi \
     && chmod -R a+rX /opt/uv-python \
     && echo "Cuttlely image, step 5 of 5: keeping production packages only" \
     && rm -rf node_modules packages/*/node_modules \
@@ -99,11 +113,11 @@ RUN if [ "$INCLUDE_NODE_PACKS" != "0" ] && [ "$INCLUDE_NODE_PACKS" != "1" ]; the
     && if [ "$INCLUDE_NODE_PACKS" = "0" ]; then \
         echo "Cuttlely image: leaving out optional node packs" \
         && INCLUDE_NODE_PACKS=0 node scripts/omit-node-packs.mjs; \
-    fi \
-    && chmod -R go=rX /usr/src/cuttlely
+    fi
 
 FROM node:24-trixie-slim
 
+ARG INCLUDE_BUNDLED_RUNTIME=1
 ARG TARGETARCH
 # 1 (the default) installs Chromium. 0 leaves it out. Browser document loaders then fail with a clear error.
 ARG INCLUDE_BROWSER=1
@@ -129,7 +143,8 @@ RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
         fonts-noto-core \
         git \
         graphviz \
-        python3 \
+        python3 libseccomp2 ripgrep python3-ruamel.yaml \
+        $(if [ "$INCLUDE_BUNDLED_RUNTIME" = "0" ]; then echo python3-pg8000 python3-cryptography; fi) \
         $(if [ "$INCLUDE_BROWSER" = "1" ]; then echo chromium; fi) \
         util-linux \
     && rm -rf /var/lib/apt/lists/* \
@@ -148,9 +163,22 @@ RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
         && : > /etc/cuttlely/no-node-packs; \
     fi
 
-COPY --from=build /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+COPY --from=build /opt/cuttlely-file-decoder/ /opt/cuttlely-file-decoder/
+COPY --from=build /opt/cuttlely-runtime-tools/ /usr/local/bin/
 COPY --from=build /opt/uv-python /opt/uv-python
-COPY --from=build --chown=node:node /usr/src/cuttlely /usr/src/cuttlely
+# Copy once so both ownership choices occupy a single image layer. The native service UID cannot replace its
+# engine marker, executables or recovery helper. The full image keeps its historical ownership.
+RUN --mount=type=bind,from=build,source=/usr/src/cuttlely,target=/opt/cuttlely-build \
+    mkdir -p /usr/src/cuttlely \
+    && cp -a /opt/cuttlely-build/. /usr/src/cuttlely/ \
+    && chmod -R go=rX /usr/src/cuttlely \
+    && if [ "$INCLUDE_BUNDLED_RUNTIME" = "1" ]; then \
+        chown -R node:node /usr/src/cuttlely; \
+    else \
+        test ! -e /usr/src/cuttlely/hermes \
+        && test -s /usr/src/cuttlely/packages/etl/runtime-recovery/cuttlely_session_store.py \
+        && python3 -I -c 'import pg8000.native, sqlite3; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; assert hasattr(sqlite3.Connection, "serialize")'; \
+    fi
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/cuttlely-chromium

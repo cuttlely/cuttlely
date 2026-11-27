@@ -1,7 +1,8 @@
+import { existingFileDependency, managedFilesReady } from './native-files.mjs'
 import availability from '../availability.cjs'
 import { HarnessError } from '../errors.mjs'
 import { estimateTokens } from '../context.mjs'
-import { supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
+import { needsNativeCanvasCredential, supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
 import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
 import { specialistSummary } from '../profile.mjs'
@@ -36,17 +37,20 @@ export function nativeCompatibilityGaps(roster) {
             [specialist.shell, 'shell'],
             [specialist.browser, 'browser'],
             [specialist.codeExecution, 'code execution'],
-            [specialist.fileAccess, 'workspace files']
+            [specialist.fileAccess && !managedFilesReady(), 'workspace files'],
+            [specialist.fileAccess && existingFileDependency(roster, specialist), 'existing workspace files need owner-scoped upload']
         ])
             if (enabled) capabilities.add(label)
         if (specialist.playbooks?.some((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content)))
             capabilities.add('runtime playbook templates')
         for (const binding of specialist.modules || []) {
-            if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding))
-                capabilities.add('canvas tool ' + nativeNodeLabel(binding))
+            if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding)) {
+                const credential = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
+                capabilities.add('canvas tool ' + nativeNodeLabel(binding) + credential)
+            }
         }
         for (const binding of specialist.mcpServers || []) {
-            if (!nativeAnalystBinding(binding) && !nativeMcpBindingSupported(binding))
+            if (!nativeAnalystBinding(binding) && !nativeMcpBindingSupported(binding, roster.workspaceId))
                 capabilities.add('MCP configuration for ' + nativeNodeLabel(binding))
         }
         if (specialist.trustedOutputs?.length && !nativeAnalystSpecialistSupported(specialist))
@@ -71,7 +75,7 @@ export function nativePrimeInstructions(roster) {
         .join('\n')
 }
 
-export async function runNativePrime({ messages, roster, complete, delegate, signal, budget }) {
+export async function runNativePrime({ messages, roster, complete, delegate, signal, budget, recall }) {
     const tools = [
         {
             type: 'function',
@@ -89,7 +93,7 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
     ]
     return runNativeToolLoop({
         messages,
-        tools,
+        tools: [...tools, ...(recall?.tools || [])],
         complete,
         signal,
         budget,
@@ -97,7 +101,8 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
         maxCalls: 40,
         maxBatchCalls: 8,
         limitCode: 'delegation_limit',
-        execute: (_name, args) => {
+        execute: (name, args) => {
+            if (name === 'session_search') return recall.execute(name, args)
             const specialist = roster.specialists.find((s) => s.name === args?.name)
             if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
             if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
@@ -115,6 +120,7 @@ export async function runNativeToolLoop({
     budget,
     maxCalls,
     maxBatchCalls = maxCalls,
+    queueCall,
     limitCode
 }) {
     const transcript = [...messages]
@@ -158,10 +164,13 @@ export async function runNativeToolLoop({
                 throw new HarnessError('bad_task', 'Expected tool arguments as an object.')
             return { name: call.function.name, id: call.id, args }
         })
+        // Commit the whole validated batch before dispatch. Calls left in this state
+        // when a worker dies never reached a tool.
+        if (queueCall) for (const call of calls) call.receipt = queueCall(call.name)
         transcript.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls })
         for (const call of calls) {
             signal?.throwIfAborted()
-            const result = await execute(call.name, call.args)
+            const result = await execute(call.name, call.args, call.receipt)
             const content = typeof result === 'string' ? result : result.content
             const message = { role: 'tool', tool_call_id: call.id, content }
             transcript.push(message)

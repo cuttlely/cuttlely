@@ -31,6 +31,7 @@ export const QUEUE_SCHEMA = `CREATE TABLE IF NOT EXISTS turns (
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS jobs_claim ON jobs (status, created_at);
+        CREATE INDEX IF NOT EXISTS jobs_session_status ON jobs (session_key, status, created_at);
         CREATE TABLE IF NOT EXISTS job_events (
             job_id TEXT NOT NULL,
             seq INTEGER NOT NULL,
@@ -52,6 +53,16 @@ export const SESSION_SCHEMA = `CREATE TABLE IF NOT EXISTS sessions (
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS messages_session ON messages (session_key, id);
+        CREATE TABLE IF NOT EXISTS recall_turns (
+            runtime_id TEXT PRIMARY KEY,
+            owner_scope TEXT NOT NULL,
+            session_key TEXT NOT NULL,
+            question_id INTEGER NOT NULL,
+            answer_id INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            started_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS recall_owner_started ON recall_turns (owner_scope, started_at, runtime_id);
         CREATE TABLE IF NOT EXISTS memory (
             session_key TEXT PRIMARY KEY,
             summary TEXT NOT NULL,
@@ -61,6 +72,11 @@ export const SESSION_SCHEMA = `CREATE TABLE IF NOT EXISTS sessions (
         CREATE TABLE IF NOT EXISTS answer_context (
             session_key TEXT PRIMARY KEY,
             selections TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS managed_file_workspaces (
+            scope_key TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL,
+            manifest TEXT NOT NULL
         );`
 
 export const HISTORY_SCHEMA = `CREATE TABLE IF NOT EXISTS run_history (

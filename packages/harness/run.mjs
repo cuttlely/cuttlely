@@ -1,3 +1,4 @@
+import { openManagedFiles, withManagedUploads } from './runtime/native-files.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
@@ -76,9 +77,10 @@ import {
     useNativeSpecialists,
     selectAgentEngine
 } from './runtime/native-prime.mjs'
+import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
 import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
-import { openNativeAnalyst, nativeAnalystBinding } from './runtime/native-analyst.mjs'
+import { analystCaptureIdentity, openNativeAnalyst, nativeAnalystBinding } from './runtime/native-analyst.mjs'
 import { isLiveTry } from './try-live.mjs'
 import { playbookCallLimit, playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
@@ -126,6 +128,7 @@ import {
     specialistWorkspace,
     specialistProfileName
 } from './profile.mjs'
+import { openNativeRecall } from './runtime/native-memory.mjs'
 import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
@@ -630,8 +633,10 @@ async function runTurnBody(
             const live = getHarness(name)
             if (
                 !live ||
+                live.createdAt !== harness.createdAt ||
                 live.chatflowId !== harness.chatflowId ||
                 live.workspaceId !== harness.workspaceId ||
+                (harness.createdAt !== undefined && live.createdAt !== harness.createdAt) ||
                 !isDeepStrictEqual(live.specialists, harness.specialists) ||
                 !isDeepStrictEqual(live.chief, harness.chief)
             )
@@ -652,6 +657,15 @@ async function runTurnBody(
         moduleOptions: {
             componentNodes,
             loadNode,
+            ...(nativeSpecialists && {
+                nativeSourceTurn: {
+                    question: String(input ?? ''),
+                    get signal() {
+                        return context.workSignal
+                    },
+                    assertCurrent: () => context.assertNativeAuthority()
+                }
+            }),
             nodeCache: new Map(),
             flowOptions: nativeSpecialists ? { ...flowOptions, chatId } : flowOptions
         },
@@ -683,8 +697,24 @@ async function runTurnBody(
         replay: replay === true,
         trustedOutputPreview: trustedOutputPreview === true
     }
+    context.recall = context.replay
+        ? undefined
+        : openNativeRecall({
+              roster: context.roster,
+              chatId: context.chatId,
+              turnId: context.turnId,
+              caller: context.moduleOptions.flowOptions?.nestedFlowCaller,
+              sessionScope: context.sessionScope,
+              signal: context.workSignal,
+              assertCurrent: context.assertNativeAuthority,
+              startedAt: Date.now()
+          })
     beginGuardedQueryTurns(roster.specialists || [], chatId, context.turnId, sessionKey(name, chatId), sqlAttemptLimit)
     try {
+        if (nativeSpecialists && roster.specialists.some((s) => s.fileAccess))
+            return await withManagedUploads(context, input, (question) =>
+                mode === 'agent' ? runAgentChief(context, question) : runRosterWithUploads(context, question)
+            )
         if (mode === 'agent') return await runAgentChief(context, input)
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
         const direct = context.images.length ? null : directToolSpecialist(roster)
@@ -696,6 +726,12 @@ async function runTurnBody(
             throw new HarnessError('over_budget', `Harness "${context.name}" exceeded the ${context.budgetMs}ms turn budget.`)
         }
         throw error
+    } finally {
+        if (context.nativeSpecialists) {
+            const identity = analystCaptureIdentity(context)
+            await endAnalystRun(analystScopeKey(identity.harness, identity.chatId)).catch(() => {})
+            if (!context.recall?.receipt) dropAnalystCapture(identity)
+        }
     }
 }
 
@@ -759,8 +795,19 @@ function agentChiefResult(context, profileName, sessionId, started, input, text,
         ...(fallback ? { fallback } : {}),
         ms: Date.now() - started
     }
-    const sources = context.nativeResults.flatMap((result) => result?.sources || [])
-    return { text, harness: context.name, mode: 'agent', agents, sources, artifacts: [], timings, report, trace }
+    if (context.managedFileOwner) trace.managedFileOwner = context.managedFileOwner
+    const sources = [...(context.uploadSources || []), ...context.nativeResults.flatMap((result) => result?.sources || [])]
+    return {
+        text,
+        harness: context.name,
+        mode: 'agent',
+        agents,
+        sources,
+        artifacts: mergeTurnArtifacts(context.turnImages || [], context.turnFiles || []).artifacts,
+        timings,
+        report,
+        trace
+    }
 }
 
 // Claim only this delegation's calls. A previous verified result must never certify a later empty or failed one.
@@ -844,7 +891,7 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
     }
 }
 
-async function nativeChiefAnswer(context, input, delegate, messages, budget) {
+async function nativeChiefAnswer(context, input, delegate, messages, budget, recall) {
     context.assertNativeAuthority()
     if (rosterAnalysts(context.roster.specialists).length && analystPageRequest(input)) {
         const page = applyAnalystPageRoute(input, [], context.roster.specialists, analystCursor(context))
@@ -853,6 +900,7 @@ async function nativeChiefAnswer(context, input, delegate, messages, budget) {
     }
     const answer = await runNativePrime({
         messages,
+        recall,
         roster: context.roster,
         budget,
         signal: context.workSignal,
@@ -883,6 +931,7 @@ async function runAgentChief(context, input) {
     const profileName = context.roster.tryId ? tryProfileName(context.roster.tryId) : context.name
     const sessionId = specialistSessionId(profileName, context.chatId, context.turnId)
     if (nativePrime && context.limit > 0) context.workSignal = combineSignals(context.workSignal, AbortSignal.timeout(context.limit))
+    const recall = context.recall
     const request = {
         harnessName: profileName,
         baseUrl: context.baseUrl,
@@ -909,7 +958,7 @@ async function runAgentChief(context, input) {
         const user = fitted.messages.at(-1)
         const delegate = (specialist, task) => runNativeDelegation(context, profileName, sessionId, specialist, task)
         const status = nativePrime
-            ? { output: await nativeChiefAnswer(context, input, delegate, fitted.messages, budget) }
+            ? { output: await nativeChiefAnswer(context, input, delegate, fitted.messages, budget, recall) }
             : await executeAgentRun({
                   request,
                   deadlineAt: context.limit > 0 ? started + context.limit : undefined,
@@ -956,7 +1005,7 @@ async function runAgentChief(context, input) {
                 text,
                 sourceNames(result.sources),
                 nativePrime ? answerSelections(text, selectionSources(context, context.nativeResults), input) : undefined,
-                { scope: context.sessionScope }
+                sessionWriteOptions(context)
             )
         emit(context, 'final', { ...result, artifacts: result.artifacts.map(({ type, name, specialist }) => ({ type, name, specialist })) })
         return result
@@ -1028,6 +1077,12 @@ function noteTruncated(context, names) {
     }
 }
 
+function sessionWriteOptions(context) {
+    const recall = context.recall?.receipt
+    if (recall) context.assertNativeAuthority()
+    return { scope: context.sessionScope, recall, managedWorkspaces: context.managedWorkspaces?.values() }
+}
+
 function loadPrompt(context) {
     if (context.replay) {
         context.memoryBlock = ''
@@ -1035,7 +1090,10 @@ function loadPrompt(context) {
         context.answerInputs = []
         return []
     }
-    const prompt = readPromptContext(context.name, context.chatId, { scope: context.sessionScope })
+    const recallScope = context.nativeSpecialists ? context.recall?.receipt ?? null : undefined
+    if (recallScope) context.assertNativeAuthority()
+    const prompt = readPromptContext(context.name, context.chatId, { scope: context.sessionScope, recallScope })
+    if (recallScope) context.assertNativeAuthority()
     // Preserve the exact displayed text before analyst-page compaction or model
     // context fitting. Only file-capable runs receive full copies, on disk.
     context.answerInputs = context.roster?.specialists?.some(writesFiles) ? priorAnswerInputs(prompt.messages) : []
@@ -1049,7 +1107,7 @@ function loadPrompt(context) {
 }
 
 function analystCursor(context) {
-    return latestAnalystCursor({ harness: context?.name, chatId: context?.chatId })
+    return latestAnalystCursor(analystCaptureIdentity(context))
 }
 
 function analystDataTask(context, text) {
@@ -1131,15 +1189,17 @@ async function runRoster(context, input) {
 }
 
 async function runRosterWithUploads(context, input, dir) {
-    const preparedUploads = prepareHarnessTurnUploads({
-        question: input,
-        roots: dir ? [...defaultUploadRoots(), dir] : undefined,
-        specialists: context.roster?.specialists || [],
-        workspaceFor(specialist) {
-            if (context.nativeSpecialists || !specialist?.profileName || !needsAgentLoop(specialist)) return ''
-            return specialistWorkspace(specialist.profileName)
-        }
-    })
+    const preparedUploads = context.managedUploads
+        ? { question: input, sources: context.uploadSources, notes: new Map() }
+        : prepareHarnessTurnUploads({
+              question: input,
+              roots: dir ? [...defaultUploadRoots(), dir] : undefined,
+              specialists: context.roster?.specialists || [],
+              workspaceFor(specialist) {
+                  if (context.nativeSpecialists || !specialist?.profileName || !needsAgentLoop(specialist)) return ''
+                  return specialistWorkspace(specialist.profileName)
+              }
+          })
     context.uploadSources = preparedUploads.sources
     context.stagedNotes = preparedUploads.notes
     const question = preparedUploads.question
@@ -1195,7 +1255,7 @@ async function runRosterWithUploads(context, input, dir) {
             text,
             sourceNames(maskWorkspacePaths([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])),
             answerSelections(text, selectionSources(context, results), question),
-            { scope: context.sessionScope }
+            sessionWriteOptions(context)
         )
     }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
@@ -1230,6 +1290,7 @@ async function runRosterWithUploads(context, input, dir) {
         question
     })
     if (context.nativeSpecialists) trace.engine = 'native'
+    if (context.managedFileOwner) trace.managedFileOwner = context.managedFileOwner
     console.info(
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
             agents.map((agent) => `${agent.name} ${agent.status} ${agent.ms}ms`).join(', ') +
@@ -2679,7 +2740,8 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
     const toolName = rule.pin
     const name = hermesMcpToolName(specialist.name, toolName)
     const startCapture = analystStartCapture((data) => emitTool(context, data), { gatewayName: name })
-    beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
+    const identity = analystCaptureIdentity(context)
+    beginAnalystCalls(identity.harness, specialist.name, identity.chatId, startCapture.gatewayStarted)
     startCapture.hermesStarted({ phase: 'start', specialist: specialist.name, name, callId })
     try {
         throwIfClient(context)
@@ -2691,8 +2753,9 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 toolName,
                 args,
                 callId,
-                chatId: context.chatId,
-                scope: analystScopeKey(context.name, context.chatId),
+                captureHarness: identity.harness,
+                chatId: identity.chatId,
+                scope: analystScopeKey(identity.harness, identity.chatId),
                 sourceTurn: specialistSessionId(specialist.profileName, context.chatId, context.turnId),
                 moduleOptions: {
                     ...moduleOptions,
@@ -2753,7 +2816,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
     } finally {
         startCapture.flush()
         emitProfileDiagnostics(context, specialist)
-        endAnalystCalls(context.name, specialist.name, context.chatId)
+        endAnalystCalls(identity.harness, specialist.name, identity.chatId)
     }
 }
 
@@ -3698,7 +3761,8 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
     const sourceTurn = specialist.trustedOutputs?.length
         ? specialistSessionId(specialist.profileName, context.chatId, context.turnId)
         : undefined
-    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, chatId: context.chatId, since, sourceTurn })
+    const identity = analystCaptureIdentity(context)
+    const captured = takeAnalystResults({ ...identity, specialist: specialist.name, since, sourceTurn })
     if (!captured.length) return
     if (specialist.trustedOutputs?.length) {
         if (!context.trustedCaptures) context.trustedCaptures = new Map()
@@ -3713,7 +3777,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
     }
     // The gateway numbered every analyst call in this run. Use that order only when it
     // lines up with these chips. A missing id is not a reason to fill the first chip.
-    const calls = analystCallsFor(context.name, specialist.name, context.chatId)
+    const calls = analystCallsFor(identity.harness, specialist.name, identity.chatId)
     if (calls.length > 0 && calls.length === slots.length) {
         slots.forEach((tool, index) => {
             if (!tool.callId && calls[index]?.id) tool.callId = calls[index].id
@@ -3759,7 +3823,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
     const { workSignal: signal, assertNativeAuthority: assertCurrent } = context
     const books = specialist.playbooks || []
     const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
-    const services = all.filter(nativeMcpBindingSupported)
+    const services = all.filter((binding) => nativeMcpBindingSupported(binding, context.roster.workspaceId))
     let mcp, analyst
     const sources = []
     const firstTool = context.toolLog.length
@@ -3768,6 +3832,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
     try {
         if (services.length)
             mcp = await openNativeMcpTools(services, {
+                flowOptions: context.moduleOptions.flowOptions,
                 signal,
                 assertCurrent,
                 scope: [
@@ -3803,9 +3868,11 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             }
         for (const spec of mcp?.tools || []) register(spec, (args) => mcp.call(spec.function.name, args))
         for (const spec of analyst?.tools || []) register(spec, (args, callId) => analyst.execute(spec.function.name, args, callId))
+        const files = specialist.fileAccess ? openManagedFiles(context, specialist) : null
+        for (const tool of files?.tools || []) register(tool, (args) => files.execute(tool.function.name, args))
         const used = new Set(handlers.keys())
         for (const [index, binding] of (specialist.modules || []).entries()) {
-            if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding)) continue
+            if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
             assertCurrent()
             const item = await prepareModule(binding, task, context.moduleOptions)
             const name = toolName(item, index, used)
@@ -3835,7 +3902,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 context,
                 specialist,
                 task,
-                soul,
+                files ? [soul, files.note].filter(Boolean).join('\n') : soul,
                 context.promptMessages,
                 budget ? Math.max(1, Math.floor(budget / 2)) : 0
             ),
@@ -3849,12 +3916,13 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 assertCurrent()
                 return callModel(context, model, { messages, tools: offered, toolChoice: 'auto', role: 'specialist', specialist })
             },
-            execute: async (name, args) => {
+            queueCall: (name) => queueNativeTool(context, specialist, name),
+            execute: async (name, args, receipt) => {
                 assertCurrent()
-                const callId = crypto.randomUUID()
+                const callId = receipt.id
                 emitTool(context, { phase: 'start', specialist: specialist.name, name, callId })
                 try {
-                    const result = await handlers.get(name)(args, callId)
+                    const result = await receipt.invoke(() => handlers.get(name)(args, callId))
                     assertCurrent()
                     emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: result?.error === true })
                     return result
@@ -3864,6 +3932,11 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             }
         })
+        if (files) {
+            const artifacts = await files.finish()
+            ;(context.turnImages ||= []).push(artifacts.filter((item) => ['png', 'jpeg'].includes(item.type)))
+            ;(context.turnFiles ||= []).push(artifacts.filter((item) => !['png', 'jpeg'].includes(item.type)))
+        }
         if (analyst && !context.nativePrime) attachCapturedAnalystResults(context, specialist, started, firstTool)
         emitSpecialistPartial(context, specialist, text)
         return { text, sources }
@@ -3882,7 +3955,12 @@ async function runInlineSpecialist(context, specialist, task) {
     const modules = specialist.modules || []
     if (context.nativeSpecialists) {
         context.assertNativeAuthority()
-        if (specialist.playbooks?.length || specialist.mcpServers?.length || modules.some((binding) => binding.nodeName !== 'calculator'))
+        if (
+            specialist.fileAccess ||
+            specialist.playbooks?.length ||
+            specialist.mcpServers?.length ||
+            modules.some((binding) => binding.nodeName !== 'calculator')
+        )
             return runNativeSpecialistTools(context, specialist, task, model, soul)
     }
     if (!modules.length) {
@@ -3898,7 +3976,7 @@ async function runInlineSpecialist(context, specialist, task) {
     if (prepared.length === 1 && preparedKind(prepared[0]) === 'query') {
         const label = moduleLabel(prepared[0])
         emitTool(context, { phase: 'start', specialist: specialist.name, name: label })
-        const raw = await raceSignal(context.workSignal, () => callPrepared(prepared[0], task))
+        const raw = await callInlineTool(context, specialist, label, prepared[0], task)
         const text = normalizeResult(raw)
         emitTool(context, { phase: 'done', specialist: specialist.name, name: label })
         emitSpecialistPartial(context, specialist, text)
@@ -3943,10 +4021,7 @@ async function runInlineSpecialist(context, specialist, task) {
             const kind = preparedKind(match.item)
             const value = kind === 'object' ? args : args.query ?? args.input ?? JSON.stringify(args)
             emitTool(context, { phase: 'start', specialist: specialist.name, name: label })
-            const raw = await raceSignal(context.workSignal, () => {
-                if (context.nativeSpecialists) context.assertNativeAuthority()
-                return callPrepared(match.item, value, context.nativeSpecialists ? context.assertNativeAuthority : undefined)
-            })
+            const raw = await callInlineTool(context, specialist, label, match.item, value)
             const text = normalizeResult(raw)
             emitTool(context, { phase: 'done', specialist: specialist.name, name: label })
             emitSpecialistPartial(context, specialist, text)
@@ -3955,6 +4030,14 @@ async function runInlineSpecialist(context, specialist, task) {
     )
     const text = calls.length === 1 ? calls[0].text : calls.map((call) => `${call.name}: ${call.text}`).join('\n')
     return { text, sources: calls.flatMap((call) => documentsFrom(call.raw)) }
+}
+
+function callInlineTool(context, specialist, name, prepared, input) {
+    const assertCurrent = context.nativeSpecialists ? context.assertNativeAuthority : undefined
+    const operation = () => callPrepared(prepared, input, assertCurrent)
+    return raceSignal(context.workSignal, () =>
+        context.nativeSpecialists ? queueNativeTool(context, specialist, name).invoke(operation) : operation()
+    )
 }
 
 function moduleLabel(prepared) {
@@ -4365,12 +4448,7 @@ async function runDirectTool(context, specialist, input) {
     emitTool(context, { phase: 'start', specialist: specialist.name, name: toolLabel })
     let output
     try {
-        output = splitToolOutput(
-            await raceSignal(context.workSignal, () => {
-                assertCall?.()
-                return callPrepared(prepared, value, assertCall)
-            })
-        )
+        output = splitToolOutput(await callInlineTool(context, specialist, toolLabel, prepared, value))
     } catch (error) {
         throwIfClient(context)
         if (overBudget(context)) {
@@ -4438,9 +4516,7 @@ async function runDirectTool(context, specialist, input) {
         )}, ${reportNote(context)}`
     )
     if (!context.replay)
-        appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)), undefined, {
-            scope: context.sessionScope
-        })
+        appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)), undefined, sessionWriteOptions(context))
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,
@@ -4474,6 +4550,7 @@ async function runDirectTool(context, specialist, input) {
         question
     })
     if (context.nativeSpecialists) trace.engine = 'native'
+    if (context.managedFileOwner) trace.managedFileOwner = context.managedFileOwner
     const payload = { text, harness: name, agents, sources: output.documents, artifacts: [], timings, report, trace }
     emit(context, 'final', { text, agents, sources: output.documents, artifacts: [], timings, report, trace })
     return payload

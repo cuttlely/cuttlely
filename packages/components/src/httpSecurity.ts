@@ -308,14 +308,14 @@ export async function secureFetch(
     url: string,
     init?: RequestInit,
     maxRedirects: number = 5,
-    agentOptions?: SecureRequestAgentOptions
+    agentOptions?: SecureRequestAgentOptions & { publicPageOrigin?: string }
 ): Promise<Response> {
     let currentUrl = url
     let redirectCount = 0
     let currentInit = { ...init, redirect: 'manual' as const } // Disable automatic redirects
 
     while (redirectCount <= maxRedirects) {
-        const resolved = await resolveAndValidate(currentUrl, agentOptions?.allowedPrivateHostnames)
+        const resolved = await resolveAndValidate(currentUrl, agentOptions?.allowedPrivateHostnames, agentOptions?.publicPageOrigin)
         const agent = createPinnedAgent(resolved, agentOptions)
 
         const response = await fetch(currentUrl, { ...currentInit, agent: () => agent })
@@ -389,18 +389,35 @@ function requestDenyList(hostname: string, allowedPrivateHostnames: readonly str
     return getHttpDenyList().filter((entry) => !PRIVATE_ISSUER_ENTRIES.has(entry) || custom.has(entry))
 }
 
-async function resolveAndValidate(url: string, allowedPrivateHostnames?: readonly string[]): Promise<ResolvedTarget> {
+async function resolveAndValidate(
+    url: string,
+    allowedPrivateHostnames?: readonly string[],
+    publicPageOrigin?: string
+): Promise<ResolvedTarget> {
     const u = new URL(url)
+    if (
+        publicPageOrigin &&
+        (u.origin !== publicPageOrigin || !['https:', 'http:'].includes(u.protocol) || u.port || u.username || u.password)
+    ) {
+        throw new Error('The source page redirected outside the requested public site.')
+    }
     let hostname = u.hostname
     // Strip IPv6 brackets if present
     if (hostname.startsWith('[') && hostname.endsWith(']')) {
         hostname = hostname.slice(1, -1)
     }
     const denyList = requestDenyList(hostname, allowedPrivateHostnames)
+    if (publicPageOrigin) denyList.push(...DEFAULT_DENY_LIST)
+    const checkAddress = (address: string) => {
+        isDeniedIP(address, denyList)
+        if (publicPageOrigin && ipaddr.process(address).range() !== 'unicast') {
+            throw new Error('A public source page must resolve to a public address.')
+        }
+    }
     const protocol: 'http' | 'https' = u.protocol === 'https:' ? 'https' : 'http'
 
     if (ipaddr.isValid(hostname)) {
-        isDeniedIP(hostname, denyList)
+        checkAddress(hostname)
         return {
             hostname,
             ip: hostname,
@@ -416,9 +433,7 @@ async function resolveAndValidate(url: string, allowedPrivateHostnames?: readonl
         throw new Error(`DNS resolution failed for ${hostname}`)
     }
 
-    for (const r of records) {
-        isDeniedIP(r.address, denyList)
-    }
+    for (const r of records) checkAddress(r.address)
 
     const chosen = records.find((r) => r.family === 4) ?? records[0]
 

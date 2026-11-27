@@ -95,7 +95,10 @@ async function execute({ scope, op, sql, params, owner, key, payload }) {
             const schema = harnessSchema(scope)
             if ((await client.query('SELECT to_regclass($1) AS present', [schema + '.sessions'])).rows[0].present) {
                 await client.query(
-                    'TRUNCATE ' + ['messages', 'memory', 'answer_context', 'sessions'].map((name) => schema + '.' + name).join(',')
+                    'TRUNCATE ' +
+                        ['messages', 'memory', 'answer_context', 'managed_file_workspaces', 'sessions']
+                            .map((name) => schema + '.' + name)
+                            .join(',')
                 )
             }
         } else {

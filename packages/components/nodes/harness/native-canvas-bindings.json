@@ -1,4 +1,12 @@
 {
+    "webBrowser": {
+        "inputs": ["readSource"],
+        "equals": { "readSource": true },
+        "upstream": {
+            "model": { "type": "chatOpenAI", "optionalUpstream": { "cache": { "type": "inMemoryCache" } } },
+            "embeddings": { "type": "openAIEmbeddings" }
+        }
+    },
     "calculator": { "inputs": [] },
     "currentDateTime": { "inputs": ["timezone"] },
     "serpAPI": { "credential": true, "inputs": ["FLOWISE_CREDENTIAL_ID"] },

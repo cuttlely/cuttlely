@@ -10,7 +10,7 @@ jest.mock('fs', () => ({
     mkdirSync: (...args: any[]) => mockMkdirSync(...args)
 }))
 
-jest.mock('@cuttlely/components', () => {
+function storageModule() {
     const winston = require('winston')
     return {
         StorageProviderFactory: {
@@ -19,7 +19,7 @@ jest.mock('@cuttlely/components', () => {
             }))
         }
     }
-})
+}
 
 jest.mock('../../src/utils/config', () => ({
     __esModule: true,
@@ -42,7 +42,20 @@ describe('logger.ts', () => {
     beforeAll(() => {
         mockExistsSync.mockReturnValue(false) // so line 22 (mkdirSync) runs when module loads
         jest.resetModules()
-        const mod = require('../../src/utils/logger')
+        let mod!: typeof import('./logger')
+        jest.isolateModules(() => {
+            // Source-only and built workspaces resolve different module IDs. Install
+            // the test storage provider on both before the logger opens any transport.
+            let entry: string | undefined
+            try {
+                entry = require.resolve('@cuttlely/components')
+            } catch {
+                // No compiled component entry in the source-only test job.
+            }
+            if (entry) jest.doMock(entry, storageModule)
+            jest.doMock('@cuttlely/components', storageModule, { virtual: true })
+            mod = require('./logger')
+        })
         logger = mod.default
         expressRequestLogger = mod.expressRequestLogger
         auditLogger = mod.auditLogger

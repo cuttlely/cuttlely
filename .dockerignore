@@ -54,3 +54,5 @@ examples/imports
 
 # Produced by runtime setup in the image.
 packages/etl/bundled-skill-files.generated.json
+# Generated only inside an opt-in native image.
+packages/harness/native-distribution.json

@@ -177,7 +177,7 @@ export function harnessCanvasCanWaitForRoster({ name, flowData }) {
     }
 }
 
-export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, workspaceId }) {
+export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, workspaceId }, { inheritSavedFields = true } = {}) {
     assertSavedHarnessName(name)
     const flow = parseFlow(flowData)
     const nodes = flow.nodes || []
@@ -197,7 +197,7 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
         throw new HarnessError('bad_roster', `Harness "${name}" needs at least one specialist on the canvas.`)
     }
     const byId = graph.byId
-    const previous = getHarness(name)
+    const previous = inheritSavedFields ? getHarness(name) : null
     const chiefModels = connectedChatModels(chiefs[0].id, graph, 'Harness Prime')
     if (!chiefModels.model) {
         throw new HarnessError('missing_model', CHIEF_MODEL_REQUIRED)

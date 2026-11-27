@@ -379,6 +379,18 @@ function writeLock(p, { upstream, ref, commit }) {
 
 export function check(p) {
     const problems = []
+    const helper = 'cuttlely_session_store.py'
+    const bundledHelper = path.join(p.hermes, helper)
+    const packagedHelper = path.join(p.root, 'packages/etl/runtime-recovery', helper)
+    if (fs.existsSync(bundledHelper) || fs.existsSync(packagedHelper)) {
+        if (
+            !fs.existsSync(bundledHelper) ||
+            !fs.existsSync(packagedHelper) ||
+            !fs.readFileSync(bundledHelper).equals(fs.readFileSync(packagedHelper))
+        ) {
+            problems.push('The packaged session recovery protocol must match the bundled Cuttlely helper byte for byte.')
+        }
+    }
     const patches = listPatches(p.patches)
     let owners = new Map()
     try {

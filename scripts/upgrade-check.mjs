@@ -119,16 +119,22 @@ export async function request(url, { method = 'GET', cookie = '', body, timeoutM
     return { status: response.status, text, json, cookie: cookieHeader(response) || cookie }
 }
 
-export async function startServer(serverRoot, env, { preload = [], allocatePort = freePort } = {}) {
+export async function startServer(serverRoot, env, { preload = [], allocatePort = freePort, launcher = false } = {}) {
     // Each isolated boot gets a separate gateway as well as a separate application port.
     let gatewayPort = await allocatePort()
     while (gatewayPort === Number(env.PORT)) gatewayPort = await allocatePort()
     const serverDir = path.join(serverRoot, 'packages', 'server')
     const logs = []
     const args = [...preload.flatMap((p) => ['-r', p]), path.join(serverDir, 'bin', 'run'), 'start']
-    const child = spawn(process.execPath, args, {
+    const processEnv = { ...env, CUTTLELY_HARNESS_GATEWAY_PORT: String(gatewayPort) }
+    if (launcher && preload.length) {
+        processEnv.NODE_OPTIONS = [env.NODE_OPTIONS, ...preload.map((file) => '--require=' + JSON.stringify(file))]
+            .filter(Boolean)
+            .join(' ')
+    }
+    const child = spawn(launcher ? 'bash' : process.execPath, launcher ? [path.join(serverRoot, 'scripts/start-cuttlely.sh')] : args, {
         cwd: serverDir,
-        env: { ...env, CUTTLELY_HARNESS_GATEWAY_PORT: String(gatewayPort) },
+        env: processEnv,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe']
     })

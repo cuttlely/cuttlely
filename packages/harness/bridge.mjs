@@ -124,8 +124,12 @@ async function buildNode(binding, ctx, cache, input) {
     assertServerContext(flowOptions)
     assertNotCallerChatflow(binding, flowOptions)
     const instance = await freshNodeInstance(binding.nodeName, ctx)
-    const nodeData = await resolveInputs(binding, ctx, cache, input)
-    const ready = typeof instance.init === 'function' ? await instance.init(nodeData, input, flowOptions) : undefined
+    // The source-only card never reads its model or embeddings. Initialize only the
+    // reader and carry the admitted user's original URLs through direct and delegated calls.
+    const sourceTurn = binding.nodeName === 'webBrowser' && binding.inputs?.readSource === true && ctx.nativeSourceTurn
+    const nodeData = await resolveInputs(sourceTurn ? { ...binding, upstream: {} } : binding, ctx, cache, input)
+    const options = sourceTurn ? { ...flowOptions, nativeSourceTurn: sourceTurn } : flowOptions
+    const ready = typeof instance.init === 'function' ? await instance.init(nodeData, input, options) : undefined
     return { instance, nodeData, ready }
 }
 

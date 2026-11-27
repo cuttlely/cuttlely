@@ -397,6 +397,10 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'storage-replacement.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-upgrade.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-ops.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-recall.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-remote-mcp.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-managed-files.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'runtime', 'native-memory.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-native-canvas.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'test', 'pinned', 'native-analyst.test.mjs')
         ]

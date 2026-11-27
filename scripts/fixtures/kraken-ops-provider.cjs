@@ -9,6 +9,23 @@ function answer(content) {
 }
 Module._load = function (request, parent) {
     const lib = original.apply(this, arguments)
+    if (request === '@modelcontextprotocol/sdk/client/index.js' && process.env.KRAKEN_OPS_LATCH) {
+        const fs = require('node:fs')
+        const marker = process.env.KRAKEN_OPS_LATCH
+        return {
+            ...lib,
+            Client: class extends lib.Client {
+                async callTool(...args) {
+                    const result = await super.callTool(...args)
+                    if (fs.existsSync(marker)) {
+                        fs.appendFileSync(marker + '.received', 'one response\n')
+                        await new Promise(() => {})
+                    }
+                    return result
+                }
+            }
+        }
+    }
     if (request !== './FlowiseChatXAI' || !parent?.filename.endsWith('/ChatXAI/ChatXAI.js')) return lib
     return {
         ...lib,

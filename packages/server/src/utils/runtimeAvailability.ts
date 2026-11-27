@@ -1,5 +1,6 @@
 // Shared with the run engine, queue workers and loopback gateway, including starts outside the server.
 const availability = require('../../../harness/availability.cjs') as {
+    supervisorUnavailable: (dataDir?: string) => boolean
     runtimeState: (dataDir?: string) => string
     assertRuntimeAvailable: (dataDir?: string) => void
     selectAgentEngine: (name: unknown) => 'native' | 'hermes'
@@ -10,6 +11,7 @@ const availability = require('../../../harness/availability.cjs') as {
 }
 
 export const assertSelectedHarnessAvailable = availability.assertSelectedHarnessAvailable
+export const supervisorUnavailable = availability.supervisorUnavailable
 export const runtimeState = availability.runtimeState
 export const assertRuntimeAvailable = availability.assertRuntimeAvailable
 

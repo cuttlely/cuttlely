@@ -43,8 +43,17 @@ export function nativeAnalystSpecialistSupported(specialist) {
     return specialist.trustedOutputs.every((contract) => pins.has(contract.pin))
 }
 
+// Native and bundled lookups use different namespaces, including when a client supplies a crafted chat ID.
+export function analystCaptureIdentity(context, native = context?.nativeSpecialists) {
+    if (!native) return { harness: context?.name, chatId: context?.chatId }
+    const owner = context.recall?.receipt?.ownerScope
+    if (!owner && !context.turnId) throw new HarnessError('forbidden', 'Native Analyst requires an admitted turn.')
+    // A slash is forbidden in saved harness names. An unowned turn cannot resume an earlier turn's cursor.
+    return { harness: 'native/' + context.name, chatId: owner || context.turnId }
+}
+
 // The binding's real node discovers and checks its saved actions, stamps, credential and guard settings.
-// Route metadata lives for one delegation. The source turn and cursor retain their released specialist/chat identity.
+// Route metadata lives for one delegation. Source receipts use the unique specialist turn. Cursors use the admitted owner and canvas generation.
 export async function openNativeAnalyst({ context, specialist, assertCurrent }) {
     const bindings = [...(specialist.modules || []), ...(specialist.mcpServers || [])].filter(nativeAnalystBinding)
     if (!bindings.length) return { tools: [], close() {} }
@@ -59,17 +68,18 @@ export async function openNativeAnalyst({ context, specialist, assertCurrent }) 
     const record = { ...context.roster, specialists: [{ ...specialist, modules: [], mcpServers: assigned }] }
     const profileName = specialist.profileName
     const sourceTurn = specialistSessionId(profileName, context.chatId, context.turnId)
-    const scope = analystScopeKey(context.name, context.chatId)
+    const identity = analystCaptureIdentity(context, true)
+    const scope = analystScopeKey(identity.harness, identity.chatId)
     const routeProfile = 'native-analyst-' + randomUUID()
     let closed = false
     const close = () => {
         if (closed) return
         closed = true
-        endAnalystCalls(context.name, specialist.name, context.chatId)
+        endAnalystCalls(identity.harness, specialist.name, identity.chatId)
         forgetNativeToolRoutes(routeProfile)
     }
     try {
-        beginAnalystCalls(context.name, specialist.name, context.chatId)
+        beginAnalystCalls(identity.harness, specialist.name, identity.chatId)
         const owner = await pinnedCallContext(context.roster, context.moduleOptions, context.chatId)
         assertCall()
         const workspace = owner.flowOptions?.workspaceId || ''
@@ -111,7 +121,8 @@ export async function openNativeAnalyst({ context, specialist, assertCurrent }) 
                     toolName: name,
                     args,
                     callId,
-                    chatId: context.chatId,
+                    captureHarness: identity.harness,
+                    chatId: identity.chatId,
                     scope,
                     sourceTurn,
                     moduleOptions

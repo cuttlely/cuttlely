@@ -1304,6 +1304,7 @@ async function callTool(req, res, meta) {
 // Called only after the gateway or native delegation has authenticated the caller and resolved the saved owner.
 export async function callOfferedTool({
     record,
+    captureHarness = record.name,
     specialistName,
     profileName,
     routeProfile = profileName,
@@ -1318,6 +1319,7 @@ export async function callOfferedTool({
     if (isPinnedToolName(toolName)) {
         return invokeOfferedPinnedTool({
             record,
+            captureHarness,
             specialistName,
             toolName,
             args,
@@ -1348,7 +1350,7 @@ export async function callOfferedTool({
     const secureNames = secretNamesFor(routeProfile, toolName)
     const captureId = isAnalystQueryTool(toolName)
         ? noteAnalystGatewayCall({
-              harness: record.name,
+              harness: captureHarness,
               specialist: specialistName,
               chatId,
               callId,
@@ -1387,7 +1389,7 @@ export async function callOfferedTool({
         )
     }
     const shown = modelToolResult(result)
-    rememberAnalystResult(record.name, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
+    rememberAnalystResult(captureHarness, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,
         queryEvidenceContext: {
             specialist,
@@ -1433,6 +1435,7 @@ export async function pinnedCallContext(record, fallback, chatId = '') {
 // then the node's own invoke. Callers pass named pin arguments only; the node compiles the statement.
 export async function invokeOfferedPinnedTool({
     record,
+    captureHarness = record.name,
     specialistName,
     toolName,
     args,
@@ -1458,7 +1461,7 @@ export async function invokeOfferedPinnedTool({
     const secureNames = secretNamesFor(routeProfile, toolName)
     const capturedParams = capturePinnedParams(args, secureNames, analystTracePreviewsEnabled())
     const captureId = noteAnalystGatewayCall({
-        harness: record.name,
+        harness: captureHarness,
         specialist: specialistName,
         chatId,
         callId,
@@ -1489,7 +1492,7 @@ export async function invokeOfferedPinnedTool({
     finishAnalystCallTimings(timings, performance.now() - callStarted)
     moduleOptions.assertCall?.()
     const shown = modelToolResult(result)
-    rememberAnalystResult(record.name, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
+    rememberAnalystResult(captureHarness, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,
         freeSqlWithPin: freePinsFor(routeProfile, toolName),
         secureNames,

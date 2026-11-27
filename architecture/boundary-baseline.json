@@ -3388,6 +3388,11 @@
             "to": "hermes/"
         },
         {
+            "from": "scripts/kraken-package-fixture.mjs",
+            "to": "hermes/",
+            "reason": "The clean install compatibility fixture seeds encrypted state with the bundled writer to verify native recovery and rollback."
+        },
+        {
             "from": "scripts/measure-runtime-loads.mjs",
             "to": "hermes/",
             "reason": "The runtime load measurement reads the vendored tree to record which files a harness run opens."

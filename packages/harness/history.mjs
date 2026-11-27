@@ -280,7 +280,8 @@ function traceJson(result) {
     if (!trace || typeof trace !== 'object' || !trace.route) return null
     try {
         const body = JSON.stringify(trace)
-        if (body.length > TRACE_JSON_LIMIT) return null
+        if (body.length > TRACE_JSON_LIMIT)
+            return trace.managedFileOwner ? JSON.stringify({ managedFileOwner: trace.managedFileOwner, truncated: true }) : null
         return body
     } catch {
         return null

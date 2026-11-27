@@ -3,6 +3,10 @@
 set -euo pipefail
 
 DATA="${CUTTLELY_DATA_DIR:-/var/cuttlely}"
+if [[ -f "$(dirname "$0")/../packages/harness/native-distribution.json" ]]; then
+    export CUTTLELY_DATA_DIR="$DATA"
+    export LOG_PATH="${LOG_PATH:-$DATA/logs}"
+fi
 # App data is $DATA/data. An old $DATA/flowise stays put until an operator moves it.
 # versions starts empty; the server runs git init on first use.
 mkdir -p \
