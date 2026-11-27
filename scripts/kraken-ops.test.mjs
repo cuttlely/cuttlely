@@ -79,11 +79,17 @@ test(
             config.CUTTLELY_HARNESS_WORKERS = '0'
             config.HERMES_PYTHON = path.join(install, 'missing-python')
         }
-        api = await startServer(install, dataEnv(path.join(dir, 'api'), port, config), {
-            preload: [provider],
-            launcher: Boolean(nativeInstall)
-        })
-        await waitForPing(url, api)
+        async function bootApi(folder) {
+            api = await startServer(install, dataEnv(path.join(dir, folder), port, config), {
+                preload: [provider],
+                launcher: Boolean(nativeInstall)
+            })
+            await waitForPing(url, api)
+            const login = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
+            assert.equal(login.status, 200)
+            return login.cookie
+        }
+        let cookie = await bootApi('api')
         // This disposable test database has just the API's single storage member before its worker starts.
         const members = async () =>
             (
@@ -106,8 +112,6 @@ test(
             workerExit = once(worker, 'exit')
         }
         launchWorker()
-        const { cookie, status } = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
-        assert.equal(status, 200)
         async function post(route, body) {
             const res = await Promise.race([
                 request(url + '/api/v1/' + route, { method: 'POST', cookie, body, timeoutMs: 60000 }),
@@ -204,6 +208,37 @@ test(
         assert.equal(replacement.length, 2)
         assert.ok(replacement.includes(initial[0]))
         assert.ok(!replacement.includes(originalWorkerMember))
+        const received = receiptLatch + '.received'
+        async function waitForTool() {
+            const until = Date.now() + 20000
+            while (!fs.existsSync(received) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50))
+            assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
+        }
+        // The worker has received the real MCP response. Replace only the API before it can save the answer.
+        fs.writeFileSync(receiptLatch, '')
+        const admitted = await post('harnesses/' + name + '/runs/async', {
+            mode: 'agent',
+            chatId: randomUUID(),
+            question: 'Check the ops status.'
+        })
+        assert.ok(admitted.runId)
+        await waitForTool()
+        await api.stop()
+        cookie = await bootApi('replacement-api')
+        fs.unlinkSync(receiptLatch)
+        const resultDeadline = Date.now() + 30000
+        let response
+        do {
+            response = await request(url + admitted.resultUrl, { cookie })
+            assert.equal(response.status, 200)
+            if (response.json.finished) break
+            await new Promise((resolve) => setTimeout(resolve, 350))
+        } while (Date.now() < resultDeadline)
+        assert.equal(response.json.status, 'succeeded')
+        assert.equal(response.json.runId, admitted.runId)
+        assert.ok(response.json.result.text.includes('ops-status: allowlisted MCP tool responded'))
+        assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
+        fs.unlinkSync(received)
         // Pause *after* the actual protocol server has returned, but before the
         // worker can acknowledge its call. The next API poll recovers this lease.
         fs.writeFileSync(receiptLatch, '')
@@ -214,10 +249,7 @@ test(
             body: { mode: 'agent', chatId: interruptedChat, question: 'Check the ops status.' },
             timeoutMs: 45000
         })
-        const received = receiptLatch + '.received'
-        const until = Date.now() + 20000
-        while (!fs.existsSync(received) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50))
-        assert.equal(fs.readFileSync(received, 'utf8'), 'one response\n')
+        await waitForTool()
         worker.kill('SIGKILL')
         await workerExit
         const [lost] = await db.query("SELECT id FROM cuttlely_harness_queue.jobs WHERE payload::jsonb->>'chatId' = $1", [interruptedChat])

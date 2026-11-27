@@ -19,7 +19,7 @@ Module._load = function (request, parent) {
                     const result = await super.callTool(...args)
                     if (fs.existsSync(marker)) {
                         fs.appendFileSync(marker + '.received', 'one response\n')
-                        await new Promise(() => {})
+                        while (fs.existsSync(marker)) await new Promise((resolve) => setTimeout(resolve, 25))
                     }
                     return result
                 }
