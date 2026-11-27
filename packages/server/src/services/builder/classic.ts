@@ -62,8 +62,17 @@ export const fits = (source: PartDefinition | undefined, plug: Record<string, an
 }
 
 // The plug a connection lands on: the one the plan named, or the only plug on the target its output fits.
-export function plugFor(edge: PlanEdge, source: PartDefinition | undefined, target: PartDefinition | undefined) {
+export function plugFor(edge: PlanEdge, source: PartDefinition | undefined, target: PartDefinition | undefined, output?: string) {
     const plugs = plugsOf(target)
+    const selected = source?.outputs?.find((option) => option.name === output)
+    const accepts = (plug: Record<string, any>) => {
+        if (output === undefined) return fits(source, plug)
+        if (!selected) return false
+        // The released specialist executes an assigned Custom Retriever card, including its formatted text output.
+        if (target?.name === 'harnessSpecialist' && plug.name === 'attached' && source?.name === 'customRetriever' && output === 'text')
+            return true
+        return typesOf(plug.type).some((type) => selected.baseClasses?.includes(type))
+    }
     if (edge.input) {
         const named = plugs.find((plug) => plug.name === edge.input)
         if (!named)
@@ -71,14 +80,14 @@ export function plugFor(edge: PlanEdge, source: PartDefinition | undefined, targ
                 problem: `"${edge.input}" is not a plug on "${edge.to}"; its plugs are ${plugs.map((p) => p.name).join(', ') || 'none'}.`,
                 unknownPlug: edge.input
             }
-        if (!fits(source, named))
+        if (!accepts(named))
             return {
                 problem: `"${edge.from}" (${source?.name}) does not fit the ${named.name} plug on "${edge.to}", which takes ${named.type}.`,
                 misfit: named
             }
         return { plug: named }
     }
-    const fitting = plugs.filter((plug) => fits(source, plug))
+    const fitting = plugs.filter(accepts)
     if (fitting.length === 1) return { plug: fitting[0] }
     if (!fitting.length) return { problem: `"${edge.from}" (${source?.name}) does not fit any plug on "${edge.to}" (${target?.name}).` }
     return {
@@ -96,7 +105,7 @@ export function plugProblems(plan: Plan, ctx: RecipeContext, filled: Record<stri
         const source = byId.get(edge.from)
         const target = byId.get(edge.to)
         if (!source || !target) continue
-        const found = plugFor(edge, def(source), def(target))
+        const found = plugFor(edge, def(source), def(target), source.output)
         if (found.problem) {
             // Name the parts in this plan that do fit, so the repair round can connect one of them instead.
             const misfit = 'misfit' in found ? found.misfit : undefined
@@ -126,6 +135,8 @@ export function plugProblems(plan: Plan, ctx: RecipeContext, filled: Record<stri
             problems.push(`The ${found.plug?.name} plug on "${edge.to}" takes one connection; this plan gives it more.`)
     }
     for (const node of plan.nodes) {
+        if (node.output !== undefined && !def(node)?.outputs?.some((option) => option.name === node.output))
+            problems.push(`"${node.id}" has no registered output named "${node.output}".`)
         for (const plug of plugsOf(def(node))) {
             if (plug.optional || (filled[node.name] || []).includes(plug.name)) continue
             if (!used.get(`${node.id}:${plug.name}`))
@@ -195,24 +206,27 @@ export function classicCard(definition: PartDefinition, id: string) {
     }
 }
 
-const sourceHandleFor = (data: any, plug: Record<string, any>) => {
+const sourceHandleFor = (data: any, plug: Record<string, any>, output?: string) => {
     const anchor = data.outputAnchors?.[0]
     if (!anchor) return undefined
     if (anchor.type !== 'options') return anchor.id
     const accepts = typesOf(plug.type)
-    const option = anchor.options.find((o: any) => typesOf(o.type).some((t) => accepts.includes(t))) || anchor.options[0]
+    const option =
+        output === undefined
+            ? anchor.options.find((o: any) => typesOf(o.type).some((t) => accepts.includes(t))) || anchor.options[0]
+            : anchor.options.find((o: any) => o.name === output)
     data.outputs = { ...(data.outputs || {}), output: option.name }
     return option.id
 }
 
 // Connects source into target the way the canvas does: an edge plus a {{id.data.instance}} reference.
-export function connectCards(source: any, target: any, plug: Record<string, any>) {
+export function connectCards(source: any, target: any, plug: Record<string, any>, output?: string) {
     const anchor = target.data.inputAnchors.find((a: any) => a.name === plug.name)
     const ref = `{{${source.id}.data.instance}}`
     const current = target.data.inputs[plug.name]
     if (anchor?.list) target.data.inputs[plug.name] = [...(Array.isArray(current) ? current : []), ref]
     else target.data.inputs[plug.name] = ref
-    const sourceHandle = sourceHandleFor(source.data, plug)
+    const sourceHandle = sourceHandleFor(source.data, plug, output)
     return {
         source: source.id,
         sourceHandle,
@@ -243,6 +257,11 @@ export function classicCanvas(
         const def = ctx.componentNodes[node.name]
         const id = idOf(node.id)
         const data: any = classicCard(def, id)
+        if (node.output !== undefined) {
+            if (!def.outputs?.some((option) => option.name === node.output))
+                throw new Error(`Unknown output on ${node.name}: ${node.output}`)
+            data.outputs.output = node.output
+        }
         if (node.label) data.label = node.label
         const settings = new Set(settingsOf(def).map((s) => s.name))
         for (const [key, value] of Object.entries(node.inputs || {})) {
@@ -265,8 +284,10 @@ export function classicCanvas(
     const edges = plan.edges.map((edge) => {
         const source = byPlanId.get(edge.from)
         const target = byPlanId.get(edge.to)
-        const found = plugFor(edge, ctx.componentNodes[planById.get(edge.from)!.name], ctx.componentNodes[planById.get(edge.to)!.name])
-        return connectCards(source, target, found.plug as Record<string, any>)
+        const from = planById.get(edge.from)!
+        const found = plugFor(edge, ctx.componentNodes[from.name], ctx.componentNodes[planById.get(edge.to)!.name], from.output)
+        if (!found.plug) throw new Error(found.problem)
+        return connectCards(source, target, found.plug, from.output)
     })
     return { nodes, edges, missingCredentials, idOf }
 }

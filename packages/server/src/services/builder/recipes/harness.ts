@@ -43,6 +43,18 @@ export function harnessSampleAsPlan(flow: { nodes: any[]; edges: any[] }): Plan 
         ['specialistName', 'routingSummary', 'text', ...ABILITIES],
         (node) => node.data?.category === 'Chat Models'
     )
+    const saved = new Map(flow.nodes.map((node) => [node.id, node.data]))
+    for (const node of plan.nodes) {
+        const data = saved.get(node.id) || {}
+        if (typeof data.outputs?.output === 'string') node.output = data.outputs.output
+        // These settings are data, including JSON and formatting placeholders. Do not shorten them as prose.
+        const fields = node.name === 'plainText' ? ['metadata'] : node.name === 'customRetriever' ? ['topK', 'resultFormat', 'query'] : []
+        for (const field of fields) {
+            const value = data.inputs?.[field]
+            if (typeof value === 'string' || typeof value === 'number') (node.inputs ||= {})[field] = value
+            else if (field === 'metadata' && value && typeof value === 'object') (node.inputs ||= {})[field] = JSON.stringify(value)
+        }
+    }
     const prime = plan.nodes.find((node) => node.name === PRIME)
     for (const specialist of plan.nodes.filter((node) => node.name === SPECIALIST)) {
         if (prime && !plan.edges.some((edge) => edge.from === specialist.id && edge.to === prime.id))
@@ -54,9 +66,7 @@ export function harnessSampleAsPlan(flow: { nodes: any[]; edges: any[] }): Plan 
 // The closest bundled harnesses. With a context, a sample whose plan would not pass the check is skipped.
 export function harnessExamples(request: string, ctx?: RecipeContext) {
     const samples = sampleTemplates()
-        // The generic plan rebuilds Research's explicit text card as BaseRetriever and loses its source-label format.
-        // The complete example remains available to import in the marketplace.
-        .filter((template) => template.type === 'Harness' && template.templateName !== 'Research Harness')
+        .filter((template) => template.type === 'Harness')
         .map((t) => ({
             title: t.templateName,
             description: t.description,

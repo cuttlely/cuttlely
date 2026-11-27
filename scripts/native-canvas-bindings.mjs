@@ -84,7 +84,12 @@ export function localMemoryStoreBinding(binding, output = 'retriever') {
         output,
         inputs: ['topK'],
         upstream: {
-            document: { type: 'plainText', output: 'document', inputs: ['text', 'metadata', 'omitMetadataKeys'] },
+            document: {
+                type: 'plainText',
+                output: 'document',
+                inputs: ['text', 'metadata', 'omitMetadataKeys', 'textSplitter'],
+                empty: ['textSplitter']
+            },
             embeddings: { type: 'localHashEmbeddings', inputs: ['dimensions'] }
         }
     }

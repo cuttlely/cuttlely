@@ -2,7 +2,7 @@ import { sampleTemplates } from '../../marketplaces/sampleTemplates'
 import { templateClearanceFailures } from '../../marketplaces/templateLayout'
 import { fits } from '../classic'
 import { planProblems } from '../core'
-import { Plan } from '../plan'
+import { Plan, toPlan } from '../plan'
 import { RecipeContext } from '../recipe'
 import { partNamesIn, realParts } from '../testRealParts'
 import { harnessExamples, harnessParts, harnessRecipe, harnessSampleAsPlan } from './harness'
@@ -88,8 +88,37 @@ describe('harness recipe', () => {
         expect(examples.length).toBeLessThanOrEqual(4)
         for (const example of examples) expect(example.plan.nodes.some((n) => n.name === 'harnessChief')).toBe(true)
         const checked = harnessExamples('research documents retriever', ctx)
-        expect(checked.map((e) => e.title)).not.toContain('Research Harness')
+        expect(checked.map((e) => e.title)).toContain('Research Harness')
         for (const example of checked) expect(harnessRecipe.check(example.plan, ctx)).toEqual([])
+    })
+
+    it('rebuilds the Research example with its named note and the selected registered output', () => {
+        const imported = harnessExamples('research documents retriever', ctx).find((example) => example.title === 'Research Harness')!
+        const plan = toPlan(JSON.parse(JSON.stringify(imported.plan)))
+        expect(harnessRecipe.check(plan, ctx)).toEqual([])
+        const { nodes, edges } = harnessRecipe.materialize(plan, ctx)
+        const part = (name: string) => nodes.find((node) => node.data.name === name)!
+        const note = part('plainText')
+        const retriever = part('customRetriever')
+        expect(note.data.outputs.output).toBe('document')
+        expect(JSON.parse(note.data.inputs.metadata).source).toBe('Research Handbook')
+        expect(note.data.inputs.text).toContain('09:00 UTC')
+        expect(part('memoryVectorStore').data.outputs.output).toBe('vectorStore')
+        expect(retriever.data.outputs.output).toBe('text')
+        expect(retriever.data.inputs.topK).toBe('2')
+        expect(retriever.data.inputs.resultFormat).toBe('{{context}}\nSource: {{metadata.source}}')
+        expect(edges.find((edge) => edge.source === retriever.id)?.sourceHandle).toBe(retriever.id + '-output-text-string|json')
+        const source = plan.nodes.find((node) => node.name === 'customRetriever')!
+        source.output = 'unknown'
+        expect(harnessRecipe.check(plan, ctx).join(' ')).toContain('no registered output')
+        expect(() => harnessRecipe.materialize(plan, ctx)).toThrow('Unknown output')
+        delete source.output
+        expect(harnessRecipe.materialize(plan, ctx).nodes.find((node) => node.data.name === 'customRetriever')?.data.outputs.output).toBe(
+            'retriever'
+        )
+        const store = plan.nodes.find((node) => node.name === 'memoryVectorStore')!
+        store.output = 'retriever'
+        expect(harnessRecipe.check(plan, ctx).join(' ')).toContain('does not fit')
     })
 
     it('lists team problems in plain words', () => {

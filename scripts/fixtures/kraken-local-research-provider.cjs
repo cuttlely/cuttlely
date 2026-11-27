@@ -7,6 +7,14 @@ const Module = require('node:module')
 function respond(tools, messages) {
     const names = tools.map((tool) => tool.function?.name || tool.name)
     const system = String(messages[0]?.content)
+    if (system.startsWith('You build a Cuttlely harness canvas')) {
+        const examples = system.split('\n')
+        const heading = examples.findIndex((line) => /^Example \d+: Research Harness\./.test(line))
+        assert.ok(heading >= 0, 'the builder must offer the Research example')
+        const plan = JSON.parse(examples[heading + 1])
+        plan.starterQuestions = ['When does the archive open?', 'When does it close?', 'What is the source?']
+        return { content: JSON.stringify(plan) }
+    }
     const visible = messages.map((message) => String(message.content)).join('\n')
     const last = messages.at(-1)
     // Count only the actual tool message delivered to the model, never its prompt or a direct model answer.

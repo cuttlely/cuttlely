@@ -91,6 +91,7 @@ test('only bounded plain text and local hash embeddings can initialize the memor
         (b) => (b.upstream.document[0].nodeName = 'fileLoader'),
         (b) => (b.upstream.document[0].credential = 'other'),
         (b) => (b.upstream.document[0].upstream = { textSplitter: {} }),
+        (b) => (b.upstream.document[0].inputs.textSplitter = 'unassigned splitter'),
         (b) => (b.upstream.document[0].inputs.metadata = 'malformed'),
         (b) => (b.upstream.document[0].inputs.metadata = '{"__proto__":{}}'),
         (b) => (b.upstream.document[0].inputs.omitMetadataKeys = 'constructor.prototype'),

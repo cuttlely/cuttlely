@@ -5,6 +5,8 @@ export interface PlanNode {
     id: string
     name: string
     label?: string
+    // Classic canvases: the registered option selected on a card with multiple outputs.
+    output?: string
     // Workflows: the iteration this node sits inside. Harnesses and chatflows do not use it.
     parent?: string
     // What the part should do, in plain words: an agent's system message, a specialist's instructions.
@@ -66,6 +68,7 @@ export function toPlan(raw: unknown): Plan {
         id: typeof node?.id === 'string' ? node.id.trim() : '',
         name: typeof node?.name === 'string' ? node.name.trim() : '',
         label: asText(node?.label),
+        output: node?.output === undefined ? undefined : asText(node.output) ?? '',
         parent: asText(node?.parent),
         instructions: asText(node?.instructions),
         tools: Array.isArray(node?.tools) ? (node.tools as unknown[]).map((tool) => String(tool).trim()) : undefined,

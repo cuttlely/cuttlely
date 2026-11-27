@@ -10,7 +10,7 @@ import { nativePackageRoot } from './kraken-package-fixture.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const teamName = ({ sample, output }) => 'qa-' + sample + (output ? '-' + output : '')
+const teamName = ({ sample, output, builder }) => 'qa-' + sample + (output ? '-' + output : '') + (builder ? '-built' : '')
 const cases = [
     {
         sample: 'chief-of-staff',
@@ -19,13 +19,14 @@ const cases = [
         tool: 'In-Memory_Vector_Store',
         documents: true
     },
-    ...['text', 'document', 'retriever'].map((output) => ({
+    ...['text', 'document', 'retriever', 'built'].map((kind) => ({
+        builder: kind === 'built',
         sample: 'research',
-        output,
+        output: kind === 'built' ? 'text' : kind,
         question: 'When does the example archive open?',
-        answer: output === 'retriever' ? '09:00 UTC.' : '09:00 UTC. Source: Research Handbook.',
+        answer: kind === 'retriever' ? '09:00 UTC.' : '09:00 UTC. Source: Research Handbook.',
         tool: 'Custom_Retriever',
-        documents: output !== 'text'
+        documents: ['document', 'retriever'].includes(kind)
     }))
 ]
 
@@ -108,11 +109,22 @@ for (const storage of ['sqlite', 'postgres'])
             for (const item of cases) {
                 const name = teamName(item)
                 const wrapper = JSON.parse(fs.readFileSync(path.join(install, 'samples/harnesses', item.sample + '.canvas.json')))
-                const graph = JSON.parse(wrapper.flowData)
-                if (item.output) graph.nodes.find((node) => node.data.name === 'customRetriever').data.outputs.output = item.output
-                const models = graph.nodes.filter((n) => n.data.name === 'chatXAI')
-                assert.equal(models.length, 1)
-                models[0].data.credential = credential.id
+                let graph = JSON.parse(wrapper.flowData)
+                if (item.builder) {
+                    const built = await post('builder/harness/build', {
+                        question: 'Build the Research Harness that reads the example archive hours from its named document.',
+                        selectedChatModel: { name: 'chatXAI', credential: credential.id, inputs: { modelName: 'grok-4.7' } }
+                    })
+                    assert.equal(built.ok, true, JSON.stringify(built.problems))
+                    graph = { nodes: built.nodes, edges: built.edges }
+                    assert.equal(graph.nodes.find((node) => node.data.name === 'customRetriever').data.outputs.output, 'text')
+                    assert.equal(graph.nodes.find((node) => node.data.name === 'chatXAI').data.credential, credential.id)
+                } else {
+                    if (item.output) graph.nodes.find((node) => node.data.name === 'customRetriever').data.outputs.output = item.output
+                    const models = graph.nodes.filter((n) => n.data.name === 'chatXAI')
+                    assert.equal(models.length, 1)
+                    models[0].data.credential = credential.id
+                }
                 const flow = await post('chatflows', { ...wrapper, name, apiAccessMode: 'private', flowData: JSON.stringify(graph) })
                 const keys = await post('apikey', {
                     keyName: name,

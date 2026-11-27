@@ -25,7 +25,7 @@ const PLAN_FORMAT = `Reply with one JSON object and nothing else:
   "starterQuestions": ["three questions someone could ask the finished flow"]
 }
 Optional node fields: "instructions" (what the part should do, in plain words), "tools" (tool names), "scenarios",
-"parent", "loopBackTo", "credential" (a credential name, never a key), "inputs" (plain settings by input name).
+"parent", "loopBackTo", "output" (a registered output name on a switchable canvas part), "credential" (a credential name, never a key), "inputs" (plain settings by input name).
 Optional edge fields: "branch" (route number on a branching part, 0 first), "input" (the plug on the target card).`
 
 export function systemPrompt(recipe: Recipe, request: string, ctx: RecipeContext): string {
