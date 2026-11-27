@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -159,15 +159,39 @@ export async function withManagedUploads(context, input, run) {
     return run(question)
 }
 export function existingFileDependency(roster, specialist) {
-    const profile = roster.tryId ? tryProfileName(roster.tryId) : roster.name
-    const workspace = specialistWorkspace(specialistProfileName(profile, specialist.name))
+    const opened = []
+    const flags = fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW | fs.constants.O_RDONLY
+    function openDirectory(directory) {
+        const fd = fs.openSync(directory, flags)
+        opened.push(fd)
+        return '/proc/self/fd/' + fd
+    }
+    function firstEntry(directory, visit) {
+        const entries = fs.opendirSync(directory)
+        try {
+            let entry
+            while ((entry = entries.readSync())) if (visit(entry)) return true
+            return false
+        } finally {
+            entries.closeSync()
+        }
+    }
     try {
-        const files = fs.readdirSync(workspace, { withFileTypes: true })
-        // A previous installation's shared specialist files do not carry an actor or chat
-        // receipt. Never silently move them into a particular person's private workspace.
-        return files.some((f) => f.name !== 'chat-images' || !f.isDirectory() || fs.readdirSync(path.join(workspace, f.name)).length > 0)
+        if (!roster.name || !specialist.name) return true
+        const profile = roster.tryId ? tryProfileName(roster.tryId) : roster.name
+        const workspace = specialistWorkspace(specialistProfileName(profile, specialist.name))
+        const base = openDirectory(path.dirname(path.dirname(workspace)))
+        const all = openDirectory(path.join(base, 'workspaces'))
+        const own = openDirectory(path.join(all, path.basename(workspace)))
+        return firstEntry(
+            own,
+            (entry) =>
+                entry.name !== 'chat-images' || !entry.isDirectory() || firstEntry(openDirectory(path.join(own, entry.name)), () => true)
+        )
     } catch (error) {
         return error.code !== 'ENOENT'
+    } finally {
+        for (const fd of opened.reverse()) fs.closeSync(fd)
     }
 }
 
@@ -178,6 +202,65 @@ function modelSupportsPatch(model) {
         /(?:^|\/)(?:gpt[-.]|chatgpt|codex|o[1345])/.test(label) ||
         label.includes('openai/')
     )
+}
+
+// The child parses only stdin. A fixed CLI, an empty environment and explicit syntax mode
+// exclude user preloads, package scripts and import resolution. No provided code executes.
+async function javascriptDiagnostic(encoded, mode, signal) {
+    const bytes = Buffer.from(encoded || '', 'base64')
+    return new Promise((resolve, reject) => {
+        const child = execFile(
+            process.execPath,
+            ['--check', '--no-warnings', '--input-type=' + mode, '-'],
+            {
+                cwd: os.tmpdir(),
+                env: {},
+                signal,
+                timeout: 3000,
+                maxBuffer: 32768,
+                killSignal: 'SIGKILL'
+            },
+            (error, stdout, stderr) => {
+                if (signal?.aborted) return reject(signal.reason)
+                if (!error) return resolve('')
+                const kind = /^(SyntaxError|RangeError): (.+)$/m.exec(stderr)
+                if (!kind) return resolve('Syntax check unavailable.')
+                const line = /^\[stdin\]:(\d+)/m.exec(stderr)?.[1]
+                return resolve('JavaScript syntax error' + (line ? ' at line ' + line : '') + '.')
+            }
+        )
+        child.stdin.on('error', () => {})
+        child.stdin.end(bytes)
+    })
+}
+
+function workspaceModuleMode(files, filename) {
+    let dir = path.posix.dirname(filename)
+    for (;;) {
+        const entry = files[path.posix.join(dir, 'package.json')]
+        if (entry) {
+            try {
+                const type = JSON.parse(Buffer.from(entry, 'base64').toString()).type
+                if (type === 'module' || type === 'commonjs') return type
+            } catch {
+                /* Malformed package manifests do not alter parser authority. */
+            }
+        }
+        if (dir === '.') return ''
+        dir = path.posix.dirname(dir)
+    }
+}
+
+async function checkJavaScript(current, prior, mode, signal) {
+    const check = async (body) => {
+        if (mode) return javascriptDiagnostic(body, mode, signal)
+        const common = await javascriptDiagnostic(body, 'commonjs', signal)
+        return common && (await javascriptDiagnostic(body, 'module', signal)) ? common : ''
+    }
+    const issue = await check(current)
+    if (issue === 'Syntax check unavailable.') return { status: 'skipped', message: issue }
+    if (issue && issue !== (await check(prior))) return { status: 'error', output: issue }
+    return { status: 'ok', output: '' }
 }
 
 export function openManagedFiles(context, specialist) {
@@ -222,6 +305,15 @@ export function openManagedFiles(context, specialist) {
             const response = await executeWorker({ files, modified, known, name, args }, context.workSignal)
             context.assertNativeAuthority()
             if (response.known) {
+                const modifications = Object.entries(response.changed)
+                for (const [p, next] of modifications) {
+                    if (path.extname(p).toLowerCase() !== '.js') continue
+                    const lint = await checkJavaScript(next, files[p], workspaceModuleMode(files, p), context.workSignal)
+                    if (args.mode === 'patch') {
+                        if (lint.status === 'error') response.result.lint = { ...response.result.lint, [p]: lint }
+                    } else response.result.lint = lint
+                }
+                context.assertNativeAuthority()
                 for (const removed of response.removed) delete files[assertRelative(removed)]
                 for (const [p, body] of Object.entries(response.changed)) files[assertRelative(p)] = body
                 modified = response.modified

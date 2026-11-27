@@ -5,7 +5,7 @@ import { estimateTokens } from '../context.mjs'
 import { needsNativeCanvasCredential, supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
 import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
-import { specialistSummary } from '../profile.mjs'
+import { specialistSummary, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
 export const admittedAgentEngine = Symbol('admittedAgentEngine')
@@ -41,6 +41,14 @@ export function nativeCompatibilityGaps(roster) {
             [specialist.fileAccess && existingFileDependency(roster, specialist), 'existing workspace files need owner-scoped upload']
         ])
             if (enabled) capabilities.add(label)
+        if (specialist.fileAccess && roster.name && specialist.name) {
+            const savedProfile = roster.tryId ? tryProfileName(roster.tryId) : roster.name
+            for (const requirement of specialistFileServiceRequirements(
+                specialistProfileName(savedProfile, specialist.name),
+                specialist.credentials
+            ))
+                capabilities.add(requirement)
+        }
         if (specialist.playbooks?.some((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content)))
             capabilities.add('runtime playbook templates')
         for (const binding of specialist.modules || []) {

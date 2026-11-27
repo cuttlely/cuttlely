@@ -17,6 +17,10 @@
             "name": "dotenv"
         },
         {
+            "name": "js-yaml",
+            "reason": "Native file preflight uses the existing pinned js-yaml parser with the JSON schema to inspect saved service dependencies."
+        },
+        {
             "name": "mdast-util-from-markdown",
             "reason": "Trusted pinned reports parse exact source Markdown to refuse conflicting reference-link destinations before composition."
         },

@@ -123,7 +123,9 @@ def page(body, path, input_offset, input_limit):
         _apply_char_budget(res, shown, offset, len(lines), 100000)
     if any(len(line) > 2000 for line in part):
         res["truncated_lines"] = True
+    before_redaction = res["content"]
     res["content"] = redact_sensitive_text(
         res["content"], file_read=True, secret_file=_is_secret_file_arg(path)
     )
+    res["_redacted"] = res["content"] != before_redaction
     return res

@@ -911,7 +911,7 @@ function noteTreeMutation(logical) {
     if (typeof profileWriteTest.beforeTreeMutation === 'function') profileWriteTest.beforeTreeMutation(logical)
 }
 
-function readTextNoFollow(file, hook = false) {
+function readTextNoFollow(file, hook = false, maxBytes = Infinity) {
     const parent = path.dirname(path.resolve(file))
     const opened = openDirNoFollow(parent)
     if (!opened) return null
@@ -941,6 +941,7 @@ function readTextNoFollow(file, hook = false) {
             const rootReal = containingRootReal(file)
             if (!rootReal || !insideRoot(rootReal, fileReal)) throwLink(file)
         }
+        if (st.size > maxBytes) throw new HarnessError('profile_size', 'The profile file exceeds the inspection limit.')
         const text = fs.readFileSync(fileFd, 'utf8')
         // Check again after the read, so text from a file that left the root meanwhile is not returned.
         if (process.platform === 'linux') {
@@ -1129,6 +1130,28 @@ export function profileEnvPath(name) {
 
 export function readProfileEnv(name) {
     return readEnvFile(profileEnvPath(name))
+}
+
+// Only labels leave this inspection. Read legacy profile files with the same directory
+// descriptors used for runtime settings, including when a draft is unpublished.
+export function specialistFileServiceRequirements(profile, credentials) {
+    try {
+        const configText = readTextNoFollow(path.join(profileDir(profile), 'config.yaml'), false, 2 * 1024 ** 2)
+        const yaml = createRequire(new URL('../components/package.json', import.meta.url))('js-yaml')
+        const config = (configText && yaml.load(configText, { schema: yaml.JSON_SCHEMA })) || {}
+        const env = readProfileEnv(profile)
+        const needs = []
+        if (
+            config.file_tools?.hosted_ocr !== false &&
+            (credentials?.FIRECRAWL_API_KEY || env.FIRECRAWL_API_KEY || process.env.FIRECRAWL_API_KEY)
+        )
+            needs.push('configured hosted document OCR')
+        if (config.lsp?.enabled !== false && (config.lsp?.enabled === true || Object.keys(config.lsp?.servers || {}).length > 0))
+            needs.push('configured workspace language server')
+        return needs
+    } catch {
+        return ['unverified workspace file service configuration']
+    }
 }
 
 function isGatewayPair(env) {

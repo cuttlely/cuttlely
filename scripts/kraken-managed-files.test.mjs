@@ -260,3 +260,143 @@ test('local receipts bind the actual bytes, admitted user/key and every filesyst
     fs.symlinkSync(path.join(dir, 'existing'), path.join(rootDir, org))
     await assert.rejects(readManagedUpload(proof, scope, rootDir, 1000))
 })
+
+test(
+    'managed files commit the visible turn and all workspaces together and isolate draft principals',
+    { skip: !ready && process.env.CUTTLELY_TEST_NATIVE_FILES_REQUIRED !== '1' },
+    async (t) => {
+        assert.ok(ready)
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'draft-files-'))
+        const old = process.env.CUTTLELY_DATA_DIR
+        process.env.CUTTLELY_DATA_DIR = dir
+        const { appendTurn, closeSessions, draftSessionScope, readMessages } = await import('../packages/harness/session.mjs')
+        const { openManagedFiles } = await import('../packages/harness/runtime/native-files.mjs')
+        t.after(() => {
+            closeSessions()
+            if (old === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = old
+            fs.rmSync(dir, { recursive: true, force: true })
+        })
+        const roster = {
+            workspaceId: randomUUID(),
+            chatflowId: randomUUID(),
+            tryId: randomUUID(),
+            createdAt: new Date().toISOString(),
+            chief: { model: { modelName: 'gpt-qa' } }
+        }
+        const name = 'qa-draft',
+            chatId = randomUUID(),
+            scope = draftSessionScope(roster)
+        const user = { via: 'session', tryOwner: 'user:' + randomUUID() }
+        function context(caller = user, generation = roster.createdAt) {
+            const controller = new AbortController()
+            return {
+                name,
+                chatId,
+                sessionScope: scope,
+                roster: { ...roster, createdAt: generation },
+                controller,
+                workSignal: controller.signal,
+                assertNativeAuthority() {
+                    controller.signal.throwIfAborted()
+                },
+                moduleOptions: { flowOptions: { nestedFlowCaller: caller } }
+            }
+        }
+        const specialist = { name: 'files' }
+        const run = async (work, tool, args) => JSON.parse((await work.execute(tool, args)).content)
+        const commit = (ctx, label) =>
+            appendTurn(name, chatId, label, label, [], undefined, { scope, managedWorkspaces: ctx.managedWorkspaces.values() })
+        const a = context(),
+            b = context()
+        const left = openManagedFiles(a, specialist),
+            right = openManagedFiles(b, specialist)
+        await run(left, 'write_file', { path: 'draft.txt', content: 'accepted' })
+        await run(right, 'write_file', { path: 'draft.txt', content: 'stale' })
+        await left.finish()
+        await right.finish()
+        commit(a, 'first')
+        assert.throws(() => commit(b, 'stale'), { code: 'workspace_changed' })
+        const cancelled = context(),
+            abandoned = openManagedFiles(cancelled, specialist)
+        await run(abandoned, 'write_file', { path: 'aborted.txt', content: 'not committed' })
+        cancelled.controller.abort()
+        await assert.rejects(abandoned.finish(), { name: 'AbortError' })
+        for (const ctx of [
+            context({ via: 'api_key', apiKeyId: randomUUID() }),
+            context({ via: 'session', tryOwner: 'user:' + randomUUID() }),
+            context(user, 'new-generation')
+        ]) {
+            const result = await run(openManagedFiles(ctx, specialist), 'read_file', { path: 'draft.txt' })
+            assert.ok(result.error)
+        }
+        closeSessions()
+        const owned = context(),
+            recovered = openManagedFiles(owned, specialist)
+        assert.equal((await run(recovered, 'read_file', { path: 'draft.txt' })).content, '1|accepted')
+        assert.ok((await run(recovered, 'read_file', { path: 'aborted.txt' })).error)
+        assert.deepEqual(
+            readMessages(name, chatId, undefined, { scope }).map((x) => x.content),
+            ['first', 'first']
+        )
+        const valid = await run(recovered, 'write_file', { path: 'sample.js', content: 'export const value = 1' })
+        assert.equal(valid.lint.status, 'ok')
+        const invalid = await run(recovered, 'write_file', { path: 'sample.js', content: 'const illegal = ;' })
+        assert.equal(invalid.lint.status, 'error')
+        const note = 'ghp_' + 'X'.repeat(36)
+        await run(recovered, 'write_file', { path: 'sample.txt', content: 'API_KEY=' + note })
+        await recovered.finish()
+        commit(owned, 'second')
+        const reader = openManagedFiles(context(), specialist)
+        const page = await run(reader, 'read_file', { path: 'sample.txt' })
+        assert.ok(!page.content.includes(note))
+        assert.ok((await run(reader, 'write_file', { path: 'sample.txt', content: 'discard' })).error)
+        const difference = await run(reader, 'patch', {
+            mode: 'patch',
+            patch: '*** Begin Patch\n*** Update File: sample.txt\n@@\n-API_KEY=' + note + '\n+value=0\n*** End Patch'
+        })
+        assert.ok(difference.success)
+        assert.ok(!JSON.stringify(difference).includes(note))
+        assert.ok((await run(reader, 'read_file', { path: 'sampl.txt' })).similar_files.includes('sample.txt'))
+    }
+)
+
+test('file compatibility reports configured optional services and unowned local workspaces', async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'file-services-')),
+        oldRoot = process.env.CUTTLELY_DATA_DIR,
+        oldHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_DATA_DIR = root
+    process.env.CUTTLELY_HERMES_HOME = path.join(root, 'runtime')
+    t.after(() => {
+        for (const [key, old] of [
+            ['CUTTLELY_DATA_DIR', oldRoot],
+            ['CUTTLELY_HERMES_HOME', oldHome]
+        ]) {
+            if (old === undefined) delete process.env[key]
+            else process.env[key] = old
+        }
+        fs.rmSync(root, { recursive: true, force: true })
+    })
+    const { nativeCompatibilityGaps } = await import('../packages/harness/runtime/native-prime.mjs')
+    const { specialistProfileName, specialistWorkspace } = await import('../packages/harness/profile.mjs')
+    const { profileDir } = await import('../packages/harness/paths.mjs')
+    const role = { name: 'files', fileAccess: true, credentials: { FIRECRAWL_API_KEY: 'local-synthetic' } }
+    const team = { name: 'managed', specialists: [role] }
+    const check = () => nativeCompatibilityGaps(team).flatMap((s) => s.capabilities)
+    const name = specialistProfileName(team.name, role.name),
+        profile = profileDir(name),
+        located = specialistWorkspace(name)
+    fs.mkdirSync(profile, { recursive: true })
+    assert.ok(check().includes('configured hosted document OCR'))
+    fs.writeFileSync(path.join(profile, 'config.yaml'), 'file_tools:\n  hosted_ocr: false\nlsp:\n  enabled: true\n')
+    assert.ok(!check().includes('configured hosted document OCR'))
+    assert.ok(check().includes('configured workspace language server'))
+    fs.mkdirSync(path.join(located, 'chat-images'), { recursive: true })
+    const oldFiles = 'existing workspace files need owner-scoped upload'
+    assert.ok(!check().includes(oldFiles))
+    fs.writeFileSync(path.join(located, 'chat-images', 'previous.png'), 'fixture')
+    assert.ok(check().includes(oldFiles))
+    fs.rmSync(located, { recursive: true })
+    fs.symlinkSync(root, located)
+    assert.ok(check().includes(oldFiles))
+})

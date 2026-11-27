@@ -182,6 +182,8 @@ class Files:
                 return {"error": error}
             result = apply_v4a_operations(operations, self)
             out = result.to_dict()
+            if out.get("diff"):
+                out["diff"] = redact_sensitive_text(out["diff"], file_read=True)
             if result.success:
                 out["files_modified"] = [
                     op.file_path for op in operations if op.operation.name != "MOVE"
@@ -205,19 +207,29 @@ class Files:
                 else dict(result.to_dict(), resolved_path=p, files_modified=[p])
             )
         if p not in self.files:
-            return {"error": "File not found: " + p}
+            out = {"error": "File not found: " + p}
+            if name == "read_file":
+                wanted = PurePosixPath(p)
+                nearby = sorted(PurePosixPath(n).name for n in self.files
+                                if PurePosixPath(n).parent == wanted.parent and not PurePosixPath(n).name.startswith("."))[:50]
+                choices = difflib.get_close_matches(wanted.name, nearby, n=5, cutoff=0.55)
+                out["not_found"] = True
+                if choices:
+                    out["similar_files"] = [str(wanted.with_name(c)) for c in choices]
+            return out
         if name == "read_file":
             body = self.files[p]
             if has_binary_extension(p) and not is_extractable_document(p):
                 return {"error": "Cannot read binary file."}
             result = page(body, p, args.get("offset", 1), args.get("limit", 2000))
+            redacted = result.pop("_redacted", False)
             if (
-                not result.get("error")
+                not redacted
+                and not result.get("error")
                 and int(args.get("offset", 1)) <= 1
                 and not result.get("truncated")
                 and not result.get("truncated_lines")
                 and not result.get("extracted_document")
-                and "«redacted" not in result.get("content", "")
             ):
                 self.known[p] = digest(body)
             return result
