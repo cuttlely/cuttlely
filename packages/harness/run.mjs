@@ -94,7 +94,13 @@ import {
 import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
 import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
-import { analystCaptureIdentity, openNativeAnalyst, nativeAnalystBinding } from './runtime/native-analyst.mjs'
+import {
+    analystCaptureIdentity,
+    emptyNativeAnalystCard,
+    openNativeAnalyst,
+    nativeAnalystBinding,
+    prepareEmptyAnalystCard
+} from './runtime/native-analyst.mjs'
 import { isLiveTry } from './try-live.mjs'
 import {
     assignedPlaybookFile,
@@ -4002,6 +4008,20 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             }
         for (const spec of mcp?.tools || []) register(spec, (args) => mcp.call(spec.function.name, args))
         for (const spec of analyst?.tools || []) register(spec, (args, callId) => analyst.execute(spec.function.name, args, callId))
+        for (const binding of (specialist.mcpServers || []).filter(emptyNativeAnalystCard)) {
+            const item = await prepareEmptyAnalystCard(context, binding, assertCurrent)
+            const description = toolSpec(binding, 'Connected MCP server')
+            const name = description.name
+            register(
+                { type: 'function', function: { name, description: description.description, parameters: description.inputSchema } },
+                async (args) => {
+                    assertCurrent()
+                    const content = await callPrepared(item, args.input, assertCurrent)
+                    assertCurrent()
+                    return { content, error: true }
+                }
+            )
+        }
         const files = specialist.fileAccess ? openManagedFiles(context, specialist) : null
         for (const tool of files?.tools || [])
             register(tool, (args) => {

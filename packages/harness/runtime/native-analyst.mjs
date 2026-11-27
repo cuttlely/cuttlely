@@ -1,3 +1,4 @@
+import { prepareModule, readyToolSpecs } from '../bridge.mjs'
 import { randomUUID } from 'node:crypto'
 import { beginAnalystCalls, endAnalystCalls } from '../analyst-capture.mjs'
 import { HarnessError } from '../errors.mjs'
@@ -15,6 +16,21 @@ function selectedActions(binding) {
     } catch {
         return null
     }
+}
+
+// The released template configures no SQL actions, pins or destination. Its node still
+// discovers its genuine workspace-scoped empty-action result, or its configuration error.
+export function emptyNativeAnalystCard(binding) {
+    if (
+        binding?.nodeName !== 'postgreSQLMCP' ||
+        binding.category !== 'Tools (MCP)' ||
+        (binding.credential != null && binding.credential !== '') ||
+        binding.nodeData
+    )
+        return false
+    if (Object.keys(binding.upstream || {}).length || String(process.env.CUTTLELY_POSTGRES_URL || '').trim()) return false
+    const inputs = binding.inputs || {}
+    return inputs.allowPinDefinitions === false && Object.keys(inputs).every((name) => name === 'allowPinDefinitions')
 }
 
 export function nativeAnalystBinding(binding) {
@@ -50,6 +66,25 @@ export function analystCaptureIdentity(context, native = context?.nativeSpeciali
     if (!owner && !context.turnId) throw new HarnessError('forbidden', 'Native Analyst requires an admitted turn.')
     // A slash is forbidden in saved harness names. An unowned turn cannot resume an earlier turn's cursor.
     return { harness: 'native/' + context.name, chatId: owner || context.turnId }
+}
+
+export async function prepareEmptyAnalystCard(context, binding, assertCurrent) {
+    assertCurrent()
+    if (!emptyNativeAnalystCard(binding)) throw new HarnessError('forbidden', 'The saved Analyst card changed.')
+    const owner = await pinnedCallContext(context.roster, context.moduleOptions, context.chatId)
+    const workspace = owner.flowOptions?.workspaceId
+    const scoped = owner.flowOptions?.searchOptions?.workspaceId?._value
+    if (!workspace || workspace !== context.roster.workspaceId || (scoped && scoped !== workspace))
+        throw new HarnessError('forbidden', 'The Analyst workspace does not match the saved team.')
+    assertCurrent()
+    const item = await prepareModule(binding, '', {
+        ...context.moduleOptions,
+        nodeCache: undefined,
+        flowOptions: { ...owner.flowOptions, requireReadOnlyAnalystUrl: false }
+    })
+    assertCurrent()
+    if (item.runs || readyToolSpecs(item).length) throw new HarnessError('forbidden', 'The empty Analyst card exposed an action.')
+    return item
 }
 
 // The binding's real node discovers and checks its saved actions, stamps, credential and guard settings.

@@ -6,7 +6,7 @@ import { HarnessError } from '../errors.mjs'
 import { estimateTokens } from '../context.mjs'
 import { needsNativeCanvasCredential, supportsNativeCanvasBinding, unboundNativeSerp } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
-import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
+import { emptyNativeAnalystCard, nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
 import { chiefPrompt, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
@@ -66,7 +66,11 @@ export function nativeCompatibilityGaps(roster, { admitUnavailableTools = false,
             }
         }
         for (const binding of specialist.mcpServers || []) {
-            if (!nativeAnalystBinding(binding) && !nativeMcpBindingSupported(binding, roster.workspaceId))
+            if (
+                !nativeAnalystBinding(binding) &&
+                !emptyNativeAnalystCard(binding) &&
+                !nativeMcpBindingSupported(binding, roster.workspaceId)
+            )
                 capabilities.add('MCP configuration for ' + nativeNodeLabel(binding))
         }
         if (specialist.trustedOutputs?.length && !nativeAnalystSpecialistSupported(specialist))

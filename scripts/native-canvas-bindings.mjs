@@ -28,7 +28,64 @@ function matches(binding, shape) {
     )
 }
 
+function plainSourceMetadata(value) {
+    if (value === undefined || value === '') return true
+    let metadata = value
+    if (typeof metadata === 'string') {
+        if (metadata.length > 512) return false
+        try {
+            metadata = JSON.parse(metadata)
+        } catch {
+            return false
+        }
+    }
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
+    return (
+        Object.keys(metadata).length === 1 &&
+        Object.hasOwn(metadata, 'source') &&
+        typeof metadata.source === 'string' &&
+        /^[\p{L}\p{N}][\p{L}\p{N} ._()-]{0,127}$/u.test(metadata.source)
+    )
+}
+
+// A fresh prepared instance builds its index from the saved local documents for this turn.
+// The canvas compiler represents a single list input as an array when its node metadata is available.
+export function localMemoryStoreBinding(binding, output = 'retriever') {
+    if (binding?.nodeName !== 'memoryVectorStore' || !['retriever', 'vectorStore'].includes(output)) return false
+    const upstream = binding.upstream || {}
+    const documents = Array.isArray(upstream.document) ? upstream.document : [upstream.document]
+    const hasCredential = (node) => node?.credential != null && node.credential !== ''
+    if (!documents.length || documents.length > 64 || hasCredential(binding) || hasCredential(upstream.embeddings)) return false
+    if (documents.some((document) => typeof document?.inputs?.text !== 'string' || !document.inputs.text.length)) return false
+    if (documents.reduce((size, document) => size + Buffer.byteLength(document.inputs.text), 0) > 1024 * 1024) return false
+    const integerInput = (value, fallback) =>
+        value == null || value === ''
+            ? fallback
+            : typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))
+            ? Number(value)
+            : NaN
+    const topK = integerInput(binding.inputs?.topK, 4)
+    const dimensions = integerInput(upstream.embeddings?.inputs?.dimensions, 384)
+    if (!Number.isSafeInteger(topK) || topK <= 0 || topK > 64 || !Number.isSafeInteger(dimensions) || dimensions < 8 || dimensions > 4096)
+        return false
+    const shape = {
+        output,
+        inputs: ['topK'],
+        upstream: {
+            document: { type: 'plainText', output: 'document', inputs: ['text', 'metadata'] },
+            embeddings: { type: 'localHashEmbeddings', inputs: ['dimensions'] }
+        }
+    }
+    return documents.every(
+        (document) =>
+            !hasCredential(document) &&
+            plainSourceMetadata(document.inputs.metadata) &&
+            matches({ ...binding, upstream: { ...upstream, document } }, shape)
+    )
+}
+
 export function supportsNativeCanvasBinding(binding) {
+    if (binding?.nodeName === 'memoryVectorStore') return localMemoryStoreBinding(binding)
     return Object.hasOwn(supported, binding?.nodeName) && matches(binding, supported[binding.nodeName])
 }
 
