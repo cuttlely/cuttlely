@@ -171,11 +171,13 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         if (active) return (await active.query(select + '$1::pg_catalog.text', [key])).rows[0]?.content ?? null
 
         // A simple query message is one implicit transaction. Acquire the writer's lock
-        // first so the SELECT starts with a fresh committed snapshot after any publication.
-        const [, , record] = await pool.query(
+        // and table locks first so the SELECT sees a committed publication, even from a direct SQL writer.
+        // SHARE locks coexist among readers without writing or flushing WAL for a tuple lock.
+        const [, , , record] = await pool.query(
             `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
              SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));
-             ${select}${escapeLiteral(key)}::pg_catalog.text FOR SHARE`
+             LOCK TABLE ${queueSchema}.harness_records IN SHARE MODE;
+             ${select}${escapeLiteral(key)}::pg_catalog.text`
         )
         return record.rows[0]?.content ?? null
     }

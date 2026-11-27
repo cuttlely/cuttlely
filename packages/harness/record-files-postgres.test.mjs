@@ -84,7 +84,7 @@ if (!isMainThread) {
             await writer.query('BEGIN')
             await writer.query(`UPDATE ${table} SET content=$1 WHERE entry=$2`, [JSON.stringify(original), entry])
             const rowRead = startRead()
-            await waitForLock('transactionid')
+            await waitForLock('relation')
             await writer.query('COMMIT')
             assert.deepEqual(await rowRead, original)
 
@@ -93,6 +93,8 @@ if (!isMainThread) {
             await writer.query(`SELECT content FROM ${table} WHERE entry=$1 FOR SHARE`, [entry])
             assert.deepEqual(await startRead(), original)
             await writer.query('COMMIT')
+            // A previously row-locked roster is still visible to readers after an upgrade.
+            assert.deepEqual(await startRead(), original)
 
             store.exec('BEGIN')
             try {
