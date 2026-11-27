@@ -398,15 +398,7 @@ export async function startStorageUpgrade({
                 const hasStore = (kind) => inventory.some((store) => store.kind === kind && !store.retired && store.busy)
                 if (hasStore('queue')) stopQueueJobs(false)
                 if (hasStore('etl')) await stopEtlJobs()
-                if (hasStore('dash') && !state.pilot) {
-                    const reader = new DatabaseSync(fileFor({ kind: 'dash' }), { readOnly: true })
-                    try {
-                        const rows = reader.prepare('SELECT id,workspace,lease FROM dash_flow WHERE lease IS NOT NULL').all()
-                        for (const row of rows) await dashStore().cancel(row.id, row.workspace, row.lease)
-                    } finally {
-                        reader.close()
-                    }
-                }
+                if (hasStore('dash') && !state.pilot) await dashStore().cancelRefreshesForUpgrade()
                 if (
                     !runningStorageJobs() &&
                     !hasActiveTryProfiles() &&

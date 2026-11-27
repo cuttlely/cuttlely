@@ -152,8 +152,8 @@ export default function StorageUpgradeCard() {
                                 </Stack>
                             ) : confirmStop ? (
                                 <Alert severity='warning'>
-                                    Stop jobs for every team and pause new work until the upgrade completes or you resume jobs? Running jobs
-                                    may have already performed part of their work. Stop standalone workers that share the old files first.
+                                    Stop jobs for every team and pause new work on this instance for the upgrade? Running jobs may have
+                                    already performed part of their work. Stop standalone workers that share the old files first.
                                     <Stack direction='row' spacing={1}>
                                         <Button color='error' disabled={busy} onClick={() => changeJobs(true)}>
                                             Stop jobs and pause new work

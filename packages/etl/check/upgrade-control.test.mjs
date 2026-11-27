@@ -460,6 +460,16 @@ test('operator stops live work before retiring orphaned jobs and locks, and can 
         db().exec(
             "INSERT INTO runs(id,pipeline_id,version,mode,status,created_at,updated_at) VALUES ('orphan','pipeline',1,'full','running','0','0')"
         )
+        const { SQLITE_DASH_SCHEMA, defaultDashFile } = await import('../../harness/dashflows.mjs')
+        const dash = new DatabaseSync(defaultDashFile())
+        try {
+            dash.exec(SQLITE_DASH_SCHEMA)
+            dash.prepare(
+                'INSERT INTO dash_flow(id,workspace,owner,revision,definition,snapshot,lease,lease_until) VALUES(?,?,?,1,?,?,?,?)'
+            ).run('d', 'team', 'owner', '{}', '{"verified":true}', 'old-lease', Date.now() + 60000)
+        } finally {
+            dash.close()
+        }
         await assert.rejects(controller.transition('stop-jobs'), /Confirm/)
         const other = await source.session()
         try {
