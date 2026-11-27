@@ -407,16 +407,34 @@ export function failQueuedRun(name, id, error) {
     return getRun(harnessName, runId)
 }
 
+// The queue transaction owns the proof of failure. Update only its pre-admitted history row,
+// including an older API process's generic interruption, without replacing a completed turn.
+export function settleLostQueueRun(db, payload, status, code, message, now) {
+    if (!safeRunId(payload?.runId)) return
+    ensure(db)
+    db.prepare(
+        `UPDATE run_history SET status = ?, error_code = ?, error_message = ?, finished_at = ?,
+            latency_ms = ${db.dialect === 'postgres' ? 'GREATEST' : 'MAX'}(0, ? - started_at)
+         WHERE id = ? AND harness_name = ? AND chat_id = ? AND COALESCE(api_key_id, '') = ?
+           AND (status IN ('queued','running') OR (status = 'failed' AND error_code = 'interrupted'))`
+    ).run(status, code, previewText(message), now, now, payload.runId, payload.name, payload.chatId, payload.apiKeyId || '')
+}
+
 // Runs left queued or running by a process that stopped. Only rows that started before `before` are closed.
 export function interruptOpenRuns({ before = Date.now(), message = 'The server stopped before this run finished.' } = {}) {
     let changed = 0
     immediate((db) => {
         ensure(db)
+        // A replacement API may start while an external worker is still processing an admitted job.
+        const runId = db.dialect === 'postgres' ? "payload::jsonb->>'runId'" : "json_extract(payload,'$.runId')"
         const info = db
             .prepare(
                 `UPDATE run_history
                  SET status = 'failed', finished_at = ?, error_code = 'interrupted', error_message = ?
-                 WHERE status IN (${OPEN_STATUSES.map(() => '?').join(', ')}) AND started_at < ?`
+                 WHERE status IN (${OPEN_STATUSES.map(() => '?').join(', ')}) AND started_at < ?
+                   AND NOT EXISTS (SELECT 1 FROM jobs
+                                   WHERE session_key = run_history.harness_name || ':' || run_history.chat_id
+                                     AND status IN ('queued','running') AND ${runId} = run_history.id)`
             )
             .run(Date.now(), previewText(message, 240), ...OPEN_STATUSES, before)
         changed = info.changes
@@ -452,21 +470,29 @@ function storedResult(result) {
     })
 }
 
+function writeRunResult(db, runId, harnessName, body, at) {
+    db.prepare(
+        `INSERT INTO run_results (run_id, harness_name, result_json, created_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(run_id) DO UPDATE SET result_json = excluded.result_json, created_at = excluded.created_at`
+    ).run(runId, harnessName, body, at)
+}
+
 export function saveRunResult(name, id, result) {
     const harnessName = harnessNameOf(name)
     const runId = safeRunId(id)
     const body = storedResult(result)
     if (!harnessName || !runId || !body) return false
-    immediate((db) => {
+    return immediate((db) => {
         ensure(db)
-        const exists = db.prepare('SELECT 1 AS ok FROM run_history WHERE id = ? AND harness_name = ?').get(runId, harnessName)
-        if (!exists) return
-        db.prepare(
-            `INSERT INTO run_results (run_id, harness_name, result_json, created_at) VALUES (?, ?, ?, ?)
-             ON CONFLICT(run_id) DO UPDATE SET result_json = excluded.result_json, created_at = excluded.created_at`
-        ).run(runId, harnessName, body, Date.now())
+        const completed = db
+            .prepare(
+                "SELECT 1 AS ok FROM run_history WHERE id = ? AND harness_name = ? AND status IN ('succeeded','completed_with_errors')"
+            )
+            .get(runId, harnessName)
+        if (!completed) return false
+        writeRunResult(db, runId, harnessName, body, Date.now())
+        return true
     })
-    return true
 }
 
 export function getRunResult(name, id) {
@@ -484,7 +510,7 @@ export function getRunResult(name, id) {
     }
 }
 
-export function finishHarnessRun(pending, { result, error, finishedAt, traceId, diagnostics } = {}) {
+export function finishHarnessRun(pending, { result, error, finishedAt, traceId, diagnostics, saveResult = false } = {}) {
     if (!pending?.id || !pending?.harness) return null
     const finished = Number.isFinite(finishedAt) ? finishedAt : Date.now()
     const started = Date.parse(pending.startedAt)
@@ -495,31 +521,37 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId, 
     const timings = timingsOf(result)
     const agents = agentsOf(result)
     const privateDiagnostics = diagnosticsJson(diagnostics)
+    const body = saveResult && !error ? storedResult(result) : null
     immediate((db) => {
         ensure(db)
-        db.prepare(
-            `UPDATE run_history
+        const changed = db
+            .prepare(
+                `UPDATE run_history
              SET status = ?, finished_at = ?, latency_ms = ?, prompt_tokens = ?, completion_tokens = ?,
                  error_code = ?, error_message = ?, text_preview = ?, agents_json = ?, timings_json = ?,
                  trace_json = ?, trace_id = COALESCE(?, trace_id), diagnostics_json = ?
-             WHERE id = ? AND harness_name = ?`
-        ).run(
-            status,
-            finished,
-            latency,
-            tokens.prompt,
-            tokens.completion,
-            error ? String(error.code || 'harness_failed').slice(0, 64) : null,
-            error ? previewText(error.message || '', 240) : null,
-            previewText(recorded?.text || ''),
-            JSON.stringify(agents),
-            timings ? JSON.stringify(timings) : null,
-            traceJson(recorded),
-            safeTraceId(traceId),
-            privateDiagnostics,
-            pending.id,
-            pending.harness
-        )
+             WHERE id = ? AND harness_name = ?
+               AND NOT (status IN ('failed','cancelled') AND COALESCE(error_code,'') IN ('worker_lost','aborted'))`
+            )
+            .run(
+                status,
+                finished,
+                latency,
+                tokens.prompt,
+                tokens.completion,
+                error ? String(error.code || 'harness_failed').slice(0, 64) : null,
+                error ? previewText(error.message || '', 240) : null,
+                previewText(recorded?.text || ''),
+                JSON.stringify(agents),
+                timings ? JSON.stringify(timings) : null,
+                traceJson(recorded),
+                safeTraceId(traceId),
+                privateDiagnostics,
+                pending.id,
+                pending.harness
+            )
+        // The HTTP process may have restarted. Publish the asynchronously requested result with its terminal status.
+        if (changed.changes && body) writeRunResult(db, pending.id, pending.harness, body, finished)
     })
     return getRun(pending.harness, pending.id)
 }

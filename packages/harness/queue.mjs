@@ -5,6 +5,7 @@ import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
+import { settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
 import { nativeToolJournal } from './runtime/native-journal.mjs'
@@ -112,13 +113,42 @@ function reapStaleRunning(db, key, now) {
 // Both expiry paths hold the queue transaction while checking the lease and
 // reconciling committed call receipts. A refreshed or finished job wins the race.
 function failExpiredWorker(db, id, cutoff, now) {
-    const expired = db.prepare("SELECT 1 AS ok FROM jobs WHERE id = ? AND status = 'running' AND updated_at < ?").get(id, cutoff)
+    const expired = db.prepare("SELECT payload FROM jobs WHERE id = ? AND status = 'running' AND updated_at < ?").get(id, cutoff)
     if (!expired) return
     const message = 'The harness worker stopped before the turn finished.' + markUnconfirmedToolCalls(db, id)
     db.prepare(
         `UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ?,
          payload = ${finishedPayload(db)} WHERE id = ?`
     ).run(message, now, id)
+    settleLostQueueRun(db, JSON.parse(expired.payload), 'failed', 'worker_lost', message, now)
+}
+
+// Called after the API has authorized this specific history row. A lost HTTP waiter cannot
+// reconcile an orphaned job itself. The session index and admission ID identify that one job.
+export function reconcilePublicQueueRun(run) {
+    const db = database()
+    const runId = db.dialect === 'postgres' ? "payload::jsonb->>'runId'" : "json_extract(payload,'$.runId')"
+    const now = Date.now()
+    const stale = staleAfter()
+    const row = db
+        .prepare(
+            `SELECT id, status FROM jobs WHERE session_key = ? AND ${runId} = ?
+         AND ((status = 'running' AND updated_at < ?) OR (status = 'failed' AND error_code = 'worker_lost')
+              OR (status = 'cancelled' AND error_code = 'aborted'))`
+        )
+        .get(sessionKey(run.harness, run.chatId), run.id, stale ? now - stale : 0)
+    if (!row) return false
+    if (row.status === 'running') {
+        immediate((tx) => failExpiredWorker(tx, row.id, now - stale, now))
+    } else {
+        // Also repair a receipt already settled by an older worker or a drained storage upgrade.
+        immediate((tx) => {
+            const job = tx.prepare('SELECT payload, status, error_code, error_message, updated_at FROM jobs WHERE id = ?').get(row.id)
+            if (job?.error_code === 'worker_lost' || job?.error_code === 'aborted')
+                settleLostQueueRun(tx, JSON.parse(job.payload), job.status, job.error_code, job.error_message, job.updated_at)
+        })
+    }
+    return true
 }
 
 // The owning queue transaction has established that the worker can no longer acknowledge its calls.

@@ -245,9 +245,10 @@ function traceIdFrom(args) {
 
 function rememberRun(args, started, pending, result, error, diagnostics) {
     let recorded = pending
+    const terminal = { result, error, traceId: traceIdFrom(args), diagnostics, saveResult: Boolean(args?.runId) }
     try {
         if (pending) {
-            recorded = finishHarnessRun(pending, { result, error, traceId: traceIdFrom(args), diagnostics }) || pending
+            recorded = finishHarnessRun(pending, terminal) || pending
         } else {
             const opened = beginHarnessRun({
                 id: args?.runId,
@@ -260,7 +261,7 @@ function rememberRun(args, started, pending, result, error, diagnostics) {
                 input: args?.input,
                 traceId: traceIdFrom(args)
             })
-            recorded = opened ? finishHarnessRun(opened, { result, error, traceId: traceIdFrom(args), diagnostics }) : null
+            recorded = opened ? finishHarnessRun(opened, terminal) : null
         }
     } catch (historyError) {
         console.warn(`[harness] run history was not saved: ${historyError.message}`)

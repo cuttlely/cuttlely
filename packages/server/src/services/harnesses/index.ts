@@ -1328,22 +1328,34 @@ async function visibleManagedRun(run: any, workspaceId: string | null | undefine
     return run.trace.managedFileOwner === (await managedFileOwnerTag(scope, workspaceId, run.chatId))
 }
 
+async function reconciledPublicRun(run: any, workspaceId: string | null | undefined, scope: CallerScope) {
+    if (!run || !(await visibleManagedRun(run, workspaceId, scope))) return null
+    if (!run.chatId || (!['queued', 'running'].includes(run.status) && run.error?.code !== 'interrupted')) return run
+    const queue = await loadHarness('queue.mjs')
+    if (!queue.reconcilePublicQueueRun(run)) return run
+    const history = await loadHarness('history.mjs')
+    // A worker can finish between the lease check and this read, adding an upload owner's tag.
+    const current = history.getRun(run.harness, run.id, { apiKeyId: scope.apiKeyId ?? null })
+    return current && (await visibleManagedRun(current, workspaceId, scope)) ? current : null
+}
+
 const listRuns = async (name: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
     const runs = history.listRuns(name, { limit: 50, apiKeyId: scope.apiKeyId ?? null })
-    const visible = await Promise.all(runs.map((run: unknown) => visibleManagedRun(run, workspaceId, scope)))
-    return runs.filter((_run: unknown, i: number) => visible[i])
+    const visible = await Promise.all(runs.map((run: unknown) => reconciledPublicRun(run, workspaceId, scope)))
+    return visible.filter(Boolean)
 }
 
 const getRun = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
     const run = history.getRun(name, runId, { apiKeyId: scope.apiKeyId ?? null })
-    if (!run || !(await visibleManagedRun(run, workspaceId, scope))) {
+    const visible = await reconciledPublicRun(run, workspaceId, scope)
+    if (!visible) {
         throw new AppError(StatusCodes.NOT_FOUND, `Run ${runId} was not found.`)
     }
-    return run
+    return visible
 }
 
 const getRunDiagnostics = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {

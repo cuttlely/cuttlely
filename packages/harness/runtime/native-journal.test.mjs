@@ -6,7 +6,18 @@ import { test } from 'node:test'
 import { nativeToolJournal, queueNativeTool } from './native-journal.mjs'
 import { runNativeToolLoop } from './native-prime.mjs'
 import { closeQueueDb, database } from '../lock.mjs'
-import { appendEvent, claimJob, enqueueHarnessJob, readEvents, readJob, waitForJob } from '../queue.mjs'
+import {
+    appendEvent,
+    claimJob,
+    enqueueHarnessJob,
+    readEvents,
+    readJob,
+    reconcilePublicQueueRun,
+    stopQueueJobs,
+    waitForJob
+} from '../queue.mjs'
+
+import { beginHarnessRun, finishHarnessRun, getRun, getRunResult, interruptOpenRuns, queueHarnessRun, saveRunResult } from '../history.mjs'
 
 test('all validated calls are durably queued before dispatch and failure to fence the job prevents invocation', async () => {
     const records = []
@@ -97,5 +108,57 @@ test('SQLite expiry preserves confirmation and unstarted calls and only marks ou
             uncertain.map((row) => JSON.parse(row.event).callId),
             ['c']
         )
+    }
+})
+
+test('public background runs reconcile their own durable job and keep completed answers across API replacement', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-public-job-'))
+    const before = process.env.CUTTLELY_DATA_DIR
+    process.env.CUTTLELY_DATA_DIR = dir
+    closeQueueDb()
+    t.after(() => {
+        closeQueueDb()
+        fs.rmSync(dir, { recursive: true, force: true })
+        if (before === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = before
+    })
+    const args = {
+        name: 'Paper',
+        chatId: 'same',
+        input: 'Count',
+        apiKeyId: 'paper-key',
+        flowOptions: { workspaceId: 'paper-space', harnessCaller: { via: 'session' } }
+    }
+    for (const outcome of ['expired', 'stopped', 'returned']) {
+        const admitted = queueHarnessRun(args)
+        const job = enqueueHarnessJob({ ...args, runId: admitted.id })
+        assert.equal(claimJob().id, job.id)
+        const open = beginHarnessRun({ ...args, id: admitted.id })
+        assert.equal(open.status, 'running')
+        const unrelated = beginHarnessRun(args)
+        interruptOpenRuns({ before: Date.now() + 5 })
+        assert.equal(getRun(args.name, open.id).status, 'running')
+        assert.equal(getRun(args.name, unrelated.id).error.code, 'interrupted')
+        assert.equal(reconcilePublicQueueRun(unrelated), false)
+        assert.equal(reconcilePublicQueueRun(open), false)
+        if (outcome === 'returned') {
+            finishHarnessRun(open, { result: { text: 'Accepted 51.', agents: [] }, saveResult: true })
+            assert.equal(getRunResult(args.name, open.id).text, 'Accepted 51.')
+            continue
+        }
+        for (const phase of ['queued', 'dispatched'])
+            appendEvent(job.id, { type: 'nativeToolReceipt', callId: 'count', phase, name: 'calculator', specialist: 'math' })
+        if (outcome === 'expired') database().prepare('UPDATE jobs SET updated_at = 0 WHERE id = ?').run(job.id)
+        else stopQueueJobs(true)
+        assert.equal(reconcilePublicQueueRun(open), true)
+        const expected = outcome === 'expired' ? 'worker_lost' : 'aborted'
+        assert.equal(readJob(job.id).errorCode, expected)
+        assert.equal(getRun(args.name, open.id).error.code, expected)
+        assert.match(getRun(args.name, open.id).error.message, /could not be confirmed/)
+        assert.equal(getRun(args.name, open.id, { apiKeyId: 'another-key' }), null)
+        finishHarnessRun(open, { result: { text: 'Late return.' }, saveResult: true })
+        assert.equal(getRun(args.name, open.id).error.code, expected)
+        assert.equal(saveRunResult(args.name, open.id, { text: 'Late API waiter.' }), false)
+        assert.equal(getRunResult(args.name, open.id), null)
     }
 })
