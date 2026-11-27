@@ -5,7 +5,7 @@ import { harnessSchema, registerSideSchema } from './side-store-identity.mjs'
 import { postgresHarnessDdl } from './side-store-schema.mjs'
 
 const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
-const { Pool, Client } = requireServer('pg')
+const { Pool, Client, escapeIdentifier, escapeLiteral } = requireServer('pg')
 const pool = new Pool(workerData)
 pool.on('error', () => {})
 const transactions = new Map()
@@ -14,9 +14,11 @@ const leases = new Map()
 async function begin(scope) {
     const client = await pool.connect()
     try {
-        await client.query('BEGIN')
-        await client.query('SET LOCAL search_path TO ' + harnessSchema(scope) + ', pg_catalog')
-        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [harnessSchema(scope)])
+        // Acquire the same schema lock in one round trip. The caller's next statement
+        // starts after the lock is held and observes the preceding writer's commit.
+        const schema = harnessSchema(scope)
+        await client.query(`BEGIN; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog;
+            SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(${escapeLiteral(schema)}))`)
         return client
     } catch (error) {
         client.release(true)
