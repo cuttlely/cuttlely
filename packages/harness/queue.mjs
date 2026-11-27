@@ -10,8 +10,11 @@ import { harnessUsesPostgres } from './side-store-postgres.mjs'
 import { accountReturnedBackgroundRun, finishHarnessRun, getRun, settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
+import { appendEvent, appendJobEvent, recordToolPhase } from './queue-events.mjs'
 import { nativeToolJournal } from './runtime/native-journal.mjs'
 import { admittedAgentEngine, selectAgentEngine } from './runtime/native-prime.mjs'
+
+export { appendEvent }
 
 const localRuns = new Map()
 let inlineActive = 0
@@ -282,30 +285,7 @@ export function touchJob(id) {
     database().prepare(`UPDATE jobs SET updated_at = ? WHERE id = ? AND status = 'running'`).run(Date.now(), id)
 }
 
-const journalType = 'nativeToolReceipt'
 const journalPrefix = '{"type":"nativeToolReceipt",%'
-
-function appendJobEvent(db, id, event) {
-    const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM job_events WHERE job_id = ?').get(id)
-    db.prepare('INSERT INTO job_events (job_id, seq, event) VALUES (?, ?, ?)').run(id, Number(row?.seq || 0) + 1, JSON.stringify(event))
-}
-
-export function appendEvent(id, event) {
-    immediate((db) => {
-        appendJobEvent(db, id, event)
-        db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(Date.now(), id)
-    })
-}
-
-function recordToolPhase(id, { callId, specialist, name, phase }) {
-    immediate((db) => {
-        const job = db.prepare('SELECT status, cancel_requested FROM jobs WHERE id = ?').get(id)
-        if (job?.status !== 'running') throw new HarnessError('worker_lost', 'The harness job no longer owns this turn.')
-        if (phase !== 'confirmed' && job.cancel_requested) throw new HarnessError('aborted', 'Client disconnected')
-        appendJobEvent(db, id, { type: journalType, callId, specialist, name, phase })
-        db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(Date.now(), id)
-    })
-}
 
 export function readEvents(id, afterSeq) {
     return database()
@@ -603,16 +583,18 @@ function deliverSQLiteEvents(id, seq, onEvent) {
     return seq
 }
 
-function readJobUpdate(id, seq, onEvent) {
-    const db = database()
-    if (db.dialect === 'postgres') {
-        const row = db.pollJob(id, seq, journalPrefix)
-        for (const encoded of row?.events || []) {
-            const event = JSON.parse(encoded)
-            onEvent?.(event)
-        }
-        return { job: jobFromRow(row), seq: row?.last_seq ?? seq }
+async function readPostgresJobUpdate(db, id, seq, onEvent) {
+    const row = await db.pollJob(id, seq, journalPrefix)
+    // Storage maintenance may have started while the observer yielded the API thread.
+    assertJobsAllowed()
+    for (const encoded of row?.events || []) {
+        const event = JSON.parse(encoded)
+        onEvent?.(event)
     }
+    return { job: jobFromRow(row), seq: row?.last_seq ?? seq }
+}
+
+function readSQLiteJobUpdate(id, seq, onEvent) {
     // SQLite uses separate reads. Flush a final event committed after the first read.
     seq = deliverSQLiteEvents(id, seq, onEvent)
     const job = readJob(id)
@@ -629,7 +611,9 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
         for (;;) {
             assertJobsAllowed()
             if (signal?.aborted) markCancel(id)
-            const update = readJobUpdate(id, seq, onEvent)
+            const db = database()
+            const update =
+                db.dialect === 'postgres' ? await readPostgresJobUpdate(db, id, seq, onEvent) : readSQLiteJobUpdate(id, seq, onEvent)
             seq = update.seq
             const job = update.job
             if (!job) throw new HarnessError('not_found', `Harness job ${id} was not found.`)

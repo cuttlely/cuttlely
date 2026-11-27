@@ -3,6 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
+import { createRequire } from 'node:module'
+import { createTestSource, skipReason } from '../../etl/check/pg-source.mjs'
+import { configureHarnessPostgres } from '../side-store-postgres.mjs'
+import { recordToolPhase } from '../queue-events.mjs'
 import { nativeToolJournal, queueNativeTool } from './native-journal.mjs'
 import { runNativeToolLoop } from './native-prime.mjs'
 import { closeQueueDb, database } from '../lock.mjs'
@@ -10,6 +14,8 @@ import {
     appendEvent,
     claimJob,
     enqueueHarnessJob,
+    finishJob,
+    markCancel,
     readEvents,
     readJob,
     reconcilePublicQueueRun,
@@ -162,3 +168,100 @@ test('public background runs reconcile their own durable job and keep completed 
         assert.equal(getRunResult(args.name, open.id), null)
     }
 })
+
+test(
+    'PostgreSQL commits each admitted phase, fences cancellation and loss, and rolls back a failed event append',
+    { skip: skipReason },
+    async (t) => {
+        const pg = await createTestSource()
+        configureHarnessPostgres(pg.connection)
+        closeQueueDb()
+        t.after(async () => {
+            closeQueueDb()
+            configureHarnessPostgres(null)
+            await pg.cleanup()
+        })
+        const args = { name: 'Math', input: '2+3', flowOptions: { workspaceId: 'qa', harnessCaller: { via: 'session' } } }
+        const persisted = async (id) =>
+            (await pg.query('SELECT seq, event FROM cuttlely_harness_queue.job_events WHERE job_id=$1 ORDER BY seq', [id])).map((r) => ({
+                seq: Number(r.seq),
+                ...JSON.parse(r.event)
+            }))
+        for (const stop of ['before-dispatch', 'during-operation', 'lease-lost']) {
+            const job = enqueueHarnessJob({ ...args, chatId: stop })
+            assert.equal(claimJob().id, job.id)
+            let runs = 0
+            const context = {
+                nativeSpecialists: true,
+                assertNativeAuthority() {},
+                moduleOptions: { flowOptions: { [nativeToolJournal]: (entry) => recordToolPhase(job.id, entry) } }
+            }
+            const tool = queueNativeTool(context, { name: 'math' }, 'calculator')
+            assert.deepEqual(
+                (await persisted(job.id)).map((e) => e.phase),
+                ['queued']
+            )
+            appendEvent(job.id, { type: 'route', status: 'done' })
+            if (stop === 'before-dispatch') {
+                markCancel(job.id)
+                await assert.rejects(
+                    tool.invoke(() => runs++),
+                    { code: 'aborted' }
+                )
+            } else if (stop === 'lease-lost') {
+                finishJob(job.id, { status: 'failed', errorCode: 'worker_lost' })
+                await assert.rejects(
+                    tool.invoke(() => runs++),
+                    { code: 'worker_lost' }
+                )
+            } else {
+                const answer = await tool.invoke(async () => {
+                    runs++
+                    assert.deepEqual(
+                        (await persisted(job.id)).map((e) => e.phase || e.type),
+                        ['queued', 'route', 'dispatched']
+                    )
+                    markCancel(job.id)
+                    return 2 + 3
+                })
+                assert.equal(answer, 5)
+            }
+            const rows = await persisted(job.id)
+            const privatePhases = rows.filter((e) => e.callId === tool.id).map((e) => e.phase)
+            assert.deepEqual(privatePhases, stop === 'during-operation' ? ['queued', 'dispatched', 'confirmed'] : ['queued'])
+            assert.deepEqual(
+                rows.map((e) => e.seq),
+                rows.map((_, i) => i + 1)
+            )
+            assert.equal(runs, stop === 'during-operation' ? 1 : 0)
+            assert.deepEqual(
+                readEvents(job.id, 0).map((e) => e.event),
+                [{ type: 'route', status: 'done' }]
+            )
+        }
+        const job = enqueueHarnessJob({ ...args, chatId: 'rolled-back' })
+        assert.equal(claimJob().id, job.id)
+        // A different client holds the same writer lock. Its timed SQL COMMIT can
+        // release the writer even while appendEvent blocks this thread.
+        const { Client } = createRequire(new URL('../../server/package.json', import.meta.url))('pg')
+        const holder = new Client(pg.connection)
+        await holder.connect()
+        try {
+            await holder.query('BEGIN')
+            await holder.query("SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue'))")
+            const blockedAt = Date.now()
+            const released = holder.query('SELECT pg_sleep(0.1); COMMIT')
+            appendEvent(job.id, { type: 'route' })
+            await released
+            assert.ok(readJob(job.id).updatedAt >= blockedAt + 70, 'heartbeat starts after acquiring the writer lock')
+        } finally {
+            await holder.end()
+        }
+        await pg.query('UPDATE cuttlely_harness_queue.jobs SET updated_at=1 WHERE id=$1', [job.id])
+        await pg.query(`ALTER TABLE cuttlely_harness_queue.job_events
+        ADD CONSTRAINT reject_fixture_body CHECK (event NOT LIKE '%reject-fixture-body%')`)
+        assert.throws(() => appendEvent(job.id, { type: 'reject-fixture-body' }), { code: '23514' })
+        assert.deepEqual(await persisted(job.id), [{ seq: 1, type: 'route' }])
+        assert.equal(readJob(job.id).updatedAt, 1)
+    }
+)

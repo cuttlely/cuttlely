@@ -39,12 +39,34 @@ async function finish(client, command) {
 // The pooled connection retains the installation's search path. Resolve tables, aggregates and
 // operators explicitly, just as the transactional queue path selects its own schema.
 const queueSchema = harnessSchema('queue')
-const pollSql = `SELECT j.id,j.status,j.result,j.error_code,j.error_message,j.updated_at,j.cancel_requested,
-           e.events,e.last_seq FROM ${queueSchema}.jobs j CROSS JOIN LATERAL (
+const pollSql = `SELECT w.poll_index,j.id,j.status,j.result,j.error_code,j.error_message,j.updated_at,j.cancel_requested,
+           e.events,e.last_seq FROM ROWS FROM (
+             pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.int8[])
+           ) WITH ORDINALITY AS w(job_id,after_seq,poll_index)
+           JOIN ${queueSchema}.jobs j ON j.id OPERATOR(pg_catalog.=) w.job_id
+           CROSS JOIN LATERAL (
              SELECT pg_catalog.array_agg(event ORDER BY seq) FILTER (WHERE event OPERATOR(pg_catalog.!~~) $3) AS events,
                     pg_catalog.max(seq) AS last_seq FROM ${queueSchema}.job_events
-             WHERE job_id OPERATOR(pg_catalog.=) j.id AND seq OPERATOR(pg_catalog.>) $2) e
-       WHERE j.id OPERATOR(pg_catalog.=) $1`
+             WHERE job_id OPERATOR(pg_catalog.=) j.id AND seq OPERATOR(pg_catalog.>) w.after_seq) e`
+
+// The PostgreSQL adapter wraps a standalone statement in the same schema-scoped
+// writer transaction as immediate(). Keep one commit per visible event or private
+// phase; the admitted state, sequence allocation and heartbeat share that lock.
+const storeQueueEventSql = `WITH input (job_id, event, phase) AS (
+        VALUES ($1::text, $2::text, $3::text)
+    ), state AS (
+        SELECT input.*, j.status, j.cancel_requested FROM input LEFT JOIN jobs j ON j.id = input.job_id
+    ), permitted AS (
+        SELECT job_id, event FROM state
+        WHERE phase IS NULL OR (status = 'running' AND (cancel_requested = 0 OR phase = 'confirmed'))
+    ), heartbeat AS (
+        UPDATE jobs SET updated_at = $4 FROM permitted WHERE jobs.id = permitted.job_id
+    ), appended AS (
+        INSERT INTO job_events (job_id, seq, event)
+        SELECT p.job_id, (SELECT COALESCE(MAX(seq), 0) + 1 FROM job_events WHERE job_id = p.job_id), p.event
+        FROM permitted p
+    )
+    SELECT status, cancel_requested FROM state`
 
 function normalizeBigInts(response) {
     for (const { name, dataTypeID } of response.fields) {
@@ -58,13 +80,35 @@ function normalizeBigInts(response) {
     }
 }
 
-async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
-    if (op === 'pollJob') {
-        if (scope !== 'queue') throw new Error('Job polling requires the queue store.')
-        const reader = transactions.get(scope) || pool
-        const response = await reader.query(pollSql, params)
+async function pollJobs(params, deadline) {
+    const client = await pool.connect()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+        client.release()
+        throw new Error('The queue read expired while waiting for a database connection.')
+    }
+    // A stalled observer must give its connection back without terminating live writers.
+    let discarded = false
+    const timeout = setTimeout(() => {
+        discarded = true
+        client.release(true)
+    }, remaining)
+    try {
+        const response = await client.query(pollSql, params)
         normalizeBigInts(response)
-        return response.rows[0] || null
+        return response.rows
+    } finally {
+        clearTimeout(timeout)
+        if (!discarded) client.release()
+    }
+}
+
+async function execute({ scope, op, sql, params, owner, key, payload, usage, deadline }) {
+    if (op === 'pollJobs') {
+        if (scope !== 'queue') throw new Error('Job polling requires the queue store.')
+        // Asynchronous observers always see a committed snapshot, even if this worker
+        // currently holds another connection for a synchronous write transaction.
+        return pollJobs(params, deadline)
     }
     if (op === 'saveRuntimeSetting') {
         const client = await pool.connect()
@@ -139,7 +183,13 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
     const client = active || (await begin(scope))
     let result
     try {
-        if (op === 'open') {
+        if (op === 'appendJobEvent') {
+            if (scope !== 'queue') throw new Error('Job events require the queue store.')
+            // A contended writer's heartbeat starts after taking the queue lock.
+            const response = await client.query(storeQueueEventSql, [...params, Date.now()])
+            normalizeBigInts(response)
+            result = response.rows[0]
+        } else if (op === 'open') {
             const schema = harnessSchema(scope)
             await client.query('CREATE SCHEMA IF NOT EXISTS ' + schema)
             await client.query(postgresHarnessDdl(scope))
@@ -174,8 +224,10 @@ parentPort.on('message', async ({ request, port, ready }) => {
     } catch (error) {
         port.postMessage({ error: { message: 'Harness PostgreSQL operation failed.', code: error.code } })
     } finally {
-        Atomics.store(ready, 0, 1)
-        Atomics.notify(ready, 0)
+        if (ready) {
+            Atomics.store(ready, 0, 1)
+            Atomics.notify(ready, 0)
+        }
         port.close()
     }
 })

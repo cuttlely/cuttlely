@@ -608,7 +608,7 @@ test('PostgreSQL queue poll snapshots deliver ordered public events once and pre
             concurrent,
             JSON.stringify({ text: 'committed' })
         ])
-        const before = database().pollJob(concurrent, 0, '{"type":"nativeToolReceipt",%')
+        const before = await database().pollJob(concurrent, 0, '{"type":"nativeToolReceipt",%')
         assert.equal(before.status, 'queued')
         assert.deepEqual(
             before.events.map((event) => JSON.parse(event)),
@@ -659,8 +659,8 @@ test('PostgreSQL queue poll snapshots deliver ordered public events once and pre
         let now = Date.now()
         let polls = 0
         const clock = t.mock.method(Date, 'now', () => now)
-        const reader = t.mock.method(store, 'pollJob', (...args) => {
-            const snapshot = original(...args)
+        const reader = t.mock.method(store, 'pollJob', async (...args) => {
+            const snapshot = await original(...args)
             if (++polls === 1) {
                 action()
                 now += 30
@@ -717,4 +717,64 @@ test('PostgreSQL queue poll snapshots deliver ordered public events once and pre
     const corrupt = enqueue()
     database().prepare('INSERT INTO job_events(job_id,seq,event) VALUES (?,1,?)').run(corrupt, 'incomplete public event')
     await assert.rejects(waitForJob(corrupt), SyntaxError)
+})
+
+test('concurrent PostgreSQL waiters keep their own answers and leave the API event loop available', { skip: skipReason }, async (t) => {
+    const fixture = await createTestDatabase()
+    const { configureHarnessPostgres } = await import('../packages/harness/side-store-postgres.mjs')
+    const { database, closeQueueDb } = await import('../packages/harness/lock.mjs')
+    const { enqueueHarnessJob, appendEvent, finishJob, waitForJob } = await import('../packages/harness/queue.mjs')
+    const { Client } = createRequire(new URL('../packages/server/package.json', import.meta.url))('pg')
+    const connection = { ...fixture.connection, options: '-c lock_timeout=1500ms' }
+    configureHarnessPostgres(connection)
+    const blocker = new Client(connection)
+    t.after(async () => {
+        await blocker.end()
+        closeQueueDb()
+        configureHarnessPostgres(null)
+        await fixture.cleanup()
+    })
+    await blocker.connect()
+    const jobs = Array.from({ length: 32 }, (_, number) => {
+        const id = enqueueHarnessJob({ name: 'Paper', chatId: randomUUID() }).id
+        appendEvent(id, { type: 'partial', number })
+        appendEvent(id, { type: 'nativeToolReceipt', phase: 'queued' })
+        appendEvent(id, { type: 'final', number })
+        finishJob(id, { status: 'succeeded', result: { text: 'Receipt ' + number } })
+        return id
+    })
+    // A database read has to wait briefly. The same Node event loop that serves
+    // health and other callers must still be able to release the test transaction.
+    await blocker.query('BEGIN')
+    await blocker.query('LOCK TABLE cuttlely_harness_queue.jobs IN ACCESS EXCLUSIVE MODE')
+    const release = new Promise((resolve, reject) => {
+        setTimeout(() => blocker.query('COMMIT').then(resolve, reject), 25)
+    })
+    const store = database()
+    const prefix = '{"type":"nativeToolReceipt",%'
+    const [first] = await Promise.all([store.pollJob(jobs[0], 2, prefix), release])
+    assert.deepEqual(first.events.map(JSON.parse), [{ type: 'final', number: 0 }])
+    const received = jobs.map(() => [])
+    const results = await Promise.all(jobs.map((id, number) => waitForJob(id, { onEvent: (event) => received[number].push(event) })))
+    for (const [number, value] of results.entries()) {
+        assert.deepEqual(value, { text: 'Receipt ' + number })
+        assert.deepEqual(received[number], [
+            { type: 'partial', number },
+            { type: 'final', number }
+        ])
+    }
+    const [all, tail, absent] = await Promise.all([
+        store.pollJob(jobs[0], 0, prefix),
+        store.pollJob(jobs[0], 2, prefix),
+        store.pollJob('job_' + randomUUID(), 0, prefix)
+    ])
+    assert.deepEqual(all.events.map(JSON.parse), [
+        { type: 'partial', number: 0 },
+        { type: 'final', number: 0 }
+    ])
+    assert.deepEqual(tail.events.map(JSON.parse), [{ type: 'final', number: 0 }])
+    assert.equal(absent, null)
+    const oldStore = store.pollJob(jobs[0], 0, prefix)
+    configureHarnessPostgres(null)
+    await assert.rejects(oldStore, { code: 'store_unavailable' })
 })

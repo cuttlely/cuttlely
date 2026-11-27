@@ -23,7 +23,7 @@ export function configureHarnessPostgres(options) {
 export function harnessUsesPostgres() {
     return Boolean(config)
 }
-function request(data) {
+function postgresWorker() {
     if (!config) throw new Error('Harness PostgreSQL storage has not been selected.')
     if (!worker) {
         const replica = new Worker(new URL('./side-store-worker.mjs', import.meta.url), { workerData: config, execArgv: [] })
@@ -34,11 +34,16 @@ function request(data) {
         replica.unref()
         worker = replica
     }
+    return worker
+}
+
+function request(data) {
+    const replica = postgresWorker()
     const { port1, port2 } = new MessageChannel()
     const ready = new Int32Array(new SharedArrayBuffer(4))
     try {
-        worker.postMessage({ request: data, port: port2, ready }, [port2])
-        if (Atomics.wait(ready, 0, 0, 15000) === 'timed-out') {
+        replica.postMessage({ request: data, port: port2, ready }, [port2])
+        if (Atomics.wait(ready, 0, 0, STORE_TIMEOUT_MS) === 'timed-out') {
             void worker.terminate()
             worker = undefined
             throw new HarnessError('store_unavailable', 'Harness PostgreSQL storage timed out.', 503)
@@ -51,13 +56,70 @@ function request(data) {
     }
 }
 
+// Coalesce callers that became ready on the same turn of the Node event loop. Each
+// observer has its own cursor, including two observers waiting for the same job.
+const MAX_POLL_BATCH = 16
+let pendingPolls
+const STORE_TIMEOUT_MS = 15_000
+
+function pollJob(id, seq, privateEventPrefix) {
+    const replica = postgresWorker()
+    if (
+        !pendingPolls ||
+        pendingPolls.replica !== replica ||
+        pendingPolls.prefix !== privateEventPrefix ||
+        pendingPolls.readers.length === MAX_POLL_BATCH
+    ) {
+        const batch = { replica, prefix: privateEventPrefix, readers: [] }
+        pendingPolls = batch
+        setImmediate(() => dispatchPolls(batch))
+    }
+    return new Promise((resolve, reject) => pendingPolls.readers.push({ id, seq, resolve, reject }))
+}
+
+function dispatchPolls(batch) {
+    if (pendingPolls === batch) pendingPolls = undefined
+    const { readers, replica, prefix } = batch
+    const { port1, port2 } = new MessageChannel()
+    const unavailable = () => new HarnessError('store_unavailable', 'Harness PostgreSQL storage is unavailable.', 503)
+    function close() {
+        clearTimeout(timer)
+        port1.removeAllListeners()
+        port1.close()
+        port2.close()
+    }
+    function fail(error) {
+        close()
+        for (const reader of readers) reader.reject(error)
+    }
+    const deadline = Date.now() + STORE_TIMEOUT_MS
+    const timer = setTimeout(() => fail(unavailable()), STORE_TIMEOUT_MS)
+    port1.once('close', () => fail(unavailable()))
+    port1.once('message', (reply) => {
+        if (worker !== replica || !Array.isArray(reply?.value)) return fail(unavailable())
+        const rows = new Map(reply.value.map((row) => [row.poll_index, row]))
+        close()
+        for (const [index, reader] of readers.entries()) reader.resolve(rows.get(index + 1) ?? null)
+    })
+    try {
+        if (worker !== replica) throw unavailable()
+        const params = [readers.map((r) => r.id), readers.map((r) => r.seq), prefix]
+        replica.postMessage({ request: { scope: 'queue', op: 'pollJobs', params, deadline }, port: port2 }, [port2])
+    } catch (error) {
+        fail(error)
+    }
+}
+
 export function openHarnessPostgres(scope) {
     request({ scope, op: 'open' })
     return {
         dialect: 'postgres',
-        pollJob(id, seq, privateEventPrefix) {
-            return request({ scope, op: 'pollJob', params: [id, seq, privateEventPrefix] })
-        },
+        ...(scope === 'queue' && {
+            pollJob,
+            appendJobEvent(id, event, phase) {
+                return request({ scope, op: 'appendJobEvent', params: [id, event, phase] })
+            }
+        }),
         creditUsage(workspaceId, flowId, result, at) {
             const { usageLinesFromRun } = requireServer('./dist/services/usage/lines.js')
             const lines = usageLinesFromRun(result)
