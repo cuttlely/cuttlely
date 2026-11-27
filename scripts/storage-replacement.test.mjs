@@ -1,6 +1,8 @@
 // Independent server and worker processes, synthetic credentials and a disposable database for each installation.
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
+import { QUEUE_SCHEMA } from '../packages/harness/side-store-schema.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -305,7 +307,29 @@ if (process.argv.includes('--fixture-worker')) {
                     }
                     fs.mkdirSync(path.join(home, 'cache/scratch'), { recursive: true })
                 }
+                if (initial === 'existing-postgres') {
+                    const queue = new DatabaseSync(path.join(first, 'harness-queue.sqlite'))
+                    try {
+                        queue.exec(QUEUE_SCHEMA)
+                        queue.exec(
+                            "INSERT INTO jobs (id,session_key,status,payload,created_at,updated_at) VALUES ('orphan','fixture','running','{}',1,1)"
+                        )
+                    } finally {
+                        queue.close()
+                    }
+                }
                 await boot(first, { ...pg, ...stores, ...operator })
+                if (initial === 'existing-postgres') {
+                    const status = await api('server-settings/storage')
+                    assert.ok(status.stores.some((store) => store.active.includes('running jobs')))
+                    let stopped = await api('server-settings/storage/stop-jobs', { confirm: 'STOP' })
+                    for (let attempt = 0; !stopped.stopComplete && attempt < 20; attempt++) {
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                        stopped = await api('server-settings/storage/check-stop', {})
+                    }
+                    assert.equal(stopped.stopComplete, true)
+                    assert.ok(stopped.stores.every((store) => !store.busy))
+                }
                 if ((await api('server-settings/storage')).phase === 'sqlite')
                     assert.equal((await api('server-settings/storage/upgrade', { availableBytes: 1e9 })).phase, 'postgres')
                 const firstWorker = path.join(rootDir, 'worker-before')

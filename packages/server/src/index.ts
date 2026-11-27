@@ -153,6 +153,7 @@ export class App {
                 undefined,
                 {
                     newPostgresApplication,
+                    pausePredictions: (paused) => this.abortControllerPool?.pauseForStorage(paused),
                     ...applicationFileStorage(),
                     versionHistory: {
                         inspect: flowVersionsService.inspectVersionHistory,

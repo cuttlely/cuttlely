@@ -65,3 +65,31 @@ test('a larger capacity estimate requires fresh confirmation', async () => {
     expect(checkbox.checked).toBe(false)
     expect(screen.getByRole('button', { name: 'Upgrade storage' }).disabled).toBe(true)
 })
+
+test('Stop all jobs asks for confirmation, keeps upgrade blocked during cancellation and offers resume', async () => {
+    const queue = { ...status, stores: [{ kind: 'queue', busy: true, active: ['running jobs'], counts: { jobs: 2 } }] }
+    const stopping = { ...queue, jobsPaused: true, stopComplete: false }
+    serverSettingsApi.storageStatus.mockResolvedValue({ data: queue })
+    serverSettingsApi.changeStorage
+        .mockReset()
+        .mockResolvedValueOnce({ data: stopping })
+        .mockResolvedValueOnce({ data: { ...status, jobsPaused: true, stopComplete: true } })
+        .mockResolvedValueOnce({ data: status })
+    render(createElement(StorageUpgradeCard))
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop all jobs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Keep jobs running' }))
+    expect(serverSettingsApi.changeStorage).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: /1928 MiB free/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop all jobs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop jobs and pause new work' }))
+    await screen.findByText(/Stopping jobs and clearing abandoned waits/)
+    expect(screen.getByRole('button', { name: 'Upgrade storage' }).disabled).toBe(true)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upgrade storage' }).disabled).toBe(false), { timeout: 5000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Resume new jobs' }))
+    await screen.findByRole('button', { name: 'Stop all jobs' })
+    expect(serverSettingsApi.changeStorage.mock.calls).toEqual([
+        ['stop-jobs', { confirm: 'STOP' }],
+        ['check-stop', {}],
+        ['resume-jobs', {}]
+    ])
+})

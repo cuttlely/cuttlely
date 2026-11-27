@@ -1,3 +1,4 @@
+import { runsInProgress, setStorageJobsStopped } from '../settings/runs'
 import { applicationStorageDependencies } from '../settings/storageDependencies'
 import fs from 'fs'
 import { SettingsError } from '../settings/service'
@@ -113,6 +114,7 @@ export async function registerAppStoreSource<FileStore = unknown>(
             copy(source: AppStoreSource, expected: string | null): Promise<void>
             select(source: AppStoreSource | null): Promise<void>
         }
+        pausePredictions?: (paused: boolean) => void
         worker?: boolean
         newPostgresApplication?: boolean
         fileRoots?: { blobs: string; uploads: string }
@@ -127,6 +129,10 @@ export async function registerAppStoreSource<FileStore = unknown>(
                 source,
                 log,
                 ...options,
+                onJobsStopped: (stopped: boolean) => {
+                    setStorageJobsStopped(stopped)
+                    options.pausePredictions?.(stopped)
+                },
                 inspectDependencies: (etl: Parameters<typeof applicationStorageDependencies>[1]) =>
                     applicationStorageDependencies((sql) => source.query(sql), etl)
             })
@@ -153,10 +159,14 @@ export async function registerAppStoreSource<FileStore = unknown>(
 }
 
 type Coordinator = {
+    jobsPaused: () => boolean
     paused: () => boolean
     status: () => Promise<unknown>
     close: () => Promise<void>
-    transition: (action: string, options: { availableBytes?: number; confirm?: string; drain: () => void }) => Promise<unknown>
+    transition: (
+        action: string,
+        options: { availableBytes?: number; confirm?: string; drain: () => void; jobsBusy: () => boolean }
+    ) => Promise<unknown>
 }
 let coordinator: Coordinator | undefined
 let admitted = 0
@@ -170,6 +180,9 @@ export function sideStoreAdmission(req: Request, res: Response, next: NextFuncti
         /^\/api\/v1\/(?:server-settings\/storage(?:\/|$)|auth(?:\/|$)|ping(?:\/|$))/.test(req.path)
     )
         return next()
+    if (coordinator.jobsPaused() && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return res.status(503).json({ code: 'jobs_paused', message: 'Jobs are paused for the storage upgrade.' })
+    }
     if (coordinator.paused()) {
         res.setHeader('Retry-After', '30')
         return res.status(503).json({ code: 'store_moving', message: 'Storage upgrade in progress. Try again in 30 seconds.' })
@@ -182,12 +195,16 @@ export function sideStoreAdmission(req: Request, res: Response, next: NextFuncti
 }
 
 export const storageStatus = () => coordinator?.status() || { available: false }
-export async function changeSideStores(action: 'upgrade' | 'rollback', body: { availableBytes?: number; confirm?: string } = {}) {
+export async function changeSideStores(
+    action: 'upgrade' | 'rollback' | 'stop-jobs' | 'check-stop' | 'resume-jobs',
+    body: { availableBytes?: number; confirm?: string } = {}
+) {
     if (!coordinator) throw new SettingsError(409, 'STORAGE_UPGRADE', 'Storage upgrades require a PostgreSQL application database.')
     try {
         return await coordinator.transition(action, {
             availableBytes: body?.availableBytes,
             confirm: body?.confirm,
+            jobsBusy: () => admitted > 0 || runsInProgress() > 0,
             drain: () => {
                 if (admitted) throw Object.assign(new Error('Wait for current application requests to finish and retry.'), { status: 409 })
             }

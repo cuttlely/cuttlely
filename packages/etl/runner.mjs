@@ -1,3 +1,4 @@
+import { jobsStopped } from '../harness/side-store-maintenance.mjs'
 import { EtlError, errorMessage } from './errors.mjs'
 import { executeRun } from './execute.mjs'
 import { fault, isCrash } from './faults.mjs'
@@ -29,14 +30,14 @@ let stopping = () => false
 let track = (run) => run
 
 export function runnerStopping() {
-    return stopping()
+    return stopping() || jobsStopped()
 }
 
 // Register work before its first await, including admission and queue handoff.
 function admitted(work) {
     if (etlStore.gate.closed())
         throw new EtlError('store_moving', 'ETL is moving to the application database. Try again in a minute.', 503, 30)
-    if (stopping()) throw new EtlError('restarting', 'Cuttlely is restarting to apply new settings. Try again in a minute.', 503)
+    if (runnerStopping()) throw new EtlError('restarting', 'Cuttlely is restarting to apply new settings. Try again in a minute.', 503)
     return track(Promise.resolve().then(work))
 }
 
@@ -142,7 +143,7 @@ export async function pauseRun(runId) {
                 await fault({ faults: runnerFaults }, 'pauseAfterRead', run, t)
                 const job = active.get(runId)
                 if (job) refuseFinishing(run)
-                else if (run.status !== 'queued' && !(etlStore.sharedExecution() && run.status === 'running'))
+                else if (run.status !== 'queued' && !((includeInterrupted || etlStore.sharedExecution()) && run.status === 'running'))
                     throw new EtlError('bad_state', `A ${run.status} run cannot be paused.`, 409)
                 return { run, job }
             })
@@ -161,7 +162,18 @@ export async function pauseRun(runId) {
     return getRun(runId)
 }
 
-export async function cancelRun(runId) {
+export async function stopEtlJobs() {
+    for (const run of await runsWithStatus(ACTIVE_STATUSES)) {
+        if (run.status === 'cancelling' && active.get(run.id)?.control.stopRequested === 'cancel') continue
+        try {
+            await cancelRun(run.id, { includeInterrupted: true })
+        } catch (error) {
+            if (error.code !== 'bad_state') throw error
+        }
+    }
+}
+
+export async function cancelRun(runId, { includeInterrupted = false } = {}) {
     await refusableTx(async (t) => {
         for (;;) {
             const decision = await decide(async () => {
@@ -171,7 +183,7 @@ export async function cancelRun(runId) {
                 if (job) refuseFinishing(run)
                 else if (
                     !['queued', 'paused', 'failed', 'pausing', 'cancelling'].includes(run.status) &&
-                    !(etlStore.sharedExecution() && run.status === 'running')
+                    !((includeInterrupted || etlStore.sharedExecution()) && run.status === 'running')
                 ) {
                     throw new EtlError('bad_state', `A ${run.status} run cannot be cancelled.`, 409)
                 }
@@ -306,9 +318,9 @@ async function requireRun(runId, q) {
 }
 
 async function pump() {
-    if (etlStore.gate.closed() || stopping() || active.size >= maxActive) return
+    if (etlStore.gate.closed() || runnerStopping() || active.size >= maxActive) return
     for (const run of await runsWithStatus(['queued'])) {
-        if (etlStore.gate.closed() || stopping() || active.size >= maxActive) break
+        if (etlStore.gate.closed() || runnerStopping() || active.size >= maxActive) break
         if (active.has(run.id) || deleting.has(run.pipelineId)) continue
         const release = etlStore.sharedExecution() ? await etlStore.tryLease('run:' + run.id) : undefined
         if (release === null) continue

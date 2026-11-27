@@ -422,3 +422,96 @@ test('storage inventory distinguishes shipped skills from local dependencies', a
         fs.rmSync(root, { recursive: true, force: true })
     }
 })
+
+test('operator stops live work before retiring orphaned jobs and locks, and can resume or migrate', { skip: skipReason }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-for-upgrade-'))
+    process.env.CUTTLELY_DATA_DIR = root
+    process.env.CUTTLELY_ETL_DIR = path.join(root, 'etl')
+    const source = await createTestSource()
+    const options = { source, config: source.connection, enabled: true, log: { info() {}, warn() {} } }
+    const controller = await startStorageUpgrade(options)
+    const { database } = await import('../../harness/lock.mjs')
+    const { AGENT_SCHEMA } = await import('../../harness/side-store-schema.mjs')
+    const { trackStorageJob } = await import('../../harness/side-store-maintenance.mjs')
+    const { claimJob } = await import('../../harness/queue.mjs')
+    let finish
+    let cancelled = false
+    const live = trackStorageJob(
+        (signal) =>
+            new Promise((resolve) => {
+                finish = resolve
+                signal.addEventListener('abort', () => {
+                    cancelled = true
+                })
+            })
+    )
+    const stop = () => controller.transition('stop-jobs', { confirm: 'STOP' })
+    try {
+        const queue = database()
+        for (const status of ['queued', 'running', 'succeeded']) {
+            queue
+                .prepare('INSERT INTO jobs (id,session_key,status,payload,created_at,updated_at) VALUES (?,?,?, ?,1,1)')
+                .run(status, status, status, '{}')
+        }
+        queue.exec(AGENT_SCHEMA)
+        queue.exec(
+            "INSERT INTO turns VALUES ('chat','orphan',0); INSERT INTO try_profile_turns VALUES ('draft','orphan',99999999,''); INSERT INTO agent_turns VALUES ('session','profile','chat','turn','[]')"
+        )
+        db().exec(
+            "INSERT INTO runs(id,pipeline_id,version,mode,status,created_at,updated_at) VALUES ('orphan','pipeline',1,'full','running','0','0')"
+        )
+        await assert.rejects(controller.transition('stop-jobs'), /Confirm/)
+        const other = await source.session()
+        try {
+            await other.execute("SELECT pg_advisory_lock_shared(hashtextextended('cuttlely-side-store-instances',516))")
+            await assert.rejects(stop(), /other application instances/)
+            assert.equal(cancelled, false)
+        } finally {
+            await other.execute("SELECT pg_advisory_unlock_shared(hashtextextended('cuttlely-side-store-instances',516))")
+            await other.release()
+        }
+        const waiting = await stop()
+        assert.equal(waiting.stopComplete, false)
+        assert.equal(cancelled, true)
+        assert.equal(claimJob(), null)
+        assert.equal(queue.prepare("SELECT cancel_requested FROM jobs WHERE id='running'").get().cancel_requested, 1)
+        assert.equal(queue.prepare('SELECT count(*) AS n FROM turns').get().n, 1)
+        assert.equal(db().prepare("SELECT status FROM runs WHERE id='orphan'").get().status, 'cancelled')
+        const [peer] = await source.query(
+            "SELECT pg_try_advisory_lock_shared(hashtextextended('cuttlely-side-store-instances',516)) AS joined"
+        )
+        assert.equal(peer.joined, false)
+        await assert.rejects(controller.transition('upgrade'), /Finish stopping/)
+        finish()
+        await live
+        const ready = await controller.transition('check-stop')
+        assert.equal(ready.stopComplete, true)
+        assert.ok(ready.stores.every((store) => !store.busy))
+        assert.deepEqual(
+            queue
+                .prepare('SELECT status FROM jobs ORDER BY id')
+                .all()
+                .map((row) => row.status),
+            ['cancelled', 'cancelled', 'succeeded']
+        )
+        assert.equal((await controller.transition('resume-jobs')).jobsPaused, false)
+        assert.equal((await controller.transition('check-stop')).jobsPaused, false)
+        const next = await stop()
+        const upgraded = await controller.transition('upgrade', { availableBytes: next.requiredBytes + 10485760 })
+        assert.equal(upgraded.phase, 'postgres')
+        assert.equal(upgraded.jobsPaused, false)
+    } finally {
+        finish()
+        await live
+        await controller.close()
+        closeDb()
+        closeQueueDb()
+        closeSessions()
+        configureHarnessPostgres(null)
+        useBackend(null)
+        pauseStorage(false)
+        gate.open()
+        await source.cleanup()
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
