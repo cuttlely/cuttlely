@@ -34,7 +34,7 @@ import type { QueueManager } from './queue/QueueManager'
 import { ScheduleBeat } from './schedule/ScheduleBeat'
 import { RedisEventSubscriber } from './queue/RedisEventSubscriber'
 import { initWebhookListenerRegistry } from './services/webhook-listener'
-import harnessesService from './services/harnesses'
+import harnessesService, { loadHarness } from './services/harnesses'
 import { startHarnessSchedulerIfReady, stopHarnessScheduler } from './services/harnesses/schedules'
 import { warnKeysMissingBoundHarnesses } from './services/harnesses/apiAccess'
 import etlService from './services/etl'
@@ -462,6 +462,7 @@ function flowNodeNames(flowData: string): string[] {
     }
 }
 
+let stopInlineUsageRecovery: (() => void) | undefined
 let serverApp: App | undefined
 let httpServer: http.Server | undefined
 let onInitFailed: (() => Promise<void> | void) | null = null
@@ -523,6 +524,8 @@ export async function start(): Promise<void> {
             logger.warn(`[harness] orphan cleanup failed: ${error instanceof Error ? error.message : error}`)
         })
         await harnessesService.closeInterruptedRuns()
+        const queue = await loadHarness('queue.mjs')
+        if (queue.queueMode() === 'inline') stopInlineUsageRecovery = queue.startAcceptedUsageRecovery()
         await warnKeysMissingBoundHarnesses()
     }
     server.listen(port, host, () => {
@@ -577,6 +580,7 @@ export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void
     stopSetupReminder = undefined
     logger.info(`🛑 [server]: Shutting down: finishing open requests (up to ${Math.round(limitMs / 1000)}s), new requests get 503.`)
     // A schedule that comes due now would start a run the drain then has to cut off.
+    stopInlineUsageRecovery?.()
     stopHarnessScheduler()
     const { endedRuns, closedInTime } = await shutdownDrain(httpServer, limitMs)
     if (closedInTime) logger.info(`🛑 [server]: Open requests finished in ${Math.round((Date.now() - started) / 100) / 10}s.`)

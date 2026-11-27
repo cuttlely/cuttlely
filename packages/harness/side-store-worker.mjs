@@ -88,12 +88,21 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
         // Resolve the application table with the install's normal PostgreSQL search path.
         // Failure is propagated so the claim and any model buckets roll back together.
         const { writeUsageLines } = requireServer('./dist/services/usage/store.js')
+        // Do not let a locked workspace usage row hold the shared queue transaction. A durable
+        // accepted job remains available for a bounded later settlement.
+        await active.query(`SELECT set_config(name, LEAST(NULLIF(setting::int, 0),
+            CASE name WHEN 'lock_timeout' THEN 250 ELSE 1000 END)::text, true)
+            FROM pg_catalog.pg_settings WHERE name IN ('lock_timeout','statement_timeout')`)
         await active.query('SET LOCAL search_path TO DEFAULT')
         await writeUsageLines(
             { options: { type: 'postgres' }, query: (sql, args) => active.query(sql, args) },
             { ...usage, at: new Date(usage.at) }
         )
-        await active.query('SET LOCAL search_path TO ' + harnessSchema(scope) + ', pg_catalog')
+        await active.query(
+            'SET LOCAL lock_timeout TO DEFAULT; SET LOCAL statement_timeout TO DEFAULT; SET LOCAL search_path TO ' +
+                harnessSchema(scope) +
+                ', pg_catalog'
+        )
         return
     }
     const client = active || (await begin(scope))

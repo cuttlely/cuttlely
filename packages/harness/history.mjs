@@ -1,4 +1,4 @@
-import { HISTORY_SCHEMA } from './side-store-schema.mjs'
+import { acceptedUsageJob, HISTORY_SCHEMA } from './side-store-schema.mjs'
 import { randomUUID } from 'node:crypto'
 import { TRACE_JSON_LIMIT, redactSecrets, settleToolChips } from './trace.mjs'
 import { database, immediate } from './lock.mjs'
@@ -289,17 +289,33 @@ function traceJson(result) {
 }
 
 function prune(db, name) {
+    // Keep the newest published results plus every live turn. A generic interruption can still
+    // have an accepted queue result awaiting its original workspace's accounting transaction.
+    const pending =
+        db.dialect === 'postgres'
+            ? `AND NOT ((h.status IN ('succeeded','completed_with_errors') OR (h.status = 'failed' AND h.error_code = 'interrupted')) AND h.usage_recorded = false AND h.usage_workspace_id IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM jobs j WHERE ${acceptedUsageJob}))`
+            : ''
+    const expired = db
+        .prepare(
+            `SELECT h.id FROM run_history h LEFT JOIN run_results r ON r.run_id = h.id
+         WHERE h.harness_name = ? AND h.status NOT IN ('queued','running') ${pending}
+         ORDER BY COALESCE(r.created_at,h.finished_at,h.started_at) DESC, h.id DESC LIMIT 32 OFFSET ?`
+        )
+        .all(name, KEEP)
+    if (expired.length) {
+        const ids = expired.map((row) => row.id)
+        const params = ids.map(() => '?').join(',')
+        db.prepare(`DELETE FROM run_results WHERE harness_name = ? AND run_id IN (${params})`).run(name, ...ids)
+        db.prepare(`DELETE FROM run_history WHERE harness_name = ? AND id IN (${params})`).run(name, ...ids)
+    }
+    // Older databases can already contain an answer whose history was removed.
     db.prepare(
-        `DELETE FROM run_history
-         WHERE harness_name = ?
-           AND id NOT IN (
-                SELECT id FROM run_history WHERE harness_name = ? ORDER BY started_at DESC, id DESC LIMIT ?
-           )`
-    ).run(name, name, KEEP)
-    db.prepare(`DELETE FROM run_results WHERE harness_name = ? AND run_id NOT IN (SELECT id FROM run_history WHERE harness_name = ?)`).run(
-        name,
-        name
-    )
+        `DELETE FROM run_results WHERE run_id IN (
+            SELECT r.run_id FROM run_results r WHERE r.harness_name = ?
+              AND NOT EXISTS (SELECT 1 FROM run_history h WHERE h.id = r.run_id AND h.harness_name = r.harness_name)
+            LIMIT 32)`
+    ).run(name)
 }
 
 export function safeRunId(value) {
@@ -522,6 +538,7 @@ function creditCompletedRun(db, name, runId, workspaceId, result, finished) {
         )
         .run(runId, name, workspaceId)
     if (claim.changes) db.creditUsage(workspaceId, name, result, finished)
+    return Boolean(claim.changes)
 }
 
 // A new API can finish the accounting of a run returned by an older worker.
@@ -530,7 +547,13 @@ export function accountReturnedBackgroundRun(name, runId, workspaceId, result) {
     if (!safeRunId(runId) || !workspaceId || database().dialect !== 'postgres') return false
     immediate((db) => {
         const row = db.prepare('SELECT finished_at FROM run_history WHERE id = ? AND harness_name = ?').get(runId, name)
-        if (row?.finished_at) creditCompletedRun(db, name, runId, workspaceId, result, row.finished_at)
+        if (row?.finished_at && creditCompletedRun(db, name, runId, workspaceId, result, row.finished_at)) {
+            // An older worker accepted the result while its API waiter was offline. Preserve any
+            // original published result, or commit the verified one with the missing credit.
+            const existing = db.prepare('SELECT 1 AS saved FROM run_results WHERE run_id = ? AND harness_name = ?').get(runId, name)
+            const body = !existing && storedResult(result)
+            if (body) writeRunResult(db, runId, name, body, Date.now())
+        }
     })
     return true
 }
@@ -578,10 +601,11 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId, 
             )
         // The HTTP process may have restarted. Publish the asynchronously requested result with its terminal status.
         if (changed.changes && body) {
-            writeRunResult(db, pending.id, pending.harness, body, finished)
+            writeRunResult(db, pending.id, pending.harness, body, Date.now())
             if (usageWorkspace && db.dialect === 'postgres')
                 creditCompletedRun(db, pending.harness, pending.id, usageWorkspace, result, finished)
         }
+        if (changed.changes) prune(db, pending.harness)
     })
     return getRun(pending.harness, pending.id)
 }

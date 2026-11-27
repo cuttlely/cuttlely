@@ -307,6 +307,12 @@ test(
             const unavailable = await request(url + '/api/v1/' + path, { cookie })
             assert.equal(unavailable.status, 503)
             await pool.query('ALTER TABLE token_usage_day DROP CONSTRAINT qa_hold_usage')
+            // No client asks again until the external worker has independently committed its charge.
+            const settling = Date.now() + 30000
+            while ((await usage()) === previous) {
+                assert.ok(Date.now() < settling, 'Worker must settle the accepted result without another HTTP read')
+                await new Promise((resolve) => setTimeout(resolve, 100))
+            }
             for (let n = 0; n < 2; n++) {
                 const recovered = await api(path)
                 assert.equal(recovered.status, 'succeeded')
@@ -466,5 +472,76 @@ test(
         finishJob(job.id, { status: 'succeeded', result: { ...payload, runId: stale.id } })
         for (let i = 0; i < 2; i++) assert.equal(reconcilePublicQueueRun(stale, owner), true)
         assert.equal(getRunResult(name, stale.id).text, payload.text)
+        // A running admission and an older interrupted receipt for the same team must survive
+        // 101 later admissions and completions, with independent chats and a separate API key.
+        const team = 'Retention'
+        const admission = (key) => {
+            const args = { name: team, workspaceId: owner, apiKeyId: key, chatId: randomUUID() }
+            const row = queueHarnessRun(args)
+            return beginHarnessRun({ ...args, id: row.id })
+        }
+        const long = admission('first')
+        const held = admission('second')
+        const saved = enqueueHarnessJob({
+            name: team,
+            chatId: held.chatId,
+            runId: held.id,
+            apiKeyId: 'second',
+            flowOptions: { workspaceId: owner }
+        })
+        finishJob(saved.id, { status: 'succeeded', result: { ...payload, runId: held.id } })
+        const { interruptOpenRuns } = await import('../packages/harness/history.mjs')
+        interruptOpenRuns({ before: Date.now() + 1 })
+        // An older API could have generically interrupted the accepted run, whereas this job really is active.
+        const active = admission('first')
+        let oldest
+        for (let n = 0; n < 101; n++) {
+            const later = admission('other')
+            if (!oldest) oldest = later
+            finishHarnessRun(later, { result: { text: 'Later.' }, saveResult: true, usageWorkspace: owner })
+        }
+        assert.equal(getRun(team, active.id)?.status, 'running')
+        assert.equal(getRun(team, held.id)?.error?.code, 'interrupted')
+        assert.equal(getRun(team, oldest.id), null)
+        assert.equal(getRun(team, long.id), null)
+        assert.equal(getRun(team, active.id, { apiKeyId: 'other' }), null)
+        assert.ok(reconcilePublicQueueRun(getRun(team, held.id), owner))
+        finishHarnessRun(active, { result: payload, saveResult: true, usageWorkspace: owner })
+        assert.equal(getRunResult(team, held.id)?.text, payload.text)
+        assert.equal(getRunResult(team, active.id)?.text, payload.text)
+        assert.equal(getRunResult(team, oldest.id), null)
+        assert.equal(
+            (await pool.query('SELECT count(*)::int AS n FROM cuttlely_harness_queue.run_history WHERE harness_name=$1', [team])).rows[0].n,
+            100
+        )
+
+        // A permanently rejected workspace must not monopolize the next sweep.
+        const { recoverAcceptedUsage } = await import('../packages/harness/queue.mjs')
+        const awaiting = (name, workspaceId) => {
+            const args = { name, workspaceId, chatId: randomUUID() }
+            const pending = queueHarnessRun(args)
+            const row = beginHarnessRun({ ...args, id: pending.id })
+            const job = enqueueHarnessJob({ name, chatId: row.chatId, runId: row.id, flowOptions: { workspaceId } })
+            finishJob(job.id, { status: 'succeeded', result: { ...payload, runId: row.id } })
+            return row
+        }
+        const rejected = awaiting('Unsettled', owner),
+            healthy = awaiting('Independent', other)
+        // An older worker closed its history but did not preserve the detached request's result or charge.
+        finishHarnessRun(healthy, { result: payload })
+        assert.equal(getRun(healthy.harness, healthy.id).status, 'completed_with_errors')
+        assert.equal(getRunResult(healthy.harness, healthy.id), null)
+        await pool.query(`ALTER TABLE token_usage_day ADD CONSTRAINT block_first_team CHECK ("flowId" <> 'Unsettled') NOT VALID`)
+        let cursor = ''
+        for (let n = 0; n < 10 && !getRunResult(healthy.harness, healthy.id); n++) cursor = recoverAcceptedUsage(cursor)
+        assert.equal(getRunResult(healthy.harness, healthy.id)?.text, payload.text)
+        assert.equal(getRunResult(rejected.harness, rejected.id), null)
+        assert.deepEqual(
+            (await pool.query('SELECT DISTINCT "workspaceId" FROM token_usage_day WHERE "flowId"=$1', [healthy.harness])).rows,
+            [{ workspaceId: other }]
+        )
+        await pool.query('ALTER TABLE token_usage_day DROP CONSTRAINT block_first_team')
+        for (let n = 0; n < 10 && !getRunResult(rejected.harness, rejected.id); n++) cursor = recoverAcceptedUsage(cursor)
+        assert.equal(getRunResult(rejected.harness, rejected.id)?.text, payload.text)
     }
 )

@@ -106,7 +106,8 @@ export const HISTORY_SCHEMA = `CREATE TABLE IF NOT EXISTS run_history (
             harness_name TEXT NOT NULL,
             result_json TEXT NOT NULL,
             created_at INTEGER NOT NULL
-        );`
+        );
+        CREATE INDEX IF NOT EXISTS run_results_team ON run_results (harness_name, run_id);`
 
 export const SCHEDULE_SCHEMA = `CREATE TABLE IF NOT EXISTS harness_schedules (
             harness_name TEXT PRIMARY KEY,
@@ -138,6 +139,14 @@ export function isQueue(scope) {
     return scope === 'queue'
 }
 
+// The durable queue job and run must agree on the original admission, including its principal.
+export const acceptedUsageJob = `j.status = 'succeeded' AND j.result IS NOT NULL AND j.payload::jsonb->>'runId' = h.id
+    AND j.session_key = h.harness_name || ':' || h.chat_id AND j.payload::jsonb->>'name' = h.harness_name
+    AND j.payload::jsonb->>'chatId' = h.chat_id AND j.payload::jsonb->>'workspaceId' = h.usage_workspace_id
+    AND (j.payload::jsonb->>'apiKeyId') IS NOT DISTINCT FROM h.api_key_id`
+export const openUsageRun =
+    "usage_workspace_id IS NOT NULL AND usage_recorded = false AND (status IN ('queued','running','succeeded','completed_with_errors') OR (status='failed' AND error_code='interrupted'))"
+
 export function postgresHarnessDdl(scope) {
     const ddl = isQueue(scope)
         ? [
@@ -147,6 +156,8 @@ export function postgresHarnessDdl(scope) {
               HISTORY_SCHEMA,
               'CREATE TABLE IF NOT EXISTS harness_records (entry TEXT PRIMARY KEY, content TEXT NOT NULL)',
               'ALTER TABLE run_history ADD COLUMN IF NOT EXISTS mode TEXT, ADD COLUMN IF NOT EXISTS api_key_id TEXT, ADD COLUMN IF NOT EXISTS usage_workspace_id TEXT, ADD COLUMN IF NOT EXISTS usage_recorded BOOLEAN NOT NULL DEFAULT false',
+              `CREATE INDEX IF NOT EXISTS run_history_pending_usage ON run_history (id) WHERE ${openUsageRun}`,
+              "CREATE INDEX IF NOT EXISTS jobs_accepted_usage ON jobs ((payload::jsonb->>'runId')) WHERE status = 'succeeded' AND result IS NOT NULL",
               'ALTER TABLE guarded_query_turns ADD COLUMN IF NOT EXISTS position BIGINT GENERATED ALWAYS AS IDENTITY'
           ]
         : [SESSION_SCHEMA]

@@ -192,9 +192,16 @@ test('private claims are bounded, deduplicated and exclude arbitrary draft, sour
 
 test('private claims share existing run-history retention and cannot outlive a pruned run', () => {
     const pending = beginHarnessRun({ name: 'diagnostics-retention', startedAt: 1 })
-    finishHarnessRun(pending, { result, diagnostics: [claim()] })
-    for (let index = 0; index < 100; index++) beginHarnessRun({ name: pending.harness, startedAt: 100 + index })
+    finishHarnessRun(pending, { result, diagnostics: [claim()], finishedAt: 2 })
+    database()
+        .prepare('INSERT INTO run_results (run_id, harness_name, result_json, created_at) VALUES (?, ?, ?, ?)')
+        .run('run_oldorphan', pending.harness, '{}', 1)
+    for (let index = 0; index < 100; index++) {
+        const later = beginHarnessRun({ name: pending.harness, startedAt: 100 + index })
+        finishHarnessRun(later, { result, finishedAt: 200 + index })
+    }
     assert.equal(listRuns(pending.harness, { limit: 100 }).length, 100)
     assert.equal(getRun(pending.harness, pending.id), null)
     assert.equal(getRunDiagnostics(pending.harness, pending.id), null)
+    assert.equal(database().prepare('SELECT 1 FROM run_results WHERE run_id = ?').get('run_oldorphan'), undefined)
 })

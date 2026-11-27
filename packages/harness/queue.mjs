@@ -5,7 +5,9 @@ import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
-import { finishHarnessRun, settleLostQueueRun } from './history.mjs'
+import { acceptedUsageJob, openUsageRun } from './side-store-schema.mjs'
+import { harnessUsesPostgres } from './side-store-postgres.mjs'
+import { accountReturnedBackgroundRun, finishHarnessRun, getRun, settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
 import { nativeToolJournal } from './runtime/native-journal.mjs'
@@ -145,19 +147,19 @@ export function reconcilePublicQueueRun(run, workspaceId) {
         const job = db
             .prepare(
                 `SELECT CASE WHEN h.usage_recorded THEN NULL ELSE j.result END AS result, j.updated_at, h.usage_recorded
-             FROM jobs j JOIN run_history h ON h.id = j.payload::jsonb->>'runId'
-             WHERE j.id = ? AND j.status = 'succeeded' AND h.id = ? AND h.harness_name = ?
-               AND h.chat_id = ? AND h.usage_workspace_id = ?
-               AND j.payload::jsonb->>'workspaceId' = h.usage_workspace_id
-               AND j.payload::jsonb->>'name' = h.harness_name AND j.payload::jsonb->>'chatId' = h.chat_id
-               AND (j.payload::jsonb->>'apiKeyId') IS NOT DISTINCT FROM h.api_key_id`
+             FROM jobs j JOIN run_history h ON ${acceptedUsageJob}
+             WHERE j.id = ? AND h.id = ? AND h.harness_name = ? AND h.chat_id = ? AND h.usage_workspace_id = ?`
             )
             .get(row.id, run.id, run.harness, run.chatId, workspaceId)
         if (job?.usage_recorded) return true // A concurrent poll already recovered this run. Reload the authorized result.
         if (!job?.result) return false
         const result = JSON.parse(job.result)
         if (result?.runId !== run.id) return false
-        finishHarnessRun(run, { result, finishedAt: Number(job.updated_at), saveResult: true, usageWorkspace: workspaceId })
+        if (run.status === 'succeeded' || run.status === 'completed_with_errors') {
+            accountReturnedBackgroundRun(run.harness, run.id, workspaceId, result)
+        } else {
+            finishHarnessRun(run, { result, finishedAt: Number(job.updated_at), saveResult: true, usageWorkspace: workspaceId })
+        }
     } else if (row.status === 'running') {
         immediate((tx) => failExpiredWorker(tx, row.id, now - stale, now))
     } else {
@@ -682,7 +684,47 @@ export async function runQueuedHarness(args) {
     }
 }
 
+// Each pass considers at most eight unfinished admissions and settles at most one accepted
+// job. Moving past a failed workspace lets another team's result finish on the next pass.
+export function recoverAcceptedUsage(after = '') {
+    if (!harnessUsesPostgres() || jobsStopped()) return ''
+    const db = database()
+    const candidates = db
+        .prepare(
+            `SELECT h.id,h.harness_name,h.usage_workspace_id,EXISTS (SELECT 1 FROM jobs j WHERE ${acceptedUsageJob}) AS accepted
+         FROM (SELECT id,harness_name,chat_id,api_key_id,usage_workspace_id FROM run_history
+               WHERE ${openUsageRun} AND id > ? ORDER BY id LIMIT 8) h ORDER BY h.id`
+        )
+        .all(after)
+    for (const candidate of candidates) {
+        if (!candidate.accepted) continue
+        try {
+            const run = getRun(candidate.harness_name, candidate.id)
+            if (run) reconcilePublicQueueRun(run, candidate.usage_workspace_id)
+        } catch {
+            // A temporary accounting rejection leaves its result available for the next sweep.
+        }
+        return candidate.id
+    }
+    return candidates.length === 8 ? candidates.at(-1).id : ''
+}
+
+export function startAcceptedUsageRecovery() {
+    if (!harnessUsesPostgres()) return
+    let cursor = ''
+    const timer = setInterval(() => {
+        try {
+            cursor = recoverAcceptedUsage(cursor)
+        } catch {
+            // Database health and coordinator ownership are monitored outside this optional retry.
+        }
+    }, 5000)
+    timer.unref()
+    return () => clearInterval(timer)
+}
+
 export function startWorkerLoop() {
+    const stopRecovery = startAcceptedUsageRecovery()
     let stopped = false
     const finished = (async () => {
         console.info(`[harness] worker ${process.pid} started`)
@@ -704,6 +746,6 @@ export function startWorkerLoop() {
         stop() {
             stopped = true
         },
-        finished
+        finished: finished.finally(() => stopRecovery?.())
     }
 }
