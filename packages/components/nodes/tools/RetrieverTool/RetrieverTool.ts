@@ -253,7 +253,8 @@ class Retriever_Tools implements INode {
         const name = nodeData.inputs?.name as string
         const description = nodeData.inputs?.description as string
         const retriever = nodeData.inputs?.retriever as BaseRetriever
-        const returnSourceDocuments = nodeData.inputs?.returnSourceDocuments as boolean
+        const sourceOption = nodeData.inputs?.returnSourceDocuments
+        const returnSourceDocuments = sourceOption === true || sourceOption === 'true'
         const retrieverToolMetadataFilter = nodeData.inputs?.retrieverToolMetadataFilter
 
         const input = {
@@ -278,8 +279,7 @@ class Retriever_Tools implements INode {
             }
             const docs = await retriever.invoke(input)
             const content = returnSourceDocuments ? formatRetrievedDocuments(docs) : docs.map((doc) => doc.pageContent).join('\n\n')
-            const sourceDocuments = JSON.stringify(docs)
-            return returnSourceDocuments ? content + SOURCE_DOCUMENTS_PREFIX + sourceDocuments : content
+            return returnSourceDocuments ? content + SOURCE_DOCUMENTS_PREFIX + JSON.stringify(docs) : content
         }
 
         const schema = z.object({

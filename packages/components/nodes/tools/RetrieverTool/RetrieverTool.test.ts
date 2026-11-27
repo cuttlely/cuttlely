@@ -92,7 +92,7 @@ describe('formatRetrievedDocuments', () => {
 })
 
 describe('retriever tool', () => {
-    async function initTool(returnSourceDocuments?: boolean) {
+    async function initTool(returnSourceDocuments?: unknown) {
         const inputs: Record<string, unknown> = {
             name: 'search_kb',
             description: 'Search the knowledge base',
@@ -102,8 +102,8 @@ describe('retriever tool', () => {
         return new nodeClass().init(createNodeData(inputs), '', { chatflowid: 'x' })
     }
 
-    it('puts headers and chunks before the source JSON when returnSourceDocuments is true', async () => {
-        const tool = await initTool(true)
+    it.each([true, 'true'])('puts headers and chunks before the source JSON for an explicit opt-in (%p)', async (flag) => {
+        const tool = await initTool(flag)
         const output = await tool.call({ input: 'Who directs Brindlewick?' })
         const at = output.indexOf(SOURCE_DOCUMENTS_PREFIX)
         const visible = output.slice(0, at)
@@ -120,14 +120,13 @@ describe('retriever tool', () => {
         expect(visible.includes('C:\\data')).toBe(false)
     })
 
-    it('returns exactly the joined page content when returnSourceDocuments is false or omitted', async () => {
-        const joined = sourcedDocs.map((doc) => doc.pageContent).join('\n\n')
-        const off = await initTool(false)
-        const omitted = await initTool()
-
-        expect(await off.call({ input: 'Who directs Brindlewick?' })).toBe(joined)
-        expect(await omitted.call({ input: 'Who directs Brindlewick?' })).toBe(joined)
-        expect(joined.includes(SOURCE_DOCUMENTS_PREFIX)).toBe(false)
-        expect(joined.includes('[1]')).toBe(false)
-    })
+    it.each([false, undefined, 'false', '', '0', 'TRUE', 1, {}, []])(
+        'returns only the joined page content without an explicit source opt-in (%p)',
+        async (flag) => {
+            const tool = await initTool(flag)
+            const output = await tool.call({ input: 'Who directs Brindlewick?' })
+            expect(output).toBe(sourcedDocs.map((doc) => doc.pageContent).join('\n\n'))
+            expect(output).not.toContain(SOURCE_DOCUMENTS_PREFIX)
+        }
+    )
 })

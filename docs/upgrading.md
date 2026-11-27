@@ -6,6 +6,10 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 On the starting page after an in-place restart, liveness can already answer 200 while sign-in and `/api` still answer 503. Wait for startup to finish before signing in or calling the API.
 
+## Testing the Kraken 2.0 preview
+
+Check **Return Source Documents** on imported Retriever Tool cards. Earlier versions treated a saved `"false"` string as enabled. Kraken treats it as off in the editor and during execution. The model still receives the retrieved text. If a client needs the card’s structured source documents, enable the switch, republish and run a question with a known source through the client’s usual route. Saved `true` and `"true"` both enable the option. [Native canary and rollback guide](reference/kraken-native-runtime.md)
+
 ## Upgrading to 1.7.17
 
 For an existing installation, quiesce writers and verify an off-host backup of the application database, runtime data and original installation key before replacing the container. Start with the original data or a restored copy, then use **Server Settings → Database → Upgrade storage**. The screen lists blockers and the required PostgreSQL space.

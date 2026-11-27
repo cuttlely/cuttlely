@@ -1149,7 +1149,11 @@ const NodeInputHandler = ({
                             <SwitchInput
                                 disabled={disabled}
                                 onChange={(newValue) => handleDataChange({ inputParam, newValue })}
-                                value={data.inputs[inputParam.name] ?? inputParam.default ?? false}
+                                value={
+                                    data.name === 'retrieverTool' && inputParam.name === 'returnSourceDocuments'
+                                        ? data.inputs.returnSourceDocuments === true || data.inputs.returnSourceDocuments === 'true'
+                                        : data.inputs[inputParam.name] ?? inputParam.default ?? false
+                                }
                             />
                         )}
                         {inputParam.type === 'datagrid' && (

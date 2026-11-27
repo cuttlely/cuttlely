@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Instance Operators can select **Stop all jobs** in the storage upgrade panel to cancel active work, clear abandoned waits and pause new jobs through cutover. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#before-the-upgrade)
 
+### Fixed
+
+-   Imported Retriever Tool cards now honor **Return Source Documents** when the saved value is the string `"false"`. To include document metadata in the result, enable the switch and republish the flow. [Upgrade notes](docs/upgrading.md#testing-the-kraken-20-preview)
+
 ## [1.7.17] - 2026-11-27
 
 ### Changed
