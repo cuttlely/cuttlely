@@ -28,6 +28,14 @@ Native runs record the winning specialist model and retain provider-reported inp
 
 For published agent-mode teams with direct chat models, the full build can record a bundled specialist’s progress against the active PostgreSQL turn during rollback. This covers model-only specialists and the packaged read-only Ops action. The latter resolves its installed script from the package when the worker starts in another directory. Other team configurations still need a rollback rehearsal.
 
+PostgreSQL recovery checks now exercise loss of the coordinator while ordinary queries still succeed, standalone worker replacement, and a surviving worker that finishes an asynchronous run after the accepting API stops. The original caller can poll for the stored answer or the expired worker's unconfirmed action. Two API replicas observing one due schedule and an external worker produced one tool response and one run history entry after replacement. The runtime guide maps each v1.7.15 vendor patch to a verification fixture or outstanding comparison.
+
+The Chief of Staff template retrieves its embedded document in both modes. The Research template now connects its Custom Retriever to a local sample store. An older Research canvas with an empty vector-store input identifies that missing binding. Scoped prediction checks cover the returned answer, source placement and denied keys for both teams. A simulated accounting outage verifies that a completed PostgreSQL job can recover its result and token buckets once, even after the accepting API exits.
+
+History retention keeps live turns and accepted results awaiting accounting in addition to the 100 settled results per team. A replacement worker retries accounting after transient database errors. The pressure fixture checks an older admission against 101 later completions and verifies that a blocked workspace still allows a different workspace to settle.
+
+The local Custom Retriever preserves all three saved output selections. AI Builder can reconstruct the Research example with the intended output and source metadata. Public prediction fixtures exercise imported and generated teams on SQLite and after replacing a PostgreSQL application host.
+
 Full team parity and retirement of the bundled runtime remain open. General shell, code execution and interactive browser grants, other MCP actions, operator-supplied runtime dependencies and historical conversations without reliable ownership need further work. Keep the full installation available for teams that depend on those features.
 
 ## Milestones
