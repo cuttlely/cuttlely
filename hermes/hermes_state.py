@@ -571,6 +571,8 @@ class SessionDB(
         self.db_path = db_path or _default_db_path()
         _ensure_test_isolation(self.db_path)  # before any connection/pragma/mkdir
         self.read_only = read_only
+        from cuttlely_session_store import scope_for
+        self._cuttlely_pg_scope = scope_for(self.db_path)
         # Keep only the opening call site, never a frame (which pins caller locals).
         self._creation_site = "unknown"
         caller = None
@@ -914,6 +916,16 @@ class SessionDB(
         connection with NO lock under WAL; otherwise (non-WAL, open failure,
         ceiling reached) the writer connection under self._lock — deliberate
         degradation: slower beats EMFILE, which the supervisor cannot see."""
+        if self._cuttlely_pg_scope:
+            from cuttlely_session_store import read
+            with self._lock:
+                if self._conn is None:
+                    self._reopen_after_close_locked(context="read")
+                with read(self._cuttlely_pg_scope, self._conn) as conn:
+                    if conn is not self._conn and self._fts_cjk_loaded:
+                        load_fts5_cjk_extension(conn)
+                    yield conn
+            return
         conn = self._checkout_read_conn()
         if conn is not None:
             try:
@@ -1019,17 +1031,22 @@ class SessionDB(
                     self._raise_if_db_replaced()
                     if self._conn is None:  # close() raced this writer
                         self._reopen_after_close_locked(context="write")
-                    self._conn.execute("BEGIN IMMEDIATE")
-                    try:
+                    if self._cuttlely_pg_scope:
+                        from cuttlely_session_store import write
                         fn_started = True
-                        result = fn(self._conn)
-                        self._conn.commit()
-                    except BaseException:
+                        result = write(self._cuttlely_pg_scope, self._conn, fn)
+                    else:
+                        self._conn.execute("BEGIN IMMEDIATE")
                         try:
-                            self._conn.rollback()
-                        except Exception:
-                            pass
-                        raise
+                            fn_started = True
+                            result = fn(self._conn)
+                            self._conn.commit()
+                        except BaseException:
+                            try:
+                                self._conn.rollback()
+                            except Exception:
+                                pass
+                            raise
                 # Success — periodic best-effort checkpoint + FTS merge.
                 self._write_count += 1
                 if self._write_count % self._CHECKPOINT_EVERY_N_WRITES == 0:

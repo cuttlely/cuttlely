@@ -1,3 +1,4 @@
+import { recoverableRuntimePath } from './migrate-runtime-files.mjs'
 import { isProfilePrompt } from './migrate-profile-prompts.mjs'
 import { runtimeDependencies, verifiedHostFiles } from './host-files.mjs'
 import { installedSkillCatalog, matchesBundledSkill } from './bundled-skills.mjs'
@@ -55,6 +56,28 @@ export function discover({
     const temporary = []
     const unresolved = []
     const prompts = []
+    const runtimeFiles = []
+    function inspectRuntimeFile(target, name) {
+        const stat = fs.lstatSync(target)
+        if (!recoverableRuntimePath(name)) {
+            unresolved.push(name)
+        } else if (stat.isDirectory() && /(?:^|\/)cache\//.test(name)) {
+            const children = fs.readdirSync(target).sort()
+            if (!children.length) runtimeFiles.push({ name, bytes: 0, directory: true })
+            for (const child of children) inspectRuntimeFile(path.join(target, child), name + '/' + child)
+        } else if (stat.isFile()) {
+            // Browser and scratch directories can contain SQLite files with extensionless names.
+            const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+            try {
+                const header = Buffer.alloc(16)
+                fs.readSync(fd, header, 0, header.length, 0)
+                if (header.toString('latin1') === 'SQLite format 3\0') unresolved.push(name)
+                else runtimeFiles.push({ name, bytes: stat.size, executable: Boolean(stat.mode & 0o100) })
+            } finally {
+                fs.closeSync(fd)
+            }
+        } else unresolved.push(name)
+    }
     function inspectCache(home, prefix) {
         if (!inspectCaches) return
         const seedBundled = !fs.lstatSync(path.join(home, '.no-bundled-skills'), { throwIfNoEntry: false })
@@ -63,6 +86,14 @@ export function discover({
             if (hostFiles.has(path.resolve(target))) continue
             if (regular && name === 'SOUL.md' && isProfilePrompt(label)) {
                 prompts.push({ name: label, bytes: fs.lstatSync(target).size })
+            } else if (
+                regular &&
+                ['skills/.usage.json.lock', 'memories/MEMORY.md.lock', 'memories/USER.md.lock'].includes(name) &&
+                fs.statSync(target).size === 0
+            ) {
+                temporary.push(label + ' is recreated on the next runtime update.')
+            } else if (regular && recoverableRuntimePath(label)) {
+                inspectRuntimeFile(target, label)
             } else if (regular && name === 'skills/.bundled_manifest') {
                 temporary.push(label + ' is recreated by skill sync. Prior sync history and remembered deletions reset.')
             } else if (regular && name === 'skills/.curator_state') {
@@ -83,7 +114,7 @@ export function discover({
             const location = prefix + 'cache/' + entry.name
             const source = entry.isFile() && cacheSources.get(entry.name)
             if (source) temporary.push(location + ' is rebuilt from ' + source + ' on next use.')
-            else unresolved.push(location)
+            else inspectRuntimeFile(path.join(cache, entry.name), location)
         }
     }
     inspectCache(hermesHome(), '')
@@ -112,7 +143,8 @@ export function discover({
     const profiles = stores.filter((item) => item.kind === 'profile').map((item) => item.name.toLowerCase())
     if (new Set(profiles).size !== profiles.length) problem('Resolve case-colliding harness profiles before upgrading.')
     prompts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    return { stores, local, temporary, unresolved, prompts }
+    runtimeFiles.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    return { stores, local, temporary, unresolved, prompts, runtimeFiles }
 }
 
 export async function etlDependencyContext(source, state, hostFiles = verifiedHostFiles(state.hostFiles)) {
@@ -165,21 +197,23 @@ export function inspectStore(item) {
         const counts = {}
         const names = db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND substr(name,1,7) <> 'sqlite_' ORDER BY name").all()
         for (const { name } of names) counts[name] = db.prepare('SELECT count(*) AS n FROM "' + name.replaceAll('"', '""') + '"').get().n
-        let busy = false
+        const active = []
         if (!retired) {
-            const has = (name, condition, params = []) =>
-                Object.hasOwn(counts, name) &&
-                Boolean(db.prepare('SELECT 1 FROM ' + name + ' WHERE ' + condition + ' LIMIT 1').get(...params))
-            if (item.kind === 'etl') busy = has('runs', "status IN ('running','queued','pausing','cancelling')")
-            if (item.kind === 'queue')
-                busy =
-                    has('turns', 'expires_at=0 OR expires_at>?', [Date.now()]) ||
-                    has('jobs', "status IN ('queued','running')") ||
-                    has('try_profile_turns', '1=1') ||
-                    has('agent_turns', '1=1')
-            if (item.kind === 'dash') busy = has('dash_flow', 'lease_until>?', [Date.now()])
+            const check = (label, name, condition, params = []) => {
+                if (counts[name] && db.prepare('SELECT 1 FROM ' + name + ' WHERE ' + condition + ' LIMIT 1').get(...params))
+                    active.push(label)
+            }
+            if (item.kind === 'etl') check('ETL runs', 'runs', "status IN ('running','queued','pausing','cancelling')")
+            if (item.kind === 'queue') {
+                check('turn locks', 'turns', 'expires_at=0 OR expires_at>?', [Date.now()])
+                check('queued jobs', 'jobs', "status='queued'")
+                check('running jobs', 'jobs', "status='running'")
+                check('draft turns', 'try_profile_turns', '1=1')
+                check('agent turns', 'agent_turns', '1=1')
+            }
+            if (item.kind === 'dash') check('dashboard refreshes', 'dash_flow', 'lease_until>?', [Date.now()])
         }
-        return { ...item, retired, bytes, version, counts, busy }
+        return { ...item, retired, bytes, version, counts, busy: active.length > 0, active }
     } finally {
         db.close()
     }

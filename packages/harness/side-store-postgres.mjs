@@ -1,3 +1,7 @@
+import { createCipheriv, createHmac, randomBytes } from 'node:crypto'
+import path from 'node:path'
+import { guardedEncryptionKeyOverwrite } from '../../scripts/setting-alias.cjs'
+import { hermesHome } from './paths.mjs'
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads'
 import { HarnessError } from './errors.mjs'
 
@@ -70,3 +74,24 @@ export function openHarnessPostgres(scope) {
 export const dropDraftPostgres = (scope) => request({ scope: 'draft:' + scope, op: 'dropDraft' })
 export const tryProfileLease = (key, owner) => request({ op: 'tryLease', key, owner })
 export const releaseProfileLease = (owner) => request({ op: 'releaseLease', owner })
+
+export function saveRuntimeSetting(file, content) {
+    if (!config) return
+    const name = path.relative(hermesHome(), file).split(path.sep).join('/')
+    if (
+        !/^(?:profiles\/[a-zA-Z0-9_-]+\/)?(?:\.env|config\.yaml|SOUL\.md|harness-roster\.json|skills\/harness-playbooks\/[a-zA-Z0-9_-]+\/SKILL\.md)$/.test(
+            name
+        )
+    )
+        return
+    const secret = guardedEncryptionKeyOverwrite(process.env)
+    if (!secret?.trim()) throw new Error('The installation encryption key is required to save runtime settings.')
+    const key = createHmac('sha256', secret)
+        .update('Cuttlely runtime session v1\0setting/' + name)
+        .digest()
+    const nonce = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', key, nonce)
+    cipher.setAAD(Buffer.from(name))
+    const payload = Buffer.concat([nonce, cipher.update(content), cipher.final(), cipher.getAuthTag()])
+    request({ op: 'saveRuntimeSetting', key: name, payload })
+}

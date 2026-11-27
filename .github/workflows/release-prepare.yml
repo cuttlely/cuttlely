@@ -59,6 +59,10 @@ jobs:
                   node-version: 24.15.0
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
+            - name: Install the agent runtime for the disk-loss test
+              run: |
+                  pipx install uv==0.12.3
+                  bash scripts/setup-hermes.sh
             - name: Run the complete verification gate
               run: pnpm verify
               env:
@@ -115,6 +119,10 @@ jobs:
                   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), process.env.SOURCE_SHA)
                   NODE
             - run: pnpm install --frozen-lockfile
+            - name: Install the agent runtime for the disk-loss test
+              run: |
+                  pipx install uv==0.12.3
+                  bash scripts/setup-hermes.sh
             - name: Configure the local release author
               run: |
                   git config user.name 'github-actions[bot]'

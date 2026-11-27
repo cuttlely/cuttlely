@@ -19,6 +19,8 @@ Node 20+ 和 Docker
 
 [10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
 
+**即將發布** · **1.7.17 可在更換容器後，從 PostgreSQL 還原已儲存的對話、執行階段設定和記憶筆記。** [升級指南](../docs/upgrading.md#upgrading-to-1717).
+
 **1.7.16 修正了移轉至 PostgreSQL 儲存空間時對未修改的內建技能顯示警告的問題。** [升級指南](../docs/upgrading.md#upgrading-to-1716).
 
 **1.7.15 支援由執行個體操作員將代理團隊的對話、排程、ETL 管線和向量移轉至 PostgreSQL。** [升級與磁碟需求](../docs/upgrading.md#upgrading-to-1715).

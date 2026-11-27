@@ -1,3 +1,4 @@
+import { saveRuntimeSetting } from './side-store-postgres.mjs'
 import { recordEntries, recordExists } from './record-files.mjs'
 import { defaultEvidenceBytes, evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
@@ -1053,6 +1054,7 @@ function writeContained(file, text, mode = 0o644) {
             }
             throwLink(file)
         }
+        saveRuntimeSetting(file, text)
         fs.ftruncateSync(fileFd, 0)
         fs.writeFileSync(fileFd, text)
     } finally {
