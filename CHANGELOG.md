@@ -4,16 +4,16 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Security
+
+-   The agent runtime's OpenTelemetry SDK moves to 1.45.2, which fixes a quadratic traceparent parsing DoS ([GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg)).
+
 ## [1.7.17] - 2026-11-27
 
 ### Changed
 
 -   **Upgrade storage** shows blockers beside the action and verifies a PostgreSQL copy of local profile prompts and runtime data. After cutover, saved runtime messages, settings and memory notes survive replacement of ephemeral web and worker disks. The container supports restricted UIDs. Local code-execution outputs and direct shell edits depend on the container disk. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#chat-sessions-after-disk-loss).
 -   The workspace `hono` override moves from `^4.12.25` to `^4.13.16`, which closes [GHSA-3gg2-335m-rxc6](https://github.com/advisories/GHSA-3gg2-335m-rxc6) (the `css` helper does not escape a closing tag split between the template and an interpolated value), [GHSA-h7mg-cq63-vhpq](https://github.com/advisories/GHSA-h7mg-cq63-vhpq) (RegExpRouter skips wildcard middleware for some route sets and for paths with an encoded line terminator), [GHSA-4m76-xfj5-7975](https://github.com/advisories/GHSA-4m76-xfj5-7975) (`mount()` and `app.mount()` can forward a path that bypasses middleware scoped inside the mount prefix), [GHSA-4h7h-rv7c-7m2v](https://github.com/advisories/GHSA-4h7h-rv7c-7m2v) (`validator('form')` skips validation for `multipart/form-data` requests with extra parameters), and [GHSA-46wx-v44x-9hh2](https://github.com/advisories/GHSA-46wx-v44x-9hh2) (`csrf()` does not check requests sent by hyperlink auditing); the lockfile resolves 4.13.22.
-
-### Security
-
--   The agent runtime's OpenTelemetry SDK moves to 1.45.2, which fixes a quadratic traceparent parsing DoS ([GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg)).
 
 ## [1.7.16] - 2026-11-26
 
