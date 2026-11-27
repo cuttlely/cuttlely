@@ -4123,7 +4123,16 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 try {
                     const result = await receipt.invoke(() => handlers.get(name)(args, callId))
                     assertCurrent()
-                    emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: result?.error === true })
+                    emitTool(context, {
+                        phase: 'done',
+                        specialist: specialist.name,
+                        name,
+                        callId,
+                        error: result?.error === true,
+                        ...(name === 'read_file' && result?.error === true && result.managedFileNotFound === true
+                            ? { detail: 'File not found.' }
+                            : {})
+                    })
                     return result
                 } catch (error) {
                     emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: true })

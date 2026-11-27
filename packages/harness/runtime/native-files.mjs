@@ -344,7 +344,12 @@ export function openManagedFiles(context, specialist) {
                 modified = response.modified
                 known = response.known
             }
-            return { content: JSON.stringify(response.result), error: Boolean(response.result.error || response.result.success === false) }
+            return {
+                content: JSON.stringify(response.result),
+                error: Boolean(response.result.error || response.result.success === false),
+                // A missing file may have similarly named siblings. Neither names nor paths belong in a public diagnostic.
+                ...(name === 'read_file' && response.result.not_found === true ? { managedFileNotFound: true } : {})
+            }
         },
         async finish() {
             context.assertNativeAuthority()

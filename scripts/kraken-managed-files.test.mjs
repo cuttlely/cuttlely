@@ -115,12 +115,25 @@ test(
         const probe = await request(url + '/api/v1/harnesses/' + name + '/runs', {
             method: 'POST',
             cookie: secondLogin.cookie,
-            body: { mode: 'agent', chatId: chats.agent, question: 'PROBE isolation.' },
+            body: { mode: 'agent', chatId: chats.agent, question: 'PROBE isolation.', streaming: true },
             timeoutMs: 45000
         })
         assert.equal(probe.status, 200, probe.text.slice(0, 220))
-        assert.equal(probe.json.agents[0].status, 'completed', probe.json.agents[0].error)
-        assert.match(probe.json.text, /Scoped file unavailable/)
+        const events = probe.text
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => JSON.parse(line.slice(5)))
+        const final = events.find((event) => event.event === 'harness.final').data
+        assert.equal(final.agents[0].status, 'completed', final.agents[0].error)
+        assert.match(final.text, /Scoped file unavailable/)
+        const chips = events.filter((event) => event.event === 'harness.tool' && event.data.name === 'read_file').map((event) => event.data)
+        assert.deepEqual(
+            chips.map((chip) => [chip.phase, Boolean(chip.error), chip.detail]),
+            [
+                ['start', false, undefined],
+                ['done', true, 'File not found.']
+            ]
+        )
         for (const suffix of ['', '/result', '/diagnostics']) {
             const at = url + '/api/v1/harnesses/' + name + '/runs/' + agentOutput.run.id + suffix
             const first = await request(at, { cookie })
