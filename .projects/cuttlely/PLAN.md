@@ -16,9 +16,11 @@ Closing a multiplexed profile releases its log and MCP stderr handles while sibl
 
 The `Kraken` branch tracks the [native runtime proposal](https://github.com/cuttlely/cuttlely/issues/594). The [canary and rollback guide](../../docs/reference/kraken-native-runtime.md) covers per-team selection, queue compatibility, saved credential bindings and operator checks. Both router and agent mode use the admitted engine. Preflight reports unsupported capabilities by specialist.
 
-Native specialists can use saved Markdown playbooks, Calculator, Current Date Time, supported Pinecone retrievers, saved SerpAPI search, the packaged read-only Ops MCP server and guarded PostgreSQL Analyst cards. Verified source output and scoped attachments use the released delivery checks. A cancelled database call is scoped to its chat. Tests cover native and bundled selection across external workers, destination-specific query stamps, same-chat paging, cross-workspace denials, stale supervisor status and rollback.
+Native specialists can use saved Markdown playbooks, Calculator, Current Date Time, supported Pinecone retrievers and SerpAPI search, caller-supplied public source pages, the packaged Ops MCP action and guarded PostgreSQL Analyst cards. The registered workspace MCP status contract has Streamable HTTP and SSE coverage. Native file specialists have scoped uploads, patching, search and downloadable outputs on compatible Linux workers. Prompt history, search, private files and Analyst follow-ups use the admitted caller and canvas generation. Previously queued exchanges can supply ownership evidence for existing installations.
 
-Full team parity and retirement of the bundled runtime remain open. Remaining work includes general approved MCP servers, browser and code/shell tools, workspace file operations, operator-authored runtime dependencies, memory and session search, and a clean native distribution. Keep the bundled engine available for those configurations.
+The optional native image builds from a source archive without the bundled runtime. The package fixtures cover the normal launcher, independent workers, empty-disk recovery and rollback. New calls carry a durable tool dispatch receipt so a worker loss can surface an uncertain result. See the canary guide for the preflight command and per-team acceptance checks.
+
+Full team parity and retirement of the bundled runtime remain open. General shell, code execution and interactive browser grants, other MCP actions, operator-supplied runtime dependencies and historical conversations without reliable ownership need further work. Keep the full installation available for teams that depend on those features.
 
 ## Milestones
 
