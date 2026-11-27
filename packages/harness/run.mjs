@@ -706,8 +706,7 @@ async function runTurnBody(
               caller: context.moduleOptions.flowOptions?.nestedFlowCaller,
               sessionScope: context.sessionScope,
               signal: context.workSignal,
-              assertCurrent: context.assertNativeAuthority,
-              startedAt: Date.now()
+              assertCurrent: context.assertNativeAuthority
           })
     beginGuardedQueryTurns(roster.specialists || [], chatId, context.turnId, sessionKey(name, chatId), sqlAttemptLimit)
     try {

@@ -239,16 +239,7 @@ function lookup(name, receipt, args) {
     }
 }
 
-export function openNativeRecall({
-    roster,
-    chatId,
-    turnId,
-    caller,
-    sessionScope,
-    assertCurrent,
-    signal,
-    startedAt = new Date().toISOString()
-}) {
+export function openNativeRecall({ roster, chatId, turnId, caller, sessionScope, assertCurrent, signal, startedAt }) {
     const actor = owner(caller)
     const draft = Boolean(roster?.tryId)
     const draftOwner = actor?.[0] === 'api_key' ? 'api:' + actor[1] : actor?.[1]
@@ -280,7 +271,7 @@ export function openNativeRecall({
               legacy: draft
                   ? undefined
                   : { workspace: roster.workspaceId, canvas: roster.chatflowId, name: roster.name, chat: chatId, generation, actor },
-              startedAt: new Date(startedAt).toISOString(),
+              startedAt: (startedAt === undefined ? new Date() : new Date(startedAt)).toISOString(),
               model: roster.name
           })
         : undefined
