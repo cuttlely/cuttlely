@@ -4087,7 +4087,9 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                     const raw = await raceSignal(signal, () => callPrepared(item, value, assertCurrent))
                     assertCurrent()
                     const result = splitToolOutput(raw)
-                    sources.push(...result.documents)
+                    // The released gateway passes this retriever's documents as tool text in agent mode.
+                    // Its router additionally publishes the structured source documents.
+                    if (!context.nativePrime || binding.nodeName !== 'memoryVectorStore') sources.push(...result.documents)
                     return result.text
                 }
             )

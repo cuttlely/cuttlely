@@ -55,6 +55,29 @@ test('the released nodes preserve the rank, two exact scores and saved source la
     }
 })
 
+test('the loader carries URL citations and nested saved metadata as data and honors its own omit list', async () => {
+    const binding = store('North')
+    const first = {
+        source: 'https://example.invalid/Field%20notes',
+        file: 'manuals/Field notes.md',
+        tags: ['research', 2],
+        info: { page: 3, drop: true }
+    }
+    binding.upstream.document[0].inputs.metadata = first
+    binding.upstream.document[0].inputs.omitMetadataKeys = 'info.drop'
+    binding.upstream.document[1].inputs.metadata = JSON.stringify({ source: 'manuals/Second note.md' })
+    assert.ok(supportsNativeCanvasBinding(binding))
+    const prepared = await prepareModule(binding, '', {
+        flowOptions: { appDataSource: {}, workspaceId: 'north' },
+        loadNode: (name) => require(nodes[name]).nodeClass
+    })
+    const docs = await callPrepared(prepared, 'rutabaga')
+    assert.deepEqual(
+        docs.map((doc) => doc.metadata),
+        [{ ...first, info: { page: 3 } }, { source: 'manuals/Second note.md' }]
+    )
+})
+
 test('only bounded plain text and local hash embeddings can initialize the memory index', () => {
     for (const change of [
         (b) => (b.inputs.topK = 65),
@@ -68,9 +91,10 @@ test('only bounded plain text and local hash embeddings can initialize the memor
         (b) => (b.upstream.document[0].nodeName = 'fileLoader'),
         (b) => (b.upstream.document[0].credential = 'other'),
         (b) => (b.upstream.document[0].upstream = { textSplitter: {} }),
-        (b) => (b.upstream.document[0].inputs.metadata = { source: '/local/path' }),
-        (b) => (b.upstream.document[0].inputs.metadata = { source: 'https://example.invalid' }),
-        (b) => (b.upstream.document[0].inputs.metadata = { extra: true }),
+        (b) => (b.upstream.document[0].inputs.metadata = 'malformed'),
+        (b) => (b.upstream.document[0].inputs.metadata = '{"__proto__":{}}'),
+        (b) => (b.upstream.document[0].inputs.omitMetadataKeys = 'constructor.prototype'),
+        (b) => (b.upstream.document[0].inputs.metadata = { source: 'x'.repeat(16384) }),
         (b) => (b.upstream.document = Array(65).fill(b.upstream.document[0])),
         (b) => (b.upstream.document[0].inputs.text = 'ü'.repeat(524288)),
         (b) => (b.outputs.output = 'vectorStore')

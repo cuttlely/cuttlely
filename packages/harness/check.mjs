@@ -2575,8 +2575,10 @@ const liveRagClear = liveRag
           : liveRag instanceof Error)
     : false
 check(
-    'live retriever does not invent an answer without a built node',
-    liveRag ? liveRagClear : Array.isArray(liveRagResult) || typeof liveRagResult === 'object',
+    'the local Research retriever returns its actual source text or reports a missing build',
+    liveRag
+        ? liveRagClear
+        : typeof liveRagResult === 'string' && liveRagResult.includes('09:00 UTC') && liveRagResult.includes('Source: Research Handbook'),
     liveRag?.message
 )
 

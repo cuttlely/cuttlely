@@ -42,7 +42,7 @@ if [[ "${2:-}" == native ]]; then
             test ! -e hermes
             test ! -w packages/harness
             test -f packages/harness/native-distribution.json
-            node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-remote-mcp.test.mjs scripts/kraken-team-parity.test.mjs scripts/kraken-canvas-book.test.mjs scripts/kraken-inline-upload.test.mjs scripts/kraken-tabular-report.test.mjs'
+            node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-remote-mcp.test.mjs scripts/kraken-team-parity.test.mjs scripts/kraken-canvas-book.test.mjs scripts/kraken-inline-upload.test.mjs scripts/kraken-tabular-report.test.mjs scripts/kraken-local-research-prediction.test.mjs'
     exit
 fi
 

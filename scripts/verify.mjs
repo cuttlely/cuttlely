@@ -409,6 +409,8 @@ export const STEPS = [
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-tabular-report.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-memory.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-native-canvas.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-native-local-memory.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-local-research-prediction.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'test', 'pinned', 'native-analyst.test.mjs')
         ]
     },

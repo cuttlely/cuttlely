@@ -28,24 +28,36 @@ function matches(binding, shape) {
     )
 }
 
-function plainSourceMetadata(value) {
-    if (value === undefined || value === '') return true
-    let metadata = value
-    if (typeof metadata === 'string') {
-        if (metadata.length > 512) return false
-        try {
-            metadata = JSON.parse(metadata)
-        } catch {
-            return false
-        }
-    }
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
-    return (
-        Object.keys(metadata).length === 1 &&
-        Object.hasOwn(metadata, 'source') &&
-        typeof metadata.source === 'string' &&
-        /^[\p{L}\p{N}][\p{L}\p{N} ._()-]{0,127}$/u.test(metadata.source)
+// The loader carries saved metadata into a document. URL and filename labels are not dereferenced.
+// Bound the serialized data and nested key paths used by the released omit() implementation.
+function plainDocumentMetadata({ metadata, omitMetadataKeys }) {
+    if (
+        omitMetadataKeys != null &&
+        (typeof omitMetadataKeys !== 'string' ||
+            omitMetadataKeys.length > 2048 ||
+            /\b(?:__proto__|constructor|prototype)\b/.test(omitMetadataKeys))
     )
+        return false
+    if (metadata == null || metadata === '') return true
+    try {
+        const json = typeof metadata === 'string' ? metadata : JSON.stringify(metadata)
+        if (Buffer.byteLength(json) > 16384) return false
+        const parsed = JSON.parse(json)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+        const ordinary = (value, depth) => {
+            if (depth > 16) return false
+            return (
+                value === null ||
+                typeof value !== 'object' ||
+                Object.entries(value).every(
+                    ([key, child]) => !['__proto__', 'prototype', 'constructor'].includes(key) && ordinary(child, depth + 1)
+                )
+            )
+        }
+        return ordinary(parsed, 0)
+    } catch {
+        return false
+    }
 }
 
 // A fresh prepared instance builds its index from the saved local documents for this turn.
@@ -72,14 +84,14 @@ export function localMemoryStoreBinding(binding, output = 'retriever') {
         output,
         inputs: ['topK'],
         upstream: {
-            document: { type: 'plainText', output: 'document', inputs: ['text', 'metadata'] },
+            document: { type: 'plainText', output: 'document', inputs: ['text', 'metadata', 'omitMetadataKeys'] },
             embeddings: { type: 'localHashEmbeddings', inputs: ['dimensions'] }
         }
     }
     return documents.every(
         (document) =>
             !hasCredential(document) &&
-            plainSourceMetadata(document.inputs.metadata) &&
+            plainDocumentMetadata(document.inputs) &&
             matches({ ...binding, upstream: { ...upstream, document } }, shape)
     )
 }
