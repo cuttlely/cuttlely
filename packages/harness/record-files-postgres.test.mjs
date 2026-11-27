@@ -131,6 +131,43 @@ if (!isMainThread) {
             assert.deepEqual(JSON.parse((await columnRead).value), replacement)
             assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
 
+            await writer.query(`REVOKE UPDATE (content) ON ${table} FROM pg_database_owner`)
+            // The existing connection now has SELECT only. A fresh execution worker has the same access.
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
+            await columnReader.terminate()
+            columnReader = new Worker(new URL('./side-store-worker.mjs', import.meta.url), {
+                workerData: { ...fixture.connection, application_name: 'qa-roster-reader', options: '-c role=pg_database_owner' }
+            })
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
+
+            for (const change of ['rollback', 'revoke', 'replacement']) {
+                await writer.query('BEGIN')
+                await writer.query('SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext($1))', [schema])
+                await writer.query(`DELETE FROM ${table} WHERE entry=$1`, [entry])
+                const pending = restrictedRead()
+                await waitForLock('advisory')
+                if (change === 'replacement') await insert(original)
+                await writer.query(change === 'rollback' ? 'ROLLBACK' : 'COMMIT')
+                const expected = { rollback: replacement, revoke: null, replacement: original }
+                const reply = await pending
+                assert.equal(reply.error, undefined)
+                assert.deepEqual(JSON.parse(reply.value), expected[change])
+            }
+
+            // A direct SQL writer does not take the publication lock. As on the released
+            // read-only path, readers see its old committed row until the new one commits.
+            await writer.query('BEGIN')
+            await writer.query(`UPDATE ${table} SET content=$1 WHERE entry=$2`, [JSON.stringify(replacement), entry])
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), original)
+            await writer.query('COMMIT')
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
+            // PostgreSQL also applies the row's UPDATE policy to SELECT FOR SHARE.
+            await writer.query(`GRANT UPDATE (content) ON ${table} TO pg_database_owner`)
+            await writer.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
+            await writer.query(`CREATE POLICY qa_roster_visible ON ${table} FOR SELECT TO pg_database_owner USING (true)`)
+            assert.deepEqual(JSON.parse((await restrictedRead()).value), replacement)
+            await writer.query(`ALTER POLICY qa_roster_visible ON ${table} USING (false)`)
+            assert.deepEqual(await restrictedRead(), { value: null })
             await writer.query(`REVOKE SELECT ON ${table} FROM pg_database_owner`)
             const denied = await restrictedRead()
             assert.equal(denied.error?.code, '42501')

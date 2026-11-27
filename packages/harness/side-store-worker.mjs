@@ -185,10 +185,19 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
                 if (error.code !== '42501') throw error
             }
         }
-        // A role with column-only UPDATE can lock a row but cannot lock the whole table.
-        // Retry with the released permissions and remember only a successful fallback in this worker.
-        const results = await pool.query(`${lock} ${row} FOR SHARE`)
-        rosterUsesRowLock = true
+        try {
+            const results = await pool.query(`${lock} ${row} FOR SHARE`)
+            rosterUsesRowLock = true
+            const record = results.at(-1).rows[0]
+            if (record) return record.content
+            // Row-level security can permit SELECT but hide a row from a locking read.
+        } catch (error) {
+            if (error.code !== '42501') throw error
+        }
+        // An execution role can have only SELECT on a separately owned roster table.
+        // The schema lock still orders reads after every Cuttlely publication, and the
+        // SELECT checks the current grants and row policies on every lookup.
+        const results = await pool.query(`${lock} ${row}`)
         return results.at(-1).rows[0]?.content ?? null
     }
     if (op === 'commit' || op === 'rollback') {
