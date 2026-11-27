@@ -1332,7 +1332,11 @@ async function reconciledPublicRun(run: any, workspaceId: string | null | undefi
     if (!run || !(await visibleManagedRun(run, workspaceId, scope))) return null
     if (!run.chatId || (!['queued', 'running'].includes(run.status) && run.error?.code !== 'interrupted')) return run
     const queue = await loadHarness('queue.mjs')
-    if (!queue.reconcilePublicQueueRun(run)) return run
+    try {
+        if (!queue.reconcilePublicQueueRun(run, workspaceId)) return run
+    } catch {
+        throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, 'The saved run is being recovered. Retry shortly.')
+    }
     const history = await loadHarness('history.mjs')
     // A worker can finish between the lease check and this read, adding an upload owner's tag.
     const current = history.getRun(run.harness, run.id, { apiKeyId: scope.apiKeyId ?? null })

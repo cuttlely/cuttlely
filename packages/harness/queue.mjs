@@ -5,7 +5,7 @@ import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
-import { settleLostQueueRun } from './history.mjs'
+import { finishHarnessRun, settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
 import { nativeToolJournal } from './runtime/native-journal.mjs'
@@ -125,20 +125,40 @@ function failExpiredWorker(db, id, cutoff, now) {
 
 // Called after the API has authorized this specific history row. A lost HTTP waiter cannot
 // reconcile an orphaned job itself. The session index and admission ID identify that one job.
-export function reconcilePublicQueueRun(run) {
+export function reconcilePublicQueueRun(run, workspaceId) {
     const db = database()
     const runId = db.dialect === 'postgres' ? "payload::jsonb->>'runId'" : "json_extract(payload,'$.runId')"
+    const canRestoreSuccess = db.dialect === 'postgres' && Boolean(workspaceId)
     const now = Date.now()
     const stale = staleAfter()
     const row = db
         .prepare(
             `SELECT id, status FROM jobs WHERE session_key = ? AND ${runId} = ?
          AND ((status = 'running' AND updated_at < ?) OR (status = 'failed' AND error_code = 'worker_lost')
-              OR (status = 'cancelled' AND error_code = 'aborted'))`
+              OR (status = 'cancelled' AND error_code = 'aborted') ${canRestoreSuccess ? "OR status = 'succeeded'" : ''})`
         )
         .get(sessionKey(run.harness, run.chatId), run.id, stale ? now - stale : 0)
     if (!row) return false
-    if (row.status === 'running') {
+    if (row.status === 'succeeded') {
+        // The worker durably accepted the result, but its history/accounting transaction may have
+        // rolled back. Recover only the job with the original workspace, run, chat and key.
+        const job = db
+            .prepare(
+                `SELECT CASE WHEN h.usage_recorded THEN NULL ELSE j.result END AS result, j.updated_at, h.usage_recorded
+             FROM jobs j JOIN run_history h ON h.id = j.payload::jsonb->>'runId'
+             WHERE j.id = ? AND j.status = 'succeeded' AND h.id = ? AND h.harness_name = ?
+               AND h.chat_id = ? AND h.usage_workspace_id = ?
+               AND j.payload::jsonb->>'workspaceId' = h.usage_workspace_id
+               AND j.payload::jsonb->>'name' = h.harness_name AND j.payload::jsonb->>'chatId' = h.chat_id
+               AND (j.payload::jsonb->>'apiKeyId') IS NOT DISTINCT FROM h.api_key_id`
+            )
+            .get(row.id, run.id, run.harness, run.chatId, workspaceId)
+        if (job?.usage_recorded) return true // A concurrent poll already recovered this run. Reload the authorized result.
+        if (!job?.result) return false
+        const result = JSON.parse(job.result)
+        if (result?.runId !== run.id) return false
+        finishHarnessRun(run, { result, finishedAt: Number(job.updated_at), saveResult: true, usageWorkspace: workspaceId })
+    } else if (row.status === 'running') {
         immediate((tx) => failExpiredWorker(tx, row.id, now - stale, now))
     } else {
         // Also repair a receipt already settled by an older worker or a drained storage upgrade.

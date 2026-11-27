@@ -58,7 +58,7 @@ Module._load = function (request, parent) {
                         }
                         if (last._getType() === 'tool') {
                             assert.equal(last.content, '51')
-                            return { content: 'Native verified 51.' }
+                            return { content: 'Native verified 51.', usage_metadata: { input_tokens: 9, output_tokens: 2 } }
                         }
                         const name = tools[0].function.name
                         let args
@@ -69,7 +69,11 @@ Module._load = function (request, parent) {
                             assert.equal(name, 'calculator')
                             args = { input: '17 * 3' }
                         }
-                        return { content: '', tool_calls: [{ type: 'tool_call', id: 'qa-tool', name, args }] }
+                        return {
+                            content: '',
+                            tool_calls: [{ type: 'tool_call', id: 'qa-tool', name, args }],
+                            usage_metadata: { input_tokens: 9, output_tokens: 2 }
+                        }
                     }
                 }
             }

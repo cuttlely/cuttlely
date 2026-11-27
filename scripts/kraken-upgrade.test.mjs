@@ -59,7 +59,7 @@ test(
         const nativeInstall = nativePackageRoot()
         const historySession = randomUUID()
         const historyMessage = 'preserved ' + randomUUID()
-        let current
+        let current, restartApi, restartWorker
         let worker
         const provider = path.join(root, 'scripts/fixtures/kraken-provider.cjs')
         async function stopWorker() {
@@ -141,8 +141,11 @@ test(
                 apiEnv.CUTTLELY_HARNESS_WORKERS = '0'
                 apiEnv.HERMES_PYTHON = path.join(install, 'missing-python')
             }
-            current = await startServer(install, apiEnv, { preload: [provider], launcher: Boolean(packaged) })
-            await waitForPing(url, current)
+            restartApi = async () => {
+                current = await startServer(install, apiEnv, { preload: [provider], launcher: Boolean(packaged) })
+                await waitForPing(url, current)
+            }
+            await restartApi()
             if (nativeInstall && stage === 'original') seedLegacyRuntime(root, apiEnv, historySession, historyMessage)
             if (nativeInstall && stage !== 'original') verifyLegacyRecovery(disk, historySession, historyMessage)
             if (packaged) {
@@ -156,14 +159,16 @@ test(
                 const workerDisk = path.join(dir, stage + '-worker')
                 fs.mkdirSync(workerDisk)
                 // Exercise a replacement worker with the opposite canary setting and an empty local disk.
-                worker = spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
-                    cwd: install,
-                    env: dataEnv(workerDisk, port, {
-                        ...cfg,
-                        CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? '' : [name, bookTeam].join(',')
-                    }),
-                    stdio: 'ignore'
-                })
+                restartWorker = () =>
+                    spawn(process.execPath, ['-r', provider, path.join(install, 'packages/harness/worker.mjs')], {
+                        cwd: install,
+                        env: dataEnv(workerDisk, port, {
+                            ...cfg,
+                            CUTTLELY_NATIVE_PRIME_TEAMS: stage === 'native' ? '' : [name, bookTeam].join(',')
+                        }),
+                        stdio: 'ignore'
+                    })
+                worker = restartWorker()
             }
             const login = await request(url + '/api/v1/auth/local/login', { method: 'POST', body: account })
             assert.equal(login.status, 200)
@@ -270,11 +275,46 @@ test(
         assert.equal((await api('chatflows/' + caller.id)).flowData, savedCaller)
         await predict()
         assert.equal((await api(scheduleRoute)).schedule.status, 'paused')
-        await api(scheduleRoute + '/resume', {})
-        // Make the fixture due now. The real web scheduler claims it and the external worker executes it.
         const { Pool } = createRequire(path.join(root, 'packages/server/package.json'))('pg')
         const pool = new Pool(db.connection)
         try {
+            // The HTTP waiter is gone before the external worker accepts the answer. A temporary
+            // accounting failure must leave enough proof to return that exact answer after restart.
+            const route = 'harnesses/' + name + '/runs'
+            const usage = async () =>
+                (await pool.query('SELECT COALESCE(sum("inputTokens"),0)::int n FROM token_usage_day WHERE "flowId"=$1', [name])).rows[0].n
+            const previous = await usage()
+            await stopWorker()
+            await pool.query('ALTER TABLE token_usage_day ADD CONSTRAINT qa_hold_usage CHECK ("inputTokens" < 0) NOT VALID')
+            const pending = await api(route + '/async', { mode: 'agent', question: '17 * 3', chatId })
+            const jobStatus = async () =>
+                (await pool.query("SELECT status FROM cuttlely_harness_queue.jobs WHERE payload::jsonb->>'runId'=$1", [pending.runId]))
+                    .rows[0]?.status
+            async function waitForJob(expected) {
+                const deadline = Date.now() + 30000
+                while ((await jobStatus()) !== expected) {
+                    assert.ok(Date.now() < deadline, 'Expected external job status ' + expected)
+                    await new Promise((resolve) => setTimeout(resolve, 100))
+                }
+            }
+            await waitForJob('queued')
+            await current.stop()
+            worker = restartWorker()
+            await waitForJob('succeeded')
+            assert.equal(await usage(), previous)
+            await restartApi()
+            const path = route + '/' + pending.runId + '/result'
+            const unavailable = await request(url + '/api/v1/' + path, { cookie })
+            assert.equal(unavailable.status, 503)
+            await pool.query('ALTER TABLE token_usage_day DROP CONSTRAINT qa_hold_usage')
+            for (let n = 0; n < 2; n++) {
+                const recovered = await api(path)
+                assert.equal(recovered.status, 'succeeded')
+                assert.equal(recovered.result.text, result.text)
+                assert.equal(await usage(), previous + 9)
+            }
+            await api(scheduleRoute + '/resume', {})
+            // Make the fixture due now. The real web scheduler claims it and the external worker executes it.
             const due = await pool.query(
                 "UPDATE cuttlely_harness_queue.harness_schedules SET next_run_at = $1 WHERE harness_name = $2 AND status = 'active'",
                 [Date.now() - 1000, name]
@@ -407,5 +447,24 @@ test(
         )
         factor = 3
         assert.deepEqual(await totals(), scaled())
+        const { enqueueHarnessJob, finishJob, reconcilePublicQueueRun } = await import('../packages/harness/queue.mjs')
+        for (const [apiKeyId, workspaceId, requestWorkspace] of [
+            [null, owner, other],
+            ['another-key', owner, owner],
+            [null, other, owner]
+        ]) {
+            const pending = begin(owner)
+            const job = enqueueHarnessJob({ name, chatId: pending.chatId, runId: pending.id, apiKeyId, flowOptions: { workspaceId } })
+            finishJob(job.id, { status: 'succeeded', result: { ...payload, runId: pending.id } })
+            assert.equal(reconcilePublicQueueRun(pending, requestWorkspace), false)
+            assert.equal(getRunResult(name, pending.id), null)
+        }
+        assert.deepEqual(await totals(), scaled())
+        // Two polls may both have read the unfinished status before either gets to the job.
+        const stale = begin(owner)
+        const job = enqueueHarnessJob({ name, chatId: stale.chatId, runId: stale.id, flowOptions: { workspaceId: owner } })
+        finishJob(job.id, { status: 'succeeded', result: { ...payload, runId: stale.id } })
+        for (let i = 0; i < 2; i++) assert.equal(reconcilePublicQueueRun(stale, owner), true)
+        assert.equal(getRunResult(name, stale.id).text, payload.text)
     }
 )

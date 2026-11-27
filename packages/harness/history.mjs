@@ -525,7 +525,7 @@ function creditCompletedRun(db, name, runId, workspaceId, result, finished) {
 }
 
 // A new API can finish the accounting of a run returned by an older worker.
-// Reading history or results never increments the current workspace's totals.
+// Credit always belongs to the workspace that admitted the run.
 export function accountReturnedBackgroundRun(name, runId, workspaceId, result) {
     if (!safeRunId(runId) || !workspaceId || database().dialect !== 'postgres') return false
     immediate((db) => {
