@@ -123,7 +123,7 @@ test(
             assert.equal(Buffer.from(csv.base64, 'base64').toString(), expected)
             for (const [who, tools] of Object.entries({
                 inventory: ['skills_list', 'skill_view', 'calculator'],
-                operator: ['ops_status'],
+                operator: [mode === 'router' ? 'mcp__operator__ops_status' : 'ops_status'],
                 clerk: ['read_file', 'write_file']
             })) {
                 const receipts = actual[who].tools.map((receipt) =>

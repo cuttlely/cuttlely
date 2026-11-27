@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream'
+import type { RequestInit } from 'node-fetch'
 import { z } from 'zod/v3'
 import { DynamicStructuredTool } from '../OpenAPIToolkit/core'
 import { secureFetch } from '../../../src/httpSecurity'
@@ -7,6 +9,11 @@ export const desc = `Use this when you need to execute a GET request to get data
 
 export interface Headers {
     [key: string]: string
+}
+
+export interface NativeGetTurn {
+    signal?: AbortSignal
+    assertCurrent: () => void
 }
 
 export interface RequestParameters {
@@ -71,7 +78,9 @@ export class RequestsGetTool extends DynamicStructuredTool {
     headers = {}
     queryParamsSchema?: string
 
-    constructor(args?: RequestParameters) {
+    private readonly nativeTurn?: NativeGetTurn
+
+    constructor(args?: RequestParameters, nativeTurn?: NativeGetTurn) {
         const schema = createRequestsGetSchema(args?.queryParamsSchema)
 
         const toolInput = {
@@ -83,6 +92,7 @@ export class RequestsGetTool extends DynamicStructuredTool {
             headers: args?.headers || {}
         }
         super(toolInput)
+        this.nativeTurn = nativeTurn
         this.url = args?.url ?? this.url
         this.headers = args?.headers ?? this.headers
         this.maxOutputLength = args?.maxOutputLength ?? this.maxOutputLength
@@ -164,6 +174,42 @@ export class RequestsGetTool extends DynamicStructuredTool {
                 url.searchParams.append(key, String(value))
             })
             finalUrl = url.toString()
+        }
+
+        if (this.nativeTurn) {
+            const turn = this.nativeTurn
+            const saved = new URL(this.url)
+            const requested = new URL(finalUrl)
+            if (
+                requested.origin !== saved.origin ||
+                requested.pathname !== saved.pathname ||
+                finalUrl.length > 8192 ||
+                Object.keys(requestHeaders).length
+            )
+                throw new Error('The native GET card requires its saved public endpoint without custom headers.')
+            turn.assertCurrent()
+            turn.signal?.throwIfAborted()
+            const timeout = AbortSignal.timeout(20000)
+            const signal = turn.signal ? AbortSignal.any([turn.signal, timeout]) : timeout
+            const options = { size: 2097152, signal: signal as unknown as RequestInit['signal'] }
+            // Transport errors can include the full URL and its query values.
+            let status: number | undefined
+            let text = ''
+            try {
+                const res = await secureFetch(finalUrl, options, 5, { publicPageOrigin: saved.origin })
+                if (!res.ok) {
+                    status = res.status
+                    if (res.body instanceof Readable) res.body.destroy()
+                } else text = await res.text()
+            } catch {
+                signal.throwIfAborted()
+                turn.assertCurrent()
+                throw new Error('Failed to read the saved public endpoint.')
+            }
+            signal.throwIfAborted()
+            turn.assertCurrent()
+            if (status !== undefined) throw new Error(`Failed to make GET request: HTTP Error ${status}`)
+            return text.slice(0, this.maxOutputLength)
         }
 
         try {

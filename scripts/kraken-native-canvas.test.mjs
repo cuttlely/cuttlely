@@ -87,6 +87,96 @@ test('native canvas preflight accepts the saved clock and retrieval graph and re
     }
 })
 
+test('the released Field Team GET card keeps its saved public endpoint and optional query arguments', async (t) => {
+    const { rosterFromFlow } = await import('../packages/harness/sync-from-flow.mjs')
+    const { prepareModule, preparedSchema, callPrepared } = await import('../packages/harness/bridge.mjs')
+    const saved = JSON.parse(fs.readFileSync(new URL('../samples/harnesses/field-team.canvas.json', import.meta.url)))
+    const roster = rosterFromFlow(
+        { name: 'field-team', chatflowId: 'field-test', workspaceId: 'test', flowData: saved.flowData },
+        { inheritSavedFields: false }
+    )
+    const binding = roster.specialists.find((s) => s.name === 'api').modules[0]
+    assert.equal(binding.inputs.requestsGetUrl, 'https://httpbin.org/json')
+    assert.equal(supportsNativeCanvasBinding(binding), true)
+    for (const change of [{ credential: 'unused-key' }, { upstream: { url: {} } }, { nodeData: {} }]) {
+        assert.equal(supportsNativeCanvasBinding({ ...binding, ...change }), false)
+    }
+    for (const changes of [
+        { requestsGetUrl: '' },
+        { requestsGetUrl: '{{endpoint}}' },
+        { requestsGetUrl: 'file:///report.json' },
+        { requestsGetUrl: 'https://reader:password@example.invalid/saved' },
+        { requestsGetMaxOutputLength: '2x' },
+        { requestsGetHeaders: '{"X-Custom":"operator value"}' },
+        { requestsGetQueryParamsSchema: '{"id":{"in":"path"}}' }
+    ]) {
+        assert.equal(supportsNativeCanvasBinding({ ...binding, inputs: { ...binding.inputs, ...changes } }), false)
+    }
+
+    const components = createRequire(new URL('../packages/components/package.json', import.meta.url))
+    const http = components('./dist/src/httpSecurity.js')
+    const payload = '{"edition":27,"available":true}'
+    const calls = []
+    let current = true
+    const controller = new AbortController()
+    const fetchMock = t.mock.method(http, 'secureFetch', async (url, options, redirects, policy) => {
+        calls.push({ url, options, redirects, policy })
+        return { ok: true, status: 200, text: async () => payload }
+    })
+    const options = {
+        flowOptions: { appDataSource: {} },
+        nativeSourceTurn: {
+            signal: controller.signal,
+            assertCurrent() {
+                assert.ok(current, 'publication changed')
+            }
+        }
+    }
+    const plain = await prepareModule(binding, '', { flowOptions: options.flowOptions })
+    const native = await prepareModule(binding, '', options)
+    assert.deepEqual(preparedSchema(native), preparedSchema(plain))
+    assert.equal(native.tool.name, 'httpbin_json')
+    const input = { queryParams: { page: 'two words' } }
+    assert.equal(await callPrepared(plain, input), payload)
+    assert.equal(await callPrepared(native, input), payload)
+    assert.equal(calls.length, 2)
+    assert.equal(calls[1].url, calls[0].url)
+    assert.equal(calls[1].url, 'https://httpbin.org/json?page=two+words')
+    assert.deepEqual(calls[1].policy, { publicPageOrigin: 'https://httpbin.org' })
+    assert.ok(calls[1].options.size > 0 && calls[1].options.signal)
+    const capped = await prepareModule({ ...binding, inputs: { ...binding.inputs, requestsGetMaxOutputLength: '8' } }, '', options)
+    assert.equal(await callPrepared(capped, {}), payload.slice(0, 8))
+    current = false
+    await assert.rejects(callPrepared(native, input), /publication changed/)
+    assert.equal(calls.length, 3)
+    current = true
+    fetchMock.mock.mockImplementationOnce(async () => ({ ok: false, status: 404 }))
+    await assert.rejects(callPrepared(native, {}), /HTTP Error 404/)
+    fetchMock.mock.mockImplementationOnce(async () => {
+        throw new Error('sensitive query value')
+    })
+    await assert.rejects(callPrepared(native, {}), { message: 'Failed to read the saved public endpoint.' })
+    const entered = Promise.withResolvers()
+    fetchMock.mock.mockImplementationOnce(async (_url, { signal }) => {
+        return {
+            ok: true,
+            status: 200,
+            text: () =>
+                new Promise((_resolve, reject) => {
+                    entered.resolve()
+                    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+                })
+        }
+    })
+    const active = callPrepared(native, {})
+    await entered.promise
+    controller.abort()
+    await assert.rejects(active, { name: 'AbortError' })
+    const dispatched = fetchMock.mock.callCount()
+    await assert.rejects(callPrepared(native, {}), { name: 'AbortError' })
+    assert.equal(fetchMock.mock.callCount(), dispatched)
+})
+
 test('an unavailable plain SerpAPI does not prevent other native roles from running, but remains an offline migration gap', async (t) => {
     const { nativeCompatibilityGaps, useNativeSpecialists } = await import('../packages/harness/runtime/native-prime.mjs')
     const old = process.env.SERPAPI_API_KEY

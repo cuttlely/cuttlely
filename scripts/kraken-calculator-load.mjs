@@ -3,7 +3,8 @@
 // environment. For a scoped token use chatflows:view and harness:run with one HARNESS
 // grant. Run: node scripts/kraken-calculator-load.mjs 32
 import assert from 'node:assert/strict'
-import { randomInt, randomUUID } from 'node:crypto'
+import { createHash, randomInt, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -17,6 +18,11 @@ assert.ok(origin.protocol === 'https:' || (origin.protocol === 'http:' && loopba
 const key = process.env.CUTTLELY_QA_TOKEN
 assert.ok(key && !/[\s\x00-\x1f\x7f]/.test(key), 'Supply a dedicated QA bearer token.')
 const net = origin.protocol === 'https:' ? https : http
+const clientSha256 = createHash('sha256')
+    .update(readFileSync(new URL(import.meta.url)))
+    .digest('hex')
+const sampleId = randomUUID()
+const recordedRuns = new Set()
 const chatIds = Array.from({ length: count }, () => randomUUID())
 const operand = randomInt(10000, 1000000)
 const quantile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1] ?? null
@@ -30,6 +36,7 @@ async function cohort(turn) {
     let firstSent = Infinity,
         lastEof = 0,
         pendingPing
+    const engines = new Set()
     const ports = new Set(),
         pings = []
     let closed = false
@@ -85,14 +92,16 @@ async function cohort(turn) {
                     },
                     (res) => {
                         const fail = (message) => {
-                            res.destroy()
                             reject(new Error(message))
+                            res.destroy()
                         }
                         if (res.statusCode !== 200) return fail('Calculator returned HTTP ' + res.statusCode)
                         if (!/^text\/event-stream\b/i.test(res.headers['content-type'] || ''))
                             return fail('Calculator response was not an event stream.')
+                        const headersMs = performance.now() - t
                         peakStreams = Math.max(peakStreams, ++openStreams)
                         let finalCount = 0,
+                            recordedCount = 0,
                             buffer = '',
                             received = 0
                         res.setEncoding('utf8')
@@ -119,8 +128,23 @@ async function cohort(turn) {
                                     if (!data) continue
                                     const item = JSON.parse(data)
                                     assert.notEqual(item.event, 'error', 'Calculator emitted an error.')
+                                    if (item.event === 'harness.recorded') {
+                                        const { run, chatId: recordedChat } = item.data
+                                        assert.equal(recordedChat, chatId)
+                                        // The released external worker returns only its saved id plus the envelope's chat id.
+                                        if ('chatId' in run) assert.equal(run.chatId, chatId)
+                                        if ('status' in run) assert.equal(run.status, 'succeeded')
+                                        if ('harness' in run) assert.equal(run.harness, 'qa-calculator')
+                                        assert.match(run.id, /^run_[a-f0-9-]{36}$/)
+                                        assert.equal(finalCount, 1)
+                                        assert.ok(!recordedRuns.has(run.id), 'A recorded run was reused.')
+                                        recordedRuns.add(run.id)
+                                        recordedCount++
+                                    }
                                     if (item.event !== 'harness.final') continue
                                     const value = item.data
+                                    if ('chatId' in value) assert.equal(value.chatId, chatId)
+                                    engines.add(value.trace?.engine || 'bundled')
                                     assert.equal(String(value?.text).trim() === String(x + 23), true, 'Incorrect arithmetic.')
                                     assert.ok(
                                         value.agents?.some((a) => a.name === 'math' && a.status === 'completed'),
@@ -142,8 +166,9 @@ async function cohort(turn) {
                             lastEof = performance.now()
                             onWire--
                             openStreams--
-                            if (finalCount !== 1) return reject(new Error('Expected exactly one verified Calculator final.'))
-                            resolve(lastEof - t)
+                            if (finalCount !== 1 || recordedCount !== 1)
+                                return reject(new Error('Expected one verified Calculator answer and its matching recorded run.'))
+                            resolve({ total: lastEof - t, headers: headersMs })
                         })
                     }
                 )
@@ -160,21 +185,41 @@ async function cohort(turn) {
     try {
         const results = await Promise.allSettled(jobs)
         const total = lastEof - started
-        const bad = results.find((r) => r.status === 'rejected')
-        if (bad) throw bad.reason
-        const times = results.map((r) => r.value)
+        const failures = results.filter((r) => r.status === 'rejected')
+        if (failures.length) {
+            const errors = {}
+            for (const { reason } of failures) {
+                const message = reason.message
+                errors[message] = (errors[message] || 0) + 1
+            }
+            console.error(JSON.stringify({ cohort: turn ? 'warm' : 'fresh', submitted: count, verified: count - failures.length, errors }))
+            throw failures[0].reason
+        }
+        const times = results.map((r) => r.value.total)
+        const headers = results.map((r) => r.value.headers)
+        assert.equal(ports.size, count, 'Expected one TCP connection per chat.')
+        assert.ok(count === 1 || peakWire >= 2, 'The client requests did not overlap.')
         await pendingPing
         assert.ok(pings.length > 0 && pings.every((r) => r.status === 200), 'Concurrent /ping failed.')
+        assert.equal(engines.size, 1, 'The cohort used different execution engines.')
         const pingMs = pings.map((p) => p.ms)
         return {
+            sampleId,
+            clientSha256,
+            engine: [...engines][0],
             cohort: turn ? 'warm' : 'fresh',
+            submitted: count,
             verified: times.length,
+            recorded: recordedRuns.size - turn * count,
             tcpConnections: ports.size,
             peakRequestsOnWire: peakWire,
             peakOpenSseResponses: peakStreams,
             wireSpanMs: round(lastEof - firstSent),
-            wallMs: round(total),
+            wallMs: total,
             turnsPerSecond: round((count * 1000) / total),
+            turnDurationsMs: times,
+            headerDurationsMs: headers,
+            pingDurationsMs: pingMs,
             p50Ms: round(quantile(times, 0.5)),
             p95Ms: round(quantile(times, 0.95)),
             ping: { http200: pings.length, p50Ms: quantile(pingMs, 0.5), p95Ms: quantile(pingMs, 0.95) }

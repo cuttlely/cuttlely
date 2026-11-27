@@ -7,6 +7,17 @@
             "embeddings": { "type": "openAIEmbeddings" }
         }
     },
+    "requestsGet": {
+        "inputs": [
+            "requestsGetUrl",
+            "requestsGetName",
+            "requestsGetDescription",
+            "requestsGetMaxOutputLength",
+            "requestsGetHeaders",
+            "requestsGetQueryParamsSchema"
+        ],
+        "empty": ["requestsGetHeaders", "requestsGetQueryParamsSchema"]
+    },
     "calculator": { "inputs": [] },
     "currentDateTime": { "inputs": ["timezone"] },
     "serpAPI": { "credential": true, "inputs": ["FLOWISE_CREDENTIAL_ID"] },

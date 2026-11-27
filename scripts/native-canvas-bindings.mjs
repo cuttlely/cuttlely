@@ -159,7 +159,29 @@ export function localCustomRetrieverBinding(binding) {
     )
 }
 
+// This saved GET card selects a fixed public endpoint. Its released schema lets the model add query parameters.
+function publicGetBinding(binding) {
+    if (binding.credential || !matches(binding, supported.requestsGet)) return false
+    const { requestsGetUrl: url, requestsGetMaxOutputLength: limit } = binding.inputs || {}
+    if (typeof url !== 'string' || url.length > 4096 || !/^https?:\/\//.test(url) || /[\s<>\\{}]/.test(url)) return false
+    const inputs = binding.inputs
+    if ([inputs.requestsGetName, inputs.requestsGetDescription].some((value) => value != null && typeof value !== 'string')) return false
+    if (
+        limit != null &&
+        limit !== '' &&
+        (!['string', 'number'].includes(typeof limit) || !/^[1-9]\d*$/.test(String(limit)) || !Number.isSafeInteger(Number(limit)))
+    )
+        return false
+    try {
+        const parsed = new URL(url)
+        return !parsed.username && !parsed.password && !parsed.port && !parsed.hash
+    } catch {
+        return false
+    }
+}
+
 export function supportsNativeCanvasBinding(binding) {
+    if (binding?.nodeName === 'requestsGet') return publicGetBinding(binding)
     if (binding?.nodeName === 'customRetriever') return localCustomRetrieverBinding(binding)
     if (binding?.nodeName === 'memoryVectorStore') return localMemoryStoreBinding(binding)
     return Object.hasOwn(supported, binding?.nodeName) && matches(binding, supported[binding.nodeName])

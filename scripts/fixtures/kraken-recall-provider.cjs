@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const original = Module._load
+const legacyAnswer = (messages) =>
+    JSON.stringify(messages).includes('File the cobalt report.') ? 'Synthetic report detail. '.repeat(400).trimEnd() : expected
 const expected = 'The synthetic parcel arrived at gate 17.'
 const answer = (content) => ({
     content,
@@ -22,7 +24,7 @@ Module._load = function (request, parent) {
                 const names = tools.map((t) => t.function?.name || t.name)
                 return {
                     invoke: async (messages) => {
-                        if (process.env.KRAKEN_RECALL_ENGINE === 'bundled') return answer(expected)
+                        if (process.env.KRAKEN_RECALL_ENGINE === 'bundled') return answer(legacyAnswer(messages))
                         if (!names.includes('run_specialist') && names.includes('ops_status'))
                             return answer('A sealed blue file was delivered.')
                         assert.ok(names.includes('run_specialist'))
@@ -30,8 +32,16 @@ Module._load = function (request, parent) {
                         const last = messages.at(-1)
                         if (last._getType() === 'tool') {
                             const response = JSON.parse(last.content)
-                            assert.equal(response.mode, 'discover')
+                            assert.equal(response.mode, 'discover', response.error)
                             if (!response.count) return answer('No owned receipt.')
+                            if (response.query === 'cobalt') {
+                                assert.equal(response.count, 1)
+                                assert.equal(response.results[0].matched_role, 'user')
+                                assert.equal(response.results[0].messages[0].content, 'File the cobalt report.')
+                                const preview = response.results[0].messages.find((m) => m.role === 'assistant')
+                                assert.ok(preview.content_truncated && preview.content.length <= 4001)
+                                return answer('Found the original request and its bounded report preview.')
+                            }
                             if (response.query === 'azurite') {
                                 assert.equal(response.count, 1)
                                 assert.ok(
@@ -64,6 +74,13 @@ Module._load = function (request, parent) {
                             )
                         }
                         if (String(last.content).includes('Store the azurite')) return answer('A sealed blue file was delivered.')
+                        if (String(last.content).includes('earlier cobalt request'))
+                            return {
+                                ...answer(''),
+                                tool_calls: [
+                                    { name: 'session_search', id: 'recall-long-report', args: { query: 'cobalt', role_filter: 'user' } }
+                                ]
+                            }
                         const blue = String(last.content).includes('Find the prior blue case.')
                         const previousNative = String(last.content).includes('native reply')
                         return {
@@ -87,7 +104,7 @@ Module._load = function (request, parent) {
                 if (String(messages[0]?.content).startsWith('You name chat sessions.')) return answer('Parcel receipt')
                 if (process.env.KRAKEN_RECALL_ENGINE === 'native') return answer('A sealed blue file was delivered.')
                 assert.equal(process.env.KRAKEN_RECALL_ENGINE, 'bundled')
-                return answer(expected)
+                return answer(legacyAnswer(messages))
             }
             async *stream(messages) {
                 yield await this.invoke(messages)

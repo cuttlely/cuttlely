@@ -126,8 +126,9 @@ async function buildNode(binding, ctx, cache, input) {
     const instance = await freshNodeInstance(binding.nodeName, ctx)
     // The source-only card never reads its model or embeddings. Initialize only the
     // reader and carry the admitted user's original URLs through direct and delegated calls.
-    const sourceTurn = binding.nodeName === 'webBrowser' && binding.inputs?.readSource === true && ctx.nativeSourceTurn
-    const nodeData = await resolveInputs(sourceTurn ? { ...binding, upstream: {} } : binding, ctx, cache, input)
+    const sourceOnly = binding.nodeName === 'webBrowser' && binding.inputs?.readSource === true && ctx.nativeSourceTurn
+    const nodeData = await resolveInputs(sourceOnly ? { ...binding, upstream: {} } : binding, ctx, cache, input)
+    const sourceTurn = sourceOnly || (binding.nodeName === 'requestsGet' && ctx.nativeSourceTurn)
     const options = sourceTurn ? { ...flowOptions, nativeSourceTurn: sourceTurn } : flowOptions
     const ready = typeof instance.init === 'function' ? await instance.init(nodeData, input, options) : undefined
     return { instance, nodeData, ready }
@@ -668,6 +669,14 @@ export function specialistByName(harness, name) {
     return (harness.specialists || []).find((specialist) => specialist.name === name) || null
 }
 
+export function specialistToolInput(binding, args) {
+    // Flowise MCP tools advertise their own argument fields. Connected nodes take text through the bridge.
+    if (isFlowiseMcpBinding(binding) && args && typeof args === 'object' && !Array.isArray(args)) return args
+    if (typeof args?.input === 'string') return args.input
+    if (typeof args?.query === 'string') return args.query
+    return JSON.stringify(args || {})
+}
+
 export async function executeSpecialistTool(harnessName, specialistName, toolName, args, options = {}) {
     const harness = options.harness || getHarness(harnessName)
     if (!harness) {
@@ -693,14 +702,5 @@ export async function executeSpecialistTool(harnessName, specialistName, toolNam
     if (!binding) {
         throw new HarnessError('bad_binding', `Specialist "${specialistName}" has no module on its allowlist.`)
     }
-    // A Flowise MCP tool advertised its own input schema (readyToolSpecs), so pass the arguments through as an object.
-    const structured = isFlowiseMcpBinding(binding) && args && typeof args === 'object' && !Array.isArray(args)
-    const input = structured
-        ? args
-        : typeof args?.input === 'string'
-        ? args.input
-        : typeof args?.query === 'string'
-        ? args.query
-        : JSON.stringify(args || {})
-    return executeModule(binding, input, { ...options, toolName })
+    return executeModule(binding, specialistToolInput(binding, args), { ...options, toolName })
 }

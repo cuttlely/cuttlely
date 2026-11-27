@@ -169,6 +169,7 @@ export async function openNativeMcpTools(bindings, { signal, assertCurrent, scop
     }
     return {
         tools,
+        isPackagedAction: (name) => packagedServers.has(routes.get(name)?.server.entry),
         async call(name, args) {
             const route = routes.get(name)
             if (!route) throw new HarnessError('forbidden', 'The requested MCP action is unavailable to this specialist.')

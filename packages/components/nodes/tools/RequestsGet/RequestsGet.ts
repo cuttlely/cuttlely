@@ -1,6 +1,6 @@
 import { INode, INodeData, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, stripHTMLFromToolInput, parseJsonBody } from '../../../src/utils'
-import { desc, RequestParameters, RequestsGetTool } from './core'
+import { desc, NativeGetTurn, RequestParameters, RequestsGetTool } from './core'
 
 const codeExample = `{
     "id": {
@@ -110,7 +110,7 @@ class RequestsGet_Tools implements INode {
         ]
     }
 
-    async init(nodeData: INodeData): Promise<any> {
+    async init(nodeData: INodeData, _input?: string, options?: { nativeSourceTurn?: NativeGetTurn }): Promise<any> {
         const headers = (nodeData.inputs?.headers as string) || (nodeData.inputs?.requestsGetHeaders as string)
         const url = (nodeData.inputs?.url as string) || (nodeData.inputs?.requestsGetUrl as string)
         const description = (nodeData.inputs?.description as string) || (nodeData.inputs?.requestsGetDescription as string)
@@ -134,7 +134,7 @@ class RequestsGet_Tools implements INode {
             obj.headers = parsedHeaders
         }
 
-        return new RequestsGetTool(obj)
+        return new RequestsGetTool(obj, options?.nativeSourceTurn)
     }
 }
 

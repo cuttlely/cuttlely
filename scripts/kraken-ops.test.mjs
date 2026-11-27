@@ -185,6 +185,11 @@ test(
             )
             assert.ok(run.text.includes('ops-status: allowlisted MCP tool responded'))
             if (mode === 'agent') assert.ok(run.agents[0].tools.includes('ops_status done'))
+            else
+                assert.deepEqual(
+                    run.agents[0].tools.map(({ name, status }) => ({ name, status })),
+                    [{ name: 'mcp__operator__ops_status', status: 'done' }]
+                )
             assert.ok(run.report.tokens.prompt > 0)
             t.diagnostic(mode + ' received the MCP response using the saved specialist binding')
         }

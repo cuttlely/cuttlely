@@ -103,20 +103,25 @@ function searchRows(name, receipt, args, limit, link) {
         return fail('Invalid search time bound.')
     }
     const rows = readRecallTurns(name, receipt, { after, before, limit: maxSearchTurns + 1, contentChars: searchMessageCap })
-    if (rows.length > maxSearchTurns || rows.some((r) => Math.max(Number(r.question_chars), Number(r.answer_chars)) > searchMessageCap))
-        return fail('The search exceeds the archive search budget. Narrow the time range or browse and read a session by ID.')
     const roleFilter =
         typeof args.role_filter === 'string' && args.role_filter.trim()
             ? args.role_filter.split(',').map((s) => s.trim())
             : ['user', 'assistant']
     const excluded = new Set(Array.isArray(args.exclude_session_ids) ? args.exclude_session_ids.slice(0, 20) : [])
+    const candidates = rows.filter((row) => !excluded.has(row.runtime_id))
+    const tooLong = candidates.some(
+        (row) =>
+            (roleFilter.includes('user') && Number(row.question_chars) > searchMessageCap) ||
+            (roleFilter.includes('assistant') && Number(row.answer_chars) > searchMessageCap)
+    )
+    if (rows.length > maxSearchTurns || tooLong)
+        return fail('The search exceeds the archive search budget. Narrow the time range or browse and read a session by ID.')
     const index = new DatabaseSync(':memory:')
     try {
         index.exec('CREATE VIRTUAL TABLE recall_fts USING fts5(content)')
         const insert = index.prepare('INSERT INTO recall_fts(rowid,content) VALUES (?,?)')
         const records = new Map()
-        for (const row of rows) {
-            if (excluded.has(row.runtime_id)) continue
+        for (const row of candidates) {
             for (const message of messages(row, searchMessageCap)) {
                 if (!roleFilter.includes(message.role)) continue
                 const position = records.size + 1

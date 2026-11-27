@@ -40,6 +40,7 @@ import {
     prepareModule,
     preparedKind,
     preparedSchema,
+    specialistToolInput,
     specialistToolName,
     splitToolOutput
 } from './bridge.mjs'
@@ -4079,6 +4080,8 @@ function toolName(prepared, index, used) {
     return name
 }
 
+const NATIVE_SPECIALIST_BATCH_LIMIT = 8
+
 // Tool discovery and dispatch share the roster and chat admitted to this turn. Keep
 // the two external sessions alive only for the duration of this delegation.
 async function runNativeSpecialistTools(context, specialist, task, model, soul) {
@@ -4205,6 +4208,21 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 continue
             }
             const item = await prepareModule(binding, task, context.moduleOptions)
+            // A saved GET on a gateway-backed specialist uses the bridge name and its text input contract.
+            // The inline router presents the component's own name and query-parameter schema below.
+            if (binding.nodeName === 'requestsGet' && (context.nativePrime || needsAgentLoop(specialist))) {
+                const spec = toolSpec(binding, 'Connected node', specialistToolName(specialist, binding))
+                const name = hermesMcpToolName(specialist.name, spec.name)
+                register(
+                    {
+                        type: 'function',
+                        function: { name, description: spec.description, parameters: { ...spec.inputSchema, required: [] } }
+                    },
+                    (args) => callPrepared(item, specialistToolInput(binding, args), assertCurrent)
+                )
+                used.add(name)
+                continue
+            }
             const name = toolName(item, index, used)
             register(
                 {
@@ -4219,6 +4237,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                     const value = preparedKind(item) === 'object' ? args : args.query ?? args.input
                     const raw = await raceSignal(signal, () => callPrepared(item, value, assertCurrent))
                     assertCurrent()
+                    if (binding.nodeName === 'requestsGet') return raw
                     const result = splitToolOutput(raw)
                     // The released gateway passes this retriever's documents as tool text in agent mode.
                     // Its router additionally publishes the structured source documents.
@@ -4248,7 +4267,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             signal,
             budget,
             maxCalls: Math.max(40, playbookCallLimit(books, budget, playbookContext)),
-            maxBatchCalls: 8,
+            maxBatchCalls: NATIVE_SPECIALIST_BATCH_LIMIT,
             limitCode: 'tool_limit',
             validateCall:
                 numeric &&
@@ -4263,14 +4282,17 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             execute: async (name, args, receipt) => {
                 assertCurrent()
                 const callId = receipt.id
-                emitTool(context, { phase: 'start', specialist: specialist.name, name, callId })
+                // Released router events use the specialist bridge namespace for packaged MCP actions.
+                // Keep model grants, protocol dispatch and durable execution receipts on their original action name.
+                const eventName = !context.nativePrime && mcp?.isPackagedAction(name) ? hermesMcpToolName(specialist.name, name) : name
+                emitTool(context, { phase: 'start', specialist: specialist.name, name: eventName, callId })
                 try {
                     const result = await receipt.invoke(() => handlers.get(name)(args, callId))
                     assertCurrent()
                     emitTool(context, {
                         phase: 'done',
                         specialist: specialist.name,
-                        name,
+                        name: eventName,
                         callId,
                         error: result?.error === true,
                         ...(name === 'read_file' && result?.error === true && result.managedFileNotFound === true
@@ -4279,7 +4301,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                     })
                     return result
                 } catch (error) {
-                    emitTool(context, { phase: 'done', specialist: specialist.name, name, callId, error: true })
+                    emitTool(context, { phase: 'done', specialist: specialist.name, name: eventName, callId, error: true })
                     throw error
                 }
             }
@@ -4324,12 +4346,13 @@ async function runInlineSpecialist(context, specialist, task) {
     const modules = specialist.modules || []
     if (context.nativeSpecialists) {
         context.assertNativeAuthority()
+        const usesBridge = context.nativePrime || needsAgentLoop(specialist)
         if (
             (context.checkRole && specialist.codeExecution) ||
             specialist.fileAccess ||
             specialist.playbooks?.length ||
             specialist.mcpServers?.length ||
-            modules.some((binding) => binding.nodeName !== 'calculator')
+            modules.some((binding) => binding.nodeName !== 'calculator' && (binding.nodeName !== 'requestsGet' || usesBridge))
         )
             return runNativeSpecialistTools(context, specialist, task, model, soul)
     }
@@ -4373,6 +4396,12 @@ async function runInlineSpecialist(context, specialist, task) {
         specialist
     })
     if (!reply.toolCalls.length) return { text: reply.content, ...(reply.finishReason ? { finishReason: reply.finishReason } : {}) }
+    if (
+        context.nativeSpecialists &&
+        modules.some((binding) => binding.nodeName === 'requestsGet') &&
+        reply.toolCalls.length > NATIVE_SPECIALIST_BATCH_LIMIT
+    )
+        throw new HarnessError('tool_limit', 'The native agent reached its tool call limit.')
     const calls = await Promise.all(
         reply.toolCalls.map(async (call) => {
             const match = named.find((entry) => entry.name === call.function?.name)
@@ -4380,7 +4409,7 @@ async function runInlineSpecialist(context, specialist, task) {
             if (!match) {
                 emitTool(context, { phase: 'start', specialist: specialist.name, name: label })
                 emitTool(context, { phase: 'done', specialist: specialist.name, name: label, error: true })
-                return { name: label, text: 'That tool is not on this specialist.', raw: null }
+                return { name: label, text: 'That tool is not on this specialist.', sources: [] }
             }
             let args = {}
             try {
@@ -4391,15 +4420,25 @@ async function runInlineSpecialist(context, specialist, task) {
             const kind = preparedKind(match.item)
             const value = kind === 'object' ? args : args.query ?? args.input ?? JSON.stringify(args)
             emitTool(context, { phase: 'start', specialist: specialist.name, name: label })
-            const raw = await callInlineTool(context, specialist, label, match.item, value)
-            const text = normalizeResult(raw)
+            let raw
+            try {
+                raw = await callInlineTool(context, specialist, label, match.item, value)
+            } catch (error) {
+                if (context.nativeSpecialists) emitTool(context, { phase: 'done', specialist: specialist.name, name: label, error: true })
+                throw error
+            }
+            // A fixed GET returns external response text, including literal delimiters in that text.
+            const result =
+                context.nativeSpecialists && match.item.binding.nodeName === 'requestsGet'
+                    ? { text: raw, documents: [] }
+                    : splitToolOutput(raw)
             emitTool(context, { phase: 'done', specialist: specialist.name, name: label })
-            emitSpecialistPartial(context, specialist, text)
-            return { name: match.name, text, raw }
+            emitSpecialistPartial(context, specialist, result.text)
+            return { name: match.name, text: result.text, sources: result.documents }
         })
     )
     const text = calls.length === 1 ? calls[0].text : calls.map((call) => `${call.name}: ${call.text}`).join('\n')
-    return { text, sources: calls.flatMap((call) => documentsFrom(call.raw)) }
+    return { text, sources: calls.flatMap((call) => call.sources) }
 }
 
 function callInlineTool(context, specialist, name, prepared, input) {
