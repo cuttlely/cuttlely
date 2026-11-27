@@ -1,4 +1,4 @@
-import { assertStorageReady } from './side-store-maintenance.mjs'
+import { assertJobsAllowed, assertStorageReady } from './side-store-maintenance.mjs'
 import { harnessUsesPostgres, openHarnessPostgres, tryProfileLease, releaseProfileLease } from './side-store-postgres.mjs'
 import { QUEUE_SCHEMA } from './side-store-schema.mjs'
 import { randomUUID } from 'node:crypto'
@@ -165,6 +165,7 @@ export function turnBusyError() {
 // A fixed try path is shared by canvas and replay workers, possibly in different processes. Unlike the
 // chat lease, this mutex never expires while its owner is alive: a long turn must not be cut short.
 export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
+    assertJobsAllowed()
     assertStorageReady()
     const owner = `${process.pid}:${randomUUID()}`
     if (harnessUsesPostgres()) {
@@ -176,6 +177,7 @@ export async function acquireTryProfileTurn(scope, { wait = false } = {}) {
     }
     const startedAt = processStartTicks(process.pid)
     for (;;) {
+        assertJobsAllowed()
         const acquired = immediate((db) => {
             const row = db.prepare('SELECT owner, pid, started_at FROM try_profile_turns WHERE scope = ?').get(scope)
             if (row) {
