@@ -46,6 +46,7 @@ export function jobPayload(args) {
         engine: selectAgentEngine(args.name),
         chatId: args.chatId,
         input: String(args.input ?? ''),
+        ...(args.managedUploadReceipts?.length ? { managedUploadReceipts: args.managedUploadReceipts } : {}),
         ...(args.trustedOutputPreview === true ? { trustedOutputPreview: true } : {}),
         budgetMs: args.budgetMs ?? null,
         timeoutMs: args.timeoutMs ?? null,
@@ -129,28 +130,18 @@ function failExpiredWorker(db, id, cutoff, now) {
               (pending.length === 1 ? 'call' : 'calls') +
               ' could not be confirmed. Check the destination before retrying.'
             : '')
-    db.prepare("UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ? WHERE id = ?").run(
-        message,
-        now,
-        id
-    )
-    forgetPayloadImages(db, 'id = ?', id)
+    db.prepare(
+        `UPDATE jobs SET status = 'failed', error_code = 'worker_lost', error_message = ?, updated_at = ?,
+         payload = ${finishedPayload(db)} WHERE id = ?`
+    ).run(message, now, id)
 }
 
-// Attached images only ride to the worker. A finished row drops them, so the queue database does not keep people's
-// pictures or grow with every image turn.
-function forgetPayloadImages(db, where, ...params) {
-    if (db.dialect === 'postgres') {
-        db.prepare(
-            `UPDATE jobs SET payload = (payload::jsonb - 'images')::text
-            WHERE ${where} AND jsonb_typeof(payload::jsonb->'images') = 'array' AND payload::jsonb->'images' <> '[]'::jsonb`
-        ).run(...params)
-        return
-    }
-    db.prepare(
-        `UPDATE jobs SET payload = json_remove(payload, '$.images')
-         WHERE ${where} AND json_array_length(payload, '$.images') > 0`
-    ).run(...params)
+// Images and private admission receipts only travel to the consumer. Drop both in
+// the same write that marks a job terminal, including a failed worker lease.
+function finishedPayload(db) {
+    return db.dialect === 'postgres'
+        ? "(payload::jsonb - 'images' - 'managedUploadReceipts')::text"
+        : "json_remove(payload, '$.images', '$.managedUploadReceipts')"
 }
 
 export function enqueueHarnessJob(args) {
@@ -271,10 +262,9 @@ export function finishJob(id, { status, result, errorCode, errorMessage }) {
     const db = database()
     db.prepare(
         `UPDATE jobs
-         SET status = ?, result = ?, error_code = ?, error_message = ?, updated_at = ?
+         SET status = ?, result = ?, error_code = ?, error_message = ?, updated_at = ?, payload = ${finishedPayload(db)}
          WHERE id = ? AND status IN ('queued', 'running')`
     ).run(status, body, errorCode || null, errorMessage || null, Date.now(), id)
-    forgetPayloadImages(db, `id = ? AND status NOT IN ('queued', 'running')`, id)
 }
 
 function offlineLoadNode(payload) {
@@ -445,6 +435,7 @@ export async function executeJob(job) {
         const result = await runHarness({
             ...runArgs,
             images: job.payload.images,
+            managedUploadReceipts: job.payload.managedUploadReceipts,
             budgetMs: local?.budgetMs ?? job.payload.budgetMs ?? undefined,
             timeoutMs: local?.timeoutMs ?? job.payload.timeoutMs ?? undefined,
             baseUrl: local?.baseUrl,

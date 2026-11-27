@@ -274,6 +274,7 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 -   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite. `npx cuttlely` starts the same image.
 -   [Build from source and run the dev server](./docs/how-to/from-source.md). Build Cuttlely yourself, run it, and change the code with live reload.
 -   [Harnesses](./docs/how-to/harnesses.md). Build an agent team, try it, and call it from a chatflow.
+-   Rehearse a saved team on the Kraken 2.0 development branch, verify its tools and downloaded files, and switch back to the bundled runtime. [Kraken canary guide](./docs/reference/kraken-native-runtime.md).
 -   [Context and tokens](./docs/how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
 -   [Analyst mode](./docs/how-to/analyst.md). Give a specialist its own database.
 -   [ETL](./docs/how-to/etl.md). Load, embed and search your own data.

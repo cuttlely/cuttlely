@@ -107,6 +107,7 @@ export const preparePredictionUpload = async (
             field,
             document: true,
             text: extracted.text,
+            digest: createHash('sha256').update(buffer).digest('hex'),
             truncated: extracted.truncated,
             stub: false,
             size: buffer.length,
@@ -150,6 +151,7 @@ export const renderPredictionUploadQuestion = async (
         chat: string
         parts: string[]
         caller?: { via: string; tryOwner?: string; apiKeyId?: string }
+        recordManagedSource?: (path?: string) => void
     }
 ): Promise<string> => {
     const policy = await loadUploadPolicy()
@@ -173,7 +175,9 @@ export const renderPredictionUploadQuestion = async (
             extractedText: prepared.text,
             extractedTruncated: prepared.truncated
         })
-        if (prepared.stub && prepared.digest && stored?.caller) {
+        if (prepared.digest && stored?.recordManagedSource) {
+            stored.recordManagedSource(prepared.stub ? absolutePath : undefined)
+        } else if (prepared.stub && prepared.digest && stored?.caller) {
             const proof = await policy.issueManagedUpload(stored, stored.parts, prepared.digest)
             if (proof) return part.block.replace('<file ', `<file proof='${proof}' `)
         }

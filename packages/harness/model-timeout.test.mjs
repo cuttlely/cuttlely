@@ -53,3 +53,31 @@ test('a raised cap lets a model call pass 120 seconds while a shorter caller dea
     await invokeChat(resolved, { messages: [], timeoutMs: 300000 })
     assert.equal(timeout, 120000)
 })
+
+test('JSON tool-choice retries count both model calls and stream only the interpreted answer', async () => {
+    const replies = ['{"tool":"unassigned","arguments":{"value":"private"}}', '{"answer":"done"}']
+    const deltas = []
+    const result = await invokeChat(
+        {
+            chat: {
+                invoke: async () => ({
+                    content: replies.shift(),
+                    usage_metadata: { input_tokens: 9, output_tokens: 2, input_token_details: { cache_read: 3 } }
+                })
+            }
+        },
+        {
+            messages: [{ role: 'user', content: 'Check.' }],
+            tools: [{ function: { name: 'check', parameters: {} } }],
+            onDelta: (s) => deltas.push(s)
+        }
+    )
+    assert.deepEqual(deltas, ['done'])
+    assert.equal(result.content, 'done')
+    assert.deepEqual(result.usage, {
+        prompt_tokens: 18,
+        completion_tokens: 4,
+        total_tokens: 22,
+        prompt_tokens_details: { cached_tokens: 6 }
+    })
+})

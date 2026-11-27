@@ -1,4 +1,5 @@
 import fs from 'fs'
+import type { ManagedPredictionUpload } from '../../src/managedUploadAdmission'
 import path from 'path'
 import { pathToFileURL } from 'url'
 
@@ -29,6 +30,7 @@ export interface HarnessFlowOptions {
 }
 
 export interface HarnessRunArgs {
+    managedUploadReceipts?: ManagedPredictionUpload[]
     name: string
     chatId: string
     input: string

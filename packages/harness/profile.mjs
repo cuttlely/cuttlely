@@ -1529,10 +1529,14 @@ function resolveRoster(record, profileName = record.name) {
     return { chiefModel, specialists, mixed }
 }
 
-function chiefPrompt(record, options = {}) {
+export function chiefPrompt(record, options = {}) {
     const specialists = options.specialists || record.specialists || []
     const lines = [`You are Harness Prime for the "${record.name}" harness.`]
-    lines.push('You may only use run_specialist, memory, and session_search.')
+    lines.push(
+        options.offeredTools
+            ? `Your available tools are ${options.offeredTools.join(', ')}.`
+            : 'You may only use run_specialist, memory, and session_search.'
+    )
     lines.push('Do not use delegate_task. Specialists run in their own profiles.')
     lines.push('Call run_specialist with the specialist name and the task.')
     lines.push('If one specialist fails, answer from the specialists that finished and name the failure.')

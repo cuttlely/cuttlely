@@ -1,4 +1,5 @@
 import { openManagedFiles, withManagedUploads } from './runtime/native-files.mjs'
+import { openNativeTabularReport, renderTabularEvidence } from './runtime/native-tabular-report.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
@@ -82,7 +83,13 @@ import { executeAgentRun } from './runtime/agent-run.mjs'
 import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
 import { analystCaptureIdentity, openNativeAnalyst, nativeAnalystBinding } from './runtime/native-analyst.mjs'
 import { isLiveTry } from './try-live.mjs'
-import { playbookCallLimit, playbookTools, readPlaybookTool } from './runtime/native-playbooks.mjs'
+import {
+    assignedPlaybookFile,
+    playbookCallLimit,
+    playbookTools,
+    prepareNativePlaybooks,
+    readPlaybookTool
+} from './runtime/native-playbooks.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -387,6 +394,7 @@ async function runHarnessTurn({
     name,
     chatId,
     input,
+    managedUploadReceipts,
     baseUrl = hermesBaseUrl(),
     fetchImpl = fetch,
     componentNodes,
@@ -429,6 +437,7 @@ async function runHarnessTurn({
                     name,
                     chatId,
                     input,
+                    managedUploadReceipts,
                     baseUrl,
                     fetchImpl,
                     componentNodes,
@@ -489,6 +498,7 @@ async function runTurn(
         name,
         chatId,
         input,
+        managedUploadReceipts,
         baseUrl,
         fetchImpl,
         componentNodes,
@@ -520,6 +530,7 @@ async function runTurn(
             name,
             chatId,
             input,
+            managedUploadReceipts,
             baseUrl,
             fetchImpl,
             componentNodes,
@@ -562,6 +573,7 @@ async function runTurnBody(
         name,
         chatId,
         input,
+        managedUploadReceipts,
         baseUrl,
         fetchImpl,
         componentNodes,
@@ -619,6 +631,7 @@ async function runTurnBody(
     const budget = turnBudgetMs(budgetMs)
     const budgetSignal = budget > 0 ? AbortSignal.timeout(budget) : undefined
     const context = {
+        managedUploadReceipts,
         nativePrime,
         nativeSpecialists,
         nativeResults: [],
@@ -824,6 +837,15 @@ async function protectNativeAnalystResult(context, specialist, task, result, sta
         turnFiles: []
     }
     attachCapturedAnalystResults(scope, specialist, started)
+    if (result.uploadReport && !specialist.trustedOutputs?.length && !analystQueryCount(scope, specialist.name))
+        return { ...result, text: result.uploadReport }
+    if (
+        result.csvReportProduced &&
+        !analystQueryCount(scope, specialist.name) &&
+        !specialist.trustedOutputs?.length &&
+        (analystDataTask(context, task) || analystDataTask(context, context.userText))
+    )
+        return { ...result, text: ANALYST_DID_NOT_RUN, ungrounded: true }
     if (!specialist.trustedOutputs?.length)
         return { ...result, text: groundAnalystSpecialistText(result.text, scope.toolLog, specialist.name) }
     const output = await protectStepOutput(scope, specialist, { dataTask: true, text: result.text, task })
@@ -850,6 +872,7 @@ async function runNativeDelegation(context, profileName, sessionId, specialist, 
         context.assertNativeAuthority()
         let result = await runSpecialistOnce(context, specialist, task)
         result = await protectNativeAnalystResult(context, specialist, task, result, step.startedAt, firstTool)
+        if (!result.text?.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
         context.assertNativeAuthority()
         if (result.trustedOutput && result.artifacts?.length) {
             context.trustedArtifactObjects ??= new Set()
@@ -910,6 +933,17 @@ async function nativeChiefAnswer(context, input, delegate, messages, budget, rec
         }
     })
     const protectedAnalysts = context.roster.specialists.filter((specialist) => specialist.trustedOutputs?.length)
+    if (
+        !protectedAnalysts.length &&
+        context.nativeResults.length &&
+        context.nativeResults.every((item) => item.uploadReport && !item.ungrounded)
+    )
+        return context.nativeResults.map((item) => item.uploadReport).join('\n\n')
+    if (!protectedAnalysts.length && context.nativeResults.some((item) => item.ungrounded))
+        return context.nativeResults
+            .map((item) => item.text || item.error)
+            .filter(Boolean)
+            .join('\n\n')
     if (!protectedAnalysts.length || context.nativeResults.some((result) => result?.trustedOutput)) return answer
     // A direct Prime answer carries no provenance. Ask the saved owner when a verified team never got a source call.
     // A mixed team can still complete unrelated work through its designated non-Analyst specialists.
@@ -947,7 +981,7 @@ async function runAgentChief(context, input) {
         // The runtime loads SOUL.md itself. Reserve its size without sending the compiled prompt twice.
         const soulTokens = nativePrime ? 0 : estimateTokens(chiefInstructions({ ...context.roster, name: profileName }))
         const fitted = fitChiefMessages({
-            system: nativePrime ? nativePrimeInstructions(context.roster) : '',
+            system: nativePrime ? nativePrimeInstructions(context.roster, recall) : '',
             memory: context.memoryBlock,
             history,
             user: [String(input ?? ''), context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
@@ -1112,6 +1146,33 @@ function analystCursor(context) {
 function analystDataTask(context, text) {
     const cursor = analystCursor(context)
     return isAnalystDataTask(text, { hasCursor: Boolean(cursor?.token) && !cursor?.expired })
+}
+
+function isUploadedReportRequest(question, task, evidence) {
+    // Rows and quoted markup from an attached file cannot choose the source for this request.
+    function requestText(value) {
+        const text = String(value || '').toLowerCase()
+        const starts = /<(doc|file)\b/g
+        const parts = []
+        let end = 0,
+            match
+        while ((match = starts.exec(text))) {
+            parts.push(text.slice(end, match.index))
+            const close = '</' + match[1] + '>'
+            const next = text.indexOf(close, starts.lastIndex)
+            if (next < 0) return ''
+            end = starts.lastIndex = next + close.length
+        }
+        parts.push(text.slice(end))
+        return parts.join(' ')
+    }
+    const request = requestText(question)
+    if (/\b(sql|database|warehouse|postgres(?:ql)?|pinned|relation|schema|join|query|table in)\b/.test(request + ' ' + requestText(task)))
+        return false
+    return (
+        /\b(csv|attachment|uploaded file|attached file)\b/.test(request) ||
+        evidence.some((record) => request.includes(record.source.slice('uploads/'.length).toLowerCase()))
+    )
 }
 
 function predictionReport(context, timings) {
@@ -3324,7 +3385,10 @@ async function runStep(context, step) {
             }
         }
         throwIfClient(context)
+        const fileAnswer = out.uploadReport && !specialist.trustedOutputs?.length && !analystQueryCount(context, specialist.name)
+        if (fileAnswer) out = { ...out, text: out.uploadReport }
         const dataTask =
+            !fileAnswer &&
             hasAnalystTool(specialist) &&
             ((preRun && analystQueryCount(context, specialist.name) > 0) ||
                 analystDataTask(context, task) ||
@@ -3414,6 +3478,7 @@ async function runStep(context, step) {
             ...(out.pinFirst ? { pinFirst: out.pinFirst } : {}),
             ...(out.trustedOutput ? { trustedOutput: true, trustedArtifactNames: out.trustedArtifactNames } : {}),
             ...(out.trustedPassthrough ? { trustedPassthrough: true } : {}),
+            ...(fileAnswer ? { uploadReport: out.uploadReport } : {}),
             ...(retrievedGuidance ? { retrievedGuidance: true } : {}),
             ...(out.recovery ? { recovery: out.recovery } : {}),
             ...(out.finishReason ? { finishReason: out.finishReason } : {}),
@@ -3821,6 +3886,8 @@ function toolName(prepared, index, used) {
 async function runNativeSpecialistTools(context, specialist, task, model, soul) {
     const { workSignal: signal, assertNativeAuthority: assertCurrent } = context
     const books = specialist.playbooks || []
+    const playbookContext = prepareNativePlaybooks(context.roster, specialist, context.chatId, context.turnId)
+    if (playbookContext.gaps.length) throw new HarnessError('native_unsupported', playbookContext.gaps.join(', '))
     const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
     const services = all.filter((binding) => nativeMcpBindingSupported(binding, context.roster.workspaceId))
     let mcp, analyst
@@ -3854,7 +3921,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         if (books.length)
             for (const tool of playbookTools) {
                 register(tool, (args) => {
-                    const page = readPlaybookTool(books, tool.function.name, args, budget)
+                    const page = readPlaybookTool(books, tool.function.name, args, budget, playbookContext)
                     const content = JSON.stringify(page)
                     return {
                         content,
@@ -3868,7 +3935,13 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         for (const spec of mcp?.tools || []) register(spec, (args) => mcp.call(spec.function.name, args))
         for (const spec of analyst?.tools || []) register(spec, (args, callId) => analyst.execute(spec.function.name, args, callId))
         const files = specialist.fileAccess ? openManagedFiles(context, specialist) : null
-        for (const tool of files?.tools || []) register(tool, (args) => files.execute(tool.function.name, args))
+        for (const tool of files?.tools || [])
+            register(tool, (args) => {
+                const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
+                return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
+            })
+        const report = openNativeTabularReport(context, specialist)
+        if (report) register(report.tool, (args) => report.execute(args))
         const used = new Set(handlers.keys())
         for (const [index, binding] of (specialist.modules || []).entries()) {
             if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
@@ -3908,7 +3981,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             tools,
             signal,
             budget,
-            maxCalls: Math.max(40, playbookCallLimit(books, budget)),
+            maxCalls: Math.max(40, playbookCallLimit(books, budget, playbookContext)),
             maxBatchCalls: 8,
             limitCode: 'tool_limit',
             complete: (messages, offered) => {
@@ -3931,14 +4004,29 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             }
         })
+        let uploadReport,
+            csvReportProduced = false
         if (files) {
+            // Only a completed delegation may hand its staged files to Prime.
+            if (context.nativePrime && !text?.trim() && !specialist.trustedOutputs?.length)
+                throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
             const artifacts = await files.finish()
+            const evidence = report?.evidence() || []
+            csvReportProduced = evidence.length > 0
+            if (
+                csvReportProduced &&
+                isUploadedReportRequest(context.userText, task, evidence) &&
+                !analystQueryCount({ toolLog: context.toolLog.slice(firstTool) }, specialist.name)
+            ) {
+                uploadReport = renderTabularEvidence(evidence)
+                artifacts.push(...report.finish())
+            }
             ;(context.turnImages ||= []).push(artifacts.filter((item) => ['png', 'jpeg'].includes(item.type)))
             ;(context.turnFiles ||= []).push(artifacts.filter((item) => !['png', 'jpeg'].includes(item.type)))
         }
         if (analyst && !context.nativePrime) attachCapturedAnalystResults(context, specialist, started, firstTool)
-        emitSpecialistPartial(context, specialist, text)
-        return { text, sources }
+        if (!csvReportProduced || uploadReport) emitSpecialistPartial(context, specialist, uploadReport || text)
+        return { text, sources, ...(csvReportProduced ? { csvReportProduced: true, uploadReport } : {}) }
     } finally {
         try {
             await analyst?.close()
@@ -4278,6 +4366,8 @@ function preserveAnalystRows(answer, results, question) {
 }
 
 async function chiefHandoff(context, input, history, results, steps) {
+    if (results?.length && results.every((result) => result.status === 'completed' && result.uploadReport))
+        return results.map((result) => result.uploadReport).join('\n\n')
     if ((results || []).some((result) => result.ungrounded)) {
         const parts = results
             .map((result) => {

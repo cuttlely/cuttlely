@@ -1,6 +1,7 @@
 import { accessContext } from '../services/accessKeys/authorization'
 import { Request } from 'express'
-import { assertFlowRuntimeAvailable } from './runtimeAvailability'
+import { assertFlowRuntimeAvailable, selectAgentEngine } from './runtimeAvailability'
+import { loadUploadPolicy } from './uploadPolicy'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { omit, cloneDeep } from 'lodash'
@@ -14,6 +15,7 @@ import {
     IAction,
     addArrayFilesToStorage,
     chatScopedUploadName,
+    registerManagedPredictionUploads,
     getFileFromUpload,
     isExtractableDocument,
     normalizeDocumentMime,
@@ -460,6 +462,17 @@ export const executeFlow = async ({
      */
     let fileUploads: IFileUpload[] = []
     let uploadedFilesContent = ''
+    const admittedDocuments: Array<{ name: string; mime: string; rows: number | null; digest: string; parts: string[]; path?: string }> = []
+    const uploadScope = { workspace: workspaceId, flow: chatflowid, chat: chatId, caller: nestedOptions?.nestedFlowCaller }
+    const renderStoredDocument = (name: string, prepared: Awaited<ReturnType<typeof preparePredictionUpload>>, parts: string[]) =>
+        renderPredictionUploadQuestion(name, prepared, localStoredUploadPath(...parts), {
+            ...uploadScope,
+            parts,
+            recordManagedSource(path) {
+                if (prepared.digest && nestedOptions)
+                    admittedDocuments.push({ name, mime: prepared.mime, rows: prepared.rows, digest: prepared.digest, parts, path })
+            }
+        })
     const usedDataUriNames = new Set<string>()
     const usedChatFolderNames = new Set<string>()
     if (uploads) {
@@ -480,18 +493,7 @@ export const executeFlow = async ({
                 const { totalSize } = await addSingleFileToStorage(prepared.mime, dataUri.buffer, storedName, orgId, chatflowid, chatId)
                 await updateStorageUsage(orgId, workspaceId, totalSize, usageCacheManager)
                 if (prepared.document) {
-                    uploadedFilesContent += await renderPredictionUploadQuestion(
-                        upload.name,
-                        prepared,
-                        localStoredUploadPath(orgId, chatflowid, chatId, storedName),
-                        {
-                            workspace: workspaceId,
-                            flow: chatflowid,
-                            chat: chatId,
-                            caller: nestedOptions?.nestedFlowCaller,
-                            parts: [orgId, chatflowid, chatId, storedName]
-                        }
-                    )
+                    uploadedFilesContent += await renderStoredDocument(upload.name, prepared, [orgId, chatflowid, chatId, storedName])
                 }
                 fileUploads[i] = { name: storedName, type: 'stored-file:full', mime: prepared.mime }
                 continue
@@ -589,18 +591,7 @@ export const executeFlow = async ({
 
                 if (prepared.document) {
                     const storedOnDisk = fileNames[0] || storedName
-                    uploadedFilesContent += await renderPredictionUploadQuestion(
-                        file.originalname,
-                        prepared,
-                        localStoredUploadPath(orgId, chatflowid, storedOnDisk),
-                        {
-                            workspace: workspaceId,
-                            flow: chatflowid,
-                            chat: chatId,
-                            caller: nestedOptions?.nestedFlowCaller,
-                            parts: [orgId, chatflowid, storedOnDisk]
-                        }
-                    )
+                    uploadedFilesContent += await renderStoredDocument(file.originalname, prepared, [orgId, chatflowid, storedOnDisk])
                     fileUploads.push({
                         type: 'stored-file:full',
                         name: storedOnDisk,
@@ -625,6 +616,21 @@ export const executeFlow = async ({
             overrideConfig,
             chatId
         }
+    }
+
+    if (admittedDocuments.length && nestedOptions) {
+        // This request-local function never enters the prompt, stored chat or serialized prediction.
+        // Only a Harness card asks for proofs after it has checked the caller's workspace and canvas.
+        registerManagedPredictionUploads(nestedOptions.runNestedFlow, async (name) => {
+            if (selectAgentEngine(name) !== 'native') return []
+            const policy = await loadUploadPolicy()
+            const receipts = []
+            for (const { parts, digest, ...document } of admittedDocuments) {
+                const proof = await policy.issueManagedUpload(uploadScope, parts, digest)
+                if (proof) receipts.push({ ...document, proof })
+            }
+            return receipts
+        })
     }
 
     const isAgentFlowV2 = chatflow.type === 'AGENTFLOW'

@@ -381,6 +381,49 @@ async function bindTools(chat, tools, toolChoice) {
     }
 }
 
+// Providers using JSON choices may reject tool-role messages even when the request has no tools.
+// Keep the original transcript for native providers. Encode only its call/result pairs for the text provider.
+function textToolHistory(messages) {
+    const history = []
+    let results = []
+    const flush = () => {
+        if (!results.length) return
+        history.push({ role: 'user', content: JSON.stringify({ tool_results: results }) })
+        results = []
+    }
+    for (const message of messages) {
+        if (message.role === 'tool') {
+            results.push({ id: message.tool_call_id, result: message.content })
+            continue
+        }
+        flush()
+        const calls = message.role === 'assistant' && rawToolCalls(message)
+        if (calls?.length) {
+            const choices = calls.map((call, index) => {
+                const { id, function: fn } = toolCallOf(call, index)
+                return { id, tool: fn.name, arguments: fn.arguments }
+            })
+            history.push({ role: 'assistant', content: JSON.stringify({ text: message.content, tool_choices: choices }) })
+        } else history.push(message)
+    }
+    flush()
+    return history
+}
+
+function combineRetryUsage(first, next) {
+    if (!first || !next) return first || next
+    const prompt = Number(first.prompt_tokens ?? first.input_tokens ?? 0) + Number(next.prompt_tokens ?? next.input_tokens ?? 0)
+    const completion =
+        Number(first.completion_tokens ?? first.output_tokens ?? 0) + Number(next.completion_tokens ?? next.output_tokens ?? 0)
+    const cached = [cachedPromptTokens(first), cachedPromptTokens(next)].filter((value) => value != null)
+    return {
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        total_tokens: prompt + completion,
+        ...(cached.length && { prompt_tokens_details: { cached_tokens: cached.reduce((sum, n) => sum + n, 0) } })
+    }
+}
+
 export async function invokeChat(
     resolved,
     { messages, tools, toolChoice, temperature, maxTokens, stop, json, signal, timeoutMs, onDelta, callbacks } = {}
@@ -402,20 +445,28 @@ export async function invokeChat(
         if (temperature != null) options.temperature = temperature
         if (maxTokens != null) options.maxTokens = maxTokens
         if (stop != null) options.stop = stop
-        const plainInvoke = async (nextMessages) => {
-            const result = await chat.invoke(toLangChain(nextMessages), options)
-            const parsed = chatResult(result, false)
-            deliverText(onDelta, parsed.content)
-            return { content: parsed.content, usage: parsed.usage }
+        const useFallback = async (retries) => {
+            let usage = null
+            const choice = await fallbackToolChoice(
+                async (nextMessages) => {
+                    const parsed = chatResult(await chat.invoke(toLangChain(nextMessages), options), false)
+                    usage = combineRetryUsage(usage, parsed.usage)
+                    return parsed
+                },
+                textToolHistory(prepared),
+                tools,
+                { retries }
+            )
+            if (!choice.toolCalls.length) deliverText(onDelta, choice.content)
+            return { ...choice, usage }
         }
-        const useFallback = (retries) => fallbackToolChoice(plainInvoke, prepared, tools, { retries })
         if (tools?.length && toolChoice !== 'none') {
-            if (!resolved.toolCalling) return useFallback(1)
+            if (!resolved.toolCalling) return await useFallback(1)
             let bound = chat
             try {
                 bound = await bindTools(chat, tools, toolChoice)
             } catch {
-                return useFallback(1)
+                return await useFallback(1)
             }
             try {
                 const result = await bound.invoke(toLangChain(prepared), options)
@@ -426,7 +477,7 @@ export async function invokeChat(
                 if (!rejectsToolCalls(error)) throw error
                 console.info(`[harness] ${resolved.label || 'chat model'} rejected tool calls; using JSON tool choice`)
                 // The provider rejection is the one retry. Its reply is the answer when it is not a tool choice.
-                return useFallback(0)
+                return await useFallback(0)
             }
         }
         if (typeof onDelta === 'function' && typeof chat.stream === 'function') {

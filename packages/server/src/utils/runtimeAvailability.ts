@@ -12,6 +12,7 @@ const availability = require('../../../harness/availability.cjs') as {
 
 export const assertSelectedHarnessAvailable = availability.assertSelectedHarnessAvailable
 export const supervisorUnavailable = availability.supervisorUnavailable
+export const selectAgentEngine = availability.selectAgentEngine
 export const runtimeState = availability.runtimeState
 export const assertRuntimeAvailable = availability.assertRuntimeAvailable
 

@@ -26,7 +26,7 @@ Selection applies to both router and agent mode. Native preflight checks every s
 | Saved configuration                         | Behavior to check                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Prime, model-only specialist and Calculator | Prime delegates to the assigned roster. Primary and fallback models use their saved credential bindings. The trace records the model that answered.                                                                                                                                                                                        |
-| Saved Markdown playbooks                    | The specialist can list its own playbooks, read their Markdown in pages and reread an earlier page. Bundled-runtime directory and session templates require the bundled engine.                                                                                                                                                            |
+| Saved Markdown playbooks                    | The specialist can list its assigned playbooks, read them in pages, resolve the session and skill directory templates, and open verified read-only companion files.                                                                                                                                                                        |
 | Current Date Time                           | The saved timezone and the tool call’s timezone use the existing node implementation.                                                                                                                                                                                                                                                      |
 | Retriever Tool                              | Supported saved Pinecone retrievers use the assigned OpenAI embeddings node, stored credentials and the admitted chat’s upload scope. Source documents returned by the card accompany the API result.                                                                                                                                      |
 | SerpAPI                                     | The saved fixed-endpoint search card requires its selected credential. Check imported credential bindings before cutover.                                                                                                                                                                                                                  |
@@ -34,6 +34,26 @@ Selection applies to both router and agent mode. Native preflight checks every s
 | PostgreSQL Analyst                          | Eligible URL-backed cards expose their configured guarded actions and verified saved queries. Destination-specific stamps, selected relations, secure parameters, query budgets and chat-scoped paging remain in force. A trusted report requires evidence from the actual query. Check the content and owner of each returned attachment. |
 
 The Web Browser card’s **Return source text** mode reads a public HTTP(S) page whose URL the caller includes in the current message. The reader follows same-site redirects, checks every network destination and returns bounded text and source metadata. The link must be present in the original message even when Prime rewrites the specialist’s task. Interactive browser automation and links selected solely by the model still require the bundled runtime.
+
+### Playbook references on replacement workers
+
+The normal `skill_view` call expands `${HERMES_SESSION_ID}` for the current specialist turn and `${HERMES_SKILL_DIR}` to `/skills/harness-playbooks/<book>`. Reading `SKILL.md` by its explicit file path returns the original Markdown. A saved canvas carries the playbook body. For an operator-provided companion, put the same immutable file on each worker and include its digest and assignment in the host manifest selected by `CUTTLELY_HOST_FILE_MANIFEST`.
+
+```json
+[
+    {
+        "path": "runtime/profiles/demo--reader/skills/harness-playbooks/handbook/references/guide.md",
+        "sha256": "<64 lowercase hexadecimal digits>",
+        "playbook": {
+            "workspaceId": "<saved workspace id>",
+            "chatflowId": "<saved harness canvas id>",
+            "generation": "<createdAt from the saved harness record>"
+        }
+    }
+]
+```
+
+The example assigns `references/guide.md` to the `handbook` playbook of specialist `reader` on team `demo`. An owned draft also needs its exact `tryId` and draft profile path. Older manifest rows containing only a path and digest need a separate matching digest for the compiled parent harness-roster.json, with the same canvas generation and saved assignment. Rehearse on a replacement worker with the same manifest and files. Preflight reports unresolved dependencies. Inline shell execution in a playbook requires the bundled runtime.
 
 ### Workspace MCP status endpoint
 
@@ -52,6 +72,12 @@ On a supported Linux host, a file-enabled specialist can read, write, search and
 Each workspace is limited to 256 files and 64 MiB of decoded content. It uses the selected harness session store. PostgreSQL preserves these workspaces across empty-disk replacements. SQLite requires a retained data volume. The image ships a fixed document decoder and search binary. The worker requires Linux Landlock ABI 3 or later and libseccomp. On a host that cannot enforce the file boundary, preflight identifies the team as requiring the bundled engine. A configured hosted OCR service or language server is a separate dependency. Preflight reports these settings so the operator can retain the full runtime for teams that use them. Rehearse with the documents the team processes, including scanned PDFs.
 
 An existing shared workspace may contain files without a reliable owner. A nonempty legacy workspace blocks this team’s native cutover. Back it up, review its contents, and re-upload the required files through the owner's chat before retiring the original workspace. Preserve older copies until the owner confirms the required outputs.
+
+### Reporting on an uploaded CSV
+
+An authenticated chat or API client can attach a CSV and ask for a table or bar chart. Use a specialist with File Access and an eligible PostgreSQL Analyst query grant. The report tool reads the verified original upload, including small CSVs that the chat displays inline. Each worker must be able to reopen the original stored bytes. PostgreSQL and hybrid installations use their configured file store. A changed file fails verification and the caller can send it again.
+
+For example, ask “From the attached CSV, group by Region, sum Net, and return the table and a bar chart.” The response identifies the source, counted rows and groups, and includes a downloadable CSV and optional PNG. Supported operations are count, sum, mean, minimum and maximum. Means round to eight decimal places. The calculation supports 4 MiB, 50,000 rows and 250 groups, with up to 40 groups in a chart. A database request still needs its own database result. Protected saved-query outputs keep their existing verification rules.
 
 ### Conversation search
 

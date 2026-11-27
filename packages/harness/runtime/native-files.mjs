@@ -134,8 +134,10 @@ export async function withManagedUploads(context, input, run) {
         sources = []
     let used = 0
     let question = String(input)
-    for (const stub of parseUploadStubs(input)) {
-        if (!stub.path) continue
+    const admitted = context.managedUploadReceipts || []
+    const paths = new Set(admitted.map((receipt) => receipt.path).filter(Boolean))
+    const legacy = parseUploadStubs(input).filter((stub) => stub.path && !paths.has(stub.path))
+    for (const [index, stub] of [...admitted, ...legacy].entries()) {
         let key
         try {
             if (Object.keys(uploads).length >= maxEntries) throw Error('Workspace upload limit')
@@ -148,10 +150,14 @@ export async function withManagedUploads(context, input, run) {
             uploads[key] = stored.body.toString('base64')
             sources.push(uploadSource({ name: basename, absolutePath: key, size: stored.body.length, mime: stub.mime, rows: stub.rows }))
         } catch {
+            if (index < admitted.length)
+                throw new HarnessError('upload_changed', 'The admitted upload could not be verified. Send the file again.', 409)
             key = '[upload path refused]'
         }
-        question = question.replaceAll(stub.path, key)
-        if (stub.proof) question = question.replaceAll(stub.proof, '[verified upload receipt]')
+        if (stub.path) {
+            question = question.replaceAll(stub.path, key)
+            if (index >= admitted.length && stub.proof) question = question.replaceAll(stub.proof, '[verified upload receipt]')
+        }
     }
     context.managedFileOwner = await managedFileOwnerTag(flow.nestedFlowCaller, scope.workspace, scope.chat)
     context.managedUploads = uploads
@@ -300,6 +306,19 @@ export function openManagedFiles(context, specialist) {
         note:
             'Use relative paths inside your specialist workspace. Save files for the chat under output/. Uploaded file paths: ' +
             Object.keys(context.managedUploads || {}).join(', '),
+        async readAssigned(file, args) {
+            context.assertNativeAuthority()
+            const response = await executeWorker(
+                {
+                    files: { [file.path]: Buffer.from(file.content).toString('base64') },
+                    name: 'read_file',
+                    args: { path: file.path, offset: args.offset, limit: args.limit }
+                },
+                context.workSignal
+            )
+            context.assertNativeAuthority()
+            return { content: JSON.stringify(response.result), error: Boolean(response.result.error) }
+        },
         async execute(name, args) {
             context.assertNativeAuthority()
             const response = await executeWorker({ files, modified, known, name, args }, context.workSignal)

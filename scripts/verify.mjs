@@ -400,6 +400,11 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'kraken-recall.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-remote-mcp.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-managed-files.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-team-parity.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-inline-upload.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-tabular-report.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'test', 'native-playbook-assignment.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'runtime', 'native-tabular-report.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-memory.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-native-canvas.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'test', 'pinned', 'native-analyst.test.mjs')

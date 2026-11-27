@@ -1,3 +1,4 @@
+import { admittedManagedUploads } from '../../../src/managedUploadAdmission'
 import { DynamicTool } from '@langchain/core/tools'
 import { CallbackManager } from '@langchain/core/callbacks/manager'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
@@ -1035,6 +1036,7 @@ async function runNamedHarness(
             throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
         }
     }
+    const inlineUploads = isHarnessReplay(options) ? undefined : await admittedManagedUploads(options.runNestedFlow, harnessName)
     // The standalone parent is opened only after workspace and caller authorization above.
     const traceCallbacks = typeof callbacks === 'function' ? await callbacks() : callbacks
     const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
@@ -1050,6 +1052,7 @@ async function runNamedHarness(
             chatId,
             input,
             source: 'prediction',
+            ...(inlineUploads?.length ? { managedUploadReceipts: inlineUploads } : {}),
             ...(caller?.via === 'api_key' ? { apiKeyId: caller.apiKeyId } : {}),
             ...(isHarnessReplay(options) ? { trustedOutputPreview: true } : {}),
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,

@@ -1,3 +1,4 @@
+import { prepareNativePlaybooks } from './native-playbooks.mjs'
 import { existingFileDependency, managedFilesReady } from './native-files.mjs'
 import availability from '../availability.cjs'
 import { HarnessError } from '../errors.mjs'
@@ -5,7 +6,7 @@ import { estimateTokens } from '../context.mjs'
 import { needsNativeCanvasCredential, supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
 import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
-import { specialistSummary, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
+import { chiefPrompt, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
 export const admittedAgentEngine = Symbol('admittedAgentEngine')
@@ -49,8 +50,7 @@ export function nativeCompatibilityGaps(roster) {
             ))
                 capabilities.add(requirement)
         }
-        if (specialist.playbooks?.some((book) => /\$\{HERMES_(?:SKILL_DIR|SESSION_ID)\}/.test(book.content)))
-            capabilities.add('runtime playbook templates')
+        for (const gap of prepareNativePlaybooks(roster, specialist).gaps) capabilities.add(gap)
         for (const binding of specialist.modules || []) {
             if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding)) {
                 const credential = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
@@ -73,14 +73,8 @@ function nativeNodeLabel(binding) {
     return typeof label === 'string' && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(label) ? label : 'unrecognized node'
 }
 
-export function nativePrimeInstructions(roster) {
-    return [
-        `You are Harness Prime for "${roster.name}". Delegate with run_specialist when needed. Use the specialist's returned evidence.`,
-        roster.chief.instructions,
-        ...roster.specialists.map((s) => `${s.name}: ${specialistSummary(s)}`)
-    ]
-        .filter(Boolean)
-        .join('\n')
+export function nativePrimeInstructions(roster, recall) {
+    return chiefPrompt(roster, { offeredTools: ['run_specialist', ...(recall?.tools || []).map((tool) => tool.function.name)] })
 }
 
 export async function runNativePrime({ messages, roster, complete, delegate, signal, budget, recall }) {
@@ -111,10 +105,10 @@ export async function runNativePrime({ messages, roster, complete, delegate, sig
         limitCode: 'delegation_limit',
         execute: (name, args) => {
             if (name === 'session_search') return recall.execute(name, args)
-            const specialist = roster.specialists.find((s) => s.name === args?.name)
+            const specialist = typeof args.name === 'string' && roster.specialists.find((s) => s.name === args.name.trim())
             if (!specialist) throw new HarnessError('forbidden', 'The requested specialist is not on this team.')
             if (typeof args.task !== 'string' || !args.task.trim()) throw new HarnessError('bad_task', 'A specialist task is required.')
-            return delegate(specialist, args.task)
+            return delegate(specialist, args.task.trim())
         }
     })
 }

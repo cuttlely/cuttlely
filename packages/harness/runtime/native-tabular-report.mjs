@@ -1,0 +1,333 @@
+// Structured reports read only the bytes admitted by withManagedUploads for this turn.
+import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { setImmediate as yieldToTurn } from 'node:timers/promises'
+import { parseRow } from '../../etl/readers.mjs'
+import { HarnessError } from '../errors.mjs'
+import { TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from '../images.mjs'
+import { escapeCsvFormula } from '../trusted-output.mjs'
+import { nativeAnalystBinding } from './native-analyst.mjs'
+
+const operations = ['count', 'sum', 'mean', 'min', 'max']
+const orders = ['group', 'ascending', 'descending']
+const formats = ['table', 'table_and_bar_chart']
+const scale = 100_000_000n
+const inputLimit = 4 * 1024 * 1024
+const require = createRequire(import.meta.url)
+
+function invalid(message) {
+    throw new HarnessError('invalid_report', message)
+}
+
+// The ETL parser validates quoting and UTF-8. Frame complete records first so quoted line breaks survive.
+function* records(bytes) {
+    let start = bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) ? 3 : 0
+    let quoted = false
+    for (let i = start; i <= bytes.length; i++) {
+        if (i - start > 65536) invalid('A CSV record exceeds 64 KiB.')
+        const ch = bytes[i]
+        if (ch === 0) invalid('CSV input must be UTF-8 text without NUL bytes.')
+        if (ch === 34) {
+            if (quoted && bytes[i + 1] === 34) i++
+            else quoted = !quoted
+        }
+        if (i !== bytes.length && (quoted || (ch !== 10 && ch !== 13))) continue
+        if (i !== bytes.length || i > start) {
+            const row = parseRow(bytes, start, i, 44)
+            if (row.error) invalid('Malformed CSV record (' + row.error.code + ').')
+            yield row.fields
+        }
+        if (ch === 13 && bytes[i + 1] === 10) i++
+        start = i + 1
+    }
+}
+
+function decimal(text, row) {
+    const match = /^([+-]?)(\d{1,18})(?:\.(\d{1,8}))?$/.exec(text.trim())
+    if (!match) invalid('Row ' + row + ' needs a plain decimal, up to 18 integer and 8 fractional digits, or an empty cell.')
+    const magnitude = BigInt(match[2]) * scale + BigInt((match[3] || '').padEnd(8, '0'))
+    return match[1] === '-' ? -magnitude : magnitude
+}
+
+function formatDecimal(n) {
+    if (n === null) return null
+    const magnitude = n < 0n ? -n : n
+    const fraction = (magnitude % scale).toString().padStart(8, '0').replace(/0+$/, '')
+    return (n < 0n ? '-' : '') + (magnitude / scale).toString() + (fraction ? '.' + fraction : '')
+}
+
+function resultValue(bucket, operation) {
+    if (operation === 'count') return BigInt(bucket.rows) * scale
+    if (!bucket.observations) return null
+    if (operation !== 'mean') return bucket[operation]
+    const count = BigInt(bucket.observations)
+    const absolute = bucket.sum < 0n ? -bucket.sum : bucket.sum
+    const rounded = (absolute + count / 2n) / count
+    return bucket.sum < 0n ? -rounded : rounded
+}
+
+async function summarize(bytes, options, check) {
+    const rows = records(bytes)
+    const headers = rows.next().value
+    if (
+        !headers?.length ||
+        headers.length > 128 ||
+        headers.some((h) => !h.trim() || h.length > 120) ||
+        new Set(headers).size !== headers.length
+    )
+        invalid('CSV needs a header with 1 to 128 unique, nonempty column names of at most 120 characters.')
+    const groupIndex = headers.indexOf(options.groupBy)
+    const valueIndex = headers.indexOf(options.valueColumn)
+    if ((options.groupBy !== undefined && groupIndex < 0) || (options.operation !== 'count' && valueIndex < 0))
+        invalid('A selected column is missing. Inspect the CSV header for the exact column names.')
+    const groups = new Map()
+    let sourceRows = 0
+    for (const fields of rows) {
+        sourceRows++
+        if (sourceRows > 50000) invalid('CSV reports support up to 50,000 rows.')
+        if (sourceRows % 512 === 0) {
+            await yieldToTurn()
+            check()
+        }
+        if (fields.length !== headers.length) invalid('Row ' + (sourceRows + 1) + ' has a different column count than the header.')
+        const group = groupIndex < 0 ? 'All rows' : fields[groupIndex]
+        if (group.length > 120) invalid('Group labels must fit in 120 characters.')
+        let bucket = groups.get(group)
+        if (!bucket) {
+            if (groups.size >= 250) invalid('The grouping produces more than 250 distinct groups.')
+            bucket = { group, rows: 0, observations: 0, sum: 0n, min: null, max: null }
+            groups.set(group, bucket)
+        }
+        bucket.rows++
+        if (options.operation === 'count') {
+            bucket.observations++
+        } else if (fields[valueIndex].trim()) {
+            const n = decimal(fields[valueIndex], sourceRows + 1)
+            bucket.observations++
+            bucket.sum += n
+            if (bucket.min === null || n < bucket.min) bucket.min = n
+            if (bucket.max === null || n > bucket.max) bucket.max = n
+        }
+    }
+    if (!sourceRows) invalid('The CSV has headers but contains no data rows.')
+    const summary = Array.from(groups.values(), (bucket) => ({
+        group: bucket.group,
+        sourceRows: bucket.rows,
+        observations: bucket.observations,
+        value: resultValue(bucket, options.operation)
+    }))
+    summary.sort((a, b) => {
+        if (options.order !== 'group' && a.value !== b.value) {
+            if (a.value === null) return 1
+            if (b.value === null) return -1
+            return (a.value < b.value ? -1 : 1) * (options.order === 'descending' ? -1 : 1)
+        }
+        return a.group < b.group ? -1 : a.group > b.group ? 1 : 0
+    })
+    return { sourceRows, rows: summary.map((row) => ({ ...row, value: formatDecimal(row.value) })) }
+}
+
+function csvCell(s) {
+    const value = String(s ?? '')
+    // Spreadsheet apps may ignore leading whitespace before a formula introducer.
+    const guardedPrefix = /^\s+[=+@-]|^\s*[＝＋－＠]|^[\n]/u.test(value)
+    const safe = guardedPrefix ? "'" + value : escapeCsvFormula(value)
+    return '"' + safe.replaceAll('"', '""') + '"'
+}
+
+function csv(rows, metric) {
+    const data = [['group', 'source_rows', 'observations', metric], ...rows.map((r) => [r.group, r.sourceRows, r.observations, r.value])]
+    return Buffer.from(data.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n')
+}
+
+async function barChart(rows, metric, groupBy) {
+    if (rows.length > 40) invalid('Bar charts support up to 40 groups. Request a table for larger summaries.')
+    const { createCanvas } = require('@napi-rs/canvas')
+    const canvas = createCanvas(1100, 112 + rows.length * 36)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#172b4d'
+    ctx.font = 'bold 22px sans-serif'
+    ctx.fillText(visibleLabel(metric + (groupBy ? ' by ' + groupBy : '')), 18, 35, canvas.width - 36)
+    ctx.font = '15px sans-serif'
+    ctx.fillText('Group', 18, 72)
+    ctx.fillText('Value', 847, 72)
+    const positive = Math.max(0, ...rows.map((r) => Number(r.value)))
+    const negative = Math.min(0, ...rows.map((r) => Number(r.value)))
+    const axis = (v) => 250 + ((v - negative) / (positive - negative || 1)) * 560
+    const zero = axis(0)
+    ctx.fillStyle = '#526174'
+    ctx.fillRect(zero, 76, 1, rows.length * 36)
+    rows.forEach((row, i) => {
+        const y = 92 + i * 36
+        ctx.fillStyle = '#253b57'
+        ctx.fillText(visibleLabel(row.group) || '(empty)', 18, y + 6, 215)
+        ctx.fillText(row.value ?? 'No observations', 847, y + 6, 233)
+        if (row.value === null) return
+        const n = Number(row.value)
+        const x = axis(n)
+        ctx.fillStyle = n < 0 ? '#a95020' : '#237497'
+        ctx.fillRect(Math.min(zero, x), y - 8, Math.max(1, Math.abs(x - zero)), 16)
+    })
+    return canvas.encode('png')
+}
+
+function optionsFor(args, uploads) {
+    const keys = ['source', 'operation', 'groupBy', 'valueColumn', 'order', 'format']
+    if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some((k) => !keys.includes(k)))
+        invalid('Only the declared report options are accepted.')
+    if (
+        !['source', 'operation', 'format'].every((k) => Object.hasOwn(args, k)) ||
+        !uploads.has(args.source) ||
+        !operations.includes(args.operation) ||
+        !formats.includes(args.format)
+    )
+        invalid('Choose an available CSV upload, supported operation and output format.')
+    if (Object.hasOwn(args, 'order') && !orders.includes(args.order)) invalid('Choose a supported sort order.')
+    for (const key of ['groupBy', 'valueColumn'])
+        if (Object.hasOwn(args, key) && (typeof args[key] !== 'string' || !args[key].trim() || args[key].length > 120))
+            invalid('Select columns by their exact nonempty CSV header.')
+    if ((args.operation === 'count') === Object.hasOwn(args, 'valueColumn'))
+        invalid('Count takes no value column. Other operations require a value column.')
+    return { ...args, order: args.order ?? 'group' }
+}
+
+// Show untrusted column names and categories as literal table cells, including line breaks and bidi controls.
+function visibleLabel(value) {
+    return String(value).replace(
+        /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+        (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
+    )
+}
+
+function literal(value) {
+    return visibleLabel(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/[\\|`*_\[\]~!#]/g, '\\$&')
+}
+
+export function renderTabularEvidence(records) {
+    return records
+        .map((r) => {
+            const operation = { count: 'Row count', sum: 'Sum', mean: 'Mean', min: 'Minimum', max: 'Maximum' }[r.operation]
+            const measure = operation + (r.valueColumn ? ' of ' + literal(r.valueColumn) : '')
+            const grouping = r.groupBy ? ' by ' + literal(r.groupBy) : ''
+            const lines = [
+                'Uploaded CSV ' + literal(r.source.slice('uploads/'.length)),
+                `${measure}${grouping}. Included ${r.observations} observations from ${r.sourceRows} source rows.`,
+                '',
+                `| Group | ${measure} | Source rows | Included |`,
+                '|---|---:|---:|---:|',
+                ...r.preview.map((row) => {
+                    const group = literal(row.group) || '(empty)'
+                    return `| ${group} | ${row.value ?? 'No observations'} | ${row.sourceRows} | ${row.observations} |`
+                })
+            ]
+            if (r.previewTruncated) lines.push('', `Showing ${r.preview.length} of ${r.groupCount} groups. The CSV includes all groups.`)
+            if (r.operation === 'mean') lines.push('', 'Means are rounded to eight decimal places.')
+            lines.push('', 'Download ' + r.files.join(' and ') + '.')
+            return lines.join('\n')
+        })
+        .join('\n\n')
+}
+
+export function openNativeTabularReport(context, specialist) {
+    if (specialist.fileAccess !== true || !context.managedFileOwner || context.replay) return null
+    if (specialist.trustedOutputs?.length) return null
+    const hasQueryGrant = [...(specialist.modules || []), ...(specialist.mcpServers || [])].some((binding) => {
+        if (!nativeAnalystBinding(binding)) return false
+        const actions = binding.inputs?.mcpActions
+        return (typeof actions === 'string' ? JSON.parse(actions) : actions)?.includes('query')
+    })
+    if (specialist.codeExecution !== true && !hasQueryGrant) return null
+    const uploads = new Map(Object.entries(context.managedUploads || {}).filter(([name]) => /^uploads\/[^/]+\.csv$/i.test(name)))
+    if (!uploads.size) return null
+    const pending = new Map()
+    const check = () => {
+        context.workSignal?.throwIfAborted()
+        context.assertNativeAuthority()
+    }
+    return {
+        tool: {
+            type: 'function',
+            function: {
+                name: 'analyze_csv_report',
+                description:
+                    'Group a verified CSV upload, calculate exact decimal aggregates and return a downloadable table with an optional horizontal bar chart. Empty numeric cells are excluded. Mean rounds to 8 decimal places. Count counts rows, including duplicates. Use read_file to inspect the header.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        source: { type: 'string', enum: [...uploads.keys()] },
+                        operation: { type: 'string', enum: operations },
+                        groupBy: { type: 'string', description: 'Optional grouping column. Omit for a single total.' },
+                        valueColumn: { type: 'string', description: 'Numeric column, required except for count.' },
+                        order: { type: 'string', enum: orders },
+                        format: { type: 'string', enum: formats }
+                    },
+                    additionalProperties: false,
+                    required: ['source', 'operation', 'format']
+                }
+            }
+        },
+        async execute(args) {
+            check()
+            try {
+                const o = optionsFor(args, uploads)
+                const signature = JSON.stringify([o.source, o.operation, o.groupBy, o.valueColumn, o.order, o.format])
+                if (pending.has(signature)) return pending.get(signature).response
+                if (pending.size >= TURN_FILE_LIMITS.count) invalid('This specialist has reached the report attachment limit.')
+                const input = uploads.get(o.source)
+                if (input.length > Math.ceil(inputLimit / 3) * 4) invalid('CSV reports support uploads up to 4 MiB.')
+                const bytes = Buffer.from(input, 'base64')
+                if (bytes.length > inputLimit) invalid('CSV reports support uploads up to 4 MiB.')
+                const { sourceRows, rows } = await summarize(bytes, o, check)
+                const metric = o.valueColumn ? o.operation + '(' + o.valueColumn + ')' : 'count'
+                const table = csv(rows, metric)
+                const chart = o.format === 'table_and_bar_chart' ? await barChart(rows, metric, o.groupBy) : null
+                check()
+                if (table.length > TURN_FILE_LIMITS.bytes || (chart && chart.length > TURN_IMAGE_LIMITS.bytes))
+                    invalid('The resulting report exceeds attachment limits.')
+                const id = createHash('sha256').update(signature).update(bytes).digest('hex').slice(0, 16)
+                const artifact = (type, mime, data) => ({
+                    name: 'report-' + id + '.' + type,
+                    type,
+                    mime,
+                    base64: data.toString('base64'),
+                    specialist: specialist.name,
+                    mtime: Date.now()
+                })
+                const artifacts = [artifact('csv', 'text/csv', table)]
+                if (chart) artifacts.push(artifact('png', 'image/png', chart))
+                const evidence = {
+                    source: o.source,
+                    operation: o.operation,
+                    groupBy: o.groupBy ?? null,
+                    valueColumn: o.valueColumn ?? null,
+                    sourceRows,
+                    observations: rows.reduce((n, r) => n + r.observations, 0),
+                    groupCount: rows.length,
+                    preview: rows.slice(0, 12),
+                    previewTruncated: rows.length > 12,
+                    files: artifacts.map((a) => a.name)
+                }
+                const response = { content: JSON.stringify(evidence), error: false }
+                pending.set(signature, { artifacts, response, evidence })
+                return response
+            } catch (e) {
+                if (e.code !== 'invalid_report') throw e
+                return { content: JSON.stringify({ error: e.message }), error: true }
+            }
+        },
+        evidence() {
+            check()
+            return Array.from(pending.values(), (entry) => structuredClone(entry.evidence))
+        },
+        finish() {
+            check()
+            return Array.from(pending.values()).flatMap((entry) => entry.artifacts)
+        }
+    }
+}

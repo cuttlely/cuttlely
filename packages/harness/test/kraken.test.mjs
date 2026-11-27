@@ -140,7 +140,7 @@ test('native preflight lists all affected specialists and excludes endpoint, cre
                 name: 'b',
                 fileAccess: true,
                 mcpServers: [{ nodeName: 'customMCP', credential: 'fixture-id' }],
-                playbooks: [{ content: 'private-notes ${HERMES_SKILL_DIR}' }]
+                playbooks: [{ name: 'qa', content: 'private-notes ${HERMES_SKILL_DIR}/scripts/unassigned.py' }]
             },
             { name: 'c', modules: [{ nodeName: 'calculator', inputs: {} }] }
         ]
@@ -149,7 +149,7 @@ test('native preflight lists all affected specialists and excludes endpoint, cre
     const fileGaps = managedFilesReady() ? [] : ['workspace files']
     assert.deepEqual(gaps, [
         { specialist: 'a', capabilities: ['shell', 'canvas tool customTool'] },
-        { specialist: 'b', capabilities: [...fileGaps, 'runtime playbook templates', 'MCP configuration for customMCP'] }
+        { specialist: 'b', capabilities: [...fileGaps, 'unverified playbook file dependency', 'MCP configuration for customMCP'] }
     ])
     assert.throws(
         () => useNativePrime(roster, 'agent', 'native'),
@@ -165,7 +165,7 @@ test('native playbooks list metadata and resolve only the saved content assigned
     const book = { name: 'inventory', description: 'Count stock', content: 'A private instruction.' }
     for (const content of ['Read ${HERMES_SKILL_DIR}', 'Session ${HERMES_SESSION_ID}']) {
         const roster = { name: 'saved', specialists: [{ name: 'math', playbooks: [{ ...book, content }] }] }
-        assert.throws(() => useNativePrime(roster, 'agent', 'native'), { code: 'native_unsupported' })
+        assert.equal(useNativePrime(roster, 'agent', 'native'), true)
         assert.equal(useNativePrime(roster, 'agent', 'hermes'), false)
     }
     const books = [book]
@@ -327,14 +327,19 @@ test('the unchanged 1.7.15 Calculator canvas runs directly and through native Pr
                     const last = messages.at(-1)
                     const system = messages.find((message) => message._getType() === 'system').content
                     assert.match(system, /Reply with JSON only/)
-                    const finished = last._getType() === 'tool'
+                    assert.ok(messages.every((message) => message._getType() !== 'tool' && !message.tool_calls?.length))
+                    const finished = last.content.startsWith('{"tool_results":') && JSON.parse(last.content).tool_results[0]
                     const chief = system.includes('- run_specialist:')
+                    if (chief) {
+                        assert.match(system, /If one specialist fails/)
+                        assert.match(system, /Tools: calculator\./)
+                    }
                     const response = finished
-                        ? { answer: '51' }
+                        ? { answer: finished.result }
                         : chief
                         ? { tool: 'run_specialist', arguments: { name: 'math', task: '17 * 3' } }
                         : { tool: 'calculator', arguments: { input: '17 * 3' } }
-                    choices.push(finished ? last.content : response.tool)
+                    choices.push(finished ? finished.result : response.tool)
                     return { content: JSON.stringify(response), usage_metadata: { input_tokens: 9, output_tokens: 4 } }
                 }
             }
