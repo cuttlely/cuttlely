@@ -2,6 +2,7 @@
  * This pool is to keep track of abort controllers mapped to chatflowid_chatid
  */
 export class AbortControllerPool {
+    private pausedForStorage = false
     abortControllers: Record<string, AbortController> = {}
 
     /**
@@ -10,6 +11,10 @@ export class AbortControllerPool {
      * @param {AbortController} abortController
      */
     add(id: string, abortController: AbortController) {
+        if (this.pausedForStorage) {
+            abortController.abort()
+            return
+        }
         this.abortControllers[id] = abortController
     }
 
@@ -41,5 +46,10 @@ export class AbortControllerPool {
             abortController.abort()
             this.remove(id)
         }
+    }
+    pauseForStorage(paused: boolean) {
+        this.pausedForStorage = paused
+        if (!paused) return
+        for (const id of Object.keys(this.abortControllers)) this.abort(id)
     }
 }

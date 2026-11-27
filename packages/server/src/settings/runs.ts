@@ -38,8 +38,13 @@ export function runsInProgress(): number {
     return inProgress
 }
 
+let storageJobsStopped = false
+export function setStorageJobsStopped(stopped: boolean) {
+    storageJobsStopped = stopped
+}
+
 export function isDraining(): boolean {
-    return draining
+    return draining || storageJobsStopped
 }
 
 export function isShuttingDown(): boolean {
@@ -85,9 +90,13 @@ export function trackRuns(req: Request, res: Response, next: NextFunction): void
     // req.originalUrl is the raw URL. Express routes on req.url, which sanitizeMiddleware has already decoded.
     const path = routedPath(req)
     if (!isRunRequest(req.method, path)) return next()
-    if (draining) {
+    if (isDraining()) {
         res.setHeader('Retry-After', '30')
-        res.status(503).json({ message: 'Cuttlely is restarting to apply new settings. Try again in a minute.' })
+        res.status(503).json({
+            message: storageJobsStopped
+                ? 'Jobs are paused for the storage upgrade.'
+                : 'Cuttlely is restarting to apply new settings. Try again in a minute.'
+        })
         return
     }
     inProgress += 1

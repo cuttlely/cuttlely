@@ -1,4 +1,4 @@
-import { storagePaused } from './side-store-maintenance.mjs'
+import { jobsStopped, storagePaused } from './side-store-maintenance.mjs'
 import { SCHEDULE_SCHEMA } from './side-store-schema.mjs'
 import { HarnessError } from './errors.mjs'
 import { assertTimeZone, nextCronRun } from './cron.mjs'
@@ -249,7 +249,7 @@ export async function tickSchedules({
     log = () => {},
     stopping = () => false
 } = {}) {
-    if (storagePaused()) return
+    if (storagePaused() || jobsStopped()) return
     if (ticking) return []
     ticking = true
     const outcomes = []
@@ -257,7 +257,7 @@ export async function tickSchedules({
         const { getRun } = await import('./history.mjs')
         const at = now()
         for (const schedule of dueSchedules(at)) {
-            if (stopping()) {
+            if (stopping() || jobsStopped()) {
                 log('info', 'schedule tick stopped: the server is restarting or shutting down')
                 break
             }
@@ -282,7 +282,7 @@ export async function tickSchedules({
                     outcomes.push({ harness: name, result: 'refused', reason })
                     continue
                 }
-                if (stopping()) {
+                if (stopping() || jobsStopped()) {
                     releaseClaim(name, {
                         dueAt: schedule.nextRunAt,
                         claimedNext,

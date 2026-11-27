@@ -201,6 +201,18 @@ for (const action of ['request', 'claim', 'rebind', 'recover', 'transfer', 'revo
 router.use(requireInstanceOperator(() => depsFactory().env))
 router.get('/storage', handle(storageStatus))
 router.post(
+    '/storage/stop-jobs',
+    handle((req) => changeSideStores('stop-jobs', req.body))
+)
+router.post(
+    '/storage/check-stop',
+    handle(() => changeSideStores('check-stop'))
+)
+router.post(
+    '/storage/resume-jobs',
+    handle(() => changeSideStores('resume-jobs'))
+)
+router.post(
     '/storage/upgrade',
     handle((req) => changeSideStores('upgrade', req.body))
 )
