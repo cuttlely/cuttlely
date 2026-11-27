@@ -5,6 +5,10 @@ export const turnLeaseStatements = Object.freeze({
     release: 'DELETE FROM turns WHERE session_key = ? AND owner = ?'
 })
 
+export const claimQueuedJobSql = `UPDATE jobs SET status = 'running', updated_at = ?
+    WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
+      AND status = 'queued' RETURNING id, payload, cancel_requested`
+
 export const QUEUE_SCHEMA = `CREATE TABLE IF NOT EXISTS turns (
             session_key TEXT PRIMARY KEY,
             owner TEXT NOT NULL,

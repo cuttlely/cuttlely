@@ -2,7 +2,7 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { createRequire } from 'node:module'
 import { harnessSchema, queueWakeChannel, registerSideSchema } from './side-store-identity.mjs'
-import { postgresHarnessDdl, turnLeaseStatements } from './side-store-schema.mjs'
+import { claimQueuedJobSql, postgresHarnessDdl, turnLeaseStatements } from './side-store-schema.mjs'
 
 const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
 const { Pool, Client, escapeIdentifier, escapeLiteral } = requireServer('pg')
@@ -20,25 +20,27 @@ const postgresLeaseStatements = new Map(
     })
 )
 
+// Keep each statement separate so a queue operation starts with a new snapshot after its lock is held.
+function transactionStart(scope, eventJobId, leaseWrite = false) {
+    const schema = harnessSchema(scope)
+    const schemaKey = `pg_catalog.hashtext(${escapeLiteral(schema)})`
+    const append = typeof eventJobId === 'string'
+    // Standalone lease writes use the unique session key and owner predicates. Explicit transactions retain the exclusive fence.
+    const schemaLock = append || leaseWrite ? 'pg_advisory_xact_lock_shared' : 'pg_advisory_xact_lock'
+    let lock = `SELECT pg_catalog.${schemaLock}(${schemaKey})`
+    if (append) {
+        lock += `; SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('cuttlely_harness_queue.job_events'), pg_catalog.hashtext(${escapeLiteral(
+            eventJobId
+        )}))`
+    }
+    const transaction = scope === 'queue' ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
+    return `${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`
+}
+
 async function begin(scope, eventJobId, leaseWrite = false) {
     const client = await pool.connect()
     try {
-        // Acquire the same schema lock in one round trip. The caller's next statement
-        // starts after the lock is held and observes the preceding writer's commit.
-        const schema = harnessSchema(scope)
-        // Standalone lease writes use the unique session key and owner predicates. Explicit transactions,
-        // including admission, guarded-query accounting and expired lease replacement, retain the exclusive fence.
-        const schemaKey = `pg_catalog.hashtext(${escapeLiteral(schema)})`
-        const append = typeof eventJobId === 'string'
-        const schemaLock = append || leaseWrite ? 'pg_advisory_xact_lock_shared' : 'pg_advisory_xact_lock'
-        let lock = `SELECT pg_catalog.${schemaLock}(${schemaKey})`
-        if (append) {
-            lock += `; SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('cuttlely_harness_queue.job_events'), pg_catalog.hashtext(${escapeLiteral(
-                eventJobId
-            )}))`
-        }
-        const transaction = scope === 'queue' ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
-        await client.query(`${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`)
+        await client.query(transactionStart(scope, eventJobId, leaseWrite))
         return client
     } catch (error) {
         client.release(true)
@@ -61,6 +63,8 @@ async function finish(client, command) {
 // The pooled connection retains the installation's search path. Resolve tables, aggregates and
 // operators explicitly, just as the transactional queue path selects its own schema.
 const queueSchema = harnessSchema('queue')
+// A standalone claim sends the fixed UPDATE with the fence, then commits after checking its returned integers.
+const claimAfterQueueFence = `${transactionStart('queue')}; ${claimQueuedJobSql}`
 // A subsequent SELECT gets a fresh snapshot after Cuttlely writers release the queue lock.
 const queueReadFence = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
                         SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));`
@@ -253,10 +257,18 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         if (scope !== 'queue' || !postgresLeaseStatements.has(action)) throw new Error('Invalid turn lease operation.')
         sql = postgresLeaseStatements.get(action)
     }
-    const client = active || (await begin(scope, eventJobId, leaseWrite))
+    const claim = op === 'claimQueuedJob'
+    if (claim && (scope !== 'queue' || params?.length !== 1 || !Number.isSafeInteger(params[0]))) throw new Error('Invalid queue claim.')
+    const client = active || (claim ? await pool.connect() : await begin(scope, eventJobId, leaseWrite))
     let result
     try {
-        if (op === 'appendJobEvent') {
+        if (claim) {
+            const response = active
+                ? await client.query(claimQueuedJobSql.replace('?', '$1'), params)
+                : (await client.query(claimAfterQueueFence.replace('?', String(params[0])))).at(-1)
+            normalizeBigInts(response)
+            result = response.rows[0]
+        } else if (op === 'appendJobEvent') {
             if (scope !== 'queue') throw new Error('Job events require the queue store.')
             // A contended writer's heartbeat starts after taking the queue lock.
             const response = await client.query(storeQueueEventSql, [...params, Date.now()])
@@ -264,8 +276,7 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
             result = response.rows[0]
         } else if (op === 'open') {
             const schema = harnessSchema(scope)
-            await client.query('CREATE SCHEMA IF NOT EXISTS ' + schema)
-            await client.query(postgresHarnessDdl(scope))
+            await client.query(`CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(schema)}; ${postgresHarnessDdl(scope)}`)
             await registerSideSchema((sql, params = []) => client.query(sql, params), schema)
         } else if (op === 'dropDraft') {
             if (!/^draft:[a-f0-9]{64}$/.test(scope)) throw new Error('Invalid draft scope.')

@@ -5,7 +5,7 @@ import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
-import { acceptedUsageJob, openUsageRun } from './side-store-schema.mjs'
+import { acceptedUsageJob, claimQueuedJobSql, openUsageRun } from './side-store-schema.mjs'
 import { harnessUsesPostgres, listenForQueueWork, notifyQueueWorkers } from './side-store-postgres.mjs'
 import { accountReturnedBackgroundRun, finishHarnessRun, getRun, settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
@@ -245,13 +245,9 @@ export function enqueueHarnessJob(args) {
 export function claimJob() {
     if (jobsStopped()) return null
     // The statement claims the first queued job and returns that same row to exactly one worker.
-    const row = database()
-        .prepare(
-            `UPDATE jobs SET status = 'running', updated_at = ?
-             WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
-               AND status = 'queued' RETURNING id, payload, cancel_requested`
-        )
-        .get(Date.now())
+    const db = database()
+    const now = Date.now()
+    const row = db.dialect === 'postgres' ? db.claimQueuedJob(now) : db.prepare(claimQueuedJobSql).get(now)
     if (!row) return null
     return { id: row.id, payload: JSON.parse(row.payload), cancelRequested: row.cancel_requested === 1 }
 }

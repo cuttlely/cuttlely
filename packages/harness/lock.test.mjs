@@ -117,6 +117,64 @@ test('PostgreSQL shares only fixed single-lease writes and preserves the raw and
     }
 })
 
+test('a PostgreSQL job claim sees a contended admission and rolls back an invalid result', { skip: skipReason }, async () => {
+    const fixture = await createTestDatabase()
+    const { Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
+    const writer = new Client(fixture.connection)
+    try {
+        await writer.connect()
+        closeQueueDb()
+        configureHarnessPostgres({ ...fixture.connection, options: '-c default_transaction_isolation=repeatable\\ read' })
+        const db = database()
+        const { claimJob } = await import('./queue.mjs')
+        await writer.query('BEGIN')
+        await writer.query("SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue'))")
+        await writer.query(`INSERT INTO cuttlely_harness_queue.jobs(id,session_key,status,payload,created_at,updated_at)
+                            VALUES ('pending','team:chat','queued','{}',1,1)`)
+        // The independent writer commits only after PostgreSQL reports the claimant waiting on its lock.
+        const commit = writer.query(`DO $$ BEGIN
+            FOR attempt IN 1..300 LOOP
+                IF EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+                           AND pg_backend_pid() = ANY(pg_blocking_pids(pid))) THEN RETURN; END IF;
+                PERFORM pg_sleep(0.01);
+            END LOOP;
+            RAISE EXCEPTION 'Job claimant never reached the admission fence';
+        END $$; COMMIT`)
+        try {
+            assert.deepEqual(claimJob(), { id: 'pending', payload: {}, cancelRequested: false })
+        } finally {
+            await commit
+        }
+        assert.equal(claimJob(), null)
+
+        await writer.query("UPDATE cuttlely_harness_queue.jobs SET status = 'queued' WHERE id = 'pending'")
+        const rollback = new Error('roll back enclosing operation')
+        assert.throws(
+            () =>
+                immediate(() => {
+                    db.prepare('UPDATE jobs SET payload = ? WHERE id = ?').run('{"stage":1}', 'pending')
+                    assert.deepEqual(claimJob(), { id: 'pending', payload: { stage: 1 }, cancelRequested: false })
+                    assert.equal(claimJob(), null)
+                    throw rollback
+                }),
+            (error) => error === rollback
+        )
+        assert.deepEqual(claimJob(), { id: 'pending', payload: {}, cancelRequested: false })
+
+        await writer.query(
+            "UPDATE cuttlely_harness_queue.jobs SET status = 'queued', cancel_requested = 9007199254740992 WHERE id = 'pending'"
+        )
+        assert.throws(() => claimJob(), /Harness PostgreSQL operation failed/)
+        const result = await writer.query("SELECT status FROM cuttlely_harness_queue.jobs WHERE id = 'pending'")
+        assert.equal(result.rows[0].status, 'queued')
+    } finally {
+        await writer.end().catch(() => {})
+        closeQueueDb()
+        configureHarnessPostgres(undefined)
+        await fixture.cleanup()
+    }
+})
+
 test('renewal extends only its owner, reads the live TTL, and ignores released rows', (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: 1800000000000 })
     t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)
