@@ -115,7 +115,7 @@ Buffer Memory and Buffer Window Memory read saved chat messages for the same flo
 
 ### Chat sessions after disk loss
 
-The upgrade verifies a copy of each runtime session database. With application database storage active, the runtime commits changes to the session history in PostgreSQL before its session writer returns. Web services and workers can recover those messages and configuration saved through the runtime on replacement hosts using the same installation key. This uses ordinary outbound database connections. Unfinished turns, external actions and undelivered results have their own delivery semantics. Edits made directly with shell redirection or an independent editor inside a container still reside on that host. A restart that replaces its filesystem can lose those edits.
+The upgrade verifies a copy of each runtime session database. With application database storage active, the runtime commits changes to the session history in PostgreSQL before its session writer returns. Web services and workers can recover those messages, runtime settings, and notes saved by the runtime memory tool on replacement hosts using the same installation key. This uses ordinary outbound database connections. Unfinished turns, external actions and undelivered results have their own delivery semantics. Edits made directly with shell redirection or an independent editor inside a container still reside on that host. A restart that replaces its filesystem can lose those edits.
 
 ## Run and verify
 

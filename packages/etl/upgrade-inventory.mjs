@@ -86,8 +86,12 @@ export function discover({
             if (hostFiles.has(path.resolve(target))) continue
             if (regular && name === 'SOUL.md' && isProfilePrompt(label)) {
                 prompts.push({ name: label, bytes: fs.lstatSync(target).size })
-            } else if (regular && name === 'skills/.usage.json.lock' && fs.statSync(target).size === 0) {
-                temporary.push(label + ' is recreated when the runtime updates skill usage.')
+            } else if (
+                regular &&
+                ['skills/.usage.json.lock', 'memories/MEMORY.md.lock', 'memories/USER.md.lock'].includes(name) &&
+                fs.statSync(target).size === 0
+            ) {
+                temporary.push(label + ' is recreated on the next runtime update.')
             } else if (regular && recoverableRuntimePath(label)) {
                 inspectRuntimeFile(target, label)
             } else if (regular && name === 'skills/.bundled_manifest') {

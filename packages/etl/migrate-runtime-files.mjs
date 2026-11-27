@@ -19,6 +19,8 @@ const runtimeFiles = new Set([
     '.env',
     'config.yaml',
     'harness-roster.json',
+    'memories/MEMORY.md',
+    'memories/USER.md',
     'skills/.usage.json',
     'cache/oauth_heal_clean.json',
     'cache/mcp_schema_cache.json'

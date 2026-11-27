@@ -199,7 +199,7 @@ def read(scope, local):
             yield local
 
 
-SETTINGS = re.compile(r"(?:profiles/[a-zA-Z0-9_-]+/)?(?:\.env|config\.yaml|SOUL\.md|harness-roster\.json|skills/harness-playbooks/[a-zA-Z0-9_-]+/SKILL\.md)")
+SETTINGS = re.compile(r"(?:profiles/[a-zA-Z0-9_-]+/)?(?:\.env|config\.yaml|SOUL\.md|harness-roster\.json|memories/(?:USER|MEMORY)\.md|skills/harness-playbooks/[a-zA-Z0-9_-]+/SKILL\.md)")
 
 
 def save_setting(target, staged, *, previous=None):

@@ -58,10 +58,14 @@ function saveRuntimeSetting(env, member, value) {
     const script = `
 import sys
 from hermes_cli.config import atomic_config_replace, get_config_path, save_env_value
+from tools.memory_tool import MemoryStore
 if sys.argv[1] == "web":
     save_env_value(*sys.argv[2].split("=", 1))
 else:
     atomic_config_replace(get_config_path(), {"fixture": sys.argv[2].split(": ", 1)[1]})
+    memory = MemoryStore()
+    memory.load_from_disk()
+    assert memory.add("user", "Remember the replacement check")["success"]
 `
     execFileSync(python, ['-c', script, member, value], {
         cwd: path.join(root, 'hermes'),
@@ -134,6 +138,7 @@ if (process.argv.includes('--fixture-worker')) {
                 'config.yaml': 'fixture: replacement',
                 'profiles/research/.env': 'PROFILE_FIXTURE=' + randomUUID(),
                 'profiles/research/harness-roster.json': '{}',
+                'profiles/research/memories/MEMORY.md': 'Existing research notes',
                 'profiles/research/skills/harness-playbooks/report/SKILL.md': '# Report',
                 'profiles/research/skills/.usage.json': '{"report":2}',
                 'profiles/research/cache/spillover/result.txt': 'retained output',
@@ -349,6 +354,10 @@ if (process.argv.includes('--fixture-worker')) {
                 await running.stop()
                 running = null
                 if (managed) {
+                    assert.match(
+                        fs.readFileSync(path.join(dataEnv(fresh, port).HERMES_HOME, 'profiles/research/memories/USER.md'), 'utf8'),
+                        /Remember the replacement check/
+                    )
                     // A stale cache on another host must read the first writer's commit and retain it on append.
                     const peer = path.join(rootDir, 'concurrent-worker')
                     await worker(peer, 'recover')

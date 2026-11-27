@@ -65,18 +65,8 @@ jobs:
         steps:
             - uses: actions/checkout@v7
             - run: docker build --no-cache -t cuttlely .
-            - name: Start under a restricted UID with disposable scratch space
-              run: |
-                  docker run --rm --user 1000870001:0 --cap-drop ALL --security-opt no-new-privileges \
-                    --read-only --network none --env HOME=/root --tmpfs /tmp:rw,mode=1777 \
-                    --tmpfs /var/cuttlely:rw,mode=0770,gid=0 cuttlely bash -ec '
-                      test -x "$SHELL"
-                      test -w "$LOG_PATH"
-                      test -w "$HOME"
-                      test -w "$CUTTLELY_DATA_DIR/hermes"
-                      test -r packages/server/dist/commands/start.js
-                      hermes/.venv/bin/python -Bc "import pg8000, cryptography"
-                    '
+            - name: Replace a restricted container after saving a chat message and setting
+              run: bash scripts/container-storage-recovery.sh cuttlely
             - name: Image and file libraries smoke test
               run: docker run --rm --entrypoint bash -e HERMES_ASSETS_REQUIRE_SYSTEM=1 cuttlely -c 'hermes/.venv/bin/python scripts/hermes-assets/smoke.py /tmp/hermes-assets-smoke'
             - name: Assets style kit tests

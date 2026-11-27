@@ -13,7 +13,7 @@ Commit runtime sessions and settings to PostgreSQL
 
 diff --git a/cuttlely_session_store.py b/cuttlely_session_store.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..71eb7491895e4c6776ac937893ef0193473fd741
+index 0000000000000000000000000000000000000000..f533fe54c27240d51f07e5919aedf552d6b21fac
 --- /dev/null
 +++ b/cuttlely_session_store.py
 @@ -0,0 +1,293 @@
@@ -218,7 +218,7 @@ index 0000000000000000000000000000000000000000..71eb7491895e4c6776ac937893ef0193
 +            yield local
 +
 +
-+SETTINGS = re.compile(r"(?:profiles/[a-zA-Z0-9_-]+/)?(?:\.env|config\.yaml|SOUL\.md|harness-roster\.json|skills/harness-playbooks/[a-zA-Z0-9_-]+/SKILL\.md)")
++SETTINGS = re.compile(r"(?:profiles/[a-zA-Z0-9_-]+/)?(?:\.env|config\.yaml|SOUL\.md|harness-roster\.json|memories/(?:USER|MEMORY)\.md|skills/harness-playbooks/[a-zA-Z0-9_-]+/SKILL\.md)")
 +
 +
 +def save_setting(target, staged, *, previous=None):
