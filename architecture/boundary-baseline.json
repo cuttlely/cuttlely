@@ -2192,6 +2192,11 @@
             "to": "packages/server/src/utils/getUploadsConfig.ts"
         },
         {
+            "from": "packages/server/src/utils/verifiedHarnessDelivery.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Verified harness delivery uses the server AppError type to preserve the HTTP status and error body on both public run routes."
+        },
+        {
             "from": "packages/ui/src/api/apikey.js",
             "to": "packages/ui/src/api/client.js",
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
