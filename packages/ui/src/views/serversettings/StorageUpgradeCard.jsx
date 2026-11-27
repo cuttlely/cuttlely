@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, FormControlLabel, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Button, Checkbox, FormControlLabel, Paper, Stack, Typography } from '@mui/material'
 import serverSettingsApi from '@/api/serverSettings'
 
 const storagePhase = {
@@ -15,8 +15,7 @@ export default function StorageUpgradeCard() {
     const [state, setState] = useState(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
-    const [capacity, setCapacity] = useState('')
-    const [confirmed, setConfirmed] = useState(false)
+    const [confirmedFor, setConfirmedFor] = useState(null)
     const refresh = useCallback(async () => setState((await serverSettingsApi.storageStatus()).data), [])
     useEffect(() => {
         refresh().catch(() => setError('Storage status could not be loaded.'))
@@ -24,7 +23,9 @@ export default function StorageUpgradeCard() {
     if (!state?.available && !error) return null
     const rollback = state?.phase === 'postgres' || state?.phase === 'restoring'
     const needsCapacity = state?.phase === 'sqlite'
-    const active = needsCapacity ? state.stores.filter((store) => store.busy).flatMap((store) => store.active || [store.kind]) : []
+    const active = needsCapacity
+        ? state.stores.filter((store) => store.busy).flatMap((store) => (store.active?.length ? store.active : [store.kind]))
+        : []
     const unresolvedCount = state?.unresolved?.length || 0
     const dependencyCount = state?.dependencies?.length || 0
     const blockers = []
@@ -39,8 +40,8 @@ export default function StorageUpgradeCard() {
     }
     const minimumBytes = state?.requiredBytes || 0
     const minimumMiB = Math.ceil(minimumBytes / 1048576)
-    const availableBytes = Math.floor(Number(capacity) * 1048576)
-    const capacityValid = capacity !== '' && Number.isSafeInteger(availableBytes) && availableBytes >= minimumBytes
+    const confirmationKey = state?.phase + '/' + minimumMiB
+    const confirmed = confirmedFor === confirmationKey
     async function recheck() {
         setBusy(true)
         setError('')
@@ -57,10 +58,10 @@ export default function StorageUpgradeCard() {
         setError('')
         try {
             await serverSettingsApi.changeStorage(rollback ? 'rollback' : 'upgrade', {
-                availableBytes,
+                availableBytes: needsCapacity ? minimumMiB * 1048576 : 0,
                 confirm: rollback ? 'ROLLBACK' : undefined
             })
-            setConfirmed(false)
+            setConfirmedFor(null)
         } catch (e) {
             setError(e.response?.data?.message || 'The request did not finish. Check storage status before retrying.')
         } finally {
@@ -104,31 +105,24 @@ export default function StorageUpgradeCard() {
                             After the upgrade, PostgreSQL can restore saved runtime messages and configuration saved through the runtime.
                             Direct edits made with a shell on the host still depend on its disk.
                         </Alert>
-                        {needsCapacity && (
-                            <TextField
-                                label='Available PostgreSQL space (MiB)'
-                                value={capacity}
-                                onChange={(e) => setCapacity(e.target.value)}
-                                type='number'
-                                error={capacity !== '' && !capacityValid}
-                                helperText={
-                                    'Enter the free space shown by your database host. This upgrade needs at least ' + minimumMiB + ' MiB.'
-                                }
-                            />
-                        )}
                         <FormControlLabel
-                            control={<Checkbox checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />}
+                            control={
+                                <Checkbox
+                                    checked={confirmed}
+                                    onChange={(e) => setConfirmedFor(e.target.checked ? confirmationKey : null)}
+                                />
+                            }
                             label={
                                 rollback
                                     ? 'I understand rollback restores pre-upgrade SQLite data. Later writes stay in PostgreSQL.'
-                                    : 'I have backed up the application database. Pause new work and verify the SQLite copies.'
+                                    : needsCapacity
+                                    ? 'I have backed up the application database and checked that my PostgreSQL host has at least ' +
+                                      minimumMiB +
+                                      ' MiB free.'
+                                    : 'I have backed up the application database and am ready to resume the upgrade.'
                             }
                         />
-                        <Button
-                            variant='contained'
-                            disabled={busy || !confirmed || blockers.length > 0 || (needsCapacity && !capacityValid)}
-                            onClick={submit}
-                        >
+                        <Button variant='contained' disabled={busy || !confirmed || blockers.length > 0} onClick={submit}>
                             {busy
                                 ? 'Working…'
                                 : rollback
@@ -182,16 +176,6 @@ export default function StorageUpgradeCard() {
                                     </ul>
                                 </details>
                             </Alert>
-                        )}
-                        {state.temporary?.length > 0 && (
-                            <details>
-                                <summary>Temporary data Cuttlely can rebuild</summary>
-                                <ul>
-                                    {state.temporary.map((message) => (
-                                        <li key={message}>{message}</li>
-                                    ))}
-                                </ul>
-                            </details>
                         )}
                         {unresolvedCount > 0 && (
                             <details>

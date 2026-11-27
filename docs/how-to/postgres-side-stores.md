@@ -91,7 +91,7 @@ A workflow using custom code can compute its own paths. An unresolved plugin, mu
 1. Back up the application database and the persistent volume. Check that both backups can be restored. Keep the installation encryption key and operator recovery material with the deployment's protected backups.
 2. Enable `CUTTLELY_APP_DATABASE_STORES=1` and restart with the original volume connected. Apply the same database settings to external workers and replicas. On Docker, set the variable on the Compose service. On Render, set it on the service across a deploy with its disk attached. On bare metal, update the service environment and restart the service manager.
 3. Leave one application instance running. Stop external workers, other replicas and older binaries or scripts that can write directly to the files. Finish queued runs, active chats and refreshes. Schedules retain their due times during the pause.
-4. Inspect the inventory in Server Settings. Verify free space in the PostgreSQL host dashboard or filesystem and enter it in MiB. The estimate reserves twice the source size. PostgreSQL SQL sessions cannot report the hosting volume's available space. The application checks SQLite backup disk space, SQLite versions, active work and the database login's schema privileges.
+4. Inspect the inventory in Server Settings. Check the free space in the PostgreSQL host dashboard or filesystem. The confirmation beside **Upgrade storage** shows how many MiB you need. The estimate reserves twice the source size. PostgreSQL SQL sessions cannot report the hosting volume's available space. The application checks SQLite backup disk space, SQLite versions, active work and the database login's schema privileges.
 
 ## Resolve a file-backed dependency
 
