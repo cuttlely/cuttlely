@@ -20,6 +20,8 @@ Native specialists can use saved Markdown playbooks, Calculator, Current Date Ti
 
 A three-specialist fixture exercises both execution modes, including a partial failure after a file write. The native runtime preserves tool results for JSON-only providers and can use an uploaded CSV as the source of a downloadable table and chart. An explicit database request retains its query requirement. Assigned playbooks can expand the admitted session and read immutable companion files bound to the saved canvas.
 
+The public transport fixtures check the widget’s streamed result, anonymous session continuation, the origin policy and an HMAC-signed webhook that calls a saved team. Verified CSV reports can also return PDF, Word and Excel downloads. A published canvas can use its generation-bound playbook companion on a replacement worker. The offline export check identifies assignments that need installation evidence. An unbound search card reports its credential error at the same stage as the released tool when the deployment has no host search key.
+
 The optional native image builds from a source archive without the bundled runtime. The package fixtures cover the normal launcher, independent workers, empty-disk recovery and rollback. New calls carry a durable tool dispatch receipt so a worker loss can surface an uncertain result. See the canary guide for the preflight command and per-team acceptance checks.
 
 Full team parity and retirement of the bundled runtime remain open. General shell, code execution and interactive browser grants, other MCP actions, operator-supplied runtime dependencies and historical conversations without reliable ownership need further work. Keep the full installation available for teams that depend on those features.
