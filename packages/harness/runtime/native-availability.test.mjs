@@ -43,6 +43,13 @@ test('native outage admission proves the current roster, workspace and actual dr
         availability.assertSelectedHarnessAvailable('saved', { canvas: target, readFlowData: async () => unsupported }),
         refused
     )
+    await assert.rejects(
+        availability.assertSelectedHarnessAvailable('saved', {
+            canvas: { ...target, workspaceId: 'other' },
+            readFlowData: async () => canvas.flowData
+        }),
+        refused
+    )
     assert.throws(() => availability.assertSelectedHarnessAvailable('unselected', { canvas: target, readFlowData: assert.fail }), refused)
     fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'up' }))
     await availability.assertSelectedHarnessAvailable('saved', { canvas: target, readFlowData: assert.fail })
