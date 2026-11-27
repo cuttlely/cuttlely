@@ -1,3 +1,9 @@
+## Kraken 2.0 qualification
+
+The saved Calculator completed 1,616 verified turns in total across Kraken `9e08e63d` and v1.7.15. Of five configurations, eight clients with one worker and 32 clients with one worker met both end-to-end p95 and throughput targets for fresh and warm chats. One client missed both fresh-chat targets. At 32 clients, two workers missed both warm-chat targets and four workers missed the warm-chat p95 target. The newer queue changes still await the same five comparisons. [Concurrency acceptance procedure](../../docs/reference/kraken-native-runtime.md#concurrency-acceptance-for-a-release)
+
+The scoped retrieval fixture verifies the released specialist-qualified tool name, its saved credential and the source returned to each caller. It also verifies that a different caller cannot continue that chat or read its run. Whole-team cutover remains open for saved teams with unsupported grants. [Native runtime proposal](https://github.com/cuttlely/cuttlely/issues/594)
+
 ## PostgreSQL storage coordinator health
 
 If the PostgreSQL storage coordinator loses its session, the public storage status and blocked API requests report `coordinator_connection_lost`. The storage status shows a pause only during an upgrade or rollback. Readiness and liveness return 503 after the session is lost. Restarting Cuttlely reacquires the shared advisory lock and checks the durable storage state before admitting new work.
