@@ -4,7 +4,8 @@ import { createRequire } from 'node:module'
 import { harnessSchema, registerSideSchema } from './side-store-identity.mjs'
 import { postgresHarnessDdl } from './side-store-schema.mjs'
 
-const { Pool, Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
+const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
+const { Pool, Client } = requireServer('pg')
 const pool = new Pool(workerData)
 pool.on('error', () => {})
 const transactions = new Map()
@@ -33,7 +34,7 @@ async function finish(client, command) {
     client.release()
 }
 
-async function execute({ scope, op, sql, params, owner, key, payload }) {
+async function execute({ scope, op, sql, params, owner, key, payload, usage }) {
     if (op === 'saveRuntimeSetting') {
         const client = await pool.connect()
         try {
@@ -81,6 +82,19 @@ async function execute({ scope, op, sql, params, owner, key, payload }) {
         if (!active) throw new Error('Missing harness store transaction.')
         transactions.delete(scope)
         return finish(active, op.toUpperCase())
+    }
+    if (op === 'creditUsage') {
+        if (!active || scope !== 'queue') throw new Error('Usage requires the queue transaction.')
+        // Resolve the application table with the install's normal PostgreSQL search path.
+        // Failure is propagated so the claim and any model buckets roll back together.
+        const { writeUsageLines } = requireServer('./dist/services/usage/store.js')
+        await active.query('SET LOCAL search_path TO DEFAULT')
+        await writeUsageLines(
+            { options: { type: 'postgres' }, query: (sql, args) => active.query(sql, args) },
+            { ...usage, at: new Date(usage.at) }
+        )
+        await active.query('SET LOCAL search_path TO ' + harnessSchema(scope) + ', pg_catalog')
+        return
     }
     const client = active || (await begin(scope))
     let result

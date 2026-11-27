@@ -312,3 +312,100 @@ test(
         assert.deepEqual(legacyCalls, ['original', 'original', 'rollback', 'rollback'])
     }
 )
+
+test(
+    'PostgreSQL background usage follows the admitted workspace and commits once with its completed result',
+    { skip: skipReason },
+    async (t) => {
+        const db = await createTestDatabase()
+        const requireServer = createRequire(new URL('../packages/server/package.json', import.meta.url))
+        const { Pool } = requireServer('pg')
+        const { AddTokenUsageDay1791900000000 } = requireServer('./dist/database/migrations/postgres/1791900000000-AddTokenUsageDay.js')
+        const { recordCompletedRun } = requireServer('./dist/services/usage/store.js')
+        const { configureHarnessPostgres } = await import('../packages/harness/side-store-postgres.mjs')
+        const { closeQueueDb, database } = await import('../packages/harness/lock.mjs')
+        const { queueHarnessRun, beginHarnessRun, finishHarnessRun, getRun, getRunResult, accountReturnedBackgroundRun } = await import(
+            '../packages/harness/history.mjs'
+        )
+        const connection = { ...db.connection, options: '-c search_path=paper_accounts,public' }
+        const pool = new Pool(connection)
+        t.after(async () => {
+            closeQueueDb()
+            configureHarnessPostgres(null)
+            await pool.end()
+            await db.cleanup()
+        })
+        await pool.query('CREATE SCHEMA paper_accounts')
+        await new AddTokenUsageDay1791900000000().up(pool)
+        configureHarnessPostgres(connection)
+        database()
+        // A previously installed PostgreSQL schema gains the accounting fields when reopened.
+        await pool.query('ALTER TABLE cuttlely_harness_queue.run_history DROP COLUMN usage_workspace_id, DROP COLUMN usage_recorded')
+        closeQueueDb()
+        configureHarnessPostgres(connection)
+        const owner = randomUUID(),
+            other = randomUUID(),
+            name = 'Paper',
+            creditTime = Date.UTC(2026, 4, 25, 23, 59, 58)
+        const payload = {
+            text: 'Approved 51.',
+            trace: {
+                route: { model: 'first-model', tokens: { prompt: 7, completion: 2 } },
+                specialists: [{ model: 'second-model', tokens: { prompt: 6, completion: 3 } }]
+            }
+        }
+        const totals = async () =>
+            (
+                await pool.query(
+                    'SELECT "workspaceId","flowId",day,model,"inputTokens","outputTokens" FROM token_usage_day ORDER BY day,model'
+                )
+            ).rows
+        const begin = (workspaceId) => {
+            const args = { name, workspaceId, chatId: randomUUID(), input: 'Count.' }
+            const pending = queueHarnessRun(args)
+            return beginHarnessRun({ ...args, id: pending.id })
+        }
+        const done = (pending, workspaceId = owner) =>
+            finishHarnessRun(pending, { result: payload, finishedAt: creditTime, saveResult: true, usageWorkspace: workspaceId })
+        const first = begin(owner)
+        // Failure on the second bucket must roll back the first bucket, the result and the credit marker.
+        await pool.query("ALTER TABLE token_usage_day ADD CONSTRAINT block_second_model CHECK(model <> 'second-model')")
+        assert.throws(() => done(first), /PostgreSQL operation failed/)
+        assert.equal(getRun(name, first.id).status, 'running')
+        assert.equal(getRunResult(name, first.id), null)
+        assert.deepEqual(await totals(), [])
+        await pool.query('ALTER TABLE token_usage_day DROP CONSTRAINT block_second_model')
+        done(first)
+        assert.equal(getRunResult(name, first.id).text, payload.text)
+        finishHarnessRun(first, { result: { text: 'Late reply.' }, finishedAt: creditTime, saveResult: true, usageWorkspace: owner })
+        assert.equal(getRunResult(name, first.id).text, payload.text)
+        const expected = [
+            { workspaceId: owner, flowId: name, day: '2026-05-25', model: 'first-model', inputTokens: 7, outputTokens: 2 },
+            { workspaceId: owner, flowId: name, day: '2026-05-25', model: 'second-model', inputTokens: 6, outputTokens: 3 }
+        ]
+        assert.deepEqual(await totals(), expected)
+        closeQueueDb()
+        configureHarnessPostgres(connection)
+        assert.equal(accountReturnedBackgroundRun(name, first.id, owner, payload), true)
+        assert.deepEqual(await totals(), expected)
+        // New API, older worker: repair from the accepted run; a foreign caller cannot take the credit.
+        const mixed = begin(owner)
+        finishHarnessRun(mixed, { result: payload, finishedAt: creditTime })
+        accountReturnedBackgroundRun(name, mixed.id, other, payload)
+        assert.deepEqual(await totals(), expected)
+        for (let n = 0; n < 2; n++) accountReturnedBackgroundRun(name, mixed.id, owner, payload)
+        let factor = 2
+        const scaled = () =>
+            expected.map((line) => ({ ...line, inputTokens: line.inputTokens * factor, outputTokens: line.outputTokens * factor }))
+        assert.deepEqual(await totals(), scaled())
+        // Older API, new worker: its admission has no accounting owner, so its original callback writes once.
+        done(begin(undefined))
+        assert.deepEqual(await totals(), scaled())
+        await recordCompletedRun(
+            { options: { type: 'postgres' }, query: (sql, args) => pool.query(sql, args) },
+            { workspaceId: owner, flowId: name, result: payload, at: new Date(creditTime) }
+        )
+        factor = 3
+        assert.deepEqual(await totals(), scaled())
+    }
+)

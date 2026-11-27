@@ -245,7 +245,14 @@ function traceIdFrom(args) {
 
 function rememberRun(args, started, pending, result, error, diagnostics) {
     let recorded = pending
-    const terminal = { result, error, traceId: traceIdFrom(args), diagnostics, saveResult: Boolean(args?.runId) }
+    const terminal = {
+        result,
+        error,
+        traceId: traceIdFrom(args),
+        diagnostics,
+        saveResult: Boolean(args?.runId),
+        usageWorkspace: args?.flowOptions?.workspaceId
+    }
     try {
         if (pending) {
             recorded = finishHarnessRun(pending, terminal) || pending

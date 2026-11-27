@@ -2,8 +2,11 @@ import { createCipheriv, createHmac, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { guardedEncryptionKeyOverwrite } from '../../scripts/setting-alias.cjs'
 import { hermesHome } from './paths.mjs'
+import { createRequire } from 'node:module'
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads'
 import { HarnessError } from './errors.mjs'
+
+const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
 
 let worker
 let config
@@ -52,6 +55,11 @@ export function openHarnessPostgres(scope) {
     request({ scope, op: 'open' })
     return {
         dialect: 'postgres',
+        creditUsage(workspaceId, flowId, result, at) {
+            const { usageLinesFromRun } = requireServer('./dist/services/usage/lines.js')
+            const lines = usageLinesFromRun(result)
+            if (lines.length) request({ scope, op: 'creditUsage', usage: { workspaceId, flowId, lines, at } })
+        },
         close() {},
         exec(command) {
             const op = { BEGIN: 'begin', 'BEGIN IMMEDIATE': 'begin', COMMIT: 'commit', ROLLBACK: 'rollback' }[command]

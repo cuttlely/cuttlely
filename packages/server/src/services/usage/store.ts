@@ -205,30 +205,36 @@ export async function queryTokenUsage(dataSource: UsageWriter, query: UsageQuery
     }
 }
 
-// Fire-and-forget from a finished run. The returned promise resolves even when the write fails,
-// so awaiting it cannot fail the run, and not awaiting it cannot leave a rejection.
-export function recordCompletedRun(
+// Propagate a bucket write failure so the caller's transaction can roll back all model lines together.
+export async function writeUsageLines(
+    dataSource: UsageWriter,
+    input: { workspaceId?: string | null; flowId?: string | null; at?: Date; lines: UsageLine[] }
+): Promise<void> {
+    const workspaceId = String(input.workspaceId || '')
+        .trim()
+        .slice(0, 36)
+    const flowId = String(input.flowId || '')
+        .trim()
+        .slice(0, 64)
+    if (!workspaceId || !flowId) return
+    const lines = input.lines
+    if (!lines.length) return
+    const day = utcDay(input.at)
+    for (const line of lines) {
+        await upsertBucket(dataSource, { workspaceId, flowId, day, ...line })
+    }
+}
+
+// Synchronous request paths record usage after delivery. A metering failure is logged independently.
+export async function recordCompletedRun(
     dataSource: UsageWriter | null | undefined,
     input: { workspaceId?: string | null; flowId?: string | null; result: unknown; at?: Date }
 ): Promise<void> {
-    const write = (async () => {
+    try {
         if (!dataSource || typeof dataSource.query !== 'function') return
-        const workspaceId = String(input.workspaceId || '')
-            .trim()
-            .slice(0, 36)
-        const flowId = String(input.flowId || '')
-            .trim()
-            .slice(0, 64)
-        if (!workspaceId || !flowId) return
-        const lines: UsageLine[] = usageLinesFromRun(input.result)
-        if (!lines.length) return
-        const day = utcDay(input.at)
-        for (const line of lines) {
-            await upsertBucket(dataSource, { workspaceId, flowId, day, ...line })
-        }
-    })()
-    return write.catch((error: unknown) => {
+        await writeUsageLines(dataSource, { ...input, lines: usageLinesFromRun(input.result) })
+    } catch (error) {
         const name = error instanceof Error ? error.name : 'Error'
         console.error(`[usage] token totals were not saved (${name})`)
-    })
+    }
 }

@@ -1589,16 +1589,20 @@ const startRun = async (
             text: typeof (payload as { text?: unknown } | undefined)?.text === 'string' ? (payload as { text: string }).text : undefined,
             runId
         })
-        // Public runs, a canvas draft try, and a publish-check replay all finish here.
-        // startCanvasRun and replayCheck call startRun, so this is the only usage write.
+        // Admitted PostgreSQL background runs credit the authoritative completion transaction. An older
+        // worker may have returned only a result, in which case this caller can claim the same credit.
         const workspaceId = prepared.harness.workspaceId
         if (workspaceId) {
             try {
-                void recordCompletedRun(opts.runtime?.appDataSource ?? getRunningExpressApp().AppDataSource, {
-                    workspaceId,
-                    flowId: prepared.harness.name,
-                    result: payload
-                })
+                const accounted =
+                    opts.runId &&
+                    (await loadHarness('history.mjs')).accountReturnedBackgroundRun(prepared.harness.name, opts.runId, workspaceId, payload)
+                if (!accounted)
+                    void recordCompletedRun(opts.runtime?.appDataSource ?? getRunningExpressApp().AppDataSource, {
+                        workspaceId,
+                        flowId: prepared.harness.name,
+                        result: payload
+                    })
             } catch (error) {
                 logger.warn(`[usage] harness token totals were not saved: ${getErrorMessage(error)}`)
             }
@@ -1662,6 +1666,7 @@ const startBackgroundRun = async (
         history = await loadHarness('history.mjs')
         const queued = history.queueHarnessRun({
             name: prepared.harness.name,
+            workspaceId: prepared.harness.workspaceId,
             mode: prepared.mode,
             chatId,
             source,

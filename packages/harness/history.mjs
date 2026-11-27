@@ -311,7 +311,7 @@ export function newRunId() {
 }
 
 // A run the caller already holds an id for. The row says queued until the runner opens it.
-export function queueHarnessRun({ id, name, chatId, source, input, apiKeyId, mode } = {}) {
+export function queueHarnessRun({ id, name, chatId, source, input, apiKeyId, mode, workspaceId } = {}) {
     const harnessName = harnessNameOf(name)
     if (!harnessName) return null
     const runId = safeRunId(id) || newRunId()
@@ -330,6 +330,10 @@ export function queueHarnessRun({ id, name, chatId, source, input, apiKeyId, mod
             keyIdOf(apiKeyId),
             mode === 'agent' ? mode : null
         )
+        // Only new admitting APIs assign accounting to the terminal writer. Older APIs keep
+        // their normal write, even if their request runs on an upgraded worker.
+        if (db.dialect === 'postgres' && workspaceId)
+            db.prepare('UPDATE run_history SET usage_workspace_id = ? WHERE id = ?').run(workspaceId, runId)
         prune(db, harnessName)
     })
     return getRun(harnessName, runId)
@@ -510,7 +514,28 @@ export function getRunResult(name, id) {
     }
 }
 
-export function finishHarnessRun(pending, { result, error, finishedAt, traceId, diagnostics, saveResult = false } = {}) {
+function creditCompletedRun(db, name, runId, workspaceId, result, finished) {
+    const claim = db
+        .prepare(
+            `UPDATE run_history SET usage_recorded = true
+         WHERE id = ? AND harness_name = ? AND usage_workspace_id = ? AND usage_recorded = false AND status IN ('succeeded','completed_with_errors')`
+        )
+        .run(runId, name, workspaceId)
+    if (claim.changes) db.creditUsage(workspaceId, name, result, finished)
+}
+
+// A new API can finish the accounting of a run returned by an older worker.
+// Reading history or results never increments the current workspace's totals.
+export function accountReturnedBackgroundRun(name, runId, workspaceId, result) {
+    if (!safeRunId(runId) || !workspaceId || database().dialect !== 'postgres') return false
+    immediate((db) => {
+        const row = db.prepare('SELECT finished_at FROM run_history WHERE id = ? AND harness_name = ?').get(runId, name)
+        if (row?.finished_at) creditCompletedRun(db, name, runId, workspaceId, result, row.finished_at)
+    })
+    return true
+}
+
+export function finishHarnessRun(pending, { result, error, finishedAt, traceId, diagnostics, saveResult = false, usageWorkspace } = {}) {
     if (!pending?.id || !pending?.harness) return null
     const finished = Number.isFinite(finishedAt) ? finishedAt : Date.now()
     const started = Date.parse(pending.startedAt)
@@ -531,7 +556,8 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId, 
                  error_code = ?, error_message = ?, text_preview = ?, agents_json = ?, timings_json = ?,
                  trace_json = ?, trace_id = COALESCE(?, trace_id), diagnostics_json = ?
              WHERE id = ? AND harness_name = ?
-               AND NOT (status IN ('failed','cancelled') AND COALESCE(error_code,'') IN ('worker_lost','aborted'))`
+               AND NOT (status IN ('failed','cancelled') AND COALESCE(error_code,'') IN ('worker_lost','aborted'))
+               ${saveResult ? "AND (status IN ('queued','running') OR (status='failed' AND error_code='interrupted'))" : ''}`
             )
             .run(
                 status,
@@ -551,7 +577,11 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId, 
                 pending.harness
             )
         // The HTTP process may have restarted. Publish the asynchronously requested result with its terminal status.
-        if (changed.changes && body) writeRunResult(db, pending.id, pending.harness, body, finished)
+        if (changed.changes && body) {
+            writeRunResult(db, pending.id, pending.harness, body, finished)
+            if (usageWorkspace && db.dialect === 'postgres')
+                creditCompletedRun(db, pending.harness, pending.id, usageWorkspace, result, finished)
+        }
     })
     return getRun(pending.harness, pending.id)
 }
