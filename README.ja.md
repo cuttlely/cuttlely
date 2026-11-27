@@ -27,7 +27,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**次回** · **1.7.17 では、コンテナの交換後も、保存したチャット、ランタイム設定、メモを PostgreSQL から復元できます。** [アップグレードガイド](./docs/upgrading.md#upgrading-to-1717).
+**1.7.17 では、コンテナの交換後も、保存したチャット、ランタイム設定、メモを PostgreSQL から復元できます。** [アップグレードガイド](./docs/upgrading.md#upgrading-to-1717).
 
 **1.7.16 では、PostgreSQL ストレージへの移行時に未変更の同梱スキルに対して表示されていた警告を修正しました。** [アップグレードガイド](./docs/upgrading.md#upgrading-to-1716).
 
@@ -49,7 +49,7 @@ Node 20+ と Docker
 
 **1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。 [モデルの費用見積もり](./docs/reference/model-list.md)には Together AI Kimi K3 の現在の標準料金を反映しました。
 
-最新の安定版は **1.7.16** です。イメージ `1.7.16` を指定するか、`cuttlely@1.7.16` をインストールしてください。[1.7.16 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.16) · [変更履歴](./CHANGELOG.md)。
+最新の安定版は **1.7.17** です。イメージ `1.7.17` を指定するか、`cuttlely@1.7.17` をインストールしてください。[1.7.17 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.17) · [変更履歴](./CHANGELOG.md)。
 
 **1.7.0 はセキュリティ例外リリースです。以前のバージョンからアップグレードする場合は、作業が必要です。** データベース、暗号化キー、設定をバックアップし、ブラウザー管理から締め出されないように、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を読んでください。ホストログのワンタイムコードによる申請、`CUTTLELY_INSTANCE_OPERATOR`、アクセスキーの適用が既定でオフのままであることなど、チェックリストの全体は[アップグレード時の注意](./docs/upgrading.md)（「1.7.0 security-exception upgrade」の節）と[変更履歴](./CHANGELOG.md)にあります。セットアップコードが作成するのは最初のアカウントだけで、ホスト側のローカルサインインがあらかじめオンになっている必要があります（Docker と `npx cuttlely start` は既定でオンにします）。このコードでサービスを設定したり、インスタンスオペレーターを指定したりはできません。[サインイン](./docs/how-to/sign-in.md) · [最初の 10 分](#your-first-10-minutes)。
 
