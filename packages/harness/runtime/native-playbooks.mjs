@@ -1,3 +1,4 @@
+import { publishedCanvasSource } from '../canvas-ownership.mjs'
 import { CHARS_PER_TOKEN } from '../context.mjs'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import fs from 'node:fs'
@@ -235,14 +236,18 @@ export function prepareNativePlaybooks(roster, specialist, chatId, turnId) {
     const preprocess = books.some((book) => template.test(playbookMarkdown(book)) || inline.test(playbookMarkdown(book)))
     const dependencies = books.map((book) => [book, playbookDependencies(book)])
     if (!preprocess && !process.env.CUTTLELY_HOST_FILE_MANIFEST && !dependencies.some(([, items]) => items.relative.size)) return result
-    const parent = roster.tryId ? tryProfileName(roster.tryId) : roster.name
+    const host = publishedCanvasSource(roster) || roster
+    const parent = host.tryId ? tryProfileName(host.tryId) : host.name
     if (!validId(parent) || typeof specialist.name !== 'string' || !specialist.name.trim()) {
         result.gaps.push('unverified playbook assignment')
         return result
     }
     const profile = specialistProfileName(parent, specialist.name)
     try {
-        if (chatId && turnId) result.sessionId = specialistSessionId(profile, chatId, turnId)
+        if (chatId && turnId) {
+            const sessionProfile = roster.tryId ? specialistProfileName(tryProfileName(roster.tryId), specialist.name) : profile
+            result.sessionId = specialistSessionId(sessionProfile, chatId, turnId)
+        }
         for (const book of books) {
             if (validId(book.name)) result.assets.set(book.name, { files: new Map(), bytes: 0 })
         }
@@ -251,7 +256,7 @@ export function prepareNativePlaybooks(roster, specialist, chatId, turnId) {
             result.templateVars = flags.templates
             if (flags.inlineShell && books.some((book) => inline.test(playbookMarkdown(book)))) result.gaps.push('playbook inline shell')
         }
-        if (readManifestBooks(roster, specialist, parent, profile, result.assets))
+        if (readManifestBooks(host, specialist, parent, profile, result.assets))
             result.gaps.push('playbook host manifest needs a canvas owner binding')
         if (
             dependencies.some(([book, items]) => {

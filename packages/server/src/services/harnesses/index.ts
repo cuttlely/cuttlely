@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'crypto'
+import { randomUUID } from 'crypto'
 import fs from 'fs'
 import { isDraining, isShuttingDown } from '../../settings/runs'
 import { assertSelectedHarnessAvailable, assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
@@ -204,6 +204,11 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
         const profile = await loadHarness('profile.mjs')
         const { overwrite, ...record } = body
         delete record.workspaceId
+        // A public save may update the team's settings. Runtime generation and transient
+        // Try identity are issued by the server. Raw backup/rollback restores keep their original records.
+        delete record.createdAt
+        delete record.tryId
+        delete record.tryOwner
         const name = typeof record.name === 'string' ? record.name : ''
         // The name lock is held from the lookup through the compile, so a delete of the name cannot run in between
         // and leave this save writing over profiles it kept.
@@ -1493,7 +1498,7 @@ const startRun = async (
         dataSource: opts.runtime?.appDataSource,
         canvasRecord: opts.record
     })
-    await assertSelectedHarnessAvailable(name, { record: prepared.harness })
+    await assertSelectedHarnessAvailable(name, { record: opts.record || prepared.harness })
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
     const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller, opts.sessionUserId)
@@ -1843,6 +1848,7 @@ const startCanvasRun = async (
     body: Record<string, unknown>,
     opts: {
         canvas?: 'live' | 'draft'
+        selection?: { flowData: string; published: boolean }
         source?: string
         signal?: AbortSignal
         onEvent?: (event: { type: string }) => void
@@ -1853,16 +1859,22 @@ const startCanvasRun = async (
         runtime?: NestedFlowExecutionRuntime
     }
 ) => {
-    const { canvas, ...runOpts } = opts
-    const flowData = canvas === 'live' ? chatflow.flowData : await flowDraftsService.flowDataForTestChat(chatflow)
+    const { canvas, selection: admitted, ...runOpts } = opts
+    const selection =
+        admitted ??
+        (canvas === 'live' ? { flowData: chatflow.flowData, published: true } : await flowDraftsService.canvasForTestChat(chatflow))
+    const tryOwner = resolveTryOwner(opts.caller, opts.tryOwner)
     const sync = await loadHarness('sync-from-flow.mjs')
-    const roster = sync.rosterFromFlow({
-        name: chatflow.name,
-        chatflowId: chatflow.id,
-        flowData,
-        workspaceId: chatflow.workspaceId,
-        componentNodes: opts.runtime ? opts.runtime.componentNodes : getRunningExpressApp().nodesPool?.componentNodes
-    })
+    const roster = sync.rosterForCanvasRun(
+        {
+            name: chatflow.name,
+            chatflowId: chatflow.id,
+            flowData: selection.flowData,
+            workspaceId: chatflow.workspaceId,
+            componentNodes: opts.runtime ? opts.runtime.componentNodes : getRunningExpressApp().nodesPool?.componentNodes
+        },
+        { published: selection.published, tryOwner }
+    )
     return await startRun(chatflow.name, body, {
         ...runOpts,
         allowFlow: true,
@@ -1870,7 +1882,7 @@ const startCanvasRun = async (
         nestedFlowCaller: opts.nestedFlowCaller,
         nestedFlowDepth: opts.nestedFlowDepth,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
+        record: roster
     })
 }
 
@@ -1888,16 +1900,20 @@ const replayCheck = async (
     await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller, {
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined
     })
-    await assertFlowRuntimeAvailable({ ...chatflow, type: 'HARNESS', flowData })
+    const tryOwner = resolveTryOwner(opts.caller, opts.tryOwner)
+    await assertFlowRuntimeAvailable({ ...chatflow, type: 'HARNESS' }, undefined, async () => ({ flowData, published: false, tryOwner }))
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
-    const roster = sync.rosterFromFlow({
-        name: chatflow.name,
-        chatflowId: chatflow.id,
-        flowData,
-        workspaceId: chatflow.workspaceId,
-        componentNodes: appServer.nodesPool?.componentNodes
-    })
+    const roster = sync.rosterForCanvasRun(
+        {
+            name: chatflow.name,
+            chatflowId: chatflow.id,
+            flowData,
+            workspaceId: chatflow.workspaceId,
+            componentNodes: appServer.nodesPool?.componentNodes
+        },
+        { published: false, tryOwner }
+    )
     return await startRun(chatflow.name, body, {
         source: 'playground',
         signal: opts.signal,
@@ -1905,7 +1921,7 @@ const replayCheck = async (
         caller: opts.caller,
         replay: true,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
-        record: { ...roster, tryOwner: resolveTryOwner(opts.caller, opts.tryOwner), tryId: randomBytes(8).toString('hex') }
+        record: roster
     })
 }
 

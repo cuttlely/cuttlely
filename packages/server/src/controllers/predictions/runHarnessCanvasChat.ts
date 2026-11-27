@@ -50,17 +50,30 @@ export async function runHarnessCanvasChat(
     caller: IHarnessCaller,
     options: { canvas: 'live' | 'draft'; sessionToken?: string }
 ) {
+    let selection: Awaited<ReturnType<typeof flowDraftsService.canvasForTestChat>> | undefined
+    const tryOwner = tryOwnerFor(caller, req.user?.id)
     await assertFlowRuntimeAvailable(
         { ...chatflow, type: 'HARNESS' },
         undefined,
-        options.canvas === 'draft' ? () => flowDraftsService.flowDataForTestChat(chatflow) : undefined
+        options.canvas === 'draft'
+            ? async () => {
+                  selection = await flowDraftsService.canvasForTestChat(chatflow)
+                  return { ...selection, tryOwner }
+              }
+            : undefined
     )
     await refuseUploads(req)
     const streaming = isStreamingRequest(req)
     const source = 'playground'
-    const tryOwner = tryOwnerFor(caller, req.user?.id)
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
-        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, tryOwner, canvas: options.canvas, ...extra })
+        harnessesService.startCanvasRun(chatflow, req.body || {}, {
+            source,
+            caller,
+            tryOwner,
+            canvas: options.canvas,
+            ...(selection && { selection }),
+            ...extra
+        })
     if (!streaming) {
         const outcome = await run()
         assertVerifiedDeliveryDeadline(outcome.payload)

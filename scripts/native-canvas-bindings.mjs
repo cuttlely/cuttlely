@@ -35,3 +35,11 @@ export function supportsNativeCanvasBinding(binding) {
 export function needsNativeCanvasCredential(binding) {
     return Boolean(supported[binding?.nodeName]?.credential && (typeof binding.credential !== 'string' || !binding.credential.trim()))
 }
+
+// Preserve the released missing-credential behavior only for the plain SerpAPI tool.
+// Prepared bindings with an inline credential or custom upstream still require normal preflight.
+export function unboundNativeSerp(binding) {
+    if (binding?.nodeName !== 'serpAPI' || (binding.credential != null && binding.credential !== '')) return false
+    const nested = binding.inputs?.FLOWISE_CREDENTIAL_ID
+    return (nested == null || nested === '') && matches(binding, { ...supported.serpAPI, credential: false })
+}

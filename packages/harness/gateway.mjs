@@ -1234,7 +1234,7 @@ export function isRefusedSqlTool(profileName, toolName) {
     return Boolean(refusedSqlTools.get(refusalKey(profileName))?.has(toolName))
 }
 
-function toolSpec(binding, kind, ownName) {
+export function toolSpec(binding, kind, ownName) {
     const name = ownName || binding.nodeName || binding.serverName || binding.label || 'module'
     const label = binding.label || binding.nodeName || binding.serverName || 'node'
     const detail = binding.description ? ` ${binding.description}` : ''

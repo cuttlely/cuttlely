@@ -4,10 +4,13 @@ import { createRequire } from 'node:module'
 import { setImmediate as yieldToTurn } from 'node:timers/promises'
 import { parseRow } from '../../etl/readers.mjs'
 import { HarnessError } from '../errors.mjs'
-import { TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from '../images.mjs'
+import { matchesTurnType, TURN_FILE_TYPES, TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from '../images.mjs'
 import { escapeCsvFormula } from '../trusted-output.mjs'
 import { nativeAnalystBinding } from './native-analyst.mjs'
 
+import { renderFixedDocuments } from './native-files.mjs'
+
+const documentTypes = ['pdf', 'docx', 'xlsx']
 const operations = ['count', 'sum', 'mean', 'min', 'max']
 const orders = ['group', 'ascending', 'descending']
 const formats = ['table', 'table_and_bar_chart']
@@ -174,7 +177,7 @@ async function barChart(rows, metric, groupBy) {
 }
 
 function optionsFor(args, uploads) {
-    const keys = ['source', 'operation', 'groupBy', 'valueColumn', 'order', 'format']
+    const keys = ['source', 'operation', 'groupBy', 'valueColumn', 'order', 'format', 'documentFormats']
     if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some((k) => !keys.includes(k)))
         invalid('Only the declared report options are accepted.')
     if (
@@ -184,6 +187,17 @@ function optionsFor(args, uploads) {
         !formats.includes(args.format)
     )
         invalid('Choose an available CSV upload, supported operation and output format.')
+    if (Object.hasOwn(args, 'documentFormats')) {
+        const docs = args.documentFormats
+        if (
+            !Array.isArray(docs) ||
+            !docs.length ||
+            docs.length > documentTypes.length ||
+            docs.some((format) => !documentTypes.includes(format)) ||
+            new Set(docs).size !== docs.length
+        )
+            invalid('Choose one or more distinct supported document formats.')
+    }
     if (Object.hasOwn(args, 'order') && !orders.includes(args.order)) invalid('Choose a supported sort order.')
     for (const key of ['groupBy', 'valueColumn'])
         if (Object.hasOwn(args, key) && (typeof args[key] !== 'string' || !args[key].trim() || args[key].length > 120))
@@ -256,7 +270,7 @@ export function openNativeTabularReport(context, specialist) {
             function: {
                 name: 'analyze_csv_report',
                 description:
-                    'Group a verified CSV upload, calculate exact decimal aggregates and return a downloadable table with an optional horizontal bar chart. Empty numeric cells are excluded. Mean rounds to 8 decimal places. Count counts rows, including duplicates. Use read_file to inspect the header.',
+                    'Group a verified CSV upload, calculate exact decimal aggregates and return a downloadable table with an optional horizontal bar chart and PDF, Word, or Excel documents. Empty numeric cells are excluded. Mean rounds to 8 decimal places. Count counts rows, including duplicates. Use read_file to inspect the header.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -265,7 +279,15 @@ export function openNativeTabularReport(context, specialist) {
                         groupBy: { type: 'string', description: 'Optional grouping column. Omit for a single total.' },
                         valueColumn: { type: 'string', description: 'Numeric column, required except for count.' },
                         order: { type: 'string', enum: orders },
-                        format: { type: 'string', enum: formats }
+                        format: { type: 'string', enum: formats },
+                        documentFormats: {
+                            type: 'array',
+                            items: { type: 'string', enum: documentTypes },
+                            minItems: 1,
+                            maxItems: 3,
+                            uniqueItems: true,
+                            description: 'Optional additional downloads of the same verified aggregate table.'
+                        }
                     },
                     additionalProperties: false,
                     required: ['source', 'operation', 'format']
@@ -276,9 +298,15 @@ export function openNativeTabularReport(context, specialist) {
             check()
             try {
                 const o = optionsFor(args, uploads)
-                const signature = JSON.stringify([o.source, o.operation, o.groupBy, o.valueColumn, o.order, o.format])
+                const docs = documentTypes.filter((format) => o.documentFormats?.includes(format))
+                const signature = JSON.stringify([o.source, o.operation, o.groupBy, o.valueColumn, o.order, o.format, ...docs])
                 if (pending.has(signature)) return pending.get(signature).response
-                if (pending.size >= TURN_FILE_LIMITS.count) invalid('This specialist has reached the report attachment limit.')
+                const priorFiles = Array.from(pending.values()).reduce(
+                    (count, r) => count + r.artifacts.filter((a) => a.type !== 'png').length,
+                    0
+                )
+                if (priorFiles + 1 + docs.length > TURN_FILE_LIMITS.count)
+                    invalid('This specialist has reached the report attachment limit.')
                 const input = uploads.get(o.source)
                 if (input.length > Math.ceil(inputLimit / 3) * 4) invalid('CSV reports support uploads up to 4 MiB.')
                 const bytes = Buffer.from(input, 'base64')
@@ -300,6 +328,25 @@ export function openNativeTabularReport(context, specialist) {
                     mtime: Date.now()
                 })
                 const artifacts = [artifact('csv', 'text/csv', table)]
+                if (docs.length) {
+                    const record = {
+                        formats: docs,
+                        metric: visibleLabel(metric),
+                        rows: rows.map((r) => [visibleLabel(r.group), r.sourceRows, r.observations, r.value])
+                    }
+                    const rendered = await renderFixedDocuments(record, context.workSignal)
+                    check()
+                    if (rendered.error) invalid(rendered.error)
+                    for (const type of docs) {
+                        const encoded = rendered.documents?.[type]
+                        if (typeof encoded !== 'string' || encoded.length > Math.ceil(TURN_FILE_LIMITS.bytes / 3) * 4)
+                            invalid('The document renderer returned an invalid attachment.')
+                        const data = Buffer.from(encoded, 'base64')
+                        if (data.length > TURN_FILE_LIMITS.bytes || !matchesTurnType(type, data))
+                            invalid('The document renderer returned an invalid attachment.')
+                        artifacts.push(artifact(type, TURN_FILE_TYPES['.' + type].mime, data))
+                    }
+                }
                 if (chart) artifacts.push(artifact('png', 'image/png', chart))
                 const evidence = {
                     source: o.source,

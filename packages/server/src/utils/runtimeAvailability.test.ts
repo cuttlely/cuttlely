@@ -48,7 +48,12 @@ describe('runtime admission', () => {
                 { data: { name: 'harness', inputs: { harnessName: ['eligible'] } } }
             ])
                 expect(() => check([selected, other])).toThrow(/agent runtime is unavailable/i)
-            for (const overrides of [{ harnessName: 'other' }, { vars: { target: 'other' } }, true]) {
+            for (const overrides of [
+                { harnessName: 'other' },
+                { vars: { target: 'other' } },
+                { managedUploadReceipts: [], harnessName: 'other' },
+                true
+            ]) {
                 expect(() => check([selected], overrides)).toThrow(/agent runtime is unavailable/i)
             }
         } finally {

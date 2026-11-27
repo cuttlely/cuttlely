@@ -10,7 +10,6 @@ import { harnessNodeOptions } from './apiKeyAccess'
 import { v4 as uuidv4 } from 'uuid'
 import {
     IHarnessCaller,
-    IChatFlow,
     IComponentCredentials,
     IComponentNodes,
     ICredentialDataDecrypted,
@@ -1123,6 +1122,7 @@ export const resolveVariables = async (
 
 // `overrideConfig` is applied deny-by-default; see ./replaceInputsWithConfig.ts
 export { getFlowNodeLabels, replaceInputsWithConfig }
+export { getAPIOverrideConfig } from './replaceInputsWithConfig'
 
 /**
  * Rebuild flow if LLMChain has dependency on other chains
@@ -1970,22 +1970,6 @@ export const aMonthAgo = () => {
     const date = new Date()
     date.setMonth(new Date().getMonth() - 1)
     return date
-}
-
-export const getAPIOverrideConfig = (chatflow: IChatFlow) => {
-    try {
-        const apiConfig = chatflow.apiConfig ? JSON.parse(chatflow.apiConfig) : {}
-        const nodeOverrides: INodeOverrides =
-            apiConfig.overrideConfig && apiConfig.overrideConfig.nodes ? apiConfig.overrideConfig.nodes : {}
-        const variableOverrides: IVariableOverride[] =
-            apiConfig.overrideConfig && apiConfig.overrideConfig.variables ? apiConfig.overrideConfig.variables : []
-        // Only the boolean true turns overrides on; a hand-written "false" or "true" string leaves them off.
-        const apiOverrideStatus: boolean = apiConfig.overrideConfig?.status === true
-
-        return { nodeOverrides, variableOverrides, apiOverrideStatus }
-    } catch (error) {
-        return { nodeOverrides: {}, variableOverrides: [], apiOverrideStatus: false }
-    }
 }
 
 export const getUploadPath = (): string => {

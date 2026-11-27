@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -139,6 +140,56 @@ test(
                     '"group","source_rows","observations","sum(Net)"\r\n"East","1001","1001","1251.25"\r\n"West","1","1","-5.04"\r\n'
                 )
         }
+        await t.test(
+            'fixed documents download from an authenticated prediction and reopen with the source values',
+            {
+                skip:
+                    !fs.existsSync(process.env.CUTTLELY_NATIVE_REPORT_ASSETS || '/opt/cuttlely-report-assets') &&
+                    process.env.CUTTLELY_TEST_NATIVE_REPORTS_REQUIRED !== '1'
+            },
+            async () => {
+                const docsForm = new FormData()
+                docsForm.append('files', new Blob([bytes], { type: 'text/csv' }), 'document-sales.csv')
+                docsForm.append(
+                    'question',
+                    'Compare net sales by region from the attached CSV and deliver the result as PDF, Word and Excel.'
+                )
+                docsForm.append('chatId', randomUUID())
+                const turn = await fetch(base + 'internal-prediction/' + saved.id, {
+                    method: 'POST',
+                    headers: { cookie, 'x-request-from': 'internal' },
+                    body: docsForm,
+                    signal: AbortSignal.timeout(60000)
+                })
+                const answer = await turn.json()
+                assert.equal(turn.status, 200, answer.message)
+                assert.deepEqual(answer.artifacts.map((a) => a.type).sort(), ['csv', 'docx', 'pdf', 'xlsx'])
+                for (const a of answer.artifacts.filter((a) => a.type !== 'csv')) {
+                    const params = new URLSearchParams({
+                        chatflowId: saved.id,
+                        chatId: answer.chatId,
+                        fileName: a.data.replace(/^FILE-STORAGE::/, '')
+                    })
+                    const get = () => fetch(base + 'get-upload-file?' + params, { headers: { cookie, 'x-request-from': 'internal' } })
+                    const file = await get()
+                    assert.equal(file.status, 200)
+                    const content = Buffer.from(await file.arrayBuffer())
+                    const text = execFileSync(
+                        '/usr/bin/python3',
+                        [
+                            '-IB',
+                            '-c',
+                            'import sys; sys.path.insert(0,sys.argv[1]); import anydoc; print(anydoc.to_markdown_bytes(sys.stdin.buffer.read()))',
+                            process.env.CUTTLELY_NATIVE_FILE_DECODER || '/opt/cuttlely-file-decoder'
+                        ],
+                        { input: content, encoding: 'utf8', timeout: 10000 }
+                    )
+                    for (const item of ['East', 'West', '1251.25', '-5.04']) assert.ok(text.includes(item), a.type + ' missing ' + item)
+                    params.set('chatId', randomUUID())
+                    assert.notEqual((await get()).status, 200)
+                }
+            }
+        )
         const observation = (result) => {
             assert.match(result.text, /East[^\n]*1251\.25/)
             assert.match(result.text, /West[^\n]*-5\.04/)

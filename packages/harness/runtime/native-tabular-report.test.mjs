@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
@@ -267,3 +269,94 @@ test('file content cannot select an operation, grant a role, add a report field 
     assert.ok(!facts.includes('\u202e'))
     assert.equal(tool.evidence()[0].operation, 'sum')
 })
+
+test('optional document requests validate formats and fail honestly without installed render assets', async (t) => {
+    const tool = report('Region,Net\nEast,3\n')
+    for (const documentFormats of [null, [], 'pdf', ['pdf', 'pdf'], ['../../example'], ['template'], ['https://example.invalid']]) {
+        assert.equal((await tool.execute({ ...args, documentFormats })).error, true)
+    }
+    const old = process.env.CUTTLELY_NATIVE_REPORT_ASSETS
+    process.env.CUTTLELY_NATIVE_REPORT_ASSETS = '/no-such-report-assets-' + randomUUID()
+    t.after(() =>
+        old === undefined ? delete process.env.CUTTLELY_NATIVE_REPORT_ASSETS : (process.env.CUTTLELY_NATIVE_REPORT_ASSETS = old)
+    )
+    const result = await tool.execute({ ...args, format: 'table', documentFormats: ['pdf'] })
+    assert.equal(result.error, true)
+    assert.match(result.content, /unavailable/)
+    assert.deepEqual(tool.finish(), [])
+    assert.equal((await tool.execute({ ...args, format: 'table' })).error, false)
+    assert.deepEqual(
+        tool.finish().map((a) => a.type),
+        ['csv']
+    )
+})
+
+test(
+    'fixed Office files preserve exact aggregate decimals and category labels as literal data',
+    {
+        skip:
+            !fs.existsSync(process.env.CUTTLELY_NATIVE_REPORT_ASSETS || '/opt/cuttlely-report-assets') &&
+            process.env.CUTTLELY_TEST_NATIVE_REPORTS_REQUIRED !== '1'
+    },
+    async () => {
+        const tool = report('Region,Net\n=2+2,9007199254740993.00000001\n#N/A,-5.04\nhttps://example.invalid,1\n<unit>,2\n')
+        const out = await tool.execute({ ...args, format: 'table', documentFormats: ['xlsx', 'docx', 'pdf'] })
+        assert.equal(out.error, false, out.content)
+        assert.deepEqual(
+            tool.finish().map((a) => a.type),
+            ['csv', 'pdf', 'docx', 'xlsx']
+        )
+        for (const a of tool.finish().filter((a) => ['xlsx', 'docx'].includes(a.type))) {
+            execFileSync(
+                '/usr/bin/python3',
+                [
+                    '-IB',
+                    '-c',
+                    `
+import io, sys, zipfile
+from xml.etree import ElementTree as ET
+with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as archive:
+    assert not any('vbaproject' in p.lower() or 'externallinks' in p.lower() for p in archive.namelist())
+    assert not any(b'TargetMode="External"' in archive.read(p) for p in archive.namelist() if p.endswith('.rels'))
+    is_sheet = sys.argv[1] == 'xlsx'
+    tree = ET.fromstring(archive.read('xl/worksheets/sheet1.xml' if is_sheet else 'word/document.xml'))
+    text = [e.text for e in tree.iter() if e.tag.rsplit('}',1)[-1] == 't']
+    for item in ['=2+2','#N/A','https://example.invalid','<unit>','9007199254740993.00000001','-5.04']:
+        assert item in text, item
+    assert not any(e.tag.rsplit('}',1)[-1] in ('f','hyperlink') for e in tree.iter())
+`,
+                    a.type
+                ],
+                { input: Buffer.from(a.base64, 'base64'), timeout: 10000 }
+            )
+        }
+        const limited = await tool.execute({ ...args, format: 'table', documentFormats: ['pdf'] })
+        assert.equal(limited.error, true)
+        assert.equal(tool.finish().length, 4)
+    }
+)
+
+test(
+    'report publication rechecks the grant after rendering and never returns a partial file set',
+    {
+        skip:
+            !fs.existsSync(process.env.CUTTLELY_NATIVE_REPORT_ASSETS || '/opt/cuttlely-report-assets') &&
+            process.env.CUTTLELY_TEST_NATIVE_REPORTS_REQUIRED !== '1'
+    },
+    async () => {
+        const ctx = context('Region,Net\nEast,3')
+        let checks = 0
+        ctx.assertNativeAuthority = () => {
+            if (++checks === 3) throw Error('Revoked during the render.')
+        }
+        const tool = openNativeTabularReport(ctx, analyst)
+        await assert.rejects(tool.execute({ ...args, format: 'table', documentFormats: ['pdf'] }), /Revoked during the render/)
+        assert.deepEqual(tool.finish(), [])
+        const unsupported = report('Region,Net\n商,3')
+        const bad = await unsupported.execute({ ...args, format: 'table', documentFormats: ['docx', 'pdf'] })
+        assert.equal(bad.error, true)
+        assert.match(bad.content, /PDF font cannot display/)
+        assert.deepEqual(unsupported.finish(), [])
+        assert.equal((await unsupported.execute({ ...args, format: 'table', documentFormats: ['docx', 'xlsx'] })).error, false)
+    }
+)

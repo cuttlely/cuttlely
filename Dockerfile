@@ -27,7 +27,7 @@ RUN echo "Cuttlely image, step 1 of 5: build tools (a few minutes on the first b
         bash \
         ca-certificates \
         curl \
-        python3 \
+        python3 python3-pip \
         make \
         g++ \
         build-essential \
@@ -64,7 +64,8 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 WORKDIR /usr/src/cuttlely
 
 COPY . .
-RUN python3 scripts/install-native-file-decoder.py /opt/cuttlely-file-decoder
+RUN python3 scripts/install-native-file-decoder.py /opt/cuttlely-file-decoder \
+    && python3 scripts/install-native-report-assets.py /opt/cuttlely-report-assets
 
 # After the build, node_modules is installed again from the store with production packages only. That install
 # skips install scripts (the root one sets up git hooks), so the native drivers are built again and the sqlite3
@@ -163,6 +164,7 @@ RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
         && : > /etc/cuttlely/no-node-packs; \
     fi
 
+COPY --from=build /opt/cuttlely-report-assets/ /opt/cuttlely-report-assets/
 COPY --from=build /opt/cuttlely-file-decoder/ /opt/cuttlely-file-decoder/
 COPY --from=build /opt/cuttlely-runtime-tools/ /usr/local/bin/
 COPY --from=build /opt/uv-python /opt/uv-python

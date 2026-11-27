@@ -30,13 +30,16 @@ Module._load = function (request, parent) {
                             assert.ok(!evidence.error, evidence.error)
                             return text('Invented turnover 9876543')
                         }
+                        const source = report.function.parameters.properties.source.enum[0]
+                        const documents = source === 'uploads/document-sales.csv'
                         return call(report.function.name, {
-                            source: report.function.parameters.properties.source.enum[0],
+                            source,
                             operation: 'sum',
                             groupBy: 'Region',
                             valueColumn: 'Net',
                             order: 'descending',
-                            format: 'table_and_bar_chart'
+                            format: documents ? 'table' : 'table_and_bar_chart',
+                            ...(documents ? { documentFormats: ['pdf', 'docx', 'xlsx'] } : {})
                         })
                     }
                 }

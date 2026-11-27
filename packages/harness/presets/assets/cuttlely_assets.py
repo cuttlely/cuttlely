@@ -175,7 +175,7 @@ def _rows(rows):
     return [["" if cell is None else cell for cell in row] for row in rows]
 
 
-def pdf_report(path, title, blocks, subtitle=""):
+def pdf_report(path, title, blocks, subtitle="", *, font_pair=None, table_widths=None):
     """A4 PDF with the kit's type and table theme. blocks: Heading, Text, Table and Image items."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -186,7 +186,7 @@ def pdf_report(path, title, blocks, subtitle=""):
     from reportlab.platypus import Table as PdfTable
     from reportlab.platypus import TableStyle
 
-    font, bold = _pdf_fonts()
+    font, bold = font_pair or _pdf_fonts()
     styles = getSampleStyleSheet()
     ink = colors.HexColor(PALETTE["ink"])
     title_style = ParagraphStyle("KitTitle", parent=styles["Title"], fontName=bold, fontSize=20, leading=24, textColor=ink, alignment=0)
@@ -204,7 +204,15 @@ def pdf_report(path, title, blocks, subtitle=""):
             story.append(Paragraph(_escape(block.text), body_style))
         elif isinstance(block, Table):
             rows = [[str(cell) for cell in row] for row in _rows(block.rows)]
-            table = PdfTable(rows, repeatRows=1 if block.header else 0, hAlign="LEFT")
+            if table_widths:
+                # Keep long labels inside the page and treat every cell as literal text.
+                for i, row in enumerate(rows):
+                    header = block.header and i == 0
+                    cell_style = ParagraphStyle("TableCell", fontName=bold if header else font,
+                                                fontSize=TABLE_THEME["font_size"], leading=12,
+                                                textColor=colors.HexColor(TABLE_THEME["header_text"] if header else PALETTE["ink"]))
+                    rows[i] = [Paragraph(_escape(value).replace(" ", "&#160;"), cell_style) for value in row]
+            table = PdfTable(rows, colWidths=table_widths, repeatRows=1 if block.header else 0, hAlign="LEFT")
             commands = [
                 ("FONTNAME", (0, 0), (-1, -1), font),
                 ("FONTSIZE", (0, 0), (-1, -1), TABLE_THEME["font_size"]),
@@ -298,8 +306,9 @@ def docx_report(path, title, blocks, subtitle=""):
             table = document.add_table(rows=len(rows), cols=max(len(row) for row in rows))
             table.style = "Table Grid"
             for r, row in enumerate(rows):
+                cells = table.rows[r].cells
                 for c, value in enumerate(row):
-                    cell = table.cell(r, c)
+                    cell = cells[c]
                     cell.text = str(value)
                     fill = None
                     if block.header and r == 0:
@@ -323,7 +332,7 @@ def docx_report(path, title, blocks, subtitle=""):
     return path
 
 
-def xlsx_table(path, rows, sheet="Sheet1", header=True):
+def xlsx_table(path, rows, sheet="Sheet1", header=True, *, literal_text=False):
     """One-sheet workbook: header row in the accent color, banded rows, frozen header, fitted column widths."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -338,7 +347,7 @@ def xlsx_table(path, rows, sheet="Sheet1", header=True):
     # Text that starts with "=" stays text: the kit never writes formulas from table data.
     for row in ws.iter_rows():
         for cell in row:
-            if isinstance(cell.value, str) and cell.value.startswith("="):
+            if isinstance(cell.value, str) and (literal_text or cell.value.startswith("=")):
                 cell.data_type = "s"
     font = FONTS["sans"][0]
     rule = Side(style="thin", color=_hex(TABLE_THEME["rule"]))

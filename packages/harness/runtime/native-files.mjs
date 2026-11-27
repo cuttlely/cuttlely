@@ -12,6 +12,7 @@ import { readManagedWorkspace } from '../session.mjs'
 import { defaultUploadRoots, parseUploadStubs, uploadSource } from '../uploads.mjs'
 
 const worker = fileURLToPath(new URL('./managed-files/managed.py', import.meta.url))
+const reportWorker = fileURLToPath(new URL('./managed-files/fixed_report.py', import.meta.url))
 const schema = JSON.parse(fs.readFileSync(new URL('./managed-files/tools.json', import.meta.url), 'utf8'))
 const maxBytes = 64 * 1024 ** 2
 const maxEntries = 256
@@ -37,6 +38,7 @@ function environment(dir) {
     return {
         HOME: dir,
         TMPDIR: dir,
+        CUTTLELY_NATIVE_REPORT_ASSETS: process.env.CUTTLELY_NATIVE_REPORT_ASSETS || '/opt/cuttlely-report-assets',
         LANG: 'C.UTF-8',
         PATH: '/usr/bin:/bin',
         CUTTLELY_NATIVE_FILE_DECODER: process.env.CUTTLELY_NATIVE_FILE_DECODER || '/opt/cuttlely-file-decoder',
@@ -68,12 +70,12 @@ export function managedFilesReady() {
     return ready
 }
 
-async function executeWorker(record, signal) {
+async function executeWorker(record, signal, entry = worker) {
     signal?.throwIfAborted()
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cuttlely-managed-file-'))
     try {
         return await new Promise((resolve, reject) => {
-            const subprocess = spawn('/usr/bin/python3', ['-IB', worker], {
+            const subprocess = spawn('/usr/bin/python3', ['-IB', entry], {
                 cwd: dir,
                 env: environment(dir),
                 detached: true,
@@ -116,6 +118,10 @@ async function executeWorker(record, signal) {
     } finally {
         await fs.promises.rm(dir, { recursive: true, force: true })
     }
+}
+
+export function renderFixedDocuments(table, signal) {
+    return executeWorker(table, signal, reportWorker)
 }
 
 export async function withManagedUploads(context, input, run) {

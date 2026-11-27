@@ -5,6 +5,22 @@ import { nodePackList, resolveNodePacks } from './nodePacks'
 import type { IMessage, INodeData, INodeOverrides, IVariable, IVariableOverride } from '../Interface'
 import logger from './logger'
 
+export const getAPIOverrideConfig = (chatflow: { apiConfig?: string | null }) => {
+    try {
+        const apiConfig = chatflow.apiConfig ? JSON.parse(chatflow.apiConfig) : {}
+        const nodeOverrides: INodeOverrides =
+            apiConfig.overrideConfig && apiConfig.overrideConfig.nodes ? apiConfig.overrideConfig.nodes : {}
+        const variableOverrides: IVariableOverride[] =
+            apiConfig.overrideConfig && apiConfig.overrideConfig.variables ? apiConfig.overrideConfig.variables : []
+        // Only the boolean true turns overrides on; a hand-written "false" or "true" string leaves them off.
+        const apiOverrideStatus: boolean = apiConfig.overrideConfig?.status === true
+
+        return { nodeOverrides, variableOverrides, apiOverrideStatus }
+    } catch (error) {
+        return { nodeOverrides: {}, variableOverrides: [], apiOverrideStatus: false }
+    }
+}
+
 /** Node id -> node label for every node in the flow being run. The allowlist (`nodeOverrides`) is keyed by label. */
 export type FlowNodeLabels = ReadonlyMap<string, string>
 

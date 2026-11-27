@@ -1,4 +1,5 @@
 import { openManagedFiles, withManagedUploads } from './runtime/native-files.mjs'
+import { publishedCanvasSource } from './canvas-ownership.mjs'
 import { openNativeTabularReport, renderTabularEvidence } from './runtime/native-tabular-report.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
 import { warmupCoordinator } from './warmup.mjs'
@@ -28,8 +29,17 @@ import {
     estimateTokens,
     specialistContextTokens
 } from './context.mjs'
+import { unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
 import { withModelFallback } from './fallback.mjs'
-import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
+import {
+    callPrepared,
+    normalizeResult,
+    prepareModule,
+    preparedKind,
+    preparedSchema,
+    specialistToolName,
+    splitToolOutput
+} from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
@@ -107,7 +117,8 @@ import {
     offeredPinnedTools,
     invokeOfferedPinnedTool,
     pinnedCallContext,
-    profileDiagnosticEvents
+    profileDiagnosticEvents,
+    toolSpec
 } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
@@ -640,6 +651,7 @@ async function runTurnBody(
             if (harness.tryId) {
                 // This request holds the exclusive Try lock and owns its in-memory canvas.
                 if (!isLiveTry(tryProfileName(harness.tryId))) throw new HarnessError('harness_changed', 'This preview has ended.')
+                publishedCanvasSource(harness)
                 assertHarnessWorkspace(name, flowOptions, harness)
                 return
             }
@@ -3946,6 +3958,20 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         for (const [index, binding] of (specialist.modules || []).entries()) {
             if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
             assertCurrent()
+            if (unboundNativeSerp(binding)) {
+                // The released inline router prepares all of a chosen role's tools before the model runs.
+                // Gateway-backed roles advertise a missing SerpAPI tool; the credential error belongs to its call.
+                const reason = 'SerpAPI API key not set. Select a saved SerpAPI credential.'
+                if (!context.nativePrime && !needsAgentLoop(specialist)) throw new HarnessError('bad_binding', reason)
+                const name = specialistToolName(specialist, binding, used)
+                const description = toolSpec(binding, 'Connected node', name)
+                register(
+                    { type: 'function', function: { name, description: description.description, parameters: description.inputSchema } },
+                    () => ({ content: reason, error: true })
+                )
+                used.add(name)
+                continue
+            }
             const item = await prepareModule(binding, task, context.moduleOptions)
             const name = toolName(item, index, used)
             register(
@@ -4513,6 +4539,8 @@ async function runDirectTool(context, specialist, input) {
     const started = Date.now()
     const assertCall = context.nativeSpecialists ? context.assertNativeAuthority : undefined
     assertCall?.()
+    if (context.nativeSpecialists && unboundNativeSerp(specialist.modules[0]))
+        throw new HarnessError('bad_binding', 'SerpAPI API key not set. Select a saved SerpAPI credential.')
     const prepared = await prepareModule(specialist.modules[0], question, context.moduleOptions)
     const fillStarted = Date.now()
     const schema = fillSchema(prepared)

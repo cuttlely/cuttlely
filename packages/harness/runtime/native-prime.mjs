@@ -1,9 +1,10 @@
+import { publishedCanvasSource } from '../canvas-ownership.mjs'
 import { prepareNativePlaybooks } from './native-playbooks.mjs'
 import { existingFileDependency, managedFilesReady } from './native-files.mjs'
 import availability from '../availability.cjs'
 import { HarnessError } from '../errors.mjs'
 import { estimateTokens } from '../context.mjs'
-import { needsNativeCanvasCredential, supportsNativeCanvasBinding } from '../../../scripts/native-canvas-bindings.mjs'
+import { needsNativeCanvasCredential, supportsNativeCanvasBinding, unboundNativeSerp } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
 import { nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
 import { chiefPrompt, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
@@ -20,7 +21,7 @@ export function useNativePrime(roster, mode, engine = selectAgentEngine(roster.n
 export function useNativeSpecialists(roster, engine = selectAgentEngine(roster.name)) {
     if (engine === 'hermes') return false
     if (engine !== 'native') throw new HarnessError('bad_engine', 'The admitted agent engine is unavailable.')
-    const gaps = nativeCompatibilityGaps(roster)
+    const gaps = nativeCompatibilityGaps(roster, { admitUnavailableTools: true })
     if (gaps.length) {
         const details = gaps.map(({ specialist, capabilities }) => `${specialist}: ${capabilities.join(', ')}`)
         throw new HarnessError('native_unsupported', `Native runtime cannot run these saved capabilities: ${details.join('; ')}.`)
@@ -30,7 +31,8 @@ export function useNativeSpecialists(roster, engine = selectAgentEngine(roster.n
 
 // Offline preflight inspects only the saved grants. Values, credentials, endpoints and
 // playbook bodies never appear in the report. Live provider checks still occur at dispatch.
-export function nativeCompatibilityGaps(roster) {
+export function nativeCompatibilityGaps(roster, { admitUnavailableTools = false, exportOnly = false } = {}) {
+    const host = publishedCanvasSource(roster) || roster
     const gaps = []
     for (const specialist of roster.specialists) {
         const capabilities = new Set()
@@ -39,19 +41,25 @@ export function nativeCompatibilityGaps(roster) {
             [specialist.browser, 'browser'],
             [specialist.codeExecution, 'code execution'],
             [specialist.fileAccess && !managedFilesReady(), 'workspace files'],
-            [specialist.fileAccess && existingFileDependency(roster, specialist), 'existing workspace files need owner-scoped upload']
+            [
+                specialist.fileAccess && !exportOnly && existingFileDependency(host, specialist),
+                'existing workspace files need owner-scoped upload'
+            ]
         ])
             if (enabled) capabilities.add(label)
-        if (specialist.fileAccess && roster.name && specialist.name) {
-            const savedProfile = roster.tryId ? tryProfileName(roster.tryId) : roster.name
+        if (!exportOnly && specialist.fileAccess && host.name && specialist.name) {
+            const savedProfile = host.tryId ? tryProfileName(host.tryId) : host.name
             for (const requirement of specialistFileServiceRequirements(
                 specialistProfileName(savedProfile, specialist.name),
                 specialist.credentials
             ))
                 capabilities.add(requirement)
         }
-        for (const gap of prepareNativePlaybooks(roster, specialist).gaps) capabilities.add(gap)
+        if (!exportOnly) for (const gap of prepareNativePlaybooks(roster, specialist).gaps) capabilities.add(gap)
         for (const binding of specialist.modules || []) {
+            // Offline inventory continues to list the missing credential. In a live canary its absence need
+            // not deny a sibling role. A host key may have made the released tool operational: require rebinding.
+            if (admitUnavailableTools && unboundNativeSerp(binding) && !process.env.SERPAPI_API_KEY) continue
             if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding)) {
                 const credential = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
                 capabilities.add('canvas tool ' + nativeNodeLabel(binding) + credential)

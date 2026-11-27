@@ -75,10 +75,11 @@ function assertSelectedHarnessAvailable(name, target) {
 async function nativeRoster(name, target) {
     if (target?.record) return target.record
     if (target?.canvas) {
-        const { rosterFromFlow } = await import('./sync-from-flow.mjs')
+        const { rosterForCanvasRun } = await import('./sync-from-flow.mjs')
         const { id: chatflowId, workspaceId } = target.canvas
-        const flowData = target.readFlowData ? await target.readFlowData() : target.canvas.flowData
-        return rosterFromFlow({ name, chatflowId, workspaceId, flowData })
+        if (!chatflowId || !workspaceId || target.canvas.name !== name) return
+        const selection = target.readSelection ? await target.readSelection() : { flowData: target.canvas.flowData, published: true }
+        return rosterForCanvasRun({ name, chatflowId, workspaceId, flowData: selection.flowData }, selection)
     }
     if (!target?.workspaceId) return
     const { getHarness } = await import('./store.mjs')

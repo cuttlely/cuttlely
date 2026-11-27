@@ -1,3 +1,4 @@
+import { bindCanvasOwner } from './canvas-ownership.mjs'
 import { normalizeEvidenceBytes } from './evidence-budget.mjs'
 import { parsePinFirstRules } from './pin-first.mjs'
 import { trustedOutputContracts } from './trusted-output.mjs'
@@ -5,7 +6,7 @@ import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { credentialStampAsync } from './credential-store.mjs'
-import { compileProfileCached, credentialIdsFor, profileDestinationConflicts } from './profile.mjs'
+import { compileProfileCached, credentialIdsFor, profileDestinationConflicts, tryIdForFlow } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 
@@ -268,6 +269,16 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
             }
         })
     }
+}
+
+// Only call this with the database-selected canvas and its authenticated Try owner.
+export function rosterForCanvasRun(args, { published, tryOwner } = {}) {
+    const roster = rosterFromFlow(args, { inheritSavedFields: false })
+    if (tryOwner) {
+        roster.tryOwner = tryOwner
+        roster.tryId = tryIdForFlow(roster.chatflowId, tryOwner)
+    }
+    return bindCanvasOwner(roster, published === true)
 }
 
 // A draft save checks only the record limits. A draft may still lack a model, a name or a wire that a full

@@ -87,6 +87,32 @@ test('native canvas preflight accepts the saved clock and retrieval graph and re
     }
 })
 
+test('an unavailable plain SerpAPI does not prevent other native roles from running, but remains an offline migration gap', async (t) => {
+    const { nativeCompatibilityGaps, useNativeSpecialists } = await import('../packages/harness/runtime/native-prime.mjs')
+    const old = process.env.SERPAPI_API_KEY
+    delete process.env.SERPAPI_API_KEY
+    t.after(() => {
+        if (old === undefined) delete process.env.SERPAPI_API_KEY
+        else process.env.SERPAPI_API_KEY = old
+    })
+    const check = (binding) => ({ name: 'team', specialists: [{ name: 'worker', modules: [{ nodeName: 'calculator' }, binding] }] })
+    const plain = { nodeName: 'serpAPI', inputs: {} }
+    assert.equal(useNativeSpecialists(check(plain), 'native'), true)
+    assert.deepEqual(nativeCompatibilityGaps(check(plain)), [
+        { specialist: 'worker', capabilities: ['canvas tool serpAPI (select a saved credential)'] }
+    ])
+    for (const override of [
+        { inputs: { serpApiKey: 'inline' } },
+        { inputs: { FLOWISE_CREDENTIAL_ID: 'other' } },
+        { nodeData: {} },
+        { upstream: { url: {} } },
+        { credential: { key: 'inline' } }
+    ])
+        assert.throws(() => useNativeSpecialists(check({ ...plain, ...override }), 'native'), { code: 'native_unsupported' })
+    process.env.SERPAPI_API_KEY = 'synthetic-configured-host-key'
+    assert.throws(() => useNativeSpecialists(check(plain), 'native'), { code: 'native_unsupported' })
+})
+
 test('native delegation uses the saved clock, search, and vector credentials and returns scoped sources', async (t) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-retriever-'))
     const key = randomUUID(),

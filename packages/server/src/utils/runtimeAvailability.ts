@@ -6,7 +6,7 @@ const availability = require('../../../harness/availability.cjs') as {
     selectAgentEngine: (name: unknown) => 'native' | 'hermes'
     assertSelectedHarnessAvailable: (
         name: unknown,
-        target: { record?: unknown; canvas?: RuntimeFlow; workspaceId?: string; readFlowData?: () => Promise<string> }
+        target: { record?: unknown; canvas?: RuntimeFlow; workspaceId?: string; readSelection?: () => Promise<CanvasSelection> }
     ) => void | Promise<void>
 }
 
@@ -26,11 +26,12 @@ export function isRuntimeUnavailableError(error: unknown): error is Error & {
     return failure instanceof Error && failure.statusCode === 503 && failure.code === 'RUNTIME_UNAVAILABLE'
 }
 
+type CanvasSelection = { flowData: string; published: boolean; tryOwner?: string }
 type RuntimeFlow = { id?: string; name?: string; workspaceId?: string; type?: string | null; flowData: string }
 
 /** Check only an authorized flow. Resolve a saved caller target only within its own workspace. */
-export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknown, readFlowData?: () => Promise<string>) {
-    if (flow.type === 'HARNESS') return assertSelectedHarnessAvailable(flow.name, { canvas: flow, readFlowData })
+export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknown, readSelection?: () => Promise<CanvasSelection>) {
+    if (flow.type === 'HARNESS') return assertSelectedHarnessAvailable(flow.name, { canvas: flow, readSelection })
     type CanvasNode = { data?: { name?: string; inputs?: Record<string, unknown> } }
     let canvas: { nodes?: CanvasNode[] }
     try {
@@ -49,11 +50,14 @@ export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknow
     if (canvas.nodes.some((node) => hasHarnessTool(node?.data?.inputs))) return assertRuntimeAvailable()
     const direct = canvas.nodes.filter((node) => node?.data?.name === 'harness')
     if (!direct.length) return
-    // A mixed graph or a per-request node override can select another team after this check.
+    // Neither session selection nor a caller-supplied receipt field can choose a team.
+    // Only the private server-side upload registry can supply file authority.
     if (
         direct.length !== canvas.nodes.length ||
         (overrides != null &&
-            (typeof overrides !== 'object' || Array.isArray(overrides) || Object.keys(overrides).some((k) => k !== 'sessionId')))
+            (typeof overrides !== 'object' ||
+                Array.isArray(overrides) ||
+                Object.keys(overrides).some((k) => k !== 'sessionId' && k !== 'managedUploadReceipts')))
     )
         return assertRuntimeAvailable()
     const names = [...new Set(direct.map((node) => node.data?.inputs?.harnessName))]

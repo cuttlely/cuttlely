@@ -1046,10 +1046,12 @@ export async function clearPublishGateResult(
 // The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
 // Every other caller reads Live.
 export async function flowDataForTestChat(flow: DraftFlow): Promise<string> {
-    if (!isDraftsEnabled() || !typeHasDrafts(flow.type)) return flow.flowData
-    const state = await getState(flow.id)
-    if (!state?.draftFlowData) return flow.flowData
-    return state.draftFlowData
+    return (await canvasForTestChat(flow)).flowData
+}
+
+export async function canvasForTestChat(flow: DraftFlow): Promise<{ flowData: string; published: boolean }> {
+    const state = isDraftsEnabled() && typeHasDrafts(flow.type) ? await getState(flow.id) : undefined
+    return state?.draftFlowData ? { flowData: state.draftFlowData, published: false } : { flowData: flow.flowData, published: true }
 }
 
 // Removes the flow's draft and settings, when the flow is deleted.
@@ -1075,6 +1077,7 @@ export default {
     clearPublishGateResult,
     noteGateCheck,
     clearGateCheckNote,
+    canvasForTestChat,
     flowDataForTestChat,
     deleteStateFor
 }

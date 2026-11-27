@@ -31,9 +31,7 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
             throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
         }
 
-        if (chatflow.type === 'HARNESS')
-            await assertFlowRuntimeAvailable(chatflow, undefined, () => flowDraftsService.flowDataForTestChat(chatflow))
-        else if (supervisorUnavailable()) {
+        if (chatflow.type !== 'HARNESS' && supervisorUnavailable()) {
             await assertFlowRuntimeAvailable(
                 { ...chatflow, flowData: await flowDraftsService.flowDataForTestChat(chatflow) },
                 req.body?.overrideConfig
