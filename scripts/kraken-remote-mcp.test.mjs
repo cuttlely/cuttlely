@@ -6,7 +6,7 @@ import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
-import { good, statusResponder } from './fixtures/kraken-remote-mcp.mjs'
+import { assertAuthenticatedRequests, good, statusResponder } from './fixtures/kraken-remote-mcp.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 test('authenticated saved native team uses the authorized workspace MCP server and encrypted header', { timeout: 90000 }, async (t) => {
@@ -80,7 +80,8 @@ test('authenticated saved native team uses the authorized workspace MCP server a
     const answer = await post('harnesses/' + name + '/runs', { mode: 'agent', chatId: randomUUID(), question: 'Get the ops status.' })
     assert.equal(answer.trace.engine, 'native')
     assert.ok(answer.text.includes(good))
-    assert.ok(responder.seen.filter((r) => r.url).every((r) => r.authorized))
+    assert.equal((await fetch(responder.origin + '/', { method: 'HEAD' })).status, 401)
+    assertAuthenticatedRequests(responder.seen)
     assert.deepEqual(
         responder.seen.filter((r) => r.name),
         [{ name: 'ops_status', args: {} }]

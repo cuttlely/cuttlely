@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { good, tool, statusResponder } from '../../../scripts/fixtures/kraken-remote-mcp.mjs'
+import { assertAuthenticatedRequests, good, tool, statusResponder } from '../../../scripts/fixtures/kraken-remote-mcp.mjs'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import envelope from '../../../scripts/credential-envelope.cjs'
@@ -89,7 +89,7 @@ for (const mode of ['http', 'sse']) {
             assert.equal(reply, await released.invoke({}))
         }
 
-        assert.ok(f.seen.filter((r) => r.url).every((r) => r.authorized))
+        assertAuthenticatedRequests(f.seen)
         if (mode === 'http') assert.ok(f.seen.some((r) => r.method === 'DELETE'))
         assert.deepEqual(
             f.seen.filter((r) => r.name),

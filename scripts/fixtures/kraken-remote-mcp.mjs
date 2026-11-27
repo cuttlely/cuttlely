@@ -10,6 +10,20 @@ export const tool = {
 }
 export const good = 'ops-status: allowlisted MCP tool responded'
 
+// Application services can probe each listening port. Keep that denial in the log and
+// require credentials for every protocol request, including discovery and teardown.
+export function assertAuthenticatedRequests(seen) {
+    const requests = seen.filter((entry) => entry.url)
+    assert.ok(
+        requests.some((entry) => entry.authorized),
+        'the fixture observed an authenticated request'
+    )
+    for (const entry of requests) {
+        if (entry.method === 'HEAD' && entry.url === '/' && !entry.authorized) assert.equal(entry.status, 401)
+        else assert.equal(entry.authorized, true, 'MCP requests must carry the saved credential')
+    }
+}
+
 // HTTP and legacy SSE share the same deterministic operation. An unexpected outbound
 // method, endpoint, argument or credential fails the fixture instead of contacting a provider.
 export async function statusResponder(mode, token) {
@@ -17,10 +31,12 @@ export async function statusResponder(mode, token) {
     const seen = []
     const control = { tool, wait: false, redirect: false, path: '/events', answer: good }
     const server = http.createServer(async (req, res) => {
-        seen.push({ method: req.method, url: req.url, authorized: req.headers.authorization === 'Bearer ' + token })
+        const request = { method: req.method, url: req.url, authorized: req.headers.authorization === 'Bearer ' + token }
+        seen.push(request)
         res.on('error', () => {})
-        if (req.headers.authorization !== 'Bearer ' + token) {
-            res.writeHead(401)
+        if (!request.authorized) {
+            request.status = 401
+            res.writeHead(request.status)
             res.end()
             return
         }
