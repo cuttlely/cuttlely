@@ -103,7 +103,9 @@ The Docker image includes the Linux document renderer. For a source installation
 
 A specialist with a single model streams text as it arrives. When a primary and fallback can compete, the native runtime waits for a winner before sending that specialist’s text. A slow primary or backup may already have generated a different draft. The client receives the selected answer once. Inspect the run trace to see which model answered and its token usage. If the provider omits usage, the count is unknown. A reported zero for cached prompt tokens is retained.
 
-For custom streaming clients, `harness.final` contains the complete answer. Render it as the completed message. Appending it to the accumulated partial text will duplicate the answer. In agent mode, v1.7.15 could flush a buffered partial after the final event. Native flushes that text before the final event. Both engines send `harness.recorded` when conversation metadata is available.
+For custom streaming clients, `harness.final` contains the complete answer. Replace the displayed answer with that text and ignore any later answer deltas for the same turn. In agent mode, both v1.7.15 and Kraken can flush a buffered `harness.partial` after the final event. A one-word answer can arrive entirely in that last delta. Both engines send `harness.recorded` when conversation metadata is available.
+
+On the streaming prediction endpoint, a native Analyst with verified output delivers its attachments before the protected answer. If the source check fails or the verified attachments cannot be delivered, the stream reports an error and withholds the protected answer.
 
 ### Conversation search
 
@@ -118,6 +120,8 @@ For an asynchronous submission, keep its run ID. After an API restart, poll `GET
 An admitted PostgreSQL background run records its answer and usage in the same transaction. If the worker returned an answer while a usage write was failing, the caller can receive HTTP 503 while polling. Restore the database write path and poll the same run ID. The API can then deliver the saved answer and credit its workspace once. Submitting the question again starts a new run.
 
 The history keeps 100 settled runs per team. Active runs and accepted results awaiting accounting survive that limit. A healthy inline or external worker revisits pending PostgreSQL completions after the database recovers. It can publish the original result and record usage even if the caller has gone away.
+
+When a caller waits for a queued PostgreSQL run, each poll reads its public events and job status together. If completion and the wait deadline coincide, the queue checks which operation committed first. A completed job returns its saved result and final events. An active job receives a cancellation request and the caller receives `worker_timeout`.
 
 On PostgreSQL, loss of the storage coordinator makes both `/api/v1/ping` and `/api/v1/ping/live` return HTTP 503. The operator can inspect storage status even if an ordinary database query still succeeds. Restore database connectivity and replace the affected process. A standalone worker exits with status 1 on coordinator loss. Configure its service supervisor to restart it on failure. A normal SIGTERM shutdown exits with status 0.
 

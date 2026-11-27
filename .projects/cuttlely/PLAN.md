@@ -26,6 +26,8 @@ The optional native image builds from a source archive without the bundled runti
 
 Native runs record the winning specialist model and retain provider-reported input, output and cached-token counts. A single model streams text immediately. When two models can compete for the same call, the client receives the selected answer after the race finishes.
 
+On `/prediction`, ordinary agent answers preserve the released stream order when the final event precedes the last text fragment. Canvas chat and the team view display the answer once. For verified output, the endpoint sends attachment bytes before the answer names the file. An incomplete source result or missing bytes produce a stream error before any file is announced.
+
 For published agent-mode teams with direct chat models, the full build can record a bundled specialist’s progress against the active PostgreSQL turn during rollback. This covers model-only specialists and the packaged read-only Ops action. The latter resolves its installed script from the package when the worker starts in another directory. Other team configurations still need a rollback rehearsal.
 
 PostgreSQL recovery checks now exercise loss of the coordinator while ordinary queries still succeed, standalone worker replacement, and a surviving worker that finishes an asynchronous run after the accepting API stops. The original caller can poll for the stored answer or the expired worker's unconfirmed action. Two API replicas observing one due schedule and an external worker produced one tool response and one run history entry after replacement. The runtime guide maps each v1.7.15 vendor patch to a verification fixture or outstanding comparison.
@@ -33,6 +35,8 @@ PostgreSQL recovery checks now exercise loss of the coordinator while ordinary q
 The Chief of Staff template retrieves its embedded document in both modes. The Research template now connects its Custom Retriever to a local sample store. An older Research canvas with an empty vector-store input identifies that missing binding. Scoped prediction checks cover the returned answer, source placement and denied keys for both teams. A simulated accounting outage verifies that a completed PostgreSQL job can recover its result and token buckets once, even after the accepting API exits.
 
 History retention keeps live turns and accepted results awaiting accounting in addition to the 100 settled results per team. A replacement worker retries accounting after transient database errors. The pressure fixture checks an older admission against 101 later completions and verifies that a blocked workspace still allows a different workspace to settle.
+
+PostgreSQL queue polling reads the job status and its ordered public events from the same snapshot. At the wait deadline the queue checks the current job under the same lock used to finish it. A job that completed first delivers its final events once. If the job is still active, the waiter requests cancellation and returns a timeout.
 
 The local Custom Retriever preserves all three saved output selections. AI Builder can reconstruct the Research example with the intended output and source metadata. Public prediction fixtures exercise imported and generated teams on SQLite and after replacing a PostgreSQL application host.
 
