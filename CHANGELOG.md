@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.17] - 2026-11-27
+
 ### Changed
 
 -   **Upgrade storage** shows blockers beside the action and verifies a PostgreSQL copy of local profile prompts and runtime data. After cutover, saved runtime messages, settings and memory notes survive replacement of ephemeral web and worker disks. The container supports restricted UIDs. Local code-execution outputs and direct shell edits depend on the container disk. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#chat-sessions-after-disk-loss).
@@ -1253,7 +1255,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.16...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.17...HEAD
+[1.7.17]: https://github.com/cuttlely/cuttlely/compare/v1.7.16...v1.7.17
 [1.7.16]: https://github.com/cuttlely/cuttlely/compare/v1.7.15...v1.7.16
 [1.7.15]: https://github.com/cuttlely/cuttlely/compare/v1.7.14...v1.7.15
 [1.7.14]: https://github.com/cuttlely/cuttlely/compare/v1.7.13...v1.7.14
