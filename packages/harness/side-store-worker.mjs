@@ -1,7 +1,7 @@
 // Keeps the synchronous harness queue/session API while PostgreSQL I/O runs on its own thread.
 import { parentPort, workerData } from 'node:worker_threads'
 import { createRequire } from 'node:module'
-import { harnessSchema, registerSideSchema } from './side-store-identity.mjs'
+import { harnessSchema, queueWakeChannel, registerSideSchema } from './side-store-identity.mjs'
 import { postgresHarnessDdl } from './side-store-schema.mjs'
 
 const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
@@ -11,14 +11,24 @@ pool.on('error', () => {})
 const transactions = new Map()
 const leases = new Map()
 
-async function begin(scope) {
+async function begin(scope, eventJobId) {
     const client = await pool.connect()
     try {
         // Acquire the same schema lock in one round trip. The caller's next statement
         // starts after the lock is held and observes the preceding writer's commit.
         const schema = harnessSchema(scope)
-        await client.query(`BEGIN; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog;
-            SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(${escapeLiteral(schema)}))`)
+        // Event sequence numbers are per job. Other queue writers still exclude every
+        // append via the schema lock. Appends on different jobs can commit together.
+        const schemaKey = `pg_catalog.hashtext(${escapeLiteral(schema)})`
+        const append = typeof eventJobId === 'string'
+        const lock = append
+            ? `SELECT pg_catalog.pg_advisory_xact_lock_shared(${schemaKey});
+                   SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('cuttlely_harness_queue.job_events'), pg_catalog.hashtext(${escapeLiteral(
+                       eventJobId
+                   )}))`
+            : `SELECT pg_catalog.pg_advisory_xact_lock(${schemaKey})`
+        const transaction = append ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
+        await client.query(`${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`)
         return client
     } catch (error) {
         client.release(true)
@@ -155,6 +165,20 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         return
     }
     const active = transactions.get(scope)
+    if (op === 'readHarnessRecord') {
+        if (scope !== 'queue') throw new Error('Harness records require the queue store.')
+        const select = `SELECT content FROM ${queueSchema}.harness_records WHERE entry OPERATOR(pg_catalog.=) `
+        if (active) return (await active.query(select + '$1::pg_catalog.text', [key])).rows[0]?.content ?? null
+
+        // A simple query message is one implicit transaction. Acquire the writer's lock
+        // first so the SELECT starts with a fresh committed snapshot after any publication.
+        const [, , record] = await pool.query(
+            `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+             SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtext(${escapeLiteral(queueSchema)}));
+             ${select}${escapeLiteral(key)}::pg_catalog.text FOR SHARE`
+        )
+        return record.rows[0]?.content ?? null
+    }
     if (op === 'commit' || op === 'rollback') {
         if (!active) throw new Error('Missing harness store transaction.')
         transactions.delete(scope)
@@ -182,7 +206,8 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         )
         return
     }
-    const client = active || (await begin(scope))
+    const eventJobId = scope === 'queue' && op === 'appendJobEvent' ? params[0] : undefined
+    const client = active || (await begin(scope, eventJobId))
     let result
     try {
         if (op === 'appendJobEvent') {
@@ -220,7 +245,23 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
     return result
 }
 
-parentPort.on('message', async ({ request, port, ready }) => {
+let notifying = false
+let retryNotifyAfter = 0
+async function notifyQueue() {
+    if (notifying || Date.now() < retryNotifyAfter) return
+    notifying = true
+    try {
+        // Separate from the insert transaction so a denied or unsupported NOTIFY cannot fail admission.
+        await pool.query('NOTIFY ' + queueWakeChannel)
+    } catch {
+        retryNotifyAfter = Date.now() + 30000
+    } finally {
+        notifying = false
+    }
+}
+
+parentPort.on('message', async ({ request, port, ready, notifyQueue: hint }) => {
+    if (hint) return notifyQueue()
     try {
         port.postMessage({ value: await execute(request) })
     } catch (error) {

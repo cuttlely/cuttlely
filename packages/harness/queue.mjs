@@ -6,7 +6,7 @@ import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
 import { sessionKey } from './session.mjs'
 import { acceptedUsageJob, openUsageRun } from './side-store-schema.mjs'
-import { harnessUsesPostgres } from './side-store-postgres.mjs'
+import { harnessUsesPostgres, listenForQueueWork, notifyQueueWorkers } from './side-store-postgres.mjs'
 import { accountReturnedBackgroundRun, finishHarnessRun, getRun, settleLostQueueRun } from './history.mjs'
 import { getHarness } from './store.mjs'
 import availability from './availability.cjs'
@@ -215,31 +215,43 @@ export function enqueueHarnessJob(args) {
     const id = `job_${randomUUID()}`
     const now = Date.now()
     const payload = JSON.stringify(jobPayload(args))
-    immediate((db) => {
-        db.prepare('DELETE FROM turns WHERE session_key = ? AND expires_at <= ?').run(key, now)
-        reapStaleRunning(db, key, now)
-        const held = db.prepare('SELECT 1 AS ok FROM turns WHERE session_key = ?').get(key)
-        const active = db.prepare(`SELECT 1 AS ok FROM jobs WHERE session_key = ? AND status IN ('queued', 'running')`).get(key)
-        if (held || active) throw turnBusyError()
-        db.prepare(
-            `INSERT INTO jobs (
-                id, session_key, status, payload, cancel_requested, created_at, updated_at
-             ) VALUES (?, ?, 'queued', ?, 0, ?, ?)`
-        ).run(id, key, payload, now, now)
-    })
+    const insert = `INSERT INTO jobs (id, session_key, status, payload, cancel_requested, created_at, updated_at)
+                    SELECT ?, ?, 'queued', ?, 0, ?, ?`
+    const params = [id, key, payload, now, now]
+    // The common case has no outstanding lease or job. A single conditional insert
+    // establishes that fact and reserves the session under the database writer lock.
+    const claimed = database()
+        .prepare(
+            insert +
+                ` WHERE NOT EXISTS (SELECT 1 FROM turns WHERE session_key = ?)
+                      AND NOT EXISTS (SELECT 1 FROM jobs WHERE session_key = ? AND status IN ('queued', 'running'))`
+        )
+        .run(...params, key, key)
+    if (!claimed.changes) {
+        // A real conflict may be an expired lease or a lost worker. Recheck and repair it under one transaction.
+        immediate((db) => {
+            db.prepare('DELETE FROM turns WHERE session_key = ? AND expires_at <= ?').run(key, now)
+            reapStaleRunning(db, key, now)
+            const held = db.prepare('SELECT 1 AS ok FROM turns WHERE session_key = ?').get(key)
+            const active = db.prepare(`SELECT 1 AS ok FROM jobs WHERE session_key = ? AND status IN ('queued', 'running')`).get(key)
+            if (held || active) throw turnBusyError()
+            db.prepare(insert).run(...params)
+        })
+    }
+    if (queueMode() === 'external' && harnessUsesPostgres()) notifyQueueWorkers()
     return { id, sessionKey: key }
 }
 
 export function claimJob() {
     if (jobsStopped()) return null
-    const now = Date.now()
-    const row = immediate((db) => {
-        const found = db.prepare(`SELECT id, payload, cancel_requested FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1`).get()
-        if (!found) return null
-        const info = db.prepare(`UPDATE jobs SET status = 'running', updated_at = ? WHERE id = ? AND status = 'queued'`).run(now, found.id)
-        if (!info.changes) return null
-        return found
-    })
+    // The statement claims the first queued job and returns that same row to exactly one worker.
+    const row = database()
+        .prepare(
+            `UPDATE jobs SET status = 'running', updated_at = ?
+             WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1)
+               AND status = 'queued' RETURNING id, payload, cancel_requested`
+        )
+        .get(Date.now())
     if (!row) return null
     return { id: row.id, payload: JSON.parse(row.payload), cancelRequested: row.cancel_requested === 1 }
 }
@@ -292,7 +304,11 @@ export function cancelRequested(id) {
 }
 
 export function touchJob(id) {
-    database().prepare(`UPDATE jobs SET updated_at = ? WHERE id = ? AND status = 'running'`).run(Date.now(), id)
+    const row = database()
+        .prepare(`UPDATE jobs SET updated_at = ? WHERE id = ? AND status = 'running' RETURNING cancel_requested`)
+        .get(Date.now(), id)
+    // A forced drain can settle the row before a live worker's next heartbeat.
+    return row ? row.cancel_requested === 1 : cancelRequested(id)
 }
 
 const journalPrefix = '{"type":"nativeToolReceipt",%'
@@ -471,8 +487,7 @@ async function executeClaimedJob(job) {
     }
     local?.signal?.addEventListener('abort', onLocalAbort)
     const timer = setInterval(() => {
-        touchJob(job.id)
-        if (cancelRequested(job.id) || local?.signal?.aborted) controller.abort()
+        if (touchJob(job.id) || local?.signal?.aborted) controller.abort()
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
     let savedId = ''
@@ -752,15 +767,41 @@ export function startAcceptedUsageRecovery() {
 
 export function startWorkerLoop() {
     const stopRecovery = startAcceptedUsageRecovery()
-    let stopped = false
+    let stopped = false,
+        wake,
+        hinted = false
+    const closeListener =
+        queueMode() === 'external'
+            ? listenForQueueWork(() => {
+                  if (!wake || hinted) return
+                  hinted = true
+                  wake()
+              })
+            : undefined
+    function waitForWork() {
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                // After a hint that another worker already consumed, keep the ordinary idle interval.
+                hinted = false
+                done()
+            }, 50)
+            function done() {
+                clearTimeout(timer)
+                wake = undefined
+                resolve()
+            }
+            wake = done
+        })
+    }
     const finished = (async () => {
         console.info(`[harness] worker ${process.pid} started`)
         while (!stopped) {
             const job = claimJob()
             if (!job) {
-                await delay(50)
+                await waitForWork()
                 continue
             }
+            hinted = false
             try {
                 await executeJob(job)
             } catch {
@@ -772,7 +813,11 @@ export function startWorkerLoop() {
     return {
         stop() {
             stopped = true
+            wake?.()
         },
-        finished: finished.finally(() => stopRecovery?.())
+        finished: finished.finally(async () => {
+            stopRecovery?.()
+            await closeListener?.()
+        })
     }
 }

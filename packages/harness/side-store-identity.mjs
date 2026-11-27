@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+export const queueWakeChannel = 'cuttlely_harness_queue_ready'
+
 export function harnessSchema(scope) {
     return scope === 'queue'
         ? 'cuttlely_harness_queue'

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import { createTestSource, skipReason } from '../../etl/check/pg-source.mjs'
-import { configureHarnessPostgres } from '../side-store-postgres.mjs'
+import { configureHarnessPostgres, listenForQueueWork } from '../side-store-postgres.mjs'
 import { recordToolPhase } from '../queue-events.mjs'
 import { nativeToolJournal, queueNativeTool } from './native-journal.mjs'
 import { runNativeToolLoop } from './native-prime.mjs'
@@ -20,6 +20,7 @@ import {
     readJob,
     reconcilePublicQueueRun,
     stopQueueJobs,
+    touchJob,
     waitForJob
 } from '../queue.mjs'
 
@@ -263,5 +264,167 @@ test(
         assert.throws(() => appendEvent(job.id, { type: 'reject-fixture-body' }), { code: '23514' })
         assert.deepEqual(await persisted(job.id), [{ seq: 1, type: 'route' }])
         assert.equal(readJob(job.id).updatedAt, 1)
+    }
+)
+
+test(
+    'a committed external admission wakes a dedicated PostgreSQL listener without exposing the job or changing its ownership',
+    { skip: skipReason },
+    async (t) => {
+        const pg = await createTestSource()
+        let close
+        t.after(async () => {
+            await close?.()
+            closeQueueDb()
+            configureHarnessPostgres(null)
+            await pg.cleanup()
+        })
+        configureHarnessPostgres(pg.connection)
+        const previous = process.env.CUTTLELY_HARNESS_QUEUE
+        process.env.CUTTLELY_HARNESS_QUEUE = 'external'
+        t.after(() => {
+            if (previous === undefined) delete process.env.CUTTLELY_HARNESS_QUEUE
+            else process.env.CUTTLELY_HARNESS_QUEUE = previous
+        })
+        const wait = async (check) => {
+            const until = Date.now() + 4000
+            do {
+                if (await check()) return
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            } while (Date.now() < until)
+            assert.fail('Timed out waiting for the PostgreSQL queue listener.')
+        }
+        let wakes = 0
+        close = listenForQueueWork(() => wakes++)
+        const listeners = async () =>
+            (
+                await pg.query(
+                    "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name='Cuttlely harness queue listener' AND state='idle' AND query='LISTEN cuttlely_harness_queue_ready'"
+                )
+            ).length
+        await wait(async () => (await listeners()) === 1)
+        // A nonempty notification cannot substitute caller data for an admitted job.
+        await pg.query("SELECT pg_notify('cuttlely_harness_queue_ready', 'unrelated')")
+        const args = { name: 'queue-wake-fixture', chatId: 'qa-chat', input: 'Count items.' }
+        const accepted = enqueueHarnessJob(args)
+        assert.throws(() => enqueueHarnessJob(args), { code: 'busy' })
+        await wait(() => wakes > 0)
+        assert.equal(wakes, 1)
+        assert.equal(readJob(accepted.id).status, 'queued')
+        assert.equal(claimJob().id, accepted.id)
+        await close()
+        await wait(async () => !(await listeners()))
+        assert.equal(claimJob(), null)
+    }
+)
+
+test('PostgreSQL workers reserve a chat once and observe cancellation on their next heartbeat', { skip: skipReason }, async (t) => {
+    const pg = await createTestSource()
+    const { Client } = createRequire(new URL('../../server/package.json', import.meta.url))('pg')
+    const writer = new Client(pg.connection)
+    configureHarnessPostgres(pg.connection)
+    closeQueueDb()
+    t.after(async () => {
+        await writer.end()
+        closeQueueDb()
+        configureHarnessPostgres(null)
+        await pg.cleanup()
+    })
+    const args = { name: 'Reservation', chatId: 'same-chat', input: 'Count items.' }
+    const first = enqueueHarnessJob(args)
+    assert.equal(claimJob().id, first.id)
+    assert.equal(claimJob(), null)
+    assert.equal(touchJob(first.id), false)
+    markCancel(first.id)
+    assert.equal(touchJob(first.id), true)
+    finishJob(first.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'Stopped.' })
+
+    // An independent writer reserves the same chat before its row is visible to normal readers.
+    await writer.connect()
+    await writer.query('BEGIN')
+    await writer.query("SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue'))")
+    await writer.query(
+        `INSERT INTO cuttlely_harness_queue.jobs (id, session_key, status, payload, cancel_requested, created_at, updated_at)
+         VALUES ($1, $2, 'queued', '{}', 0, $3, $3)`,
+        ['other-worker-job', first.sessionKey, Date.now()]
+    )
+    const commit = writer.query('SELECT pg_sleep(0.05); COMMIT')
+    assert.throws(() => enqueueHarnessJob(args), { code: 'busy' })
+    await commit
+    assert.equal(claimJob().id, 'other-worker-job')
+    assert.equal(claimJob(), null)
+    finishJob('other-worker-job', { status: 'succeeded', result: { text: 'Done.' } })
+    const next = enqueueHarnessJob(args)
+    assert.equal(claimJob().id, next.id)
+})
+
+test(
+    'PostgreSQL appends overlap across jobs and fence each job after waiting for its preceding commit',
+    { skip: skipReason },
+    async (t) => {
+        const pg = await createTestSource()
+        const { Client } = createRequire(new URL('../../server/package.json', import.meta.url))('pg')
+        const holder = new Client(pg.connection)
+        t.after(async () => {
+            await holder.end()
+            closeQueueDb()
+            configureHarnessPostgres(null)
+            await pg.cleanup()
+        })
+        // The appender must take a new snapshot after the preceding writer releases the job lock,
+        // including on installations whose normal transaction isolation is repeatable read.
+        configureHarnessPostgres({ ...pg.connection, options: '-c default_transaction_isolation=repeatable\\ read', lock_timeout: 1000 })
+        const admit = (chatId) => {
+            const job = enqueueHarnessJob({ name: 'math', chatId, input: '1 + 1' })
+            assert.equal(claimJob().id, job.id)
+            return job.id
+        }
+        assert.equal(
+            database().prepare("SELECT current_setting('default_transaction_isolation') AS setting").get().setting,
+            'repeatable read'
+        )
+        const first = admit('first')
+        const second = admit('second')
+        const phase = (value) => recordToolPhase(first, { callId: 'call', specialist: 'math', name: 'calculator', phase: value })
+        const stored = async (id) =>
+            (await pg.query('SELECT seq,event FROM cuttlely_harness_queue.job_events WHERE job_id=$1 ORDER BY seq', [id])).map((row) => [
+                Number(row.seq),
+                JSON.parse(row.event).phase || JSON.parse(row.event).type
+            ])
+        await holder.connect()
+        await holder.query('BEGIN')
+        try {
+            await holder.query("SELECT pg_advisory_xact_lock_shared(hashtext('cuttlely_harness_queue'))")
+            await holder.query("SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue.job_events'),hashtext($1))", [first])
+            await holder.query('INSERT INTO cuttlely_harness_queue.job_events(job_id,seq,event) VALUES ($1,1,$2)', [
+                first,
+                '{"type":"first"}'
+            ])
+            appendEvent(second, { type: 'independent' })
+            assert.deepEqual(await stored(second), [[1, 'independent']])
+            assert.throws(() => phase('queued'), { code: '55P03' })
+            assert.deepEqual(await stored(first), [])
+            // PostgreSQL can release the first writer while this process waits synchronously.
+            const release = holder.query('SELECT pg_sleep(0.15); COMMIT')
+            try {
+                phase('queued')
+            } finally {
+                await release
+            }
+        } finally {
+            await holder.query('ROLLBACK')
+        }
+        phase('dispatched')
+        markCancel(first)
+        assert.throws(() => phase('dispatched'), { code: 'aborted' })
+        phase('confirmed')
+        finishJob(first, { status: 'failed', errorCode: 'aborted', errorMessage: 'Fixture cancelled.' })
+        assert.throws(() => phase('confirmed'), { code: 'worker_lost' })
+        assert.deepEqual(await stored(first), [
+            [1, 'first'],
+            [2, 'queued'],
+            [3, 'dispatched'],
+            [4, 'confirmed']
+        ])
     }
 )

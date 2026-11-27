@@ -4,6 +4,7 @@ import { guardedEncryptionKeyOverwrite } from '../../scripts/setting-alias.cjs'
 import { hermesHome } from './paths.mjs'
 import { createRequire } from 'node:module'
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads'
+import { queueWakeChannel } from './side-store-identity.mjs'
 import { HarnessError } from './errors.mjs'
 
 const requireServer = createRequire(new URL('../server/package.json', import.meta.url))
@@ -23,6 +24,64 @@ export function configureHarnessPostgres(options) {
 export function harnessUsesPostgres() {
     return Boolean(config)
 }
+// This optional message follows a committed admission. A failed worker, notification or listener
+// leaves the durable queue intact and the external workers continue their regular polling.
+export function notifyQueueWorkers() {
+    try {
+        worker?.postMessage({ notifyQueue: true })
+    } catch {
+        // The store worker may already be shutting down.
+    }
+}
+
+export function listenForQueueWork(wake) {
+    if (!config) return
+    const settings = config
+    const { Client } = requireServer('pg')
+    let stopped = false,
+        session,
+        retry,
+        closing
+    function connect() {
+        if (stopped) return
+        const next = new Client({
+            ...settings,
+            application_name: 'Cuttlely harness queue listener',
+            connectionTimeoutMillis: Math.min(Number(settings.connectionTimeoutMillis) || 5000, 5000),
+            query_timeout: 2000
+        })
+        session = next
+        function retire() {
+            if (session !== next) return
+            session = undefined
+            closing = next.end().catch(() => {})
+            if (!stopped) {
+                retry = setTimeout(connect, 30000)
+                retry.unref()
+            }
+        }
+        next.on('error', retire)
+        next.once('end', retire)
+        next.on('notification', (notice) => {
+            if (session === next && notice.channel === queueWakeChannel && !notice.payload) wake()
+        })
+        next.connect()
+            .then(() => !stopped && next.query('LISTEN ' + queueWakeChannel))
+            .catch(retire)
+    }
+    connect()
+    return async () => {
+        stopped = true
+        clearTimeout(retry)
+        if (session) {
+            const last = session
+            session = undefined
+            await last.end().catch(() => {})
+        }
+        await closing
+    }
+}
+
 function postgresWorker() {
     if (!config) throw new Error('Harness PostgreSQL storage has not been selected.')
     if (!worker) {
@@ -116,6 +175,9 @@ export function openHarnessPostgres(scope) {
         dialect: 'postgres',
         ...(scope === 'queue' && {
             pollJob,
+            readHarnessRecord(entry) {
+                return request({ scope, op: 'readHarnessRecord', key: entry })
+            },
             appendJobEvent(id, event, phase) {
                 return request({ scope, op: 'appendJobEvent', params: [id, event, phase] })
             }

@@ -143,6 +143,8 @@ Signed-in users and identified API keys can use `session_search` on a saved agen
 
 ### If a worker stops during a tool call
 
+Each external worker runs one queued job at a time. With PostgreSQL side stores, budget one additional database connection per worker for `LISTEN`. A notification carries no payload and wakes an idle worker to check the queue. If the database or connection pooler does not support notifications, denies them, or drops the connection, the worker continues polling. The database claim still decides which worker can run a job. A second turn for the same session receives HTTP 409 while the first turn holds it.
+
 Queued native calls record their selection, dispatch and acknowledgement in the application queue. If a worker disappears before acknowledgement, the job reports an uncertain outcome and retains the call ID for investigation. Check the destination before retrying an external action. A call still queued has not reached its tool. A confirmed call has already returned to the worker. The public event stream keeps its existing event types. Call arguments and tool results are excluded from these receipts.
 
 For an asynchronous submission, keep its run ID. After an API restart, poll `GET /api/v1/harnesses/:name/runs/:runId/result` with the original caller. A worker that retained its lease can finish and save the answer for the replacement API. If the worker died, polling after its lease expires reports `worker_lost` and identifies an unconfirmed action. An operator who stops jobs for a storage upgrade can also see an unconfirmed action on a cancelled run.

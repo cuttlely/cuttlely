@@ -23,8 +23,7 @@ export function recordEntries() {
 
 export function readRecord(entry) {
     const location = file(entry)
-    if (harnessUsesPostgres())
-        return harnessRecordDatabase().prepare('SELECT content FROM harness_records WHERE entry=?').get(entry)?.content ?? null
+    if (harnessUsesPostgres()) return harnessRecordDatabase().readHarnessRecord(entry)
     try {
         return fs.readFileSync(location, 'utf8')
     } catch (error) {
