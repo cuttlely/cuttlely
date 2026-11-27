@@ -123,7 +123,7 @@ import {
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
-import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { cachedPromptTokens, invokeChat, openAiUsage, resolveModel } from './model.mjs'
 import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
@@ -766,14 +766,11 @@ async function runTurnBody(
 }
 
 function noteUsage(context, reply) {
-    const usage = reply?.usage
-    if (!usage || typeof usage !== 'object') return null
-    const prompt = usage.prompt_tokens ?? usage.input_tokens
-    const completion = usage.completion_tokens ?? usage.output_tokens
-    if (prompt == null && completion == null) return null
+    const usage = openAiUsage(reply?.usage)
+    if (!usage) return null
     if (!context.usage) context.usage = { prompt: 0, completion: 0, cached: 0, cachedSeen: false, seen: false }
     const cached = cachedPromptTokens(usage)
-    const delta = { prompt: Number(prompt) || 0, completion: Number(completion) || 0, ...(cached != null ? { cached } : {}) }
+    const delta = { prompt: usage.prompt_tokens, completion: usage.completion_tokens, ...(cached != null ? { cached } : {}) }
     context.usage.seen = true
     context.usage.prompt += delta.prompt
     context.usage.completion += delta.completion
@@ -2046,21 +2043,20 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
 
 async function callModel(context, model, request) {
     const fallback = request.specialist ? fallbackFor(context, request.specialist) : fallbackFor(context, null)
-    let winner = model
     let usedFallback = false
     const startedAt = Date.now()
     context.checkPlaybookDelivery?.()
-    const reply = await withModelFallback({
+    const { reply, winner } = await withModelFallback({
         primary: model,
         fallback,
         onUse: () => {
             usedFallback = true
             console.info(`[harness] ${context.name} fallback ${fallback.label || fallback.nodeName} after ${model.label || model.nodeName}`)
         },
-        run: (binding, windowMs, controlSignal) => {
-            winner = binding
-            return invokeOne(context, binding, request, windowMs, controlSignal)
-        }
+        run: async (binding, windowMs, controlSignal) => ({
+            reply: await invokeOne(context, binding, request, windowMs, controlSignal),
+            winner: binding
+        })
     }).finally(() => context.checkPlaybookDelivery?.())
     const endedAt = Date.now()
     const tokens = noteUsage(context, reply)

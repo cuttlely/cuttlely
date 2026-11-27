@@ -29,7 +29,7 @@ import { analystScopeKey, finishAnalystCallTimings, withAnalystScope } from './r
 import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolBindings } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
-import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { invokeChat, openAiUsage, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { markProfileDeleted, removeContainedTree } from './profile.mjs'
 import { dataRoot, hermesHome, hermesProfileId, savedHarnessProfileIds } from './paths.mjs'
@@ -991,23 +991,7 @@ async function completeChat(req, res, meta) {
     sendJson(res, 200, payload)
 }
 
-// Hermes counts a specialist's tokens from the usage on each model reply. Chat models report it in different
-// shapes; the reply carries the OpenAI one, with the cached prompt tokens when the model reported them.
-export function openAiUsage(usage) {
-    if (!usage || typeof usage !== 'object') return null
-    const prompt = usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokens
-    const completion = usage.completion_tokens ?? usage.output_tokens ?? usage.completionTokens
-    if (prompt == null && completion == null) return null
-    const prompt_tokens = Number(prompt) || 0
-    const completion_tokens = Number(completion) || 0
-    const cached = cachedPromptTokens(usage)
-    return {
-        prompt_tokens,
-        completion_tokens,
-        total_tokens: Number(usage.total_tokens ?? usage.totalTokens) || prompt_tokens + completion_tokens,
-        ...(cached != null ? { prompt_tokens_details: { cached_tokens: cached } } : {})
-    }
-}
+export { openAiUsage } from './model.mjs'
 
 function writeStream(res, { id, created, model, content, toolCalls, reason, usage }) {
     const delta = { role: 'assistant' }

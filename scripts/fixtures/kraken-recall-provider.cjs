@@ -4,7 +4,10 @@ const assert = require('node:assert/strict')
 const Module = require('node:module')
 const original = Module._load
 const expected = 'The synthetic parcel arrived at gate 17.'
-const answer = (content) => ({ content, usage_metadata: { input_tokens: 8, output_tokens: 7 } })
+const answer = (content) => ({
+    content,
+    response_metadata: { usage: { promptTokens: 8, completionTokens: 7, prompt_tokens_details: { cached_tokens: 3 } } }
+})
 Module._load = function (request, parent) {
     const lib = original.apply(this, arguments)
     if (request !== './FlowiseChatXAI' || !parent?.filename.endsWith('/ChatXAI/ChatXAI.js')) return lib

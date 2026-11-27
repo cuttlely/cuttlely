@@ -299,6 +299,23 @@ export function cachedPromptTokens(usage) {
     return Number.isFinite(count) && count >= 0 ? count : null
 }
 
+// The gateway and native runs share the released provider usage formats. Missing usage stays unknown.
+export function openAiUsage(usage) {
+    if (!usage || typeof usage !== 'object') return null
+    const prompt = usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokens
+    const completion = usage.completion_tokens ?? usage.output_tokens ?? usage.completionTokens
+    if (prompt == null && completion == null) return null
+    const prompt_tokens = Number(prompt) || 0
+    const completion_tokens = Number(completion) || 0
+    const cached = cachedPromptTokens(usage)
+    return {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: Number(usage.total_tokens ?? usage.totalTokens) || prompt_tokens + completion_tokens,
+        ...(cached != null ? { prompt_tokens_details: { cached_tokens: cached } } : {})
+    }
+}
+
 export function reportedUsage(result) {
     if (!result || typeof result !== 'object') return null
     const meta = result.usage_metadata
@@ -450,7 +467,7 @@ export async function invokeChat(
             const choice = await fallbackToolChoice(
                 async (nextMessages) => {
                     const parsed = chatResult(await chat.invoke(toLangChain(nextMessages), options), false)
-                    usage = combineRetryUsage(usage, parsed.usage)
+                    usage = combineRetryUsage(usage, openAiUsage(parsed.usage))
                     return parsed
                 },
                 textToolHistory(prepared),

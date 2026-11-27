@@ -62,7 +62,13 @@ test('JSON tool-choice retries count both model calls and stream only the interp
             chat: {
                 invoke: async () => ({
                     content: replies.shift(),
-                    usage_metadata: { input_tokens: 9, output_tokens: 2, input_token_details: { cache_read: 3 } }
+                    ...(replies.length
+                        ? { usage_metadata: { input_tokens: 9, output_tokens: 2, input_token_details: { cache_read: 3 } } }
+                        : {
+                              response_metadata: {
+                                  usage: { promptTokens: 9, completionTokens: 2, prompt_tokens_details: { cached_tokens: 3 } }
+                              }
+                          })
                 })
             }
         },

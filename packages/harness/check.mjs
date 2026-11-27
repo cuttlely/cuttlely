@@ -9902,6 +9902,8 @@ check(
     'a primary that answers after the fallback window keeps its reply',
     hedgeRun.agents.some((agent) => agent.name === 'one' && agent.status === 'completed') &&
         !hedgeRun.agents.some((agent) => agent.name === 'two') &&
+        hedgeRun.trace.route.model === 'Primary' &&
+        !hedgeRun.trace.route.fallback &&
         hedgeRun.text.includes('from-primary') &&
         !hedgeRun.text.includes('from-fallback') &&
         hedgeCalls.includes('primary-done') &&
