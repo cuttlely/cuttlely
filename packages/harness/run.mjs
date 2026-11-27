@@ -30,7 +30,7 @@ import {
     specialistContextTokens
 } from './context.mjs'
 import { unboundNativeSerp } from '../../scripts/native-canvas-bindings.mjs'
-import { withModelFallback } from './fallback.mjs'
+import { sameModelBinding, withModelFallback } from './fallback.mjs'
 import {
     callPrepared,
     normalizeResult,
@@ -2046,18 +2046,35 @@ async function callModel(context, model, request) {
     let usedFallback = false
     const startedAt = Date.now()
     context.checkPlaybookDelivery?.()
-    const { reply, winner } = await withModelFallback({
+    // A failed or slower provider may already have streamed a different answer.
+    // Once a fallback is eligible, release only the text belonging to the winning model call.
+    const holdDeltas = typeof request.onDelta === 'function' && fallback && !sameModelBinding(model, fallback)
+    const { reply, winner, producedText } = await withModelFallback({
         primary: model,
         fallback,
         onUse: () => {
             usedFallback = true
             console.info(`[harness] ${context.name} fallback ${fallback.label || fallback.nodeName} after ${model.label || model.nodeName}`)
         },
-        run: async (binding, windowMs, controlSignal) => ({
-            reply: await invokeOne(context, binding, request, windowMs, controlSignal),
-            winner: binding
-        })
+        run: async (binding, windowMs, controlSignal) => {
+            let producedText = false
+            const attempt = holdDeltas
+                ? {
+                      ...request,
+                      onDelta: () => {
+                          producedText = true
+                      }
+                  }
+                : request
+            const reply = await invokeOne(context, binding, attempt, windowMs, controlSignal)
+            return { reply, winner: binding, producedText }
+        }
     }).finally(() => context.checkPlaybookDelivery?.())
+    if (producedText && reply.content) {
+        const signal = request.signal || context.workSignal
+        signal?.throwIfAborted()
+        request.onDelta(reply.content)
+    }
     const endedAt = Date.now()
     const tokens = noteUsage(context, reply)
     if (!context.calls) context.calls = []

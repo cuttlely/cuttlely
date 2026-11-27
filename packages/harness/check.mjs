@@ -9861,13 +9861,18 @@ function hedgeChat(label, waitMs, content, calls) {
                     await hedgeDelay(waitMs, opts?.signal)
                     calls.push(`${label}-done`)
                     return { content }
+                },
+                async *stream(messages, opts) {
+                    calls.push(`${label}-delta`)
+                    yield { content: content.slice(0, -1) }
+                    await this.invoke(messages, opts)
+                    yield { content: content.slice(-1) }
                 }
             }
         }
     }
 }
 process.env.CUTTLELY_HARNESS_MODEL_FALLBACK_MS = '50'
-const hedgeCalls = []
 const primaryRoute = JSON.stringify({ steps: [{ specialist: 'one', task: 'from-primary' }] })
 const fallbackRoute = JSON.stringify({ steps: [{ specialist: 'two', task: 'from-fallback' }] })
 saveHarness(
@@ -9885,32 +9890,45 @@ saveHarness(
     },
     { overwrite: true }
 )
-const hedgeStarted = Date.now()
-const hedgeRun = await runHarness({
-    name: 'fallback-hedge',
-    chatId: 'fallback-hedge',
-    input: 'go',
-    baseUrl: contract.url,
-    modelBaseUrl,
-    loadNode: async (nodeName) => {
-        if (nodeName === 'hedgePrimary') return hedgeChat('primary', 120, primaryRoute, hedgeCalls)
-        if (nodeName === 'hedgeFallback') return hedgeChat('fallback', 400, fallbackRoute, hedgeCalls)
-        return recordingChat([], scriptedReply)
-    }
-})
-check(
-    'a primary that answers after the fallback window keeps its reply',
-    hedgeRun.agents.some((agent) => agent.name === 'one' && agent.status === 'completed') &&
-        !hedgeRun.agents.some((agent) => agent.name === 'two') &&
-        hedgeRun.trace.route.model === 'Primary' &&
-        !hedgeRun.trace.route.fallback &&
-        hedgeRun.text.includes('from-primary') &&
-        !hedgeRun.text.includes('from-fallback') &&
-        hedgeCalls.includes('primary-done') &&
-        !hedgeCalls.includes('fallback-done') &&
-        Date.now() - hedgeStarted < 900,
-    JSON.stringify({ ms: Date.now() - hedgeStarted, text: hedgeRun.text, agents: hedgeRun.agents, calls: hedgeCalls })
-)
+for (const primaryWins of [true, false]) {
+    const calls = []
+    const routeText = []
+    const started = performance.now()
+    const run = await runHarness({
+        name: 'fallback-hedge',
+        chatId: 'fallback-hedge-' + primaryWins,
+        input: 'go',
+        baseUrl: contract.url,
+        modelBaseUrl,
+        onEvent(event) {
+            if (event.type === 'partial' && event.phase === 'route') routeText.push(event.text)
+        },
+        loadNode: async (nodeName) => {
+            if (nodeName === 'hedgePrimary') return hedgeChat('primary', primaryWins ? 120 : 400, primaryRoute, calls)
+            if (nodeName === 'hedgeFallback') return hedgeChat('fallback', primaryWins ? 400 : 20, fallbackRoute, calls)
+            return recordingChat([], scriptedReply)
+        }
+    })
+    const winner = primaryWins ? 'primary' : 'fallback'
+    const loser = primaryWins ? 'fallback' : 'primary'
+    check(
+        `a hedged ${winner} winner alone supplies the route, public partials, and traced model`,
+        run.agents.length === 1 &&
+            run.agents[0].name === (primaryWins ? 'one' : 'two') &&
+            run.agents[0].status === 'completed' &&
+            run.trace.route.model === (primaryWins ? 'Primary' : 'Backup') &&
+            (run.trace.route.fallback || '') === (primaryWins ? '' : 'Backup') &&
+            run.text.includes('from-' + winner) &&
+            !run.text.includes('from-' + loser) &&
+            calls.indexOf('primary-delta') >= 0 &&
+            calls.indexOf('primary-delta') < calls.indexOf('fallback-delta') &&
+            calls.includes(winner + '-done') &&
+            !calls.includes(loser + '-done') &&
+            routeText.join('') === (primaryWins ? primaryRoute : fallbackRoute) &&
+            performance.now() - started < 900,
+        JSON.stringify({ route: run.trace.route, routeText, calls })
+    )
+}
 const failbackCalls = []
 saveHarness(
     {
