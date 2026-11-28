@@ -126,7 +126,8 @@ test(
         async function predict(
             token,
             bytes,
-            question = 'Sample the attached workbook. Give sheet names, the row sample and total amount.'
+            question = 'Sample the attached workbook. Give sheet names, the row sample and total amount.',
+            overrideConfig
         ) {
             const uploads = bytes
                 ? [{ type: 'file:full', mime, name: 'book.xlsx', data: 'data:' + mime + ';base64,' + bytes.toString('base64') }]
@@ -134,7 +135,7 @@ test(
             const response = await fetch(url + 'prediction/' + flow.id, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
-                body: JSON.stringify({ chatId, question, uploads }),
+                body: JSON.stringify({ chatId, question, uploads, overrideConfig }),
                 signal: AbortSignal.timeout(35000)
             })
             return { status: response.status, body: await response.json() }
@@ -165,6 +166,23 @@ test(
         const seen = fs.readFileSync(stages, 'utf8').trim().split('\n')
         assert.equal(seen.filter((x) => x === 'verified-workbook-result').length, 2)
         assert.equal(seen.filter((x) => x === 'verified-refusal').length, 1)
+        const selector = { harnessName: 'another-team' }
+        const inert = await predict(a, fixtures.book(), undefined, selector)
+        assert.equal(inert.status, 200)
+        assert.equal(inert.body.text, 'Sales has seven rows totalling 28.')
+        const observations = fs.readFileSync(stages, 'utf8')
+        assert.equal(observations.split('\n').filter((x) => x === 'verified-workbook-result').length, 3)
+        if (nativePackageRoot()) {
+            const edit = await request(url + 'chatflows/' + flow.id, {
+                method: 'PUT',
+                cookie: login.cookie,
+                body: { apiConfig: JSON.stringify({ overrideConfig: { status: true, nodes: {}, variables: [] } }) }
+            })
+            assert.equal(edit.status, 200)
+            const enabled = await predict(a, fixtures.book(), undefined, selector)
+            assert.equal(enabled.status, 503)
+            assert.equal(fs.readFileSync(stages, 'utf8'), observations)
+        }
     }
 )
 

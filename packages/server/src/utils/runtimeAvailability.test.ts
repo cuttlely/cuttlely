@@ -71,13 +71,45 @@ describe('runtime admission', () => {
             .mockImplementation((name: unknown) => (name === 'upload' ? 'native' : 'hermes'))
         const sample = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../..', 'samples/chatflows/upload.chatflow.json'), 'utf8'))
         const original = JSON.parse(sample.flowData)
-        const check = (graph: typeof original, overrides?: unknown) =>
-            assertFlowRuntimeAvailable({ type: 'CHATFLOW', workspaceId: 'owner-workspace', flowData: JSON.stringify(graph) }, overrides)
+        const check = (graph: typeof original, overrides?: unknown, apiConfig?: string | null) =>
+            assertFlowRuntimeAvailable(
+                { type: 'CHATFLOW', workspaceId: 'owner-workspace', flowData: JSON.stringify(graph), apiConfig },
+                overrides
+            )
         try {
             await check(original, { sessionId: 'a' })
             expect(target).toHaveBeenCalledTimes(1)
             expect(target).toHaveBeenCalledWith('upload', { workspaceId: 'owner-workspace' })
             target.mockClear()
+            for (const apiConfig of [null, '{}', '{"overrideConfig":{"status":false,"nodes":{},"variables":[]}}']) {
+                await check(original, { harnessName: 'foreign', sessionId: 'one' }, apiConfig)
+            }
+            expect(target.mock.calls).toEqual(Array.from({ length: 3 }, () => ['upload', { workspaceId: 'owner-workspace' }]))
+            target.mockClear()
+            const enabled = '{"overrideConfig":{"status":true}}'
+            for (const config of [
+                undefined,
+                enabled,
+                '',
+                '{',
+                'null',
+                '[]',
+                '{"overrideConfig":null}',
+                '{"overrideConfig":{}}',
+                '{"overrideConfig":{"status":"false"}}',
+                '{"overrideConfig":{"status":false,"nodes":[]}}'
+            ]) {
+                expect(() => check(original, { harnessName: 'foreign' }, config)).toThrow(/runtime is unavailable/i)
+            }
+            for (const request of [
+                { harnessName: ['foreign'] },
+                { harnessName: '{{target}}' },
+                { harnessName: 'foreign', vars: {} },
+                { harnessName: 'foreign', sessionId: {} },
+                { harnessName: 'foreign', managedUploadReceipts: ['untrusted'] }
+            ]) {
+                expect(() => check(original, request, null)).toThrow(/runtime is unavailable/i)
+            }
             for (const modify of [
                 (g: typeof original) => {
                     g.nodes.push(null)

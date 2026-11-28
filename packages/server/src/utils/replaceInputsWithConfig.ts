@@ -15,9 +15,22 @@ export const getAPIOverrideConfig = (chatflow: { apiConfig?: string | null }) =>
         // Only the boolean true turns overrides on; a hand-written "false" or "true" string leaves them off.
         const apiOverrideStatus: boolean = apiConfig.overrideConfig?.status === true
 
-        return { nodeOverrides, variableOverrides, apiOverrideStatus }
+        // Execution treats malformed settings as off. Admission may rely on an inert request
+        // selector only when the stored settings positively establish the disabled state.
+        const saved = apiConfig.overrideConfig
+        const apiOverridesKnownDisabled =
+            chatflow.apiConfig === null ||
+            (Boolean(chatflow.apiConfig) &&
+                isPlainObject(apiConfig) &&
+                (saved === undefined ||
+                    (isPlainObject(saved) &&
+                        saved.status === false &&
+                        (saved.nodes === undefined || isPlainObject(saved.nodes)) &&
+                        (saved.variables === undefined || Array.isArray(saved.variables)))))
+
+        return { nodeOverrides, variableOverrides, apiOverrideStatus, apiOverridesKnownDisabled }
     } catch (error) {
-        return { nodeOverrides: {}, variableOverrides: [], apiOverrideStatus: false }
+        return { nodeOverrides: {}, variableOverrides: [], apiOverrideStatus: false, apiOverridesKnownDisabled: false }
     }
 }
 

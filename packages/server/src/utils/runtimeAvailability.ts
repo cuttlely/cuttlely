@@ -27,7 +27,7 @@ export function isRuntimeUnavailableError(error: unknown): error is Error & {
 }
 
 type CanvasSelection = { flowData: string; published: boolean; tryOwner?: string }
-type RuntimeFlow = { id?: string; name?: string; workspaceId?: string; type?: string | null; flowData: string }
+type RuntimeFlow = { id?: string; name?: string; workspaceId?: string; type?: string | null; flowData: string; apiConfig?: string | null }
 
 type CanvasNode = { id?: string; data?: { name?: string; inputs?: Record<string, unknown> } }
 type CanvasGraph = { nodes?: CanvasNode[]; edges?: { source?: string; target?: string }[] }
@@ -59,6 +59,31 @@ function staticHarnessToolAgent(canvas: CanvasGraph, harnesses: CanvasNode[]) {
     )
 }
 
+function requestKeepsSavedTeam(flow: RuntimeFlow, overrides: unknown, toolAgent: boolean) {
+    if (overrides == null) return true
+    if (typeof overrides !== 'object' || Array.isArray(overrides)) return false
+    const input = overrides as Record<string, unknown>
+    const extra = Object.keys(input).filter((key) => key !== 'sessionId' && key !== 'managedUploadReceipts')
+    if (!extra.length) return true
+    // Only a literal, ignored selector on the saved Tool Agent matches the released behavior.
+    // Session and upload authority are still bound by the normal server-side admission.
+    if (
+        !toolAgent ||
+        extra.length !== 1 ||
+        extra[0] !== 'harnessName' ||
+        Object.getPrototypeOf(input) !== Object.prototype ||
+        typeof input.harnessName !== 'string' ||
+        !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(input.harnessName) ||
+        (input.sessionId !== undefined && typeof input.sessionId !== 'string') ||
+        (input.managedUploadReceipts !== undefined &&
+            (!Array.isArray(input.managedUploadReceipts) || input.managedUploadReceipts.length !== 0))
+    )
+        return false
+    // Load the server's override machinery only for this exceptional request shape.
+    const { getAPIOverrideConfig } = require('./replaceInputsWithConfig') as typeof import('./replaceInputsWithConfig')
+    return getAPIOverrideConfig(flow).apiOverridesKnownDisabled
+}
+
 /** Check only an authorized flow. Resolve a saved caller target only within its own workspace. */
 export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknown, readSelection?: () => Promise<CanvasSelection>) {
     if (flow.type === 'HARNESS') return assertSelectedHarnessAvailable(flow.name, { canvas: flow, readSelection })
@@ -80,16 +105,9 @@ export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknow
     if (canvas.nodes.some((node) => hasHarnessTool(node?.data?.inputs))) return assertRuntimeAvailable()
     const direct = canvas.nodes.filter((node) => node?.data?.name === 'harness')
     if (!direct.length) return
-    // Neither session selection nor a caller-supplied receipt field can choose a team.
-    // Only the private server-side upload registry can supply file authority.
-    if (
-        (direct.length !== canvas.nodes.length && !staticHarnessToolAgent(canvas, direct)) ||
-        (overrides != null &&
-            (typeof overrides !== 'object' ||
-                Array.isArray(overrides) ||
-                Object.keys(overrides).some((k) => k !== 'sessionId' && k !== 'managedUploadReceipts')))
-    )
-        return assertRuntimeAvailable()
+    const toolAgent = direct.length !== canvas.nodes.length
+    if (toolAgent && !staticHarnessToolAgent(canvas, direct)) return assertRuntimeAvailable()
+    if (!requestKeepsSavedTeam(flow, overrides, toolAgent)) return assertRuntimeAvailable()
     const names = [...new Set(direct.map((node) => node.data?.inputs?.harnessName))]
     if (
         names.some(
