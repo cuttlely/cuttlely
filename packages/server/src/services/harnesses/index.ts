@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
+import { isDeepStrictEqual } from 'util'
 import fs from 'fs'
 import { isDraining, isShuttingDown } from '../../settings/runs'
-import { assertSelectedHarnessAvailable, assertFlowRuntimeAvailable } from '../../utils/runtimeAvailability'
+import { assertSelectedHarnessAvailable, assertFlowRuntimeAvailable, selectAgentEngine } from '../../utils/runtimeAvailability'
 import { toPredictionError } from '../../utils/predictionErrors'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -646,6 +647,35 @@ export function resetHarnessRuntimeForTests() {
     bootActive = null
 }
 
+// After an upgrade from a release without durable compiled settings, a used published team and
+// a never-compiled record can both have an empty profile directory. Only recover the exact Live
+// roster belonging to this workspace and canvas. A saved draft or a similarly named team is insufficient.
+async function recoverablePublishedRoster(record: HarnessRow) {
+    if (!record.workspaceId || !record.chatflowId || !UUID.test(record.chatflowId)) return false
+    const { ChatFlow, EnumChatflowType } = await import('../../database/entities/ChatFlow')
+    const app = getRunningExpressApp()
+    const row = await app.AppDataSource.getRepository(ChatFlow).findOne({
+        select: { flowData: true },
+        where: { id: record.chatflowId, workspaceId: record.workspaceId, name: record.name, type: EnumChatflowType.HARNESS }
+    })
+    if (!row) return false
+    const sync = await loadHarness('sync-from-flow.mjs')
+    if (sync.harnessCanvasIsPlaceholder(row.flowData)) return false
+    const canvas = sync.rosterFromFlow(
+        {
+            name: record.name,
+            workspaceId: record.workspaceId,
+            chatflowId: record.chatflowId,
+            flowData: row.flowData,
+            componentNodes: app.nodesPool?.componentNodes
+        },
+        { inheritSavedFields: false }
+    )
+    // Published JSON omits undefined fields. Compare all role assignments and model bindings.
+    const roles = (v: Record<string, unknown>) => JSON.parse(JSON.stringify([v.chief, v.specialists]))
+    return isDeepStrictEqual(roles(canvas), roles(record))
+}
+
 export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
     let names: string[]
@@ -672,7 +702,15 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
                         // One unreadable record is reported once, by markBootFailed. The others still run.
                         return [{ name, status: 'failed', error: getErrorMessage(error) }]
                     }
-                    return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
+                    if (!record) return []
+                    if (selectAgentEngine(name) === 'hermes' && profile.needsPublishedProfileRecovery?.(record)) {
+                        const recoverMissing = await recoverablePublishedRoster(record)
+                        // Another server can change the PostgreSQL record during the canvas lookup.
+                        const current = store.getHarness(name)
+                        if (!isDeepStrictEqual(current, record)) return []
+                        return profile.recompileOutdatedProfiles([current], { log: logger, recoverMissing })
+                    }
+                    return profile.recompileOutdatedProfiles([record], { log: logger })
                 })
             )
         } catch (error) {

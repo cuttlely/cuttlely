@@ -422,7 +422,7 @@ export function callerFlowOptions(payload, flowOptions) {
     return next
 }
 
-async function jobRuntime(job, local) {
+async function jobRuntime(job, local, selected) {
     const offline = offlineLoadNode(job.payload)
     if (local?.componentNodes || local?.flowOptions || local?.loadNode) {
         return {
@@ -437,7 +437,7 @@ async function jobRuntime(job, local) {
         if (booted?.ready) setWorkerContext(booted.contextFor)
     }
     if (typeof workerContextFor === 'function') {
-        const record = getHarness(job.payload.name)
+        const record = selected || getHarness(job.payload.name)
         let runtime = null
         try {
             runtime = record
@@ -504,7 +504,7 @@ export async function executeJob(job) {
     return trackStorageJob(() => executeClaimedJob(job))
 }
 
-async function executeClaimedJob(job) {
+async function executeClaimedJob(job, selected) {
     const request = localRuns.get(job.id)
     const local = request?.args
     const controller = new AbortController()
@@ -569,12 +569,13 @@ async function executeClaimedJob(job) {
         }
         cancelBeforeStart()
         availability.assertRuntimeAvailable(undefined, runArgs[admittedAgentEngine])
-        const runtime = await jobRuntime(job, local)
+        const runtime = await jobRuntime(job, local, selected)
         cancelBeforeStart()
         // The waiter is another process when the queue is external, so its onRecorded never runs.
         // The saved history id rides on the job result. The waiter reads it and then drops the field.
         const result = await runHarness({
             ...runArgs,
+            ...(selected ? { record: selected } : {}),
             images: job.payload.images,
             managedUploadReceipts: job.payload.managedUploadReceipts,
             budgetMs: local?.budgetMs ?? job.payload.budgetMs ?? undefined,
@@ -836,13 +837,15 @@ export function startWorkerLoop() {
                   wake()
               })
             : undefined
-    function waitForWork() {
+    function waitForWork(poll = true) {
         return new Promise((resolve) => {
-            const timer = setTimeout(() => {
-                // After a hint that another worker already consumed, keep the ordinary idle interval.
-                hinted = false
-                done(true)
-            }, 50)
+            const timer =
+                poll &&
+                setTimeout(() => {
+                    // After a hint that another worker already consumed, keep the ordinary idle interval.
+                    hinted = false
+                    done(true)
+                }, 50)
             function done(timedOut = false) {
                 clearTimeout(timer)
                 wake = undefined
@@ -851,8 +854,7 @@ export function startWorkerLoop() {
             wake = done
         })
     }
-    const finished = (async () => {
-        console.info(`[harness] worker ${process.pid} started`)
+    async function runSerial() {
         let idlePoll = false
         while (!stopped) {
             const job = claimJob(idlePoll)
@@ -867,6 +869,31 @@ export function startWorkerLoop() {
             } catch {
                 // The job row holds the code. The waiter throws it.
             }
+        }
+    }
+    async function runRetrievalPair() {
+        const { runExternalWorkerPair } = await import('./worker-overlap.mjs')
+        const { pairedWorkerRecord } = await import('./run.mjs')
+        await runExternalWorkerPair({
+            database,
+            jobsStopped,
+            claimJob,
+            pairedWorkerRecord,
+            stopped: () => stopped,
+            execute: (job, record) => {
+                hinted = false
+                return trackStorageJob(() => executeClaimedJob(job, record))
+            },
+            wait: waitForWork,
+            wake: () => wake?.()
+        })
+    }
+    const finished = (async () => {
+        console.info(`[harness] worker ${process.pid} started`)
+        if (process.env.CUTTLELY_NATIVE_RETRIEVAL_SLOTS === '2' && queueMode() === 'external' && harnessUsesPostgres()) {
+            await runRetrievalPair()
+        } else {
+            await runSerial()
         }
         console.info(`[harness] worker ${process.pid} stopped`)
     })()

@@ -92,7 +92,7 @@ async function receiptCipher(scope, nonce, encrypt) {
     cipher.setAAD(Buffer.from(JSON.stringify([scope.workspace, scope.flow, scope.chat, actor])))
     return cipher
 }
-export async function issueManagedUpload(scope, parts, digest) {
+export async function issueManagedUpload(scope, parts, digest, callerQuestion) {
     if (
         !validSegments(parts) ||
         parts[1] !== scope.flow ||
@@ -103,7 +103,15 @@ export async function issueManagedUpload(scope, parts, digest) {
     const nonce = randomBytes(12),
         cipher = await receiptCipher(scope, nonce, true)
     if (!cipher) return ''
-    const data = Buffer.concat([cipher.update(JSON.stringify({ parts, digest }), 'utf8'), cipher.final()])
+    // Bind only explicit, bounded report requests from direct prediction admission. Ordinary
+    // and previously issued upload receipts keep their file-only semantics.
+    const request =
+        typeof callerQuestion === 'string' &&
+        callerQuestion.length <= 2048 &&
+        /^(?:\s*\/analyze_csv_report\s|\s*(?:create|generate|make) a report\b)/i.test(callerQuestion)
+            ? { length: callerQuestion.length, hash: createHash('sha256').update(callerQuestion).digest('hex') }
+            : undefined
+    const data = Buffer.concat([cipher.update(JSON.stringify({ parts, digest, request }), 'utf8'), cipher.final()])
     return Buffer.concat([nonce, cipher.getAuthTag(), data]).toString('base64url')
 }
 async function* openLocalBlob(root, parts) {
@@ -154,7 +162,9 @@ export async function readManagedUpload(token, scope, localRoot, maximum) {
         chunks.push(chunk)
     }
     const body = Buffer.concat(chunks, size)
-    return createHash('sha256').update(body).digest('hex') === data.digest ? { body, name: data.parts.at(-1) } : null
+    return createHash('sha256').update(body).digest('hex') === data.digest
+        ? { body, name: data.parts.at(-1), ...(data.request && { request: data.request }) }
+        : null
 }
 
 // A receipt identifies the admitted owner without exposing the user/key identifier to a model or a report.

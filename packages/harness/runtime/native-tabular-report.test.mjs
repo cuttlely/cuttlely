@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
 import { runNativeToolLoop } from './native-prime.mjs'
-import { openNativeTabularReport, renderTabularEvidence } from './native-tabular-report.mjs'
-import { withManagedUploads } from './native-files.mjs'
+import { openNativeTabularReport, renderTabularEvidence, requestedMixedReport } from './native-tabular-report.mjs'
+import { openNativeNumericCode } from './native-numeric-code.mjs'
+import { openUploadSampler, withManagedUploads } from './native-files.mjs'
 import { issueManagedUpload, selectPredictionFiles } from '../prediction-files.mjs'
 import { buildUploadQuestionPart } from '../uploads.mjs'
 
@@ -360,3 +361,117 @@ test(
         assert.equal((await unsupported.execute({ ...args, format: 'table', documentFormats: ['docx', 'xlsx'] })).error, false)
     }
 )
+
+test('verified uploads with colliding generated names retain their distinct rows and sources', async (t) => {
+    const caller = { via: 'api_key', apiKeyId: randomUUID() }
+    const workspace = randomUUID(),
+        flow = randomUUID(),
+        chat = randomUUID()
+    const before = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+    process.env.CUTTLELY_SECRETKEY_OVERWRITE = randomUUID()
+    t.after(() => {
+        selectPredictionFiles(null)
+        if (before === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        else process.env.CUTTLELY_SECRETKEY_OVERWRITE = before
+    })
+    const stored = new Map()
+    selectPredictionFiles({
+        stream(parts) {
+            return [stored.get(parts.join('/'))]
+        }
+    })
+    const admitted = []
+    for (const [i, base] of ['units.csv', '2-units.csv', 'units.csv'].entries()) {
+        const parts = [randomUUID(), flow, chat, base]
+        const body = Buffer.from('units\n' + (i + 1) + '\n')
+        stored.set(['blobs', ...parts].join('/'), body)
+        admitted.push({
+            name: base,
+            proof: await issueManagedUpload({ caller, workspace, flow, chat }, parts, createHash('sha256').update(body).digest('hex'))
+        })
+    }
+    const context = {
+        roster: { workspaceId: workspace, createdAt: new Date().toISOString(), chatflowId: flow },
+        moduleOptions: { flowOptions: { nestedFlowCaller: caller } },
+        chatId: chat,
+        managedUploadReceipts: admitted,
+        assertNativeAuthority() {}
+    }
+    await withManagedUploads(context, 'Read each file.', async () => {
+        assert.deepEqual([...context.sampleInputs], ['uploads/units.csv', 'uploads/2-units.csv', 'uploads/3-units.csv'])
+        const tool = openNativeNumericCode({ codeExecution: true }, 'on-demand', openUploadSampler(context))
+        const outputs = []
+        for (const path of context.sampleInputs) {
+            const code =
+                'import csv\nrows=list(csv.DictReader(open(' + JSON.stringify(path) + ')))\nprint(sum([int(row["units"]) for row in rows]))'
+            outputs.push(JSON.parse(await tool.execute('execute_code', { code })).output)
+        }
+        assert.deepEqual(outputs, ['1\n', '2\n', '3\n'])
+    })
+})
+
+test('a mixed-role CSV report requires the admitted caller question, upload and exact tool operation', async (t) => {
+    const scope = { workspace: randomUUID(), flow: randomUUID(), chat: randomUUID(), caller: { via: 'api_key', apiKeyId: randomUUID() } }
+    const parts = [randomUUID(), scope.flow, scope.chat, 'sales.csv']
+    const natural = 'Create a report from the attached CSV, summing "Net" by "Region".'
+    const data = Buffer.from('Region,Net\nNorth,2.50\nNorth,3.00\n')
+    const hash = createHash('sha256').update(data).digest('hex')
+    const role = { name: 'reporter', fileAccess: true, shell: true, browser: true, codeExecution: true }
+    const previous = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+    process.env.CUTTLELY_SECRETKEY_OVERWRITE = randomUUID()
+    selectPredictionFiles({ stream: () => [data] })
+    t.after(() => {
+        selectPredictionFiles(null)
+        if (previous === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        else process.env.CUTTLELY_SECRETKEY_OVERWRITE = previous
+    })
+    const options = { source: name, operation: 'sum', valueColumn: 'Net', groupBy: 'Region', format: 'table' }
+    async function turn({ original = natural, question = original, caller = scope.caller, depth = 0, replay, legacy, edits = {}, check }) {
+        const proof = await issueManagedUpload(scope, parts, hash, original)
+        const marked = buildUploadQuestionPart({ name: 'sales.csv', rows: 4000, size: 50000, absolutePath: '/source/sales.csv' })
+        const prefix = marked.block.replace('<file ', `<file proof='${proof}' `)
+        const input = prefix + '\n\n' + question
+        const ctx = {
+            assertNativeAuthority() {},
+            checkRole() {},
+            replay,
+            roster: { workspaceId: scope.workspace, chatflowId: scope.flow, createdAt: new Date().toISOString() },
+            moduleOptions: { flowOptions: { nestedFlowDepth: depth, nestedFlowCaller: caller }, nativeSourceTurn: { question: input } },
+            managedUploadReceipts: legacy ? [] : [{ name: 'sales.csv', proof, path: '/source/sales.csv', ...edits }],
+            chatId: scope.chat
+        }
+        return withManagedUploads(ctx, input, () => check(ctx, requestedMixedReport(ctx, role)))
+    }
+    const accepted = async (ctx, grant) => {
+        assert.deepEqual(grant, { ...options, order: 'group' })
+        const report = openNativeTabularReport(ctx, role, grant)
+        assert.throws(() => report.validate({ ...options, operation: 'max' }), { code: 'native_unsupported' })
+        assert.equal(report.evidence().length, 0)
+        assert.equal((await report.execute(options)).error, false)
+        assert.equal(report.evidence()[0].preview[0].value, '5.5')
+        assert.match(Buffer.from(report.finish()[0].base64, 'base64').toString(), /"North","2","2","5\.5"/)
+    }
+    await turn({ check: accepted })
+    await turn({ original: '/analyze_csv_report ' + JSON.stringify(options), check: accepted })
+    const refused = (_, grant) => assert.equal(grant, undefined)
+    for (const original of [
+        'Inspect the CSV in a browser and make a report.',
+        natural + ' Open a browser.',
+        'Run the terminal and then ' + natural,
+        'Describe the attached CSV.',
+        '/analyze_csv_report ' + JSON.stringify({ ...options, source: 'uploads/other.csv' }),
+        '/analyze_csv_report ' + JSON.stringify({ ...options, extra: true })
+    ])
+        await turn({ original, check: refused })
+    await turn({ question: 'Different caller request', check: refused })
+    await turn({
+        original: 'Open the browser.',
+        question: natural,
+        edits: { request: { length: natural.length, hash: createHash('sha256').update(natural).digest('hex') } },
+        check: refused
+    })
+    await turn({ depth: 1, check: refused })
+    await turn({ replay: true, check: refused })
+    await turn({ legacy: true, check: refused })
+    await assert.rejects(turn({ caller: { via: 'api_key', apiKeyId: randomUUID() }, check: accepted }), { code: 'upload_changed' })
+})

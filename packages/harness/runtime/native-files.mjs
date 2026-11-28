@@ -166,6 +166,14 @@ export function openUploadSampler(context) {
         return result.output
     }
     return {
+        csvRows(source, includeData) {
+            check()
+            if (!csv.includes(source)) throw new HarnessError('native_unsupported', 'Choose a verified CSV or TSV uploaded in this turn.')
+            const data = context.managedUploads?.[source]
+            if (typeof data !== 'string' || data.length > 87384 || Buffer.byteLength(data, 'base64') > 65536)
+                throw new HarnessError('native_unsupported', 'Choose a CSV or TSV of at most 64 KiB for row processing.')
+            return includeData ? { source, data } : undefined
+        },
         workbookTool: workbooks.length
             ? {
                   type: 'function',
@@ -191,7 +199,7 @@ export function openUploadSampler(context) {
             ? ''
             : 'To sample a verified CSV or TSV, replace SOURCE with its quoted uploads/ name in this exact code:\n' +
               call('SOURCE') +
-              '\nVerified sources: ' +
+              '\nFor a CSV up to 64 KiB, begin with import csv and rows = list(csv.DictReader(open(SOURCE))) on separate lines, then transform and print rows. TSV accepts delimiter="\\t".\nVerified sources: ' +
               JSON.stringify(csv),
         accepts: (code) => calls.has(code),
         async execute(code) {
@@ -220,6 +228,7 @@ export async function withManagedUploads(context, input, run) {
     let question = String(input)
     const admitted = context.managedUploadReceipts || []
     const sampleInputs = new Set()
+    const checkedUploadFiles = new Set()
     const paths = new Set(admitted.map((receipt) => receipt.path).filter(Boolean))
     const legacy = parseUploadStubs(input).filter((stub) => stub.path && !paths.has(stub.path))
     for (const [index, stub] of [...admitted, ...legacy].entries()) {
@@ -228,8 +237,10 @@ export async function withManagedUploads(context, input, run) {
             if (Object.keys(uploads).length >= maxEntries) throw Error('Workspace upload limit')
             const stored = await readManagedUpload(stub.proof, scope, defaultUploadRoots()[0], maxBytes - used)
             if (!stored) throw Error('Unbound file')
-            let basename = path.basename(stub.name || stored.name)
-            if (Object.hasOwn(uploads, 'uploads/' + basename)) basename = Object.keys(uploads).length + '-' + basename
+            const originalName = path.basename(stub.name || stored.name)
+            let basename = originalName
+            for (let suffix = Object.keys(uploads).length; Object.hasOwn(uploads, 'uploads/' + basename); suffix++)
+                basename = suffix + '-' + originalName
             key = assertRelative('uploads/' + basename)
             used += stored.body.length
             uploads[key] = stored.body.toString('base64')
@@ -238,8 +249,13 @@ export async function withManagedUploads(context, input, run) {
                 /\.(?:csv|tsv|xlsx)$/i.test(stored.name) &&
                 /\.(?:csv|tsv|xlsx)$/i.test(key) &&
                 stored.body.length <= 4 * 1024 ** 2
-            )
+            ) {
                 sampleInputs.add(key)
+                if (admitted.length === 1 && /\.csv$/i.test(key) && flow.nestedFlowDepth === 0 && context.checkRole && !context.replay)
+                    context.reportUpload = { proof: stored.request, source: key }
+            }
+            if (index < admitted.length && /\.(?:csv|tsv|txt)$/i.test(stored.name) && stored.body.length <= 4 * 1024 ** 2)
+                checkedUploadFiles.add(key)
             sources.push(uploadSource({ name: basename, absolutePath: key, size: stored.body.length, mime: stub.mime, rows: stub.rows }))
         } catch {
             if (index < admitted.length)
@@ -252,6 +268,7 @@ export async function withManagedUploads(context, input, run) {
         }
     }
     context.managedFileOwner = await managedFileOwnerTag(flow.nestedFlowCaller, scope.workspace, scope.chat)
+    context.checkedUploadFiles = checkedUploadFiles
     context.sampleInputs = sampleInputs
     context.managedUploads = uploads
     context.uploadSources = sources

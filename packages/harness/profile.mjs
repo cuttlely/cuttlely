@@ -1,4 +1,4 @@
-import { saveRuntimeSetting } from './side-store-postgres.mjs'
+import { harnessUsesPostgres, saveRuntimeSetting } from './side-store-postgres.mjs'
 import { recordEntries, recordExists } from './record-files.mjs'
 import { defaultEvidenceBytes, evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
@@ -3339,10 +3339,23 @@ function linkedProfileDirs(record, profileName = record?.name) {
     return [...dirs].filter(isLink)
 }
 
+// This is a missing local tree only. The boot caller separately proves the stored Live canvas and generation.
+export function needsPublishedProfileRecovery(record) {
+    return Boolean(
+        harnessUsesPostgres() &&
+            process.env.CUTTLELY_HARNESS_QUEUE?.trim().toLowerCase() === 'external' &&
+            record?.workspaceId &&
+            record.chatflowId &&
+            record.createdAt &&
+            !record.tryId &&
+            !lstatNoFollow(profileDir(record.name))
+    )
+}
+
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
 // harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
-export function recompileOutdatedProfiles(records, { log = console } = {}) {
+export function recompileOutdatedProfiles(records, { log = console, recoverMissing = false } = {}) {
     const results = []
     for (const record of records) {
         if (!record?.name) continue
@@ -3373,7 +3386,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
         }
         let outdated
         try {
-            outdated = parkedStale || profileOutdated(record)
+            outdated = parkedStale || profileOutdated(record) || (recoverMissing && needsPublishedProfileRecovery(record))
         } catch (error) {
             results.push({ name: record.name, status: 'failed', error: error.message })
             continue

@@ -19,7 +19,7 @@ const root = nativePackageRoot() || sourceRoot
 const provider = path.join(sourceRoot, 'scripts/fixtures/kraken-upload-sampler.cjs')
 const graph = (type, name) => JSON.parse(JSON.parse(fs.readFileSync(path.join(root, 'samples', type, name + '.canvas.json'))).flowData)
 test(
-    'original Upload python role samples only the signed caller’s verified CSV on a published prediction',
+    'original Upload code and shell roles inspect only the signed caller’s verified CSV on a published prediction',
     { timeout: 90000 },
     async (t) => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-fixed-sample-')),
@@ -33,6 +33,7 @@ test(
             CUTTLELY_INITIAL_OWNER_PASSWORD: account.password,
             CUTTLELY_SECRETKEY_OVERWRITE: randomUUID(),
             KRAKEN_SAMPLE_MODEL: randomUUID(),
+            KRAKEN_UPLOAD_HOLD: path.join(dir, 'hold-inspection'),
             CUTTLELY_HARNESS_QUEUE: 'external',
             CUTTLELY_NATIVE_PRIME_TEAMS: name,
             CUTTLELY_NATIVE_ROLE_POLICY: 'on-demand',
@@ -157,6 +158,16 @@ test(
         assert.equal(accepted.status, 200, accepted.body.message)
         assert.equal(accepted.body.text, 'North 19.00 from two observations; South 13.50 from one.')
         assert(!JSON.stringify(accepted.body).includes(receipt.proof))
+        const rowChat = randomUUID()
+        const rowTask = 'Aggregate the units from the verified rows.'
+        const values = [0, 1].map(() => parseInt(randomUUID().slice(0, 6), 16) + 1)
+        for (const [i, token] of [a, b].entries()) {
+            const content = 'units,description\r\n' + values[i] + ',"North, shipments"\r\n2,South\r\n'
+            const own = { ...upload, data: 'data:text/csv;base64,' + Buffer.from(content).toString('base64') }
+            const rows = await predict(token, rowTask, [own], { chatId: rowChat })
+            assert.equal(rows.status, 200, rows.body.message)
+            assert.equal(rows.body.text, 'Uploaded total ' + (values[i] + 2) + ' 2')
+        }
         // Replay the exact valid proof and a fabricated path with another admitted key on the identical chat.
         const other = await predict(
             b,
@@ -171,6 +182,88 @@ test(
         assert.equal(otherAccepted.status, 200, otherAccepted.body.message)
         assert.equal(otherAccepted.body.text, 'West 28.00 from one observation.')
         assert(!JSON.stringify(otherAccepted.body).includes('North 19.00'))
+        // Exercise the original Upload shell role on another chat with two real scoped keys.
+        const shellChat = randomUUID()
+        const opening = randomUUID().slice(0, 8),
+            closing = randomUUID().slice(0, 8)
+        const lines = [
+            'item,amount',
+            'OPEN-' + opening + ',1',
+            ...Array.from({ length: 20 }, (_, i) => 'item,' + i),
+            'CLOSE-' + closing + ',3'
+        ]
+        const reportBytes = Buffer.from(lines.join('\r\n') + '\r\n')
+        const shellUpload = { ...upload, data: 'data:text/csv;base64,' + reportBytes.toString('base64') }
+        const inspect = 'Inspect the uploaded text with counts and edge samples.'
+        const inspection = await predict(a, inspect, [shellUpload], { chatId: shellChat })
+        assert.equal(inspection.status, 200, inspection.body.message)
+        assert.equal(
+            inspection.body.text,
+            'Upload inspection: ' + reportBytes.length + ' bytes, ' + lines.length + ' lines, ' + opening + ' to ' + closing
+        )
+        const missing = await predict(b, inspect, undefined, { chatId: shellChat })
+        assert.equal(missing.status, 422)
+        assert.match(missing.body.message, /shell/i)
+        assert(!JSON.stringify(missing.body).includes(opening) && !JSON.stringify(missing.body).includes(closing))
+        // Cancel a real streaming prediction while the simulated model is preparing its first terminal call.
+        const heldChat = randomUUID()
+        const controller = new AbortController()
+        const queue = new DatabaseSync(queueFile, { readOnly: true })
+        const heldLabel = 'held-' + randomUUID()
+        function heldJob() {
+            return queue
+                .prepare("SELECT id,status,cancel_requested FROM jobs WHERE instr(json_extract(payload,'$.input'),?)>0")
+                .get(heldLabel)
+        }
+        async function waitFor(check) {
+            for (let i = 0; i < 200; i++) {
+                const result = check()
+                if (result) return result
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+            throw Error('The expected worker state was not observed.')
+        }
+        fs.writeFileSync(env.KRAKEN_UPLOAD_HOLD, '')
+        const socket = fetch(url + 'prediction/' + outer.id, {
+            method: 'POST',
+            headers: { authorization: 'Bearer ' + a, 'content-type': 'application/json' },
+            body: JSON.stringify({ chatId: heldChat, streaming: true, question: inspect + ' ' + heldLabel, uploads: [shellUpload] }),
+            signal: controller.signal
+        })
+            .then((r) => {
+                assert.equal(r.status, 200)
+                assert.match(r.headers.get('content-type'), /text\/event-stream/)
+                return r.text()
+            })
+            .catch((e) => assert.equal(e.name, 'AbortError'))
+        try {
+            await waitFor(() => fs.existsSync(env.KRAKEN_UPLOAD_HOLD + '.ready'))
+            const job = heldJob()
+            assert.equal(job.status, 'running')
+            controller.abort()
+            await waitFor(() => heldJob()?.cancel_requested === 1)
+            fs.unlinkSync(env.KRAKEN_UPLOAD_HOLD)
+            await waitFor(() => heldJob()?.status === 'cancelled')
+            const calls = (id) =>
+                queue
+                    .prepare('SELECT event FROM job_events WHERE job_id=?')
+                    .all(id)
+                    .map((x) => JSON.parse(x.event))
+                    .filter((e) => e.name === 'terminal' || e.tool === 'terminal')
+            assert(
+                queue
+                    .prepare(
+                        "SELECT 1 FROM job_events WHERE json_extract(event,'$.name')='terminal' OR json_extract(event,'$.tool')='terminal' LIMIT 1"
+                    )
+                    .get()
+            )
+            assert.equal(calls(job.id).length, 0)
+        } finally {
+            controller.abort()
+            await socket
+            fs.rmSync(env.KRAKEN_UPLOAD_HOLD, { force: true })
+            queue.close()
+        }
         await stopWorker()
         const modified = predict(a, 'Summarize the verified CSV by region.', [upload])
         modified.catch(() => {})

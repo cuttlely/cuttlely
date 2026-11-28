@@ -23,7 +23,12 @@ const snapshot = schema(
     { full: { type: 'boolean', enum: [true] } },
     ['full']
 )
+const linkedSnapshot = schema('browser_snapshot', 'Read the current approved page and its link references.', {
+    full: { type: 'boolean', default: false }
+})
+const click = schema('browser_click', 'Follow the caller-approved link by its snapshot reference.', { ref: { type: 'string' } }, ['ref'])
 const actions = [navigate, snapshot]
+const linkActions = [navigate, linkedSnapshot, click]
 const tags = new Set(
     'html head title body main section article header footer h1 h2 h3 h4 h5 h6 p b strong i em div span br ul ol li dl dt dd table thead tbody tr th td'.split(
         ' '
@@ -80,38 +85,69 @@ export function approvedStaticPage(context, role) {
     const text = String(context.moduleOptions.nativeSourceTurn?.question || '')
     if (text.length > 32768) return
     const urls = new Set()
-    for (const [literal] of text.matchAll(/\b[a-z][a-z\d+.-]*:\/\/[^\s<>"`]+/gi)) {
+    const mentions = []
+    for (const match of text.matchAll(/\b[a-z][a-z\d+.-]*:\/\/[^\s<>"`]+/gi)) {
+        const [literal] = match
         if (literal.slice(literal.indexOf('://') + 3).includes('://')) return
         const url = literal.replace(/[.,;:!?)\]}’']+$/u, '')
         if (!canonicalPage(url)) return
         urls.add(url)
-        if (urls.size > 1) return
+        mentions.push({ url, index: match.index, end: match.index + url.length })
+        if (urls.size > 2) return
     }
-    if (urls.size !== 1) return
-    const [asked] = urls
+    if (!urls.size) return
+    const [asked, linked] = urls
+    if (linked) {
+        if (mentions.length !== 2) return
+        const [from, to] = mentions
+        const prefix = text
+            .slice(0, from.index)
+            .split(/[\n.!?]/)
+            .at(-1)
+            .trim()
+        const between = text.slice(from.end, to.index).trim()
+        // The two URLs alone, ordinary prose, an earlier message and a model-written task confer no link grant.
+        const explicit =
+            (/^(?:please )?follow (?:the |a )?link from$/i.test(prefix) && /^to$/i.test(between)) ||
+            (/^(?:please )?from$/i.test(prefix) && /^(?:,\s*)?follow (?:the |its )?link to$/i.test(between)) ||
+            (/^(?:please )?(?:open|read|visit)$/i.test(prefix) &&
+                /^(?:,\s*)?(?:and|then|and then) follow (?:its|the) link to$/i.test(between)) ||
+            (!prefix && /^(?:->|→)$/.test(between))
+        if (!explicit) return
+    }
     try {
         const entries = JSON.parse(raw)
         if (!Array.isArray(entries) || entries.length > 128) return
-        const matches = entries.filter(
-            (e) =>
-                e?.workspaceId === published.workspaceId &&
-                e.flowId === published.chatflowId &&
-                e.generation === published.createdAt &&
-                e.role === role.name &&
-                e.url === asked
-        )
-        if (
-            matches.length !== 1 ||
-            Object.keys(matches[0]).some((k) => !['workspaceId', 'flowId', 'generation', 'role', 'url', 'redirects'].includes(k))
-        )
-            return
-        const { url, redirects = [] } = matches[0],
-            origin = new URL(url).origin
-        if (!Array.isArray(redirects) || redirects.length > 3 || redirects.some((u) => !canonicalPage(u) || new URL(u).origin !== origin))
-            return
+        const pageGrant = (address) => {
+            const matches = entries.filter(
+                (e) =>
+                    e?.workspaceId === published.workspaceId &&
+                    e.flowId === published.chatflowId &&
+                    e.generation === published.createdAt &&
+                    e.role === role.name &&
+                    e.url === address
+            )
+            if (
+                matches.length !== 1 ||
+                Object.keys(matches[0]).some((k) => !['workspaceId', 'flowId', 'generation', 'role', 'url', 'redirects'].includes(k))
+            )
+                return
+            const { url, redirects = [] } = matches[0],
+                origin = new URL(url).origin
+            if (
+                !Array.isArray(redirects) ||
+                redirects.length > 3 ||
+                redirects.some((u) => !canonicalPage(u) || new URL(u).origin !== origin)
+            )
+                return
+            return { url, origin, destinations: [url, ...redirects] }
+        }
+        const source = pageGrant(asked),
+            target = linked && pageGrant(linked)
+        if (!source || (linked && (!target || source.destinations.some((url) => target.destinations.includes(url))))) return
         const binary = components('playwright').chromium.executablePath()
         accessSync(binary, constants.X_OK)
-        const grant = { settings: raw, url, origin, destinations: [url, ...redirects] }
+        const grant = { settings: raw, ...source, target }
         if (!turnGrants.has(context)) turnGrants.set(context, new WeakMap())
         turnGrants.get(context).set(role, grant)
         return grant
@@ -120,9 +156,9 @@ export function approvedStaticPage(context, role) {
     }
 }
 
-// Restrict the rendered document to noninteractive semantic HTML. Chromium receives no original URL,
-// attributes, scripts, styles, forms, media, links or frames. Unsupported pages fail explicitly.
-function safeDocument(html) {
+// Chromium receives semantic text and, only for a caller-authorized pair, inert same-document link
+// markers. Original URLs, author attributes, scripts, styles, forms, media and frames never enter the browser.
+function safeDocument(html, location, target, linked) {
     const $ = components('cheerio').load(html)
     const nodes = $('*')
     if (nodes.length > 1500) throw refuse()
@@ -133,13 +169,83 @@ function safeDocument(html) {
             if (++depth > 32) throw refuse()
             parent = parent.parent
         }
+        if (linked && element.name === 'a') {
+            const attrs = element.attribs || {}
+            if (Object.keys(attrs).length !== 1 || typeof attrs.href !== 'string') throw refuse()
+            let address
+            try {
+                if (attrs.href.length <= 2048 && !/[\\\u0000-\u0020\u007f]/.test(attrs.href)) address = new URL(attrs.href, location).href
+            } catch {
+                // Preserve its label, but the resulting reference cannot issue a request.
+            }
+            $(element).attr('href', address && address === target ? '#reviewed' : '#unreviewed')
+            continue
+        }
         if (!tags.has(element.name) || Object.keys(element.attribs || {}).length) throw refuse()
     }
     return $.html()
 }
 
-async function staticTree(body, signal, check) {
-    const html = safeDocument(body)
+// The released browser numbers selectable roles in Chromium's accessibility-node order, then prints
+// the tree in document order. Only real anchors labelled by the sanitizer can authorize a GET.
+async function linkedTree(context, page) {
+    const session = await context.newCDPSession(page)
+    const { nodes } = await session.send('Accessibility.getFullAXTree')
+    if (nodes.length > 6000) throw refuse()
+    const byId = new Map(nodes.map((node) => [node.nodeId, node]))
+    const labelled = new Map(),
+        refs = new Set()
+    const refRoles = new Set(['heading', 'link', 'cell', 'columnheader', 'rowheader'])
+    for (const node of nodes) {
+        const role = node.role?.value
+        if (node.ignored || !refRoles.has(role) || !node.name?.value) continue
+        const ref = 'e' + (labelled.size + 1)
+        labelled.set(node.nodeId, ref)
+        if (role === 'link' && node.properties?.some((p) => p.name === 'url' && p.value?.value === 'about:blank#reviewed')) refs.add(ref)
+    }
+    if (refs.size > 16) throw refuse()
+    const full = [],
+        compact = []
+    const useful = new Set(labelled.keys())
+    for (const node of nodes) {
+        if (!useful.has(node.nodeId)) continue
+        let parent = node.parentId
+        while (parent && !useful.has(parent)) {
+            useful.add(parent)
+            parent = byId.get(parent)?.parentId
+        }
+    }
+    function visit(node, depth, parentName) {
+        if (!node || depth > 64) throw refuse()
+        const role = node.role?.value,
+            name = node.name?.value || ''
+        if (role === 'InlineTextBox' || (role === 'StaticText' && name && name === parentName)) return
+        const visible = !node.ignored && role && role !== 'RootWebArea' && role !== 'none'
+        if (visible) {
+            const attrs = [],
+                level = node.properties?.find((prop) => prop.name === 'level')?.value?.value
+            if (Number.isInteger(level)) attrs.push('level=' + level)
+            if (labelled.has(node.nodeId)) attrs.push('ref=' + labelled.get(node.nodeId))
+            const line =
+                '  '.repeat(depth) +
+                '- ' +
+                role +
+                (name ? ' ' + JSON.stringify(name) : '') +
+                (attrs.length ? ' [' + attrs.join(', ') + ']' : '')
+            full.push(line)
+            if (useful.has(node.nodeId)) compact.push(line)
+        }
+        for (const child of node.childIds || []) visit(byId.get(child), depth + (visible ? 1 : 0), visible ? name : parentName)
+    }
+    visit(nodes[0], 0, '')
+    const tree = full.join('\n'),
+        short = compact.join('\n') || '(empty page)'
+    if (!tree.trim() || tree.length > 20000) throw refuse()
+    return { tree, compact: short, refs, elementCount: labelled.size }
+}
+
+async function staticTree(body, signal, check, location, target, linked) {
+    const html = safeDocument(body, location, target, linked)
     if (renderers >= 2) throw new HarnessError('busy', 'The static page reader is busy.')
     const { chromium } = components('playwright')
     let browser
@@ -163,9 +269,11 @@ async function staticTree(body, signal, check) {
         const page = await context.newPage()
         page.setDefaultTimeout(4000)
         await page.setContent(html)
-        const title = await page.title(),
-            tree = await page.locator('body').ariaSnapshot()
-        if (tree.length > 20000 || title.length > 512 || !tree.trim()) throw refuse()
+        const title = await page.title()
+        if (title.length > 512) throw refuse()
+        if (linked) return { ...(await linkedTree(context, page)), title }
+        const tree = await page.locator('body').ariaSnapshot()
+        if (tree.length > 20000 || !tree.trim()) throw refuse()
         return { tree, title }
     } finally {
         signal.removeEventListener('abort', close)
@@ -182,12 +290,30 @@ export function openStaticPage(context, specialist) {
     if (!initial) return
     let read,
         started = false,
-        delivered = false
+        delivered = false,
+        followed = false
     const current = () => {
         context.assertNativeAuthority()
         if (process.env.CUTTLELY_NATIVE_STATIC_PAGES !== initial.settings) throw refuse()
     }
     function validate(name, args) {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) throw refuse()
+        if (
+            initial.target &&
+            name === 'browser_click' &&
+            Object.keys(args).length === 1 &&
+            typeof args.ref === 'string' &&
+            /^@?e[1-9]\d{0,7}$/.test(args.ref) &&
+            !followed &&
+            read?.refs.has(args.ref.replace(/^@/, ''))
+        )
+            return
+        if (
+            initial.target &&
+            name === 'browser_snapshot' &&
+            (Object.keys(args).length === 0 || (Object.keys(args).length === 1 && typeof args.full === 'boolean'))
+        )
+            return
         if (name === 'browser_navigate' && args.url === initial.url && Object.keys(args).length === 1) return
         if (name === 'browser_snapshot' && Object.keys(args).length === 1 && args.full === true) return
         throw refuse()
@@ -197,7 +323,7 @@ export function openStaticPage(context, specialist) {
         JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e') +
         '\n</untrusted_tool_result>'
     return {
-        tools: actions,
+        tools: initial.target ? linkActions : actions,
         validate,
         delivered: () => delivered,
         async execute(name, args) {
@@ -205,19 +331,29 @@ export function openStaticPage(context, specialist) {
             current()
             if (name === 'browser_snapshot') {
                 if (!read) throw refuse()
-                delivered = true
-                return result({ success: true, snapshot: read.tree })
+                delivered = !initial.target || followed
+                return result(
+                    initial.target
+                        ? { success: true, snapshot: args.full ? read.tree : read.compact, element_count: read.elementCount }
+                        : { success: true, snapshot: read.tree }
+                )
             }
-            if (started) throw refuse()
+            const clicking = name === 'browser_click'
+            if (!clicking && started) throw refuse()
+            const page = clicking ? initial.target : initial
+            if (clicking) {
+                followed = true
+                read = undefined
+            }
             started = true
             const deadline = AbortSignal.timeout(10000),
                 signal = context.workSignal ? AbortSignal.any([deadline, context.workSignal]) : deadline
             const { secureFetch } = components('@cuttlely/components/httpSecurity')
             let response
             try {
-                response = await secureFetch(initial.url, { method: 'GET', size: 65536, signal }, 3, {
-                    publicPageOrigin: initial.origin,
-                    staticPage: { destinations: initial.destinations, assertCurrent: current }
+                response = await secureFetch(page.url, { method: 'GET', size: 65536, signal }, 3, {
+                    publicPageOrigin: page.origin,
+                    staticPage: { destinations: page.destinations, assertCurrent: current }
                 })
             } catch (error) {
                 signal.throwIfAborted()
@@ -226,7 +362,7 @@ export function openStaticPage(context, specialist) {
             }
             if (
                 !response.ok ||
-                !initial.destinations.includes(response.url) ||
+                !page.destinations.includes(response.url) ||
                 response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/html'
             ) {
                 response.body?.destroy()
@@ -236,7 +372,14 @@ export function openStaticPage(context, specialist) {
             if (Buffer.byteLength(body) > 65536) throw refuse()
             current()
             try {
-                read = await staticTree(body, signal, current)
+                read = await staticTree(
+                    body,
+                    signal,
+                    current,
+                    response.url,
+                    clicking ? undefined : initial.target?.url,
+                    Boolean(initial.target)
+                )
             } catch (error) {
                 context.workSignal?.throwIfAborted()
                 if (deadline.aborted) throw new HarnessError('timeout', 'The static page renderer timed out.')
@@ -245,7 +388,13 @@ export function openStaticPage(context, specialist) {
             }
             signal.throwIfAborted()
             current()
-            return result({ success: true, url: response.url, title: read.title })
+            if (clicking) return result({ success: true, clicked: '@' + args.ref.replace(/^@/, '') })
+            return result({
+                success: true,
+                url: response.url,
+                title: read.title,
+                ...(initial.target ? { snapshot: read.compact, element_count: read.elementCount } : {})
+            })
         }
     }
 }

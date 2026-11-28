@@ -171,8 +171,55 @@ function messageText(content) {
     return String(content)
 }
 
-function toLangChain(messages) {
-    return (messages || []).map((message) => {
+function responsesCallId(id) {
+    if (id.length <= 64 || Array.from(id).length <= 64) return id
+    return `call_${createHash('sha256').update(id).digest('hex').slice(0, 32)}`
+}
+
+// Responses requires distinct call IDs across the entire request. Leave the saved
+// transcript intact and pair each replayed output with its assistant call in order.
+function responsesReplay(messages) {
+    const used = new Set()
+    const counts = new Map()
+    const pending = new Map()
+    return messages.map((message) => {
+        if (ToolMessage.isInstance(message)) {
+            const original = message.tool_call_id
+            const queue = pending.get(original)
+            const id = queue?.shift()
+            if (queue && !queue.length) pending.delete(original)
+            return id && id !== original ? new ToolMessage({ ...message, tool_call_id: id }) : message
+        }
+        if (!AIMessage.isInstance(message) || !message.tool_calls?.length) return message
+        const items = message.additional_kwargs?.__openai_function_call_ids__
+        const mappedItems = []
+        let changed = false
+        const calls = message.tool_calls.map((call) => {
+            const original = call.id
+            if (typeof original !== 'string' || !original) return call
+            const base = responsesCallId(original)
+            let suffix = counts.get(base) || 0
+            let id = base
+            while (used.has(id)) id = responsesCallId(`${base}_dup${++suffix}`)
+            counts.set(base, suffix)
+            used.add(id)
+            if (!pending.has(original)) pending.set(original, [])
+            pending.get(original).push(id)
+            if (items && Object.hasOwn(items, original)) mappedItems.push([id, items[original]])
+            if (id === original) return call
+            changed = true
+            return { ...call, id }
+        })
+        if (!changed) return message
+        const additional = items
+            ? { ...message.additional_kwargs, __openai_function_call_ids__: Object.fromEntries(mappedItems) }
+            : message.additional_kwargs
+        return new AIMessage({ ...message, additional_kwargs: additional, tool_calls: calls })
+    })
+}
+
+function toLangChain(messages, chat, options) {
+    const converted = (messages || []).map((message) => {
         if (
             message instanceof SystemMessage ||
             message instanceof HumanMessage ||
@@ -208,6 +255,10 @@ function toLangChain(messages) {
         }
         return new HumanMessage(userContent(content, message?.images))
     })
+    // Ask the active SDK model which transport this invocation uses. A saved chat
+    // can move between Responses and Chat Completions when a fallback is selected.
+    const responses = chat._useResponsesApi?.({ ...chat.defaultOptions, ...options }) ?? chat.useResponsesApi
+    return responses ? responsesReplay(converted) : converted
 }
 
 // A user message with images becomes text and image parts, the shape OpenAI-style chat models take.
@@ -415,7 +466,7 @@ function deliverText(onDelta, text) {
 
 // Token deltas go out as the provider sends them. A chat model with no stream() still returns one reply.
 async function streamChat(chat, messages, options, json, onDelta) {
-    let iterable = chat.stream(toLangChain(messages), options)
+    let iterable = chat.stream(toLangChain(messages, chat, options), options)
     if (iterable && typeof iterable.then === 'function') iterable = await iterable
     let content = ''
     let combined = null
@@ -515,7 +566,7 @@ export async function invokeChat(
             let usage = null
             const choice = await fallbackToolChoice(
                 async (nextMessages) => {
-                    const parsed = chatResult(await chat.invoke(toLangChain(nextMessages), options), false)
+                    const parsed = chatResult(await chat.invoke(toLangChain(nextMessages, chat, options), options), false)
                     usage = combineRetryUsage(usage, openAiUsage(parsed.usage))
                     return parsed
                 },
@@ -535,7 +586,7 @@ export async function invokeChat(
                 return await useFallback(1)
             }
             try {
-                const result = await bound.invoke(toLangChain(prepared), options)
+                const result = await bound.invoke(toLangChain(prepared, bound, options), options)
                 const parsed = chatResult(result, json)
                 deliverText(onDelta, parsed.content)
                 return parsed
@@ -549,7 +600,7 @@ export async function invokeChat(
         if (typeof onDelta === 'function' && typeof chat.stream === 'function') {
             return streamChat(chat, prepared, options, json, onDelta)
         }
-        const result = await chat.invoke(toLangChain(prepared), options)
+        const result = await chat.invoke(toLangChain(prepared, chat, options), options)
         const parsed = chatResult(result, json)
         deliverText(onDelta, parsed.content)
         return parsed

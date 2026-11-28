@@ -1,3 +1,4 @@
+import { publishedSearchCredential } from './native-search-credential.mjs'
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { stableStringify } from '../flow-graph.mjs'
@@ -45,8 +46,10 @@ export function onDemandNativeRoles(engine) {
     return engine === 'native' && process.env.CUTTLELY_NATIVE_ROLE_POLICY === 'on-demand'
 }
 
-export function assertNativeRoleSupported(specialist, approvedStaticPage = false) {
-    if (approvedStaticPage && specialist.browser === true && !specialist.shell && !specialist.codeExecution) return
+export function assertNativeRoleSupported(specialist, approvedBrowserTask = false, verifiedUploadShell = false) {
+    if (verifiedUploadShell && specialist.shell === true && !specialist.browser && !specialist.codeExecution && !specialist.fileAccess)
+        return
+    if (approvedBrowserTask && specialist.browser === true && !specialist.shell && !specialist.codeExecution) return
     if (openNativeNumericCode(specialist, 'on-demand')) return
     const capabilities = deferredCapabilities(specialist)
     if (capabilities.length)
@@ -125,10 +128,18 @@ function compatibilityGaps(roster, { admitUnavailableTools, exportOnly, deferRol
         if (!exportOnly) for (const gap of prepareNativePlaybooks(roster, specialist).gaps) capabilities.add(gap)
         for (const binding of specialist.modules || []) {
             // Offline inventory continues to list the missing credential. In a live canary its absence need
-            // not deny a sibling role. A host key may have made the released tool operational: require rebinding.
-            if (admitUnavailableTools && unboundNativeSerp(binding) && !process.env.SERPAPI_API_KEY) continue
+            // not deny a sibling role. A host key requires an explicit saved or operator binding.
+            const unboundSearch = unboundNativeSerp(binding)
+            if (
+                admitUnavailableTools &&
+                unboundSearch &&
+                (!process.env.SERPAPI_API_KEY || publishedSearchCredential(roster, specialist, binding))
+            )
+                continue
             if (!supportsNativeCanvasBinding(binding) && !nativeAnalystBinding(binding)) {
                 let hint = needsNativeCanvasCredential(binding) ? ' (select a saved credential)' : ''
+                if (unboundSearch)
+                    hint = ' (select a saved credential or configure CUTTLELY_NATIVE_SEARCH_CREDENTIALS for the published card)'
                 if (binding?.nodeName === 'customRetriever' && !binding.upstream?.vectorStore) hint = ' (connect a supported vector store)'
                 capabilities.add('canvas tool ' + nativeNodeLabel(binding) + hint)
             }
@@ -258,9 +269,9 @@ export async function runNativeToolLoop({
             }
             if (!args || typeof args !== 'object' || Array.isArray(args))
                 throw new HarnessError('bad_task', 'Expected tool arguments as an object.')
-            validateCall?.(name, args)
             return { name, id: call.id, args }
         })
+        if (validateCall) for (const call of calls) await validateCall(call.name, call.args)
         // Commit the whole validated batch before dispatch. Calls left in this state
         // when a worker dies never reached a tool.
         if (queueCall) for (const call of calls) call.receipt = queueCall(call.name)

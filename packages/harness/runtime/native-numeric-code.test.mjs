@@ -132,3 +132,168 @@ test('the sort accepts only its fixed Boolean direction and bounded literal pref
     ])
         for (const method of ['validate', 'execute']) reject(() => tool[method]('execute_code', { code }))
 })
+
+test('native code collects, projects and ranks bounded rows with released Python formatting', async () => {
+    const cases = [
+        [
+            'rows = [{"item":"A", "amount":12}, {"item":"B", "amount":8}]\namounts = []\nfor row in rows:\n    amounts.append(row["amount"])\nprint(sum(amounts), len(rows))',
+            '20 2\n'
+        ],
+        [
+            'rows = [(" Beta ",3), ("Alpha",5)]\nreport = []\nfor label, count in rows:\n    report.append((label.strip().lower(), count * 2))\nprint(sorted(report))',
+            "[('alpha', 10), ('beta', 6)]\n"
+        ],
+        [
+            'cols = ["item","units"]\nrows = []\nfor pair in [("A", 3), ("B", 7)]:\n    rows.append(dict(zip(cols, pair)))\nprint(rows[1].get("units", 0))',
+            '7\n'
+        ],
+        [
+            'totals = {"a":3,"b":7}\nrows = []\nfor name, value in totals.items():\n    rows.extend([name, value])\nprint(rows)',
+            "['a', 3, 'b', 7]\n"
+        ],
+        ['rows = []\nfor i, v in enumerate(["x","y"], 4):\n    rows.append([i,v])\nprint(rows)', "[[4, 'x'], [5, 'y']]\n"],
+        ['rows = []\nprint(len(rows))\nprint(max(rows))', '0\n\n--- stderr ---\nValueError: max() iterable argument is empty\n']
+    ]
+    for (const [code, output] of cases) {
+        await tool.validate('execute_code', { code })
+        const packet = JSON.parse(await tool.execute('execute_code', { code }))
+        assert.equal(packet.output, output)
+        assert.equal(packet.status, output.includes('stderr') ? 'error' : 'success')
+        assert.equal(packet.stdout_bytes_captured, Buffer.byteLength(output.split('\n--- stderr ---')[0]))
+    }
+})
+
+test('row validation examines unused branches, enforces limits and isolates concurrent cells', async () => {
+    const invalid = [
+        'rows=[]\nfor x in rows:\n    import os\nprint(rows)',
+        'rows=[]\nfor x in rows:\n    x.clear()\nprint(rows)',
+        'rows=[]\nfor x in rows:\n    x = sum([1], [2])\nprint(rows)',
+        'rows=[]\nfor x in rows:\n    x = x.items(4)\nprint(rows)',
+        'rows=[]\nrows.append(open("private-case"))\nprint(rows)',
+        'rows=[]\nprint(rows.__class__)',
+        'rows=[]\nwhile rows:\n    rows.append(1)\nprint(rows)',
+        'rows=[]\nprint(list(range(1000000000)))',
+        'rows=[]\nprint(' + '"x"'.repeat(1025) + ')',
+        'rows=[]\nprint(' + '2'.repeat(65) + ')',
+        'rows=[]\nprint(enumerate(rows))'
+    ]
+    for (const code of invalid)
+        for (const method of ['validate', 'execute']) {
+            await assert.rejects(
+                async () => tool[method]('execute_code', { code }),
+                (e) => e.code === 'native_unsupported' && !e.message.includes('private-case')
+            )
+        }
+    for (const code of [
+        'rows=[]\nrows.append(rows)\nprint(rows)',
+        'rows=[1,2]\nfor row in rows:\n    rows.append(1)\nprint(rows)',
+        'rows=[1]\nprint(rows * 1000000000)'
+    ])
+        await assert.rejects(tool.execute('execute_code', { code }), { code: 'native_unsupported' })
+    const packets = await Promise.all([3, 18, -5].map((n) => tool.execute('execute_code', { code: 'rows=[' + n + ']\nprint(sum(rows))' })))
+    assert.deepEqual(
+        packets.map((p) => JSON.parse(p).output),
+        ['3\n', '18\n', '-5\n']
+    )
+    const independent = JSON.parse(await tool.execute('execute_code', { code: 'other=[]\nprint(rows)' }))
+    assert.equal(independent.error, "NameError: name 'rows' is not defined")
+})
+
+test('concurrent row work is bounded and cancellation frees capacity before dispatch', async () => {
+    const code = 'rows=[2, 3]\nprint(sum(rows))'
+    const controllers = Array.from({ length: 68 }, () => new AbortController())
+    const pending = controllers.map((controller) =>
+        openNativeNumericCode(role, 'on-demand', undefined, controller.signal).execute('execute_code', { code })
+    )
+    const observed = Promise.allSettled(pending)
+    const overflow = assert.rejects(tool.execute('execute_code', { code }), { code: 'busy' })
+    controllers.forEach((c) => c.abort())
+    await overflow
+    assert.ok((await observed).every((r) => r.status === 'rejected' && r.reason.name === 'AbortError'))
+    const results = await Promise.all(
+        Array.from({ length: 16 }, (_, i) => tool.execute('execute_code', { code: 'rows=[' + i + ']\nprint(sum(rows))' }))
+    )
+    assert.deepEqual(
+        results.map((p) => JSON.parse(p).output),
+        Array.from({ length: 16 }, (_, i) => i + '\n')
+    )
+})
+
+test('row aggregation binds just the selected upload and rechecks ownership at validation, read and return', async () => {
+    const original = ['item,units', '"Blue, A",5', 'Red,13', ''].join('\r\n')
+    const source = 'uploads/units.csv'
+    const seen = []
+    let revokeAfterRead = false
+    const csv = openNativeNumericCode(role, 'on-demand', {
+        accepts: () => false,
+        csvRows(path, withData) {
+            seen.push([path, withData])
+            if (path !== source) throw Object.assign(new Error('source unavailable'), { code: 'native_unsupported' })
+            if (revokeAfterRead && !withData && seen.some(([, read]) => read))
+                throw Object.assign(new Error('changed'), { code: 'harness_changed' })
+            if (withData) return { source, data: Buffer.from(original).toString('base64') }
+        }
+    })
+    for (const statement of [
+        'rows = list(csv.DictReader(open("uploads/units.csv")))',
+        'with open("uploads/units.csv", "r", newline="", encoding="utf-8") as f:\n    rows = list(csv.DictReader(f))'
+    ]) {
+        const args = {
+            code:
+                'import csv\n' +
+                statement +
+                '\ncounts=[]\nfor row in rows:\n    counts.append(int(row["units"]))\nprint(rows[0]["item"], sum(counts))'
+        }
+        seen.length = 0
+        await csv.validate('execute_code', args)
+        const result = JSON.parse(await csv.execute('execute_code', args))
+        assert.equal(result.output, 'Blue, A 18\n')
+        assert.deepEqual(seen, [
+            [source, false],
+            [source, true],
+            [source, false]
+        ])
+    }
+    const code = 'import csv\nrows=list(csv.DictReader(open("uploads/units.csv")))\nprint(len(rows))'
+    for (const bad of [
+        code.replace('uploads/units.csv', 'uploads/unverified.csv'),
+        code.replace('open("uploads/units.csv")', 'open("uploads/units.csv","w")'),
+        code.replace('list(csv.DictReader(open("uploads/units.csv")))', 'open("uploads/units.csv").read()'),
+        code.replace('print(len(rows))', 'import pathlib\nprint(len(rows))')
+    ]) {
+        await assert.rejects(csv.validate('execute_code', { code: bad }), { code: 'native_unsupported' })
+        await assert.rejects(csv.execute('execute_code', { code: bad }), { code: 'native_unsupported' })
+    }
+    await assert.rejects(tool.execute('execute_code', { code }), { code: 'native_unsupported' })
+    seen.length = 0
+    revokeAfterRead = true
+    await assert.rejects(csv.execute('execute_code', { code }), { code: 'harness_changed' })
+})
+
+test('saved table idioms group rows, filter projected values and preserve local comprehension scope', async () => {
+    const examples = [
+        [
+            'rows=[("North",7),("South",3),("North",12),("South",-1)]\ntotals={}\nfor key,amount in rows:\n    if amount > 0:\n        if key not in totals:\n            totals[key]=0\n        totals[key]+=amount\nprint(totals)',
+            "{'North': 19, 'South': 3}\n"
+        ],
+        ['rows=[{"n":3},{"n":-2},{"n":17}]\nr="outer"\nchosen=[r["n"] for r in rows if 0 < r["n"] < 10]\nprint(chosen,r)', '[3] outer\n'],
+        [
+            'totals={"north":1,"south":2}\nfor k,v in totals.items():\n    print(k,v)\n    totals["south"]+=1\nprint(sum(totals.values()))',
+            'north 1\nsouth 3\n5\n'
+        ],
+        ['totals={"north":1,"south":2}\nfor k,v in list(totals.items()):\n    print(k,v)\n    totals["south"]+=1', 'north 1\nsouth 2\n'],
+        ['rows=[]\nfor i in range(5,0,-2):\n    rows.append("last" if i == 1 else i)\nprint(rows)', "[5, 3, 'last']\n"]
+    ]
+    for (const [code, result] of examples) {
+        await tool.validate('execute_code', { code })
+        assert.equal(JSON.parse(await tool.execute('execute_code', { code })).output, result)
+    }
+    for (const code of [
+        'rows=[]\nif rows:\n    import os\nprint(rows)',
+        'rows=[]\nprint([r.__class__ for r in rows])',
+        'rows=[]\nprint([i for i in rows for j in rows])',
+        'rows=[]\nprint([i for i in range(129)])',
+        'rows=[]\nrows[0].v=5\nprint(rows)'
+    ])
+        await assert.rejects(tool.validate('execute_code', { code }), { code: 'native_unsupported' })
+})

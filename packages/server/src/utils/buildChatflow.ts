@@ -624,7 +624,7 @@ export const executeFlow = async ({
         // Only a Harness card asks for proofs after it has checked the caller's workspace and canvas.
         registerManagedPredictionUploads(nestedOptions.runNestedFlow, async (name) => {
             if (selectAgentEngine(name) !== 'native') return []
-            return issuePredictionUploadReceipts(uploadScope, admittedDocuments)
+            return issuePredictionUploadReceipts(uploadScope, admittedDocuments, depth === 0 ? incomingInput.question : undefined)
         })
     }
 
@@ -972,6 +972,8 @@ export const executeFlow = async ({
                     componentNodes,
                     uploads,
                     prependMessages,
+                    // The Harness card hands its signal to the queue directly, outside a LangChain runnable.
+                    ...(endingNodeData.name === 'harness' && signal && { signal: signal.signal }),
                     ...(isStreamValid && { sseStreamer, shouldStreamResponse: isStreamValid }),
                     evaluationRunId,
                     updateStorageUsage,

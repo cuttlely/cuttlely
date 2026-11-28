@@ -1,10 +1,11 @@
+import { dataRows, startsDataRows } from './native-data-rows.mjs'
 import { HarnessError } from '../errors.mjs'
 
 const sourceLimit = 8192
 const itemLimit = 128
 const digitsLimit = 64
 const usage =
-    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. For ranked values use print(sorted([integer, ...], reverse=True)[:N]); reverse=True or False and the 0–128 item prefix are optional. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. Each call is stateless.'
+    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. For ranked values use print(sorted([integer, ...], reverse=True)[:N]); reverse=True or False and the 0–128 item prefix are optional. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. For a table, start by assigning a literal list or dictionary, collect rows with for/append/extend, then print fields, counts or totals in the same call. Supports field lookup, filters, single-loop list comprehensions, per-key totals, zip, enumerate, items, scalar conversion and sorting. Example: rows = [{"amount": 12}, {"amount": 8}]\namounts = []\nfor row in rows:\n    amounts.append(row["amount"])\nprint(sum(amounts)). Each call is stateless.'
 // Match the literal list first. The two bounded suffixes cannot admit expressions as sort keys or slice bounds.
 const collection = /^print[ \t]*\([ \t]*(sum|len|min|max|sorted)[ \t]*\([ \t]*\[([\d,+\- \t]*)\]([\s\S]*)$/
 const plainEnd = /^[ \t]*\)[ \t]*\)[ \t]*(?:\r?\n)?$/
@@ -23,6 +24,7 @@ function parseCollection(name, args, sampler) {
         unsupported()
     if (typeof args.code !== 'string' || args.code.length > sourceLimit) unsupported()
     if (sampler?.accepts(args.code)) return { sample: args.code }
+    if (startsDataRows(args.code)) return { rows: args.code }
     const match = collection.exec(args.code)
     if (!match || match[0] !== args.code) unsupported()
     const operation = match[1]
@@ -63,8 +65,20 @@ function calculate({ operation, values, descending, limit }) {
     }
 }
 
-export function openNativeNumericCode(specialist, rolePolicy, sampler) {
+export function openNativeNumericCode(specialist, rolePolicy, sampler, signal) {
     if (rolePolicy !== 'on-demand' || specialist?.codeExecution !== true || specialist.shell || specialist.browser) return null
+    const validatedSources = new WeakMap()
+    async function rowSource(args) {
+        const known = validatedSources.get(args)
+        if (known?.code === args.code) return known.source
+        const { source } = await dataRows('validate', args.code, signal)
+        if (source !== undefined) {
+            if (!sampler?.csvRows) unsupported()
+            sampler.csvRows(source, false)
+        }
+        validatedSources.set(args, { code: args.code, source })
+        return source
+    }
     return {
         tools: [
             {
@@ -78,7 +92,7 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler) {
                             code: {
                                 type: 'string',
                                 maxLength: sourceLimit,
-                                description: 'One supported operation on a literal integer list.'
+                                description: 'A bounded integer operation or a row transformation that prints its result.'
                             },
                             reset: {
                                 type: 'boolean',
@@ -93,24 +107,34 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler) {
             }
         ],
         validate(name, args) {
-            parseCollection(name, args, sampler)
+            const parsed = parseCollection(name, args, sampler)
+            if (parsed.rows !== undefined) return rowSource(args)
         },
         execute(name, args) {
             const start = performance.now()
             const parsed = parseCollection(name, args, sampler)
+            if (parsed.rows !== undefined)
+                return (async () => {
+                    // A plain literal table never needs to resolve an upload.
+                    const source = /\bimport[ \t]+csv\b/.test(parsed.rows) ? await rowSource(args) : undefined
+                    const input = source === undefined ? undefined : sampler.csvRows(source, true)
+                    const { output, error } = await dataRows('run', parsed.rows, signal, input)
+                    if (source !== undefined) sampler.csvRows(source, false)
+                    return resultPacket(start, output, error)
+                })()
             if (parsed.sample !== undefined) return sampler.execute(parsed.sample).then((output) => resultPacket(start, output))
             const { value, error } = calculate(parsed)
-            return resultPacket(start, error ? '\n--- stderr ---\n' + error + '\n' : String(value) + '\n', error)
+            return resultPacket(start, error ? '' : String(value) + '\n', error)
         }
     }
 }
 
 function resultPacket(start, output, error) {
-    const bytes = error ? 0 : Buffer.byteLength(output)
+    const bytes = Buffer.byteLength(output)
     return JSON.stringify({
         status: error ? 'error' : 'success',
         ...(error && { error }),
-        output,
+        output: output + (error ? '\n--- stderr ---\n' + error + '\n' : ''),
         exit_code: error ? 1 : 0,
         tool_calls_made: 0,
         duration_seconds: Math.round((performance.now() - start) / 10) / 100,

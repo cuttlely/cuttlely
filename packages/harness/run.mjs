@@ -1,6 +1,8 @@
+import { publishedSearchCredential, preparePublishedSearch, publishedBrowserSearch } from './runtime/native-search-credential.mjs'
+import { openUploadShell } from './runtime/native-upload-shell.mjs'
 import { openManagedFiles, openUploadSampler, withManagedUploads } from './runtime/native-files.mjs'
 import { publishedCanvasSource } from './canvas-ownership.mjs'
-import { openNativeTabularReport, renderTabularEvidence } from './runtime/native-tabular-report.mjs'
+import { openNativeTabularReport, renderTabularEvidence, requestedMixedReport } from './runtime/native-tabular-report.mjs'
 import { harnessUsesPostgres } from './side-store-postgres.mjs'
 import { journalTeam, journalTurnId } from './roster-journal.mjs'
 import { beginAgentTurn, agentTurn, endAgentTurn, recordAgentStep } from './agent-run-context.mjs'
@@ -187,7 +189,8 @@ import { defaultUploadRoots, parseUploadStubs, prepareHarnessTurnUploads } from 
 import { acquireTurn, startTurnRenewal, releaseTurn } from './lock.mjs'
 import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
-import { getHarness, listHarnesses, listHarnessNames } from './store.mjs'
+import { assertSavedHarnessName, getHarness, listHarnesses, listHarnessNames } from './store.mjs'
+import { readRecord } from './record-files.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
@@ -544,6 +547,74 @@ function profileIndependentPredictionRole(role) {
     )
 }
 
+// Only the private external worker can create this witness. Once classified, dispatch uses the exact
+// record evaluated here and checks the persisted revision again before model/tool or public delivery.
+const overlappingWorkerRecords = new WeakSet()
+export function pairedWorkerRecord(job) {
+    const p = job?.payload
+    if (
+        !p ||
+        p.engine !== 'native' ||
+        p.mode !== 'agent' ||
+        p.source !== 'api' ||
+        p.offlineModel ||
+        p.trustedOutputPreview ||
+        p.nativeRolePin ||
+        p.managedUploadReceipts?.length ||
+        p.images?.length ||
+        !p.workspaceId ||
+        !p.expectedHarnessChatflowId ||
+        !p.apiKeyId ||
+        p.caller?.via !== 'api_key' ||
+        p.nestedFlowDepth ||
+        p.caller?.apiKeyId !== p.apiKeyId ||
+        p.caller.harnessIds?.[p.name] !== p.expectedHarnessChatflowId
+    )
+        return
+    assertHarnessCaller(p.name, p.caller, { requirePin: true, expectedChatflowId: p.expectedHarnessChatflowId })
+    // Keep precisely the bytes used to classify this published generation. The second claim compares
+    // them in the normal queue writer transaction, without reopening a store inside that transaction.
+    const entry = assertSavedHarnessName(p.name) + '.json'
+    const content = readRecord(entry)
+    if (content === null) return
+    const r = JSON.parse(content)
+    if (
+        !r ||
+        r.name !== p.name ||
+        !Array.isArray(r.specialists) ||
+        r.specialists.some((role) => !role || typeof role !== 'object') ||
+        r.tryId ||
+        !r.createdAt ||
+        !r.updatedAt ||
+        r.workspaceId !== p.workspaceId ||
+        r.chatflowId !== p.expectedHarnessChatflowId
+    )
+        return
+    // Only this graph runs a pair. Any additional model, tool, profile or broader grant stays exclusive.
+    const role = r.specialists[0]
+    const model = r.chief?.model
+    if (
+        r.chief?.fallbackModel ||
+        model?.nodeName !== 'chatOpenAI' ||
+        !model.credential ||
+        model.nodeData ||
+        Object.keys(model.upstream || {}).length ||
+        !Object.keys(model.inputs || {}).every((key) =>
+            ['modelName', 'temperature', 'streaming', 'maxTokens', 'FLOWISE_CREDENTIAL_ID'].includes(key)
+        ) ||
+        (model.inputs?.FLOWISE_CREDENTIAL_ID && model.inputs.FLOWISE_CREDENTIAL_ID !== model.credential) ||
+        r.specialists.length !== 1 ||
+        role.model ||
+        role.fallbackModel ||
+        role.modules?.length !== 1 ||
+        !profileIndependentRetriever(role.modules[0]) ||
+        !profileIndependentPredictionRole(role)
+    )
+        return
+    overlappingWorkerRecords.add(r)
+    return { record: r, entry, content }
+}
+
 function nativePredictionOwner(args, engine) {
     if (engine !== 'native' || args.replay) return
     const { record, flowOptions } = args
@@ -707,6 +778,8 @@ async function runTurnBody(
         recordAgentResult
     }
 ) {
+    if (overlappingWorkerRecords.has(harness) && !isDeepStrictEqual(getHarness(name), harness))
+        throw new HarnessError('harness_changed', 'The saved team changed before this worker turn.')
     assertCurrentRecord(harness)
     const sqlAttemptLimit = guardedQueryLimit()
     const profileStarted = Date.now()
@@ -756,12 +829,21 @@ async function runTurnBody(
         checkRole: rolePin
             ? (role) => {
                   context.assertNativeAuthority()
-                  assertNativeRoleSupported(role, Boolean(approvedStaticPage(context, role)))
+                  if (!requestedMixedReport(context, role))
+                      assertNativeRoleSupported(
+                          role,
+                          Boolean(approvedStaticPage(context, role) || publishedBrowserSearch(context.roster, role)),
+                          Boolean(openUploadShell(context, role))
+                      )
               }
             : undefined,
         // Check saved grants at public delivery even when a provider started before the roster changed.
         checkNativeDelivery:
-            nativeSpecialists && (nativePrediction || rolePin || roster.specialists.some((role) => role.playbooks?.length))
+            nativeSpecialists &&
+            (nativePrediction ||
+                rolePin ||
+                overlappingWorkerRecords.has(harness) ||
+                roster.specialists.some((role) => role.playbooks?.length))
                 ? () => context.assertNativeAuthority()
                 : undefined,
         nativeResults: [],
@@ -784,7 +866,7 @@ async function runTurnBody(
                 live.createdAt !== owner.createdAt ||
                 live.chatflowId !== owner.chatflowId ||
                 live.workspaceId !== owner.workspaceId ||
-                (rolePin && !isDeepStrictEqual(live, owner)) ||
+                ((rolePin || overlappingWorkerRecords.has(harness)) && !isDeepStrictEqual(live, owner)) ||
                 !isDeepStrictEqual(live.specialists, owner.specialists) ||
                 !isDeepStrictEqual(live.chief, owner.chief)
             )
@@ -863,9 +945,16 @@ async function runTurnBody(
             context.checkRole &&
             !context.replay &&
             context.managedUploadReceipts?.some((upload) => /\.(?:csv|tsv|xlsx)$/i.test(upload.name))
+        const shellReceipt =
+            context.checkRole && !context.replay && context.managedUploadReceipts?.some((upload) => /\.(?:csv|tsv|txt)$/i.test(upload.name))
         if (
             nativeSpecialists &&
-            roster.specialists.some((s) => s.fileAccess || (sampleReceipt && s.codeExecution === true && !s.shell && !s.browser))
+            roster.specialists.some(
+                (s) =>
+                    s.fileAccess ||
+                    (sampleReceipt && s.codeExecution === true && !s.shell && !s.browser) ||
+                    (shellReceipt && s.shell === true && !s.codeExecution && !s.browser)
+            )
         )
             return await withManagedUploads(context, input, (question) =>
                 mode === 'agent' ? runAgentChief(context, question) : runRosterWithUploads(context, question)
@@ -3503,7 +3592,8 @@ async function repairRetrievedGuidance(context, specialist, task, out) {
 
 function fatalNativeRoleError(context, specialist, error) {
     if (!context.checkRole) return false
-    if (specialist.browser === true || ['native_unsupported', 'harness_changed'].includes(error?.code)) return true
+    if (specialist.browser === true || specialist.shell === true || ['native_unsupported', 'harness_changed'].includes(error?.code))
+        return true
     return specialist.codeExecution === true && ['forbidden', 'bad_task', 'empty_output'].includes(error?.code)
 }
 
@@ -4158,26 +4248,31 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             )
         }
-        const files = specialist.fileAccess ? openManagedFiles(context, specialist) : null
+        const requestedReport = requestedMixedReport(context, specialist)
+        const files = specialist.fileAccess && !requestedReport ? openManagedFiles(context, specialist) : null
         for (const tool of files?.tools || [])
             register(tool, (args) => {
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
+        const searchOnly = context.checkRole && publishedBrowserSearch(context.roster, specialist)
+        let observedSearch = false
+        const shell = openUploadShell(context, specialist)
+        if (shell) register(shell.tool, (args) => shell.execute(args))
         const browser = openStaticPage(context, specialist)
         for (const tool of browser?.tools || []) register(tool, (args) => browser.execute(tool.function.name, args))
         const sampler =
             context.checkRole && specialist.codeExecution === true && !specialist.shell && !specialist.browser && openUploadSampler(context)
-        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler)
+        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler, signal)
         for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
-        const report = openNativeTabularReport(context, specialist)
+        const report = openNativeTabularReport(context, specialist, requestedReport)
         if (report) register(report.tool, (args) => report.execute(args))
         const used = new Set(handlers.keys())
         const gatewayRole = context.nativePrime || needsAgentLoop(specialist)
-        let retrieverAliases
+        let bridgeAliases
         // The released gateway reserves MCP-advertised names before allocating a stable name to each canvas node.
         const bridgeNames =
-            gatewayRole && specialist.modules?.some((binding) => binding.nodeName === 'retrieverTool')
+            gatewayRole && specialist.modules?.some((binding) => ['retrieverTool', 'serpAPI'].includes(binding.nodeName))
                 ? new Map(
                       specialistToolBindings(specialist, new Set(mcp?.tools.map((tool) => tool.function.name))).map(({ binding, name }) => [
                           binding,
@@ -4188,15 +4283,24 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         for (const [index, binding] of (specialist.modules || []).entries()) {
             if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
             assertCurrent()
-            if (unboundNativeSerp(binding)) {
+            const searchCredential = publishedSearchCredential(context.roster, specialist, binding)
+            if (unboundNativeSerp(binding) && !searchCredential) {
                 // The released inline router prepares all of a chosen role's tools before the model runs.
                 // Gateway-backed roles advertise a missing SerpAPI tool; the credential error belongs to its call.
                 const reason = 'SerpAPI API key not set. Select a saved SerpAPI credential.'
                 if (!context.nativePrime && !needsAgentLoop(specialist)) throw new HarnessError('bad_binding', reason)
-                const name = specialistToolName(specialist, binding, used)
-                const description = toolSpec(binding, 'Connected node', name)
+                const localName = bridgeNames.get(binding)
+                const name = hermesMcpToolName(specialist.name, localName)
+                const description = toolSpec(binding, 'Connected node', localName)
+                if (!localName.includes('__')) {
+                    bridgeAliases ??= new Map()
+                    bridgeAliases.set(localName, name)
+                }
                 register(
-                    { type: 'function', function: { name, description: description.description, parameters: description.inputSchema } },
+                    {
+                        type: 'function',
+                        function: { name, description: description.description, parameters: { ...description.inputSchema, required: [] } }
+                    },
                     () => ({ content: reason, error: true })
                 )
                 used.add(name)
@@ -4232,7 +4336,9 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 )
                 continue
             }
-            const item = await prepareModule(binding, task, context.moduleOptions)
+            const item = searchCredential
+                ? await preparePublishedSearch(context, specialist, binding, task, searchCredential)
+                : await prepareModule(binding, task, context.moduleOptions)
             // A saved GET on a gateway-backed specialist uses the bridge name and its text input contract.
             // The inline router presents the component's own name and query-parameter schema below.
             if (binding.nodeName === 'requestsGet' && (context.nativePrime || needsAgentLoop(specialist))) {
@@ -4249,14 +4355,14 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 continue
             }
             const shortName = toolName(item, index, used)
-            const bridgeName = binding.nodeName === 'retrieverTool' && bridgeNames?.get(binding)
+            const bridgeName = ['retrieverTool', 'serpAPI'].includes(binding.nodeName) && bridgeNames?.get(binding)
             const spec = bridgeName && toolSpec(binding, 'Connected node', bridgeName)
             const name = spec ? hermesMcpToolName(specialist.name, bridgeName) : shortName
             // The gateway appends a double-underscore node suffix when an authored name is ambiguous.
             // Only an unambiguous local name may alias the exact grant advertised for this specialist.
             if (spec && !bridgeName.includes('__') && !shortName.startsWith('mcp__')) {
-                retrieverAliases ??= new Map()
-                retrieverAliases.set(shortName, name)
+                bridgeAliases ??= new Map()
+                bridgeAliases.set(shortName, name)
             }
             register(
                 {
@@ -4279,6 +4385,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                     assertCurrent()
                     if (binding.nodeName === 'requestsGet') return raw
                     const result = splitToolOutput(raw)
+                    if (binding === searchOnly && result.text?.trim()) observedSearch = true
                     // The released gateway passes this retriever's documents as tool text in agent mode.
                     // Its router additionally publishes the structured source documents.
                     if (!context.nativePrime || binding.nodeName !== 'memoryVectorStore') sources.push(...result.documents)
@@ -4296,7 +4403,12 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 context,
                 specialist,
                 task,
-                [soul, files?.note, numeric && 'The native execute_code tool supports only the fixed operations described in its schema.']
+                [
+                    soul,
+                    files?.note,
+                    searchOnly && 'Use the assigned search tool. This role cannot open, navigate or interact with pages in this mode.',
+                    numeric && 'The native execute_code tool supports only the fixed operations described in its schema.'
+                ]
                     .filter(Boolean)
                     .join('\n'),
                 context.promptMessages,
@@ -4307,13 +4419,15 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             budget,
             maxCalls: Math.max(40, playbookCallLimit(books, budget, playbookContext)),
             maxBatchCalls: NATIVE_SPECIALIST_BATCH_LIMIT,
-            aliases: retrieverAliases,
+            aliases: bridgeAliases,
             limitCode: 'tool_limit',
             validateCall:
-                (numeric || browser || workbookTool) &&
+                (numeric || browser || shell || workbookTool || requestedReport) &&
                 ((name, args) => {
-                    if (browser && ['browser_navigate', 'browser_snapshot'].includes(name)) browser.validate(name, args)
-                    if (numeric && name === 'execute_code') numeric.validate(name, args)
+                    if (shell && name === 'terminal') shell.validate(args)
+                    if (requestedReport && name === 'analyze_csv_report') report.validate(args)
+                    if (browser && ['browser_navigate', 'browser_snapshot', 'browser_click'].includes(name)) browser.validate(name, args)
+                    if (numeric && name === 'execute_code') return numeric.validate(name, args)
                     if (workbookTool && name === 'sample_workbook') sampler.validateWorkbook(args)
                 }),
             complete: (messages, offered) => {
@@ -4348,22 +4462,29 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             }
         })
+        if (searchOnly && (!observedSearch || !text?.trim()))
+            throw new HarnessError(
+                'native_unsupported',
+                'This specialist needs a result from its assigned search tool. Interactive browser work is unavailable.'
+            )
         if (browser && (!browser.delivered() || !text?.trim()))
             throw new HarnessError('empty_output', 'The static page reader did not return a completed page report.')
         if (numeric && !text?.trim() && !specialist.trustedOutputs?.length)
             throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
         let uploadReport,
             csvReportProduced = false
-        if (files) {
+        if (requestedReport && !report?.evidence().length)
+            throw new HarnessError('empty_output', 'The selected specialist did not produce the requested CSV report.')
+        if (files || requestedReport) {
             // Only a completed delegation may hand its staged files to Prime.
             if (context.nativePrime && !text?.trim() && !specialist.trustedOutputs?.length)
                 throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
-            const artifacts = await files.finish()
+            const artifacts = files ? await files.finish() : []
             const evidence = report?.evidence() || []
             csvReportProduced = evidence.length > 0
             if (
                 csvReportProduced &&
-                isUploadedReportRequest(context.userText, task, evidence) &&
+                (requestedReport || isUploadedReportRequest(context.userText, task, evidence)) &&
                 !analystQueryCount({ toolLog: context.toolLog.slice(firstTool) }, specialist.name)
             ) {
                 uploadReport = renderTabularEvidence(evidence)
@@ -4392,7 +4513,7 @@ async function runInlineSpecialist(context, specialist, task) {
         context.assertNativeAuthority()
         const usesBridge = context.nativePrime || needsAgentLoop(specialist)
         if (
-            (context.checkRole && (specialist.codeExecution || specialist.browser)) ||
+            (context.checkRole && (specialist.codeExecution || specialist.browser || specialist.shell)) ||
             specialist.fileAccess ||
             specialist.playbooks?.length ||
             specialist.mcpServers?.length ||
@@ -4879,9 +5000,13 @@ async function runDirectTool(context, specialist, input) {
     const started = Date.now()
     const assertCall = context.nativeSpecialists ? context.assertNativeAuthority : undefined
     assertCall?.()
-    if (context.nativeSpecialists && unboundNativeSerp(specialist.modules[0]))
+    const binding = specialist.modules[0]
+    const searchCredential = context.nativeSpecialists && publishedSearchCredential(context.roster, specialist, binding)
+    if (context.nativeSpecialists && unboundNativeSerp(binding) && !searchCredential)
         throw new HarnessError('bad_binding', 'SerpAPI API key not set. Select a saved SerpAPI credential.')
-    const prepared = await prepareModule(specialist.modules[0], question, context.moduleOptions)
+    const prepared = searchCredential
+        ? await preparePublishedSearch(context, specialist, binding, question, searchCredential)
+        : await prepareModule(binding, question, context.moduleOptions)
     const fillStarted = Date.now()
     const schema = fillSchema(prepared)
     let value = question

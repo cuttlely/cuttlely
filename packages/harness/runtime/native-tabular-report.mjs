@@ -1,4 +1,5 @@
 // Structured reports read only the bytes admitted by withManagedUploads for this turn.
+import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { setImmediate as yieldToTurn } from 'node:timers/promises'
@@ -248,7 +249,56 @@ export function renderTabularEvidence(records) {
         .join('\n\n')
 }
 
-export function openNativeTabularReport(context, specialist) {
+// Model-written delegation text and data prepended by file extraction cannot choose this capability.
+export function confirmedReportQuestion(proof, input, source) {
+    if (!Number.isSafeInteger(proof?.length) || proof.length < 1 || proof.length > 2048 || typeof input !== 'string') return
+    const raw = input.slice(-proof.length)
+    if (raw.length !== proof.length || createHash('sha256').update(raw).digest('hex') !== proof.hash) return
+    const question = raw.trim()
+    let args
+    try {
+        const command = /^\/analyze_csv_report\s+([\s\S]+)$/.exec(question)
+        if (command) args = JSON.parse(command[1])
+        else {
+            // This entire sentence must request one operation. A mention in a browser or terminal assignment is insufficient.
+            const ask =
+                /^(?:create|generate|make) a report from (?:the |my |this )?(?:attached |uploaded )?CSV(?: file)?,? (counting rows|(?:summing|averaging|minimizing|maximizing) "([^"\r\n]{1,120})")(?: by "([^"\r\n]{1,120})")?( with a bar chart)?[.!]?$/i.exec(
+                    question
+                )
+            if (!ask) return
+            const operations = { counting: 'count', summing: 'sum', averaging: 'mean', minimizing: 'min', maximizing: 'max' }
+            args = { source, operation: operations[ask[1].split(' ')[0].toLowerCase()], format: ask[4] ? 'table_and_bar_chart' : 'table' }
+            if (ask[2]) args.valueColumn = ask[2]
+            if (ask[3]) args.groupBy = ask[3]
+        }
+        return optionsFor(args, new Set([source]))
+    } catch {
+        return
+    }
+}
+
+export function requestedMixedReport(context, role) {
+    if (
+        !context.checkRole ||
+        context.replay ||
+        !context.managedFileOwner ||
+        !context.reportUpload?.proof ||
+        !context.sampleInputs?.has(context.reportUpload.source) ||
+        ![role.fileAccess, role.codeExecution, role.shell, role.browser].every((grant) => grant === true) ||
+        role.modules?.length ||
+        role.mcpServers?.length ||
+        role.pinFirst ||
+        role.trustedOutputs?.length
+    )
+        return
+    return confirmedReportQuestion(
+        context.reportUpload.proof,
+        context.moduleOptions.nativeSourceTurn?.question,
+        context.reportUpload.source
+    )
+}
+
+export function openNativeTabularReport(context, specialist, requested) {
     if (specialist.fileAccess !== true || !context.managedFileOwner || context.replay) return null
     if (specialist.trustedOutputs?.length) return null
     const hasQueryGrant = [...(specialist.modules || []), ...(specialist.mcpServers || [])].some((binding) => {
@@ -258,23 +308,34 @@ export function openNativeTabularReport(context, specialist) {
     })
     if (specialist.codeExecution !== true && !hasQueryGrant) return null
     const uploads = new Map(Object.entries(context.managedUploads || {}).filter(([name]) => /^uploads\/[^/]+\.csv$/i.test(name)))
-    if (!uploads.size) return null
+    if (!uploads.size || (requested && !uploads.has(requested.source))) return null
     const pending = new Map()
     const check = () => {
         context.workSignal?.throwIfAborted()
         context.assertNativeAuthority()
     }
+    function validate(args) {
+        if (!requested) return
+        try {
+            if (isDeepStrictEqual(optionsFor(args, uploads), requested)) return
+        } catch {
+            // A malformed tool argument has the same outcome as a different operation.
+        }
+        throw new HarnessError('native_unsupported', 'This role can only run the exact CSV report requested with the current upload.')
+    }
     return {
+        validate,
         tool: {
             type: 'function',
             function: {
                 name: 'analyze_csv_report',
-                description:
-                    'Group a verified CSV upload, calculate exact decimal aggregates and return a downloadable table with an optional horizontal bar chart and PDF, Word, or Excel documents. Empty numeric cells are excluded. Mean rounds to 8 decimal places. Count counts rows, including duplicates. Use read_file to inspect the header.',
+                description: requested
+                    ? 'Run exactly the caller-approved CSV report using these arguments: ' + JSON.stringify(requested)
+                    : 'Group a verified CSV upload, calculate exact decimal aggregates and return a downloadable table with an optional horizontal bar chart and PDF, Word, or Excel documents. Empty numeric cells are excluded. Mean rounds to 8 decimal places. Count counts rows, including duplicates. Use read_file to inspect the header.',
                 parameters: {
                     type: 'object',
                     properties: {
-                        source: { type: 'string', enum: [...uploads.keys()] },
+                        source: { type: 'string', enum: requested ? [requested.source] : [...uploads.keys()] },
                         operation: { type: 'string', enum: operations },
                         groupBy: { type: 'string', description: 'Optional grouping column. Omit for a single total.' },
                         valueColumn: { type: 'string', description: 'Numeric column, required except for count.' },
@@ -296,6 +357,7 @@ export function openNativeTabularReport(context, specialist) {
         },
         async execute(args) {
             check()
+            validate(args)
             try {
                 const o = optionsFor(args, uploads)
                 const docs = documentTypes.filter((format) => o.documentFormats?.includes(format))

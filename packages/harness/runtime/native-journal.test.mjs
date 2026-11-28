@@ -440,3 +440,29 @@ test(
         ])
     }
 )
+
+test('async validation of a whole native tool batch finishes before any durable receipt or execution', async () => {
+    const validated = [],
+        queued = [],
+        ran = []
+    const names = ['first', 'second']
+    await assert.rejects(
+        runNativeToolLoop({
+            messages: [],
+            tools: names.map((name) => ({ function: { name } })),
+            maxCalls: 2,
+            complete: async () => ({ content: '', toolCalls: names.map((name) => ({ id: name, function: { name, arguments: '{}' } })) }),
+            validateCall: async (name) => {
+                await Promise.resolve()
+                validated.push(name)
+                if (name === 'second') throw new Error('unsupported second call')
+            },
+            queueCall: (name) => queued.push(name),
+            execute: (name) => ran.push(name)
+        }),
+        /unsupported second call/
+    )
+    assert.deepEqual(validated, names)
+    assert.deepEqual(queued, [])
+    assert.deepEqual(ran, [])
+})

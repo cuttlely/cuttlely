@@ -45,7 +45,32 @@ test(
             name = 'field-team'
         const marker = 'Shipping reference ' + randomUUID().slice(0, 8) + '.',
             hits = []
-        const fixture = http.createServer((req, res) => {
+        let catalogMode = 'linked',
+            pauseDetails,
+            detailMarker = marker
+        const fixture = http.createServer(async (req, res) => {
+            const route = req.url
+            if (req.method === 'GET' && req.headers.host === 'catalog.example.invalid' && ['/index', '/details'].includes(route)) {
+                hits.push({ authorized: true, authenticated: Boolean(req.headers.cookie || req.headers.authorization), route })
+                res.writeHead(200, { 'Content-Type': 'text/html', 'Set-Cookie': 'discarded=1' })
+                if (route === '/index' && catalogMode === 'unlinked')
+                    res.end('<html><body><p>The scope does not link to the destination.</p></body></html>')
+                else if (route === '/index' && catalogMode === 'form')
+                    res.end('<html><body><form action="/details"><button>Shipping details</button></form></body></html>')
+                else if (route === '/index')
+                    res.end(
+                        '<html><head><title>Catalog</title></head><body><main><h1>Catalog</h1><a href="/details">Shipping details</a><a href="/unapproved">Other text</a></main></body></html>'
+                    )
+                else {
+                    if (pauseDetails) await pauseDetails()
+                    res.end(
+                        '<html><head><title>Reviewed detail</title></head><body><main><h1>Details</h1><p>' +
+                            detailMarker +
+                            '</p></main></body></html>'
+                    )
+                }
+                return
+            }
             const ok = req.method === 'GET' && req.headers.host === 'catalog.example.invalid' && req.url === '/shipping'
             hits.push({ authorized: ok, authenticated: Boolean(req.headers.cookie || req.headers.authorization) })
             res.writeHead(ok ? 200 : 404, { 'Content-Type': 'text/html', 'Set-Cookie': 'sample=discard; Path=/' })
@@ -124,8 +149,21 @@ test(
             resources: [{ resourceType: 'HARNESS', resourceId: flow.id }]
         })
         const key = keys.find((k) => k.keyName === 'page-reader').apiKey
+        const secondKeys = await operator('apikey', {
+            keyName: 'second-page-reader',
+            permissions: ['chatflows:view'],
+            accessPolicy: { scopes: ['predict', 'harness:run', 'harness:read'] },
+            resources: [{ resourceType: 'HARNESS', resourceId: flow.id }]
+        })
+        const second = secondKeys.find((k) => k.keyName === 'second-page-reader').apiKey
         env.CUTTLELY_NATIVE_STATIC_PAGES = JSON.stringify([
-            { workspaceId: roster.workspaceId, flowId: flow.id, generation: roster.createdAt, role: 'browser', url: page }
+            ...[page, 'http://catalog.example.invalid/index', 'http://catalog.example.invalid/details'].map((url) => ({
+                workspaceId: roster.workspaceId,
+                flowId: flow.id,
+                generation: roster.createdAt,
+                role: 'browser',
+                url
+            }))
         ])
         await app.stop()
         await boot()
@@ -138,11 +176,14 @@ test(
             ],
             { cwd: nativePackageRoot() || root, env, stdio: 'ignore' }
         )
-        const call = async (route, question, mode = 'agent', signed = true) => {
+        const call = async (route, question, mode = 'agent', signed = true, session = {}) => {
             const response = await fetch(base + '/api/v1/' + route, {
                 method: 'POST',
-                headers: { 'content-type': 'application/json', ...(signed && { authorization: 'Bearer ' + key }) },
-                body: JSON.stringify({ question, mode, chatId: randomUUID() }),
+                headers: {
+                    'content-type': 'application/json',
+                    ...(signed && { authorization: 'Bearer ' + (typeof signed === 'string' ? signed : key) })
+                },
+                body: JSON.stringify({ question, mode, chatId: randomUUID(), ...session }),
                 signal: AbortSignal.timeout(30000)
             })
             return { status: response.status, body: await response.json() }
@@ -176,6 +217,111 @@ test(
         assert.deepEqual(
             hits,
             Array.from({ length: 3 }, () => ({ authorized: true, authenticated: false }))
+        )
+        const source = 'http://catalog.example.invalid/index',
+            destination = 'http://catalog.example.invalid/details'
+        const follow = 'Follow the link from ' + source + ' to ' + destination + ' and report its text.'
+        const initial = hits.length
+        for (const [route, mode] of [
+            [prediction, 'agent'],
+            [prediction, 'router'],
+            [named, 'router']
+        ]) {
+            const option = route === named ? ' refresh ref' : mode === 'router' ? ' bare ref' : ''
+            const got = await call(route, follow + option, mode)
+            assert.equal(got.status, 200, got.body.message)
+            assert.equal(got.body.text, marker)
+        }
+        assert.deepEqual(
+            hits.slice(initial).map((x) => [x.route, x.authenticated]),
+            Array.from({ length: 3 }, () => [
+                ['/index', false],
+                ['/details', false]
+            ]).flat()
+        )
+        for (const q of [
+            'Compare ' + source + ' with ' + destination,
+            'Click @e4 from our previous message.',
+            'Follow the link from ' + source + ' to http://catalog.example.invalid/unapproved'
+        ]) {
+            const before = hits.length
+            const got = await call(prediction, q)
+            assert.equal(got.status, 422, got.body.message)
+            assert.equal(hits.length, before)
+        }
+        for (const mode of ['unlinked', 'form']) {
+            catalogMode = mode
+            const n = hits.length,
+                got = await call(prediction, follow)
+            assert.equal(got.status, 422, got.body.message)
+            assert.deepEqual(
+                hits.slice(n).map((x) => x.route),
+                ['/index']
+            )
+        }
+        catalogMode = 'linked'
+        detailMarker = 'Shipping reference ' + randomUUID().slice(0, 8) + '.'
+        const firstOwned = await call(prediction, follow)
+        assert.equal(firstOwned.body.text, detailMarker)
+        assert.ok(firstOwned.body.sessionToken)
+        const n = hits.length,
+            stolen = { chatId: firstOwned.body.chatId, sessionToken: firstOwned.body.sessionToken }
+        const denied = await call(prediction, 'Read the previous link reference @e4.', 'agent', second, stolen)
+        assert.equal(denied.status, 422)
+        assert.equal(hits.length, n)
+        assert.ok(!JSON.stringify(denied.body).includes(detailMarker))
+        detailMarker = 'Shipping reference ' + randomUUID().slice(0, 8) + '.'
+        const own = await call(prediction, follow, 'agent', second, stolen)
+        assert.equal(own.status, 200, own.body.message)
+        assert.equal(own.body.text, detailMarker)
+        assert.notEqual(own.body.sessionToken, firstOwned.body.sessionToken)
+        assert.notEqual(own.body.chatId, firstOwned.body.chatId)
+        const before = hits.length
+        for (const wrong of ['bad ref', 'other ref']) {
+            const bad = await call(prediction, follow + ' ' + wrong)
+            assert.equal(bad.status, 422, bad.body.message)
+        }
+        assert.deepEqual(
+            hits.slice(before).map((x) => x.route),
+            ['/index', '/index']
+        )
+        let signalReached, release
+        const reached = new Promise((r) => {
+                signalReached = r
+            }),
+            held = new Promise((r) => {
+                release = r
+            })
+        pauseDetails = async () => {
+            signalReached()
+            await held
+        }
+        const pending = call(named, follow, 'router')
+        try {
+            await Promise.race([
+                reached,
+                pending.then(() => {
+                    throw new Error('destination request was never observed')
+                })
+            ])
+            const edit = structuredClone(graph)
+            edit.nodes.find(
+                (x) => x.data.name === 'harnessSpecialist' && x.data.inputs.specialistName === 'browser'
+            ).data.inputs.instructions += ' Report only the published text.'
+            const updated = await request(base + '/api/v1/chatflows/' + flow.id, {
+                method: 'PUT',
+                cookie: login.cookie,
+                body: { id: flow.id, name, type: 'HARNESS', flowData: JSON.stringify(edit) }
+            })
+            assert.equal(updated.status, 200, 'ordinary publication replacement')
+        } finally {
+            release()
+        }
+        const changed = await pending
+        assert.ok([409, 422].includes(changed.status), 'changed publication got ' + changed.status)
+        assert.ok(!JSON.stringify(changed.body).includes(detailMarker), 'stale destination contents escaped')
+        t.diagnostic(
+            `Reviewed links matched the released snapshot on signed agent, router and named worker requests. Publication change returned HTTP ${changed.status}.`
         )
     }
 )

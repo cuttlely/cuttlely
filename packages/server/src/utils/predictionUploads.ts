@@ -47,12 +47,13 @@ export interface AdmittedPredictionDocument {
 
 export async function issuePredictionUploadReceipts(
     scope: Parameters<UploadPolicy['issueManagedUpload']>[0],
-    documents: AdmittedPredictionDocument[]
+    documents: AdmittedPredictionDocument[],
+    callerQuestion?: string
 ) {
     const policy = await loadUploadPolicy()
     const receipts = []
     for (const { parts, digest, ...document } of documents) {
-        const proof = await policy.issueManagedUpload(scope, parts, digest)
+        const proof = await policy.issueManagedUpload(scope, parts, digest, documents.length === 1 ? callerQuestion : undefined)
         if (proof) receipts.push({ ...document, proof })
     }
     return receipts

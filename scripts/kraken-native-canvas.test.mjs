@@ -270,7 +270,12 @@ test('an unavailable plain SerpAPI does not prevent other native roles from runn
     const plain = { nodeName: 'serpAPI', inputs: {} }
     assert.equal(useNativeSpecialists(check(plain), 'native'), true)
     assert.deepEqual(nativeCompatibilityGaps(check(plain)), [
-        { specialist: 'worker', capabilities: ['canvas tool serpAPI (select a saved credential)'] }
+        {
+            specialist: 'worker',
+            capabilities: [
+                'canvas tool serpAPI (select a saved credential or configure CUTTLELY_NATIVE_SEARCH_CREDENTIALS for the published card)'
+            ]
+        }
     ])
     for (const override of [
         { inputs: { serpApiKey: 'inline' } },
@@ -473,6 +478,20 @@ test('native delegation uses the saved clock, search, and vector credentials and
                             if (last._getType() === 'tool') return { content: last.content }
                             return call('run_specialist', { name: 'math', task: 'Read the clock and look up the catalog.' })
                         }
+                        const searchSpec = tools
+                            .map(({ function: spec }) => spec)
+                            .filter(({ name }) => name === 'search' || /__serpAPI$/.test(name))
+                        const inlineSearch = retrieval?.mode === 'router'
+                        assert.deepEqual(
+                            searchSpec.map(({ name }) => name),
+                            [inlineSearch ? 'search' : 'mcp__math__serpAPI']
+                        )
+                        if (!inlineSearch)
+                            assert.deepEqual(searchSpec[0].parameters, {
+                                type: 'object',
+                                properties: { input: { type: 'string' }, query: { type: 'string' } },
+                                required: []
+                            })
                         if (retrieval) {
                             const offered = tools.map((tool) => tool.function).filter((spec) => spec.name.includes('catalog'))
                             assert.deepEqual(offered.map((spec) => spec.name).sort(), retrieval.offered)
@@ -769,4 +788,135 @@ test('a native Research specialist honors the tool query and never interprets so
     assert.equal(calls, 2)
     assert.equal(result.text, 'Read both notes.')
     assert.deepEqual(result.sources, [])
+})
+
+test('a legacy SerpAPI card uses only its published operator binding and rechecks credential ownership at each lookup', async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kraken-search-'))
+    const workspaceId = randomUUID(),
+        chatflowId = randomUUID(),
+        credentialId = randomUUID()
+    const key = randomUUID(),
+        name = 'catalog-' + randomUUID().slice(0, 8)
+    const env = {
+        CUTTLELY_DATA_DIR: dir,
+        DATABASE_PATH: dir,
+        CUTTLELY_HERMES_HOME: path.join(dir, 'runtime'),
+        CUTTLELY_SECRETKEY_OVERWRITE: key,
+        CUTTLELY_NATIVE_SEARCH_CREDENTIALS: '',
+        SERPAPI_API_KEY: randomUUID()
+    }
+    for (const [k, value] of Object.entries(env)) {
+        const prev = process.env[k]
+        process.env[k] = value
+        t.after(() => {
+            if (prev === undefined) delete process.env[k]
+            else process.env[k] = prev
+        })
+    }
+    const { publishedSearchCredential, preparePublishedSearch, publishedBrowserSearch } = await import(
+        '../packages/harness/runtime/native-search-credential.mjs'
+    )
+    const { saveHarness } = await import('../packages/harness/store.mjs')
+    const { closeQueueDb } = await import('../packages/harness/lock.mjs')
+    t.after(() => {
+        closeQueueDb()
+        fs.rmSync(dir, { recursive: true, force: true })
+    })
+    const binding = { nodeName: 'serpAPI', nodeId: 'search-1', inputs: {} }
+    const clock = { nodeName: 'currentDateTime', nodeId: 'clock', inputs: { timezone: 'UTC' } }
+    const role = { name: 'reader', browser: true, modules: [binding, clock] }
+    const roster = saveHarness({ name, workspaceId, chatflowId, chief: { model: { nodeName: 'chatXAI' } }, specialists: [role] })
+    const entry = {
+        workspaceId,
+        flowId: chatflowId,
+        generation: roster.createdAt,
+        revision: roster.updatedAt,
+        role: role.name,
+        nodeId: binding.nodeId,
+        credentialId
+    }
+    const config = (entries) => (process.env.CUTTLELY_NATIVE_SEARCH_CREDENTIALS = JSON.stringify(entries))
+    for (const entries of [
+        [entry, entry],
+        [{ ...entry, extra: true }],
+        [{ ...entry, credentialId: 'invalid' }],
+        ...['flowId', 'generation', 'revision', 'workspaceId', 'role', 'nodeId'].map((k) => [{ ...entry, [k]: 'different' }])
+    ]) {
+        config(entries)
+        assert.equal(publishedSearchCredential(roster, role, binding), undefined)
+    }
+    config([entry])
+    assert.equal(publishedSearchCredential(roster, role, binding), credentialId)
+    assert.equal(publishedSearchCredential({ ...roster, tryId: 'no-published-witness' }, role, binding), undefined)
+    assert.equal(publishedSearchCredential(roster, role, { ...binding, credential: randomUUID() }), undefined)
+    assert.equal(publishedSearchCredential(roster, role, { ...binding, nodeData: {} }), undefined)
+    assert.equal(publishedBrowserSearch(roster, role), binding)
+    assert.equal(publishedSearchCredential(roster, { ...role, browser: false }, binding), undefined)
+    for (const change of [
+        { shell: true },
+        { codeExecution: true },
+        { fileAccess: true },
+        { playbooks: [{ name: 'assigned' }] },
+        { trustedOutputs: [{}] },
+        { mcpServers: [{}] },
+        { modules: [binding, binding] },
+        { modules: [binding, clock, clock] },
+        { modules: [binding, { nodeName: 'calculator' }] },
+        { modules: [binding, { ...clock, nodeData: {} }] }
+    ])
+        assert.equal(publishedBrowserSearch(roster, { ...role, ...change }), undefined)
+    const flow = {
+        workspaceId,
+        nestedFlowDepth: 0,
+        nestedFlowCaller: { via: 'session', tryOwner: 'user:reader' },
+        harnessCaller: { via: 'session' },
+        databaseEntities: { Credential: 'credential' }
+    }
+    let secret = randomUUID(),
+        owned = true,
+        dispatches = 0
+    flow.appDataSource = {
+        getRepository(entity) {
+            assert.equal(entity, 'credential')
+            return {
+                async findOneBy(criteria) {
+                    assert.deepEqual(criteria, { id: credentialId, workspaceId, credentialName: 'serpApi' })
+                    if (owned)
+                        return {
+                            id: credentialId,
+                            workspaceId,
+                            credentialName: 'serpApi',
+                            encryptedData: envelope.sealApplicationRecord(JSON.stringify({ serpApiKey: secret }), key, [
+                                'credential',
+                                credentialId
+                            ])
+                        }
+                }
+            }
+        }
+    }
+    const ctx = { roster, moduleOptions: { flowOptions: flow }, assertNativeAuthority() {} }
+    const prep = () => preparePublishedSearch(ctx, role, binding, 'catalog', credentialId)
+    t.mock.method(globalThis, 'fetch', async (input) => {
+        const url = new URL(input)
+        assert.equal(url.origin, 'https://serpapi.com')
+        assert.equal(url.pathname, '/search')
+        assert.ok(url.searchParams.get('api_key') === secret)
+        dispatches++
+        return Response.json({ answer_box: { answer: 'The local desk opens at nine.' } })
+    })
+    const prepared = await prep()
+    for (let i = 0; i < 2; i++) {
+        secret = randomUUID()
+        assert.match(await prepared.tool.invoke('hours'), /opens at nine/)
+    }
+    owned = false
+    await assert.rejects(prepared.tool.invoke('hours'), { code: 'bad_binding' })
+    owned = true
+    config([])
+    await assert.rejects(prepared.tool.invoke('hours'), { code: 'bad_binding' })
+    config([entry])
+    flow.nestedFlowDepth = 1
+    await assert.rejects(prep(), { code: 'bad_binding' })
+    assert.equal(dispatches, 2)
 })
