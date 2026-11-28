@@ -7,28 +7,129 @@ import { createHash, randomInt, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
+import { isIP } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
 
-const count = Number(process.argv[2] || 1)
-assert.ok([1, 8, 32].includes(count), 'Select 1, 8, or 32 chats.')
-const origin = new URL(process.env.CUTTLELY_QA_ORIGIN)
-assert.ok(!origin.username && !origin.password && origin.href === origin.origin + '/', 'Supply the origin only.')
-const loopback = ['127.0.0.1', '[::1]'].includes(origin.hostname)
-assert.ok(origin.protocol === 'https:' || (origin.protocol === 'http:' && loopback), 'Use HTTPS or literal loopback HTTP.')
-const key = process.env.CUTTLELY_QA_TOKEN
-assert.ok(key && !/[\s\x00-\x1f\x7f]/.test(key), 'Supply a dedicated QA bearer token.')
-const net = origin.protocol === 'https:' ? https : http
-const clientSha256 = createHash('sha256')
-    .update(readFileSync(new URL(import.meta.url)))
-    .digest('hex')
-const sampleId = randomUUID()
-const recordedRuns = new Set()
-const chatIds = Array.from({ length: count }, () => randomUUID())
-const operand = randomInt(10000, 1000000)
 const quantile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1] ?? null
 const round = (x) => Math.round(x * 10) / 10
 
-async function cohort(turn) {
+// Client-local elapsed time when the chunk completing an SSE frame arrived; all frames in one chunk share it.
+export function calculatorStreamReader({ chatId, expected, engines, recordedRuns }) {
+    let finalCount = 0,
+        recordedCount = 0,
+        buffer = '',
+        received = 0,
+        firstAnswer
+    return {
+        push(chunk, observedMs) {
+            received += Buffer.byteLength(chunk)
+            assert.ok(received <= 2 * 1024 * 1024, 'Calculator result exceeded the test limit.')
+            buffer += chunk
+            let separator
+            while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+                const frame = buffer.slice(0, separator.index)
+                buffer = buffer.slice(separator.index + separator[0].length)
+                const data = frame
+                    .split(/\r?\n/)
+                    .filter((line) => line.startsWith('data:'))
+                    .map((line) => line.slice(5))
+                    .join('\n')
+                if (!data) continue
+                const item = JSON.parse(data)
+                assert.notEqual(item.event, 'error', 'Calculator emitted an error.')
+                if (
+                    finalCount === 0 &&
+                    item.event === 'harness.partial' &&
+                    item.data?.type === 'partial' &&
+                    item.data.phase === 'answer' &&
+                    typeof item.data.text === 'string' &&
+                    item.data.text.trim()
+                ) {
+                    if ('chatId' in item.data) assert.equal(item.data.chatId, chatId)
+                    firstAnswer ??= { firstAnswerMs: observedMs, firstAnswerEvent: 'partial' }
+                }
+                if (item.event === 'harness.recorded') {
+                    const { run, chatId: recordedChat } = item.data
+                    assert.equal(recordedChat, chatId)
+                    // The released external worker returns only its saved id plus the envelope's chat id.
+                    if ('chatId' in run) assert.equal(run.chatId, chatId)
+                    if ('status' in run) assert.equal(run.status, 'succeeded')
+                    if ('harness' in run) assert.equal(run.harness, 'qa-calculator')
+                    assert.match(run.id, /^run_[a-f0-9-]{36}$/)
+                    assert.equal(finalCount, 1)
+                    assert.ok(!recordedRuns.has(run.id), 'A recorded run was reused.')
+                    recordedRuns.add(run.id)
+                    recordedCount++
+                }
+                if (item.event !== 'harness.final') continue
+                const value = item.data
+                if ('chatId' in value) assert.equal(value.chatId, chatId)
+                engines.add(value.trace?.engine || 'bundled')
+                assert.ok(typeof value?.text === 'string' && value.text.trim() === String(expected), 'Incorrect arithmetic.')
+                assert.ok(
+                    value.agents?.some((a) => a.name === 'math' && a.status === 'completed'),
+                    'Math specialist did not complete.'
+                )
+                assert.ok(
+                    value.trace?.specialists?.some((s) => s.tools?.some((tool) => tool.name === 'calculator' && tool.status === 'done')),
+                    'Calculator trace missing.'
+                )
+                firstAnswer ??= { firstAnswerMs: observedMs, firstAnswerEvent: 'final' }
+                finalCount++
+            }
+        },
+        finish() {
+            assert.ok(finalCount === 1 && recordedCount === 1, 'Expected one verified Calculator answer and its matching recorded run.')
+            return firstAnswer
+        }
+    }
+}
+
+// A local port can be in use by connections to different addresses behind the same origin.
+function observeConnection(req, secure, sockets, openTuples, onSent, reject) {
+    let flushed = false
+    let connected = false
+    req.once('finish', () => {
+        flushed = true
+        if (connected) onSent()
+    })
+    req.once('socket', (socket) => {
+        const observe = () => {
+            const { localAddress, localPort, remoteAddress, remotePort } = socket
+            const validPort = (port) => Number.isInteger(port) && port > 0 && port <= 65535
+            if (
+                !isIP(localAddress) ||
+                !isIP(remoteAddress) ||
+                !validPort(localPort) ||
+                !validPort(remotePort) ||
+                (secure && !socket.authorized)
+            ) {
+                reject(new Error('Calculator TCP connection could not be verified.'))
+                req.destroy()
+                return
+            }
+            const tuple = JSON.stringify([localAddress, localPort, remoteAddress, remotePort])
+            if (!sockets.has(socket)) {
+                // Different socket objects cannot represent the same live TCP connection.
+                if (openTuples.has(tuple)) {
+                    reject(new Error('Expected one TCP connection per chat.'))
+                    req.destroy()
+                    return
+                }
+                sockets.add(socket)
+                openTuples.add(tuple)
+                socket.once('close', () => openTuples.delete(tuple))
+            }
+            connected = true
+            if (flushed) onSent()
+        }
+        if (secure && !socket.authorized) socket.once('secureConnect', observe)
+        else if (socket.connecting) socket.once('connect', observe)
+        else observe()
+    })
+}
+
+async function cohort(turn, { count, origin, key, net, clientSha256, sampleId, recordedRuns, chatIds, operand }) {
     let onWire = 0,
         openStreams = 0,
         peakWire = 0,
@@ -37,8 +138,9 @@ async function cohort(turn) {
         lastEof = 0,
         pendingPing
     const engines = new Set()
-    const ports = new Set(),
-        pings = []
+    const sockets = new Set()
+    const openTuples = new Set()
+    const pings = []
     let closed = false
     const started = performance.now()
     function ping() {
@@ -100,10 +202,7 @@ async function cohort(turn) {
                             return fail('Calculator response was not an event stream.')
                         const headersMs = performance.now() - t
                         peakStreams = Math.max(peakStreams, ++openStreams)
-                        let finalCount = 0,
-                            recordedCount = 0,
-                            buffer = '',
-                            received = 0
+                        const reader = calculatorStreamReader({ chatId, expected: x + 23, engines, recordedRuns })
                         res.setEncoding('utf8')
                         const interrupted = () => reject(new Error('Calculator response was interrupted.'))
                         res.once('error', interrupted)
@@ -113,51 +212,7 @@ async function cohort(turn) {
                         })
                         res.on('data', (chunk) => {
                             try {
-                                received += Buffer.byteLength(chunk)
-                                assert.ok(received <= 2 * 1024 * 1024, 'Calculator result exceeded the test limit.')
-                                buffer += chunk
-                                let separator
-                                while ((separator = /\r?\n\r?\n/.exec(buffer))) {
-                                    const frame = buffer.slice(0, separator.index)
-                                    buffer = buffer.slice(separator.index + separator[0].length)
-                                    const data = frame
-                                        .split(/\r?\n/)
-                                        .filter((line) => line.startsWith('data:'))
-                                        .map((line) => line.slice(5))
-                                        .join('\n')
-                                    if (!data) continue
-                                    const item = JSON.parse(data)
-                                    assert.notEqual(item.event, 'error', 'Calculator emitted an error.')
-                                    if (item.event === 'harness.recorded') {
-                                        const { run, chatId: recordedChat } = item.data
-                                        assert.equal(recordedChat, chatId)
-                                        // The released external worker returns only its saved id plus the envelope's chat id.
-                                        if ('chatId' in run) assert.equal(run.chatId, chatId)
-                                        if ('status' in run) assert.equal(run.status, 'succeeded')
-                                        if ('harness' in run) assert.equal(run.harness, 'qa-calculator')
-                                        assert.match(run.id, /^run_[a-f0-9-]{36}$/)
-                                        assert.equal(finalCount, 1)
-                                        assert.ok(!recordedRuns.has(run.id), 'A recorded run was reused.')
-                                        recordedRuns.add(run.id)
-                                        recordedCount++
-                                    }
-                                    if (item.event !== 'harness.final') continue
-                                    const value = item.data
-                                    if ('chatId' in value) assert.equal(value.chatId, chatId)
-                                    engines.add(value.trace?.engine || 'bundled')
-                                    assert.equal(String(value?.text).trim() === String(x + 23), true, 'Incorrect arithmetic.')
-                                    assert.ok(
-                                        value.agents?.some((a) => a.name === 'math' && a.status === 'completed'),
-                                        'Math specialist did not complete.'
-                                    )
-                                    assert.ok(
-                                        value.trace?.specialists?.some((s) =>
-                                            s.tools?.some((tool) => tool.name === 'calculator' && tool.status === 'done')
-                                        ),
-                                        'Calculator trace missing.'
-                                    )
-                                    finalCount++
-                                }
+                                reader.push(chunk, performance.now() - t)
                             } catch {
                                 fail('Arithmetic answer, stream, or Calculator trace failed verification.')
                             }
@@ -166,18 +221,26 @@ async function cohort(turn) {
                             lastEof = performance.now()
                             onWire--
                             openStreams--
-                            if (finalCount !== 1 || recordedCount !== 1)
-                                return reject(new Error('Expected one verified Calculator answer and its matching recorded run.'))
-                            resolve({ total: lastEof - t, headers: headersMs })
+                            try {
+                                resolve({ total: lastEof - t, headers: headersMs, ...reader.finish() })
+                            } catch (error) {
+                                reject(error)
+                            }
                         })
                     }
                 )
-                req.once('finish', () => {
-                    firstSent = Math.min(firstSent, performance.now())
-                    ports.add(req.socket.localPort)
-                    peakWire = Math.max(peakWire, ++onWire)
-                    if (!pings.length) setImmediate(ping)
-                })
+                observeConnection(
+                    req,
+                    origin.protocol === 'https:',
+                    sockets,
+                    openTuples,
+                    () => {
+                        firstSent = Math.min(firstSent, performance.now())
+                        peakWire = Math.max(peakWire, ++onWire)
+                        if (!pings.length) setImmediate(ping)
+                    },
+                    reject
+                )
                 req.once('error', () => reject(new Error('Calculator connection failed.')))
                 req.end(body)
             })
@@ -197,7 +260,7 @@ async function cohort(turn) {
         }
         const times = results.map((r) => r.value.total)
         const headers = results.map((r) => r.value.headers)
-        assert.equal(ports.size, count, 'Expected one TCP connection per chat.')
+        assert.equal(sockets.size, count, 'Expected one TCP connection per chat.')
         assert.ok(count === 1 || peakWire >= 2, 'The client requests did not overlap.')
         await pendingPing
         assert.ok(pings.length > 0 && pings.every((r) => r.status === 200), 'Concurrent /ping failed.')
@@ -211,7 +274,7 @@ async function cohort(turn) {
             submitted: count,
             verified: times.length,
             recorded: recordedRuns.size - turn * count,
-            tcpConnections: ports.size,
+            tcpConnections: sockets.size,
             peakRequestsOnWire: peakWire,
             peakOpenSseResponses: peakStreams,
             wireSpanMs: round(lastEof - firstSent),
@@ -219,6 +282,8 @@ async function cohort(turn) {
             turnsPerSecond: round((count * 1000) / total),
             turnDurationsMs: times,
             headerDurationsMs: headers,
+            firstAnswerDurationsMs: results.map((r) => r.value.firstAnswerMs),
+            firstAnswerEvents: results.map((r) => r.value.firstAnswerEvent),
             pingDurationsMs: pingMs,
             p50Ms: round(quantile(times, 0.5)),
             p95Ms: round(quantile(times, 0.95)),
@@ -230,6 +295,25 @@ async function cohort(turn) {
     }
 }
 
-console.log(JSON.stringify(await cohort(0)))
-await delay(61000)
-console.log(JSON.stringify(await cohort(1)))
+if (import.meta.main) {
+    const count = Number(process.argv[2] || 1)
+    assert.ok([1, 8, 32].includes(count), 'Select 1, 8, or 32 chats.')
+    const origin = new URL(process.env.CUTTLELY_QA_ORIGIN)
+    assert.ok(!origin.username && !origin.password && origin.href === origin.origin + '/', 'Supply the origin only.')
+    const loopback = ['127.0.0.1', '[::1]'].includes(origin.hostname)
+    assert.ok(origin.protocol === 'https:' || (origin.protocol === 'http:' && loopback), 'Use HTTPS or literal loopback HTTP.')
+    const key = process.env.CUTTLELY_QA_TOKEN
+    assert.ok(key && !/[\s\x00-\x1f\x7f]/.test(key), 'Supply a dedicated QA bearer token.')
+    const net = origin.protocol === 'https:' ? https : http
+    const clientSha256 = createHash('sha256')
+        .update(readFileSync(new URL(import.meta.url)))
+        .digest('hex')
+    const sampleId = randomUUID()
+    const recordedRuns = new Set()
+    const chatIds = Array.from({ length: count }, () => randomUUID())
+    const operand = randomInt(10000, 1000000)
+    const options = { count, origin, key, net, clientSha256, sampleId, recordedRuns, chatIds, operand }
+    console.log(JSON.stringify(await cohort(0, options)))
+    await delay(61000)
+    console.log(JSON.stringify(await cohort(1, options)))
+}

@@ -12,6 +12,9 @@ const phases = ['fresh', 'warm']
 function measure(rows) {
     const times = rows.flatMap((r) => r.turnDurationsMs)
     const headers = rows.flatMap((r) => r.headerDurationsMs)
+    const answers = rows.flatMap((r) => r.firstAnswerDurationsMs ?? [])
+    const firstAnswerEvents = rows.flatMap((r) => r.firstAnswerEvents ?? [])
+    const complete = answers.length === times.length
     const pings = rows.flatMap((r) => r.pingDurationsMs)
     const rate = (r) => (r.verified * 1000) / r.wallMs
     return {
@@ -20,6 +23,14 @@ function measure(rows) {
         p95Ms: quantile(times, 0.95),
         turnsPerSecond: (times.length * 1000) / rows.reduce((total, r) => total + r.wallMs, 0),
         headerP95Ms: quantile(headers, 0.95),
+        firstAnswer: {
+            observed: answers.length,
+            expected: times.length,
+            partial: firstAnswerEvents.filter((event) => event === 'partial').length,
+            final: firstAnswerEvents.filter((event) => event === 'final').length,
+            p50Ms: complete ? quantile(answers, 0.5) : null,
+            p95Ms: complete ? quantile(answers, 0.95) : null
+        },
         pingP95Ms: quantile(pings, 0.95),
         perRound: rows.map((r) => ({
             p95Ms: quantile(r.turnDurationsMs, 0.95),
@@ -81,6 +92,21 @@ export function compareCalculatorRounds(rounds) {
                 )
             assert.equal(r.turnDurationsMs.length, config.clients)
             assert.equal(r.headerDurationsMs.length, config.clients)
+            if ('firstAnswerDurationsMs' in r || 'firstAnswerEvents' in r) {
+                assert.ok(
+                    Array.isArray(r.firstAnswerDurationsMs) && Array.isArray(r.firstAnswerEvents),
+                    'Incomplete first-answer telemetry.'
+                )
+                assert.equal(r.firstAnswerDurationsMs.length, config.clients)
+                assert.equal(r.firstAnswerEvents.length, config.clients)
+                assert.ok(r.firstAnswerEvents.every((event) => event === 'partial' || event === 'final'))
+                assert.ok(
+                    r.firstAnswerDurationsMs.every(
+                        (ms, i) => Number.isFinite(ms) && r.headerDurationsMs[i] <= ms && ms <= r.turnDurationsMs[i]
+                    ),
+                    'Invalid first-answer timing.'
+                )
+            }
             assert.equal(r.ping?.http200, r.pingDurationsMs.length)
             assert.ok(r.turnDurationsMs.every((ms, index) => ms > 0 && r.headerDurationsMs[index] <= ms && ms <= r.wallMs))
         }
