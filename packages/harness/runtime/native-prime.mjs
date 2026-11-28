@@ -45,7 +45,8 @@ export function onDemandNativeRoles(engine) {
     return engine === 'native' && process.env.CUTTLELY_NATIVE_ROLE_POLICY === 'on-demand'
 }
 
-export function assertNativeRoleSupported(specialist) {
+export function assertNativeRoleSupported(specialist, approvedStaticPage = false) {
+    if (approvedStaticPage && specialist.browser === true && !specialist.shell && !specialist.codeExecution) return
     if (openNativeNumericCode(specialist, 'on-demand')) return
     const capabilities = deferredCapabilities(specialist)
     if (capabilities.length)

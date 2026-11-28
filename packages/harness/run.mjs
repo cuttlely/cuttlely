@@ -98,6 +98,7 @@ import {
     useNativeSpecialists,
     selectAgentEngine
 } from './runtime/native-prime.mjs'
+import { approvedStaticPage, openStaticPage } from './runtime/native-static-page.mjs'
 import { openNativeNumericCode } from './runtime/native-numeric-code.mjs'
 import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
@@ -755,7 +756,7 @@ async function runTurnBody(
         checkRole: rolePin
             ? (role) => {
                   context.assertNativeAuthority()
-                  assertNativeRoleSupported(role)
+                  assertNativeRoleSupported(role, Boolean(approvedStaticPage(context, role)))
               }
             : undefined,
         // Check saved grants at public delivery even when a provider started before the roster changed.
@@ -3498,7 +3499,7 @@ async function repairRetrievedGuidance(context, specialist, task, out) {
 
 function fatalNativeRoleError(context, specialist, error) {
     if (!context.checkRole) return false
-    if (['native_unsupported', 'harness_changed'].includes(error?.code)) return true
+    if (specialist.browser === true || ['native_unsupported', 'harness_changed'].includes(error?.code)) return true
     return specialist.codeExecution === true && ['forbidden', 'bad_task', 'empty_output'].includes(error?.code)
 }
 
@@ -4159,6 +4160,8 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
+        const browser = openStaticPage(context, specialist)
+        for (const tool of browser?.tools || []) register(tool, (args) => browser.execute(tool.function.name, args))
         const sampler =
             context.checkRole && specialist.codeExecution === true && !specialist.shell && !specialist.browser && openUploadSampler(context)
         const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler)
@@ -4303,9 +4306,10 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             aliases: retrieverAliases,
             limitCode: 'tool_limit',
             validateCall:
-                numeric &&
+                (numeric || browser || workbookTool) &&
                 ((name, args) => {
-                    if (name === 'execute_code') numeric.validate(name, args)
+                    if (browser && ['browser_navigate', 'browser_snapshot'].includes(name)) browser.validate(name, args)
+                    if (numeric && name === 'execute_code') numeric.validate(name, args)
                     if (workbookTool && name === 'sample_workbook') sampler.validateWorkbook(args)
                 }),
             complete: (messages, offered) => {
@@ -4340,6 +4344,8 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             }
         })
+        if (browser && (!browser.delivered() || !text?.trim()))
+            throw new HarnessError('empty_output', 'The static page reader did not return a completed page report.')
         if (numeric && !text?.trim() && !specialist.trustedOutputs?.length)
             throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
         let uploadReport,
@@ -4382,7 +4388,7 @@ async function runInlineSpecialist(context, specialist, task) {
         context.assertNativeAuthority()
         const usesBridge = context.nativePrime || needsAgentLoop(specialist)
         if (
-            (context.checkRole && specialist.codeExecution) ||
+            (context.checkRole && (specialist.codeExecution || specialist.browser)) ||
             specialist.fileAccess ||
             specialist.playbooks?.length ||
             specialist.mcpServers?.length ||

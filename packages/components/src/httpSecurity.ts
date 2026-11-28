@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
 import dns from 'dns/promises'
 import http from 'http'
@@ -308,15 +309,22 @@ export async function secureFetch(
     url: string,
     init?: RequestInit,
     maxRedirects: number = 5,
-    agentOptions?: SecureRequestAgentOptions & { publicPageOrigin?: string }
+    agentOptions?: SecureRequestAgentOptions & {
+        publicPageOrigin?: string
+        staticPage?: { destinations: readonly string[]; assertCurrent: () => void }
+    }
 ): Promise<Response> {
     let currentUrl = url
     let redirectCount = 0
     let currentInit = { ...init, redirect: 'manual' as const } // Disable automatic redirects
 
     while (redirectCount <= maxRedirects) {
+        const reviewed = agentOptions?.staticPage
+        if (reviewed && !reviewed.destinations.includes(currentUrl)) throw new Error('Unapproved source page destination.')
+        reviewed?.assertCurrent()
         const resolved = await resolveAndValidate(currentUrl, agentOptions?.allowedPrivateHostnames, agentOptions?.publicPageOrigin)
         const agent = createPinnedAgent(resolved, agentOptions)
+        reviewed?.assertCurrent()
 
         const response = await fetch(currentUrl, { ...currentInit, agent: () => agent })
 
@@ -332,6 +340,7 @@ export async function secureFetch(
             return response
         }
 
+        if (reviewed && response.body instanceof Readable) response.body.destroy()
         redirectCount++
 
         if (redirectCount > maxRedirects) {

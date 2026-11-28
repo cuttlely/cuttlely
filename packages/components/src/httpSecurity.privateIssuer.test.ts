@@ -118,3 +118,40 @@ describe('public source-page fetch', () => {
         expect(mockedFetch).not.toHaveBeenCalled()
     })
 })
+
+describe('operator-reviewed static pages', () => {
+    const origin = 'https://catalog.example.org'
+    const first = origin + '/shipping'
+    const last = origin + '/shipping-info'
+    const destinations = [first, last]
+
+    it('reads the two authorized public URLs with fresh authority and rejects a different redirect before DNS', async () => {
+        const dnsLookup = jest.spyOn(dns, 'lookup').mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never)
+        const assertCurrent = jest.fn()
+        const options = { publicPageOrigin: origin, staticPage: { destinations, assertCurrent } }
+        mockedFetch.mockResolvedValueOnce(new Response(undefined, { status: 302, headers: { location: last } }))
+        mockedFetch.mockResolvedValueOnce(new Response('Shipping desk'))
+        expect(await (await secureFetch(first, {}, 3, options)).text()).toBe('Shipping desk')
+        expect(mockedFetch.mock.calls.map((call) => call[0])).toEqual([first, last])
+        expect(assertCurrent).toHaveBeenCalledTimes(4)
+        mockedFetch.mockResolvedValueOnce(new Response(undefined, { status: 302, headers: { location: '/returns' } }))
+        await expect(secureFetch(first, {}, 3, options)).rejects.toThrow(/Unapproved/)
+        expect(mockedFetch).toHaveBeenCalledTimes(3)
+        expect(dnsLookup).toHaveBeenCalledTimes(3)
+    })
+
+    it('honors a revocation during resolution before the request leaves the process', async () => {
+        let current = true
+        jest.spyOn(dns, 'lookup').mockImplementationOnce(async () => {
+            current = false
+            return [{ address: '93.184.216.34', family: 4 }] as never
+        })
+        const assertCurrent = () => {
+            if (!current) throw new Error('Saved team changed')
+        }
+        await expect(secureFetch(first, {}, 3, { publicPageOrigin: origin, staticPage: { destinations, assertCurrent } })).rejects.toThrow(
+            /changed/
+        )
+        expect(mockedFetch).not.toHaveBeenCalled()
+    })
+})
