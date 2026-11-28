@@ -1317,6 +1317,7 @@ export async function callOfferedTool({
     chatId,
     scope,
     sourceTurn,
+    formatSourceReceipt,
     moduleOptions
 }) {
     if (isPinnedToolName(toolName)) {
@@ -1332,6 +1333,7 @@ export async function callOfferedTool({
             routeProfile,
             scope,
             sourceReceipt: true,
+            formatSourceReceipt,
             sourceTurn: sourceTurn.length <= 4096 ? sourceTurn : '',
             moduleOptions
         })
@@ -1448,6 +1450,7 @@ export async function invokeOfferedPinnedTool({
     routeProfile = profileName,
     scope,
     sourceReceipt = false,
+    formatSourceReceipt,
     sourceTurn = '',
     moduleOptions = {}
 }) {
@@ -1504,16 +1507,11 @@ export async function invokeOfferedPinnedTool({
         captureTrusted: Boolean(protectedWorker),
         sourceTurn
     })
-    return (
-        (sourceReceipt
-            ? trustedOutputReceipt(
-                  record.specialists?.find((item) => item.name === specialistName),
-                  toolName,
-                  shown.result,
-                  captureId
-              )
-            : null) || shown.result
-    )
+    if (!sourceReceipt) return shown.result
+    const specialist = record.specialists?.find((item) => item.name === specialistName)
+    const receipt = trustedOutputReceipt(specialist, toolName, shown.result, captureId)
+    // Only the server-issued receipt for this captured source may carry native presentation metadata.
+    return receipt ? formatSourceReceipt?.(receipt) ?? receipt : shown.result
 }
 
 function modelToolResult(result) {

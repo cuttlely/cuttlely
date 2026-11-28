@@ -108,7 +108,7 @@ export async function issueManagedUpload(scope, parts, digest, callerQuestion) {
     const request =
         typeof callerQuestion === 'string' &&
         callerQuestion.length <= 2048 &&
-        /^(?:\s*\/analyze_csv_report\s|\s*(?:create|generate|make) a report\b)/i.test(callerQuestion)
+        /^\s*(?:\/(?:analyze_csv_report|plot_csv)\s|(?:create|generate|make) a (?:report|(?:bar|line) chart)\b)/i.test(callerQuestion)
             ? { length: callerQuestion.length, hash: createHash('sha256').update(callerQuestion).digest('hex') }
             : undefined
     const data = Buffer.concat([cipher.update(JSON.stringify({ parts, digest, request }), 'utf8'), cipher.final()])

@@ -293,6 +293,73 @@ test(
         assert(denied.status >= 400)
         assert.match(denied.body.message, /could not be verified/i)
         assert(!JSON.stringify(denied.body).includes('UNRELATED'))
+
+        await t.test('a code and file role exports its verified CSV only to the owning caller', async () => {
+            const query = 'Export the uploaded rows as an ordered CSV.'
+            const predictFile = async (token, reference, chatId) => {
+                const form = new FormData()
+                form.append('files', new Blob(['item,units\r\n"Order, ""' + reference + '""",17\r\n'], { type: 'text/csv' }), 'orders.csv')
+                form.append('question', query)
+                form.append('chatId', chatId)
+                const r = await fetch(url + 'prediction/' + outer.id, {
+                    method: 'POST',
+                    headers: { authorization: 'Bearer ' + token },
+                    body: form,
+                    signal: AbortSignal.timeout(30000)
+                })
+                return { status: r.status, body: await r.json() }
+            }
+            const declined = await predictFile(a, randomUUID(), randomUUID())
+            assert.equal(declined.status, 422, 'the original code-only role has no writable workspace')
+            assert.deepEqual(declined.body.artifacts || [], [])
+
+            // Use the normal saved role editor's field for this code and file assignment.
+            python.data.inputs.enableFileAccess = true
+            const updated = await request(url + 'chatflows/' + team.id, {
+                method: 'PUT',
+                cookie: login.cookie,
+                body: { flowData: JSON.stringify(teamGraph) }
+            })
+            assert.equal(updated.status, 200)
+            const commonChat = randomUUID(),
+                deliveredChats = new Set()
+            for (const [owner, other] of [
+                [a, b],
+                [b, a]
+            ]) {
+                const reference = randomUUID()
+                const { status, body } = await predictFile(owner, reference, commonChat)
+                assert.equal(status, 200, body.message)
+                assert.equal(body.text, 'Your CSV is ready.')
+                assert.deepEqual(
+                    body.artifacts.map(({ type, name }) => [type, name]),
+                    [['csv', 'orders.csv']]
+                )
+                assert.ok(body.sessionToken)
+                deliveredChats.add(body.chatId)
+                const stored = body.artifacts[0].data
+                assert.ok(stored.startsWith('FILE-STORAGE::'))
+                const params = new URLSearchParams({
+                    chatflowId: outer.id,
+                    chatId: body.chatId,
+                    fileName: stored.slice('FILE-STORAGE::'.length)
+                })
+                const download = (token) =>
+                    fetch(url + 'get-upload-file?' + params, {
+                        headers: { authorization: 'Bearer ' + token, 'x-cuttlely-session-token': body.sessionToken }
+                    })
+                const file = await download(owner)
+                assert.equal(file.status, 200)
+                assert.deepEqual(
+                    Buffer.from(await file.arrayBuffer()),
+                    Buffer.from('Units,Reference\r\n17,"Order, ""' + reference + '"""\r\n')
+                )
+                const foreign = await download(other)
+                assert.equal(foreign.status, 403)
+                assert.ok(!(await foreign.text()).includes(reference))
+            }
+            assert.equal(deliveredChats.size, 2)
+        })
     }
 )
 

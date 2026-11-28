@@ -416,6 +416,7 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'kraken-tabular-report.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'test', 'native-playbook-assignment.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-tabular-report.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'runtime', 'native-upload-plot.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-numeric-code.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'record-files-postgres.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'worker-overlap-postgres.test.mjs'),

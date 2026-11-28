@@ -5,8 +5,10 @@ const sourceLimit = 8192
 const itemLimit = 128
 const digitsLimit = 64
 const usage =
-    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. For ranked values use print(sorted([integer, ...], reverse=True)[:N]); reverse=True or False and the 0–128 item prefix are optional. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. For a table, start by assigning a literal list or dictionary, collect rows with for/append/extend, then print fields, counts or totals in the same call. Supports field lookup, filters, single-loop list comprehensions, per-key totals, zip, enumerate, items, scalar conversion and sorting. Example: rows = [{"amount": 12}, {"amount": 8}]\namounts = []\nfor row in rows:\n    amounts.append(row["amount"])\nprint(sum(amounts)). Each call is stateless.'
+    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. For ranked values use print(sorted([integer, ...], reverse=True)[:N]); reverse=True or False and the 0–128 item prefix are optional. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. For a table, start by assigning a literal list or dictionary, collect rows with for/append/extend, then print fields, counts or totals in the same call. Supports field lookup, filters, single-loop list comprehensions, per-key totals, zip, enumerate, items, scalar conversion and sorting. Example: rows = [{"amount": 12}, {"amount": 8}]\namounts = []\nfor row in rows:\n    amounts.append(row["amount"])\nprint(sum(amounts)). With import json, use json.loads or json.dumps on bounded in-cell data. Each call is stateless.'
 // Match the literal list first. The two bounded suffixes cannot admit expressions as sort keys or slice bounds.
+const csvOutputUsage =
+    'With a verified CSV input and File Access, write one result of up to 8192 UTF-8 bytes under output/ using csv.writer or csv.DictWriter, writeheader, writerow and writerows.'
 const collection = /^print[ \t]*\([ \t]*(sum|len|min|max|sorted)[ \t]*\([ \t]*\[([\d,+\- \t]*)\]([\s\S]*)$/
 const plainEnd = /^[ \t]*\)[ \t]*\)[ \t]*(?:\r?\n)?$/
 const rankedEnd =
@@ -65,20 +67,22 @@ function calculate({ operation, values, descending, limit }) {
     }
 }
 
-export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, inlineTotal) {
+export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, inlineTotal, files) {
     if (rolePolicy !== 'on-demand' || specialist?.codeExecution !== true || specialist.shell || specialist.browser) return null
     let confirmedInlineTotal
     const validatedSources = new WeakMap()
     async function rowSource(args) {
         const known = validatedSources.get(args)
-        if (known?.code === args.code) return known.source
-        const { source } = await dataRows('validate', args.code, signal)
+        if (known?.code === args.code) return known
+        const { source, outputPath } = await dataRows('validate', args.code, signal)
         if (source !== undefined) {
             if (!sampler?.csvRows) unsupported()
             sampler.csvRows(source, false)
         }
-        validatedSources.set(args, { code: args.code, source })
-        return source
+        if (outputPath && (!files || specialist.fileAccess !== true || !source)) unsupported()
+        const cell = { code: args.code, source, outputPath }
+        validatedSources.set(args, cell)
+        return cell
     }
     return {
         confirmedInlineTotal: () => confirmedInlineTotal,
@@ -87,7 +91,7 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, i
                 type: 'function',
                 function: {
                     name: 'execute_code',
-                    description: sampler ? usage + ' ' + sampler.note : usage,
+                    description: [usage, sampler?.note, files && sampler && csvOutputUsage].filter(Boolean).join(' '),
                     parameters: {
                         type: 'object',
                         properties: {
@@ -118,18 +122,40 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, i
             if (parsed.rows !== undefined)
                 return (async () => {
                     // A plain literal table never needs to resolve an upload.
-                    const source = /\bimport[ \t]+csv\b/.test(parsed.rows) ? await rowSource(args) : undefined
+                    const { source, outputPath } = /\bimport[ \t]+(?:json[ \t]*,[ \t]*)?csv\b/.test(parsed.rows)
+                        ? await rowSource(args)
+                        : {}
                     const input = source === undefined ? undefined : sampler.csvRows(source, true)
                     const proof =
                         source === undefined && inlineTotal
                             ? { inlineTotal: { field: inlineTotal.field, values: inlineTotal.values } }
                             : input
-                    const { output, error, confirmedInlineTotal: confirmed } = await dataRows('run', parsed.rows, signal, proof)
+                    const {
+                        output,
+                        error,
+                        confirmedInlineTotal: confirmed,
+                        csvFile
+                    } = await dataRows('run', parsed.rows, signal, outputPath ? { ...input, outputPath } : proof)
                     if (confirmed && !error) {
                         const [sum, count] = inlineTotal.output.trimEnd().split(' ')
                         if (output === inlineTotal.output || output === count + ' ' + sum + '\n') confirmedInlineTotal = inlineTotal.summary
                     }
                     if (source !== undefined) sampler.csvRows(source, false)
+                    if (csvFile && !error) {
+                        if (
+                            !outputPath ||
+                            csvFile.path !== outputPath ||
+                            typeof csvFile.base64 !== 'string' ||
+                            csvFile.base64.length > 10924
+                        )
+                            unsupported()
+                        const bytes = Buffer.from(csvFile.base64, 'base64')
+                        if (bytes.length > 8192 || bytes.toString('base64') !== csvFile.base64) unsupported()
+                        const written = await files.execute('write_csv_output', { path: outputPath, content: bytes.toString('utf8') })
+                        if (written.error)
+                            throw new HarnessError('workspace_changed', 'The CSV output could not be saved in the current workspace.', 409)
+                        sampler.csvRows(source, false)
+                    }
                     return resultPacket(start, output, error)
                 })()
             if (parsed.sample !== undefined) return sampler.execute(parsed.sample).then((output) => resultPacket(start, output))
@@ -139,7 +165,7 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, i
     }
 }
 
-function resultPacket(start, output, error) {
+export function resultPacket(start, output, error) {
     const bytes = Buffer.byteLength(output)
     return JSON.stringify({
         status: error ? 'error' : 'success',

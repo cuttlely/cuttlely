@@ -8,6 +8,16 @@ const otherAnswer = 'West 28.00 from one observation.'
 const rowTask = 'Aggregate the units from the verified rows.'
 const rowCode =
     'import csv\nwith open("uploads/sales.csv", "r", newline="", encoding="utf-8") as f:\n    rows = list(csv.DictReader(f))\nunits = []\nfor row in rows:\n    units.append(int(row["units"]))\nprint(sum(units), len(rows))'
+const exportTask = 'Export the uploaded rows as an ordered CSV.'
+const exportCode = [
+    'import csv',
+    'rows = list(csv.DictReader(open("uploads/orders.csv")))',
+    'data = [{"Reference": r["item"], "Units": r["units"]} for r in rows]',
+    'with open("output/orders.csv", "w", newline="") as target:',
+    '    writer = csv.DictWriter(target, fieldnames=["Units", "Reference"])',
+    '    writer.writeheader()',
+    '    writer.writerows(data)'
+].join('\n')
 const text = (content) => ({ content, response_metadata: { tokenUsage: { promptTokens: 12, completionTokens: 5 } } })
 const terminalCommands = ['wc -c', 'wc -l', 'head -n 2', 'tail -n 2']
 async function inspectUpload(messages) {
@@ -46,13 +56,22 @@ Module._load = function (name, parent) {
             bindTools(tools) {
                 if (tools.length === 1 && tools[0].function.name === 'terminal')
                     return { invoke: async (messages) => inspectUpload(messages) }
-                assert.deepEqual(
-                    tools.map((t) => t.function.name),
-                    ['execute_code']
-                )
+                const names = tools.map((tool) => tool.function.name).sort()
+                if (names.includes('write_file')) {
+                    assert.ok(names.includes('execute_code'))
+                    assert.ok(!names.includes('write_csv_output'))
+                } else assert.deepEqual(names, ['execute_code'])
                 return {
                     invoke: async (messages) => {
                         const last = messages.at(-1)
+                        if (messages.some((m) => typeof m.content === 'string' && m.content.includes(exportTask))) {
+                            if (last._getType() !== 'tool')
+                                return { ...text(''), tool_calls: [{ name: 'execute_code', id: 'csv-writer', args: { code: exportCode } }] }
+                            const packet = JSON.parse(last.content)
+                            assert.equal(packet.status, 'success')
+                            assert.equal(packet.output, '')
+                            return text('Your CSV is ready.')
+                        }
                         if (messages.some((m) => typeof m.content === 'string' && m.content.includes(rowTask))) {
                             if (last._getType() !== 'tool')
                                 return {
@@ -97,6 +116,8 @@ Module._load = function (name, parent) {
                         })
                     )
                 }
+                if (messages[0].content.startsWith('You route work for') && latest.includes(exportTask))
+                    return text(JSON.stringify({ steps: [{ specialist: 'python', task: exportTask }] }))
                 const inspection = latest.match(/Upload inspection: \d+ bytes, \d+ lines, [a-f0-9]{8} to [a-f0-9]{8}/)?.[0]
                 if (inspection) return text(inspection)
                 if (messages[0].content.startsWith('You route work for') && String(messages.at(-1)?.content).includes(rowTask))
@@ -105,7 +126,7 @@ Module._load = function (name, parent) {
                     const result = typeof message.content === 'string' && message.content.match(/Uploaded total \d+ 2/)
                     if (result) return text(result[0])
                 }
-                for (const expected of [answer, otherAnswer])
+                for (const expected of [answer, otherAnswer, 'Your CSV is ready.'])
                     if (messages.some((m) => typeof m.content === 'string' && m.content.includes(expected))) return text(expected)
                 return text(JSON.stringify({ steps: [{ specialist: 'python', task: 'Summarize the attached CSV by region.' }] }))
             }

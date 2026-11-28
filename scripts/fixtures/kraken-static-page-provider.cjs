@@ -38,6 +38,10 @@ function answer(tools, messages) {
         )
     if (names.includes('browser_navigate')) {
         fs.appendFileSync(process.env.QA_STATIC_MODEL_PIDS, process.pid + '\n')
+        if (names.includes('browser_click')) {
+            assert.deepEqual([...names].sort(), ['browser_back', 'browser_click', 'browser_navigate', 'browser_snapshot'])
+            if (fs.existsSync(process.env.QA_STATIC_DENIED_CARD)) return call('current_date_time', { timezone: 'UTC' })
+        }
         if (marker) {
             if (names.includes('browser_click')) {
                 const value = JSON.parse(last.match(/\n(\{[^\n]+\})\n<\/untrusted_tool_result>/)[1])

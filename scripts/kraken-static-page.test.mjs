@@ -115,6 +115,7 @@ test(
             CUTTLELY_SECRETKEY_OVERWRITE: randomUUID(),
             CUTTLELY_ANALYST: 'off',
             QA_STATIC_MODEL_PIDS: path.join(dir, 'model-pids'),
+            QA_STATIC_DENIED_CARD: path.join(dir, 'denied-card'),
             QA_STATIC_MODEL: model
         })
         delete env.CUTTLELY_NATIVE_STATIC_PAGES
@@ -339,6 +340,52 @@ test(
         const changed = await pending
         assert.ok([409, 422].includes(changed.status), 'changed publication got ' + changed.status)
         assert.ok(!JSON.stringify(changed.body).includes(detailMarker), 'stale destination contents escaped')
+        // Keep the saved clock attached. A signed two-page read must not prepare
+        // that card or offer it to the specialist, on either public entry point.
+        pauseDetails = undefined
+        const withClock = structuredClone(graph)
+        withClock.nodes.push({
+            id: 'clock_0',
+            data: { name: 'currentDateTime', label: 'Current Date and Time', category: 'Tools', inputs: { timezone: 'UTC' } }
+        })
+        withClock.edges.push({
+            id: 'clock_0-browser_0-attached',
+            source: 'clock_0',
+            target: 'browser_0',
+            targetHandle: 'browser_0-input-attached'
+        })
+        const assigned = await request(base + '/api/v1/chatflows/' + flow.id, {
+            method: 'PUT',
+            cookie: login.cookie,
+            body: { id: flow.id, name, type: 'HARNESS', flowData: JSON.stringify(withClock) }
+        })
+        assert.equal(assigned.status, 200)
+        const savedBrowser = (await operator('harnesses/' + name)).specialists.find((role) => role.name === 'browser')
+        assert.deepEqual(
+            savedBrowser.modules.map((card) => card.nodeName),
+            ['currentDateTime']
+        )
+        for (const [route, mode] of [
+            [prediction, 'agent'],
+            [named, 'router']
+        ]) {
+            const before = hits.length
+            const read = await call(route, follow, mode)
+            assert.equal(read.status, 200, read.body.message)
+            assert.equal(read.body.text, detailMarker)
+            assert.deepEqual(
+                hits.slice(before).map((hit) => hit.route),
+                ['/index', '/details']
+            )
+        }
+        const beforeDenied = hits.length
+        fs.writeFileSync(env.QA_STATIC_DENIED_CARD, '')
+        assert.equal((await call(prediction, follow)).status, 422)
+        fs.unlinkSync(env.QA_STATIC_DENIED_CARD)
+        for (const q of [follow.replace('/details', '/unapproved'), follow + ' Then search the web for alternatives.']) {
+            assert.equal((await call(prediction, q)).status, 422)
+        }
+        assert.equal(hits.length, beforeDenied)
         t.diagnostic(
             `Reviewed links matched the released snapshot on signed agent, router and named worker requests. Publication change returned HTTP ${changed.status}.`
         )

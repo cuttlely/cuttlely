@@ -353,13 +353,25 @@ test(
             readMessages(name, chatId, undefined, { scope }).map((x) => x.content),
             ['first', 'first']
         )
+        const output = 'output/reordered.csv'
+        const content = 'SKU,Units\r\n"abc,123",4\r\n"two\nlines",7\r\n'
+        await run(recovered, 'write_file', { path: output, content: '\uFEFFold,header\nold,2\n' })
+        const writtenCsv = await run(recovered, 'write_csv_output', { path: output, content })
+        assert.equal(writtenCsv.bytes_written, Buffer.byteLength(content))
+        const tooLarge = await run(recovered, 'write_csv_output', { path: output, content: 'x'.repeat(8193) })
+        assert.ok(tooLarge.error)
+        assert.ok((await run(recovered, 'write_csv_output', { path: 'draft.txt', content })).error)
+        assert.ok(!recovered.tools.some((tool) => tool.function.name === 'write_csv_output'))
         const valid = await run(recovered, 'write_file', { path: 'sample.js', content: 'export const value = 1' })
         assert.equal(valid.lint.status, 'ok')
         const invalid = await run(recovered, 'write_file', { path: 'sample.js', content: 'const illegal = ;' })
         assert.equal(invalid.lint.status, 'error')
         const note = 'ghp_' + 'X'.repeat(36)
         await run(recovered, 'write_file', { path: 'sample.txt', content: 'API_KEY=' + note })
-        await recovered.finish()
+        const delivered = await recovered.finish()
+        assert.equal(delivered.length, 1)
+        assert.equal(delivered[0].name, 'reordered.csv')
+        assert.equal(Buffer.from(delivered[0].base64, 'base64').toString(), content)
         commit(owned, 'second')
         const reader = openManagedFiles(context(), specialist)
         const page = await run(reader, 'read_file', { path: 'sample.txt' })

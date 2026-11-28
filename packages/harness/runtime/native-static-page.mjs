@@ -1,3 +1,4 @@
+import { dormantStaticPageCard } from '../../../scripts/native-canvas-bindings.mjs'
 import { accessSync, constants } from 'node:fs'
 import { createRequire } from 'node:module'
 import { publishedCanvasSource } from '../canvas-ownership.mjs'
@@ -48,6 +49,18 @@ function canonicalPage(raw) {
     }
 }
 
+// A failed explicit link request must never become a paid search. Ordinary search
+// questions, including searches mentioning a URL, retain the normal saved tool grant.
+export function asksForStaticLink(context) {
+    const question = context.moduleOptions?.nativeSourceTurn?.question
+    return (
+        typeof question === 'string' &&
+        /^(?:please )?(?:follow (?:the |a )?link\b|from https?:\/\/\S+[, ]+follow (?:the |its )?link\b|(?:open|visit|read) https?:\/\/\S+[, ]+(?:and |then |and then )follow (?:the |its )?link\b|https?:\/\/\S+\s+(?:->|→))/i.test(
+            question.trimStart().slice(0, 4096)
+        )
+    )
+}
+
 export function approvedStaticPage(context, role) {
     if (
         !context.checkRole ||
@@ -55,7 +68,8 @@ export function approvedStaticPage(context, role) {
         role.shell ||
         role.codeExecution ||
         role.fileAccess ||
-        role.modules?.length ||
+        (role.modules != null &&
+            (!Array.isArray(role.modules) || role.modules.length > 16 || !role.modules.every(dormantStaticPageCard))) ||
         role.mcpServers?.length ||
         role.playbooks?.length ||
         role.trustedOutputs?.length
@@ -97,6 +111,8 @@ export function approvedStaticPage(context, role) {
         if (urls.size > 2) return
     }
     if (!urls.size) return
+    const cards = Boolean(role.modules?.length)
+    if (cards && urls.size !== 2) return
     const [asked, linked] = urls
     if (linked) {
         if (mentions.length !== 2) return
@@ -115,6 +131,19 @@ export function approvedStaticPage(context, role) {
                 /^(?:,\s*)?(?:and|then|and then) follow (?:its|the) link to$/i.test(between)) ||
             (!prefix && /^(?:->|→)$/.test(between))
         if (!explicit) return
+        if (cards) {
+            // A coassigned role can narrow its working tools only for a complete,
+            // source-only request. A second task remains on its original route.
+            const before = text.slice(0, from.index).trim()
+            const after = text.slice(to.end).trim()
+            if (
+                before !== prefix ||
+                !/^(?:(?:[,.]\s*|and |then |and then )?(?:read|show|report|return|quote) (?:its|the|the destination(?:'s)?) (?:page )?(?:title|text|contents?))?[.!?]?$/i.test(
+                    after
+                )
+            )
+                return
+        }
     }
     try {
         const entries = JSON.parse(raw)

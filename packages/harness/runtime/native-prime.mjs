@@ -9,10 +9,15 @@ import { prepareNativePlaybooks } from './native-playbooks.mjs'
 import { existingFileDependency, managedFilesReady } from './native-files.mjs'
 import availability from '../availability.cjs'
 import { HarnessError } from '../errors.mjs'
-import { estimateTokens } from '../context.mjs'
+import { CHARS_PER_TOKEN, estimateTokens } from '../context.mjs'
 import { needsNativeCanvasCredential, supportsNativeCanvasBinding, unboundNativeSerp } from '../../../scripts/native-canvas-bindings.mjs'
 import { nativeMcpBindingSupported } from './native-mcp.mjs'
-import { emptyNativeAnalystCard, nativeAnalystBinding, nativeAnalystSpecialistSupported } from './native-analyst.mjs'
+import {
+    emptyNativeAnalystCard,
+    nativeAnalystBinding,
+    nativeAnalystSpecialistSupported,
+    verifiedSourceEvidence
+} from './native-analyst.mjs'
 import { chiefPrompt, specialistFileServiceRequirements, specialistProfileName, tryProfileName } from '../profile.mjs'
 
 // Only the queue can supply a recorded selection. API and canvas JSON cannot set a symbol.
@@ -230,6 +235,8 @@ export async function runNativeToolLoop({
     const allowed = new Set(tools.map((tool) => tool.function.name))
     // Only evict a replayable tool result after the model has seen its complete batch.
     const readResults = []
+    let seenSourceReceipts = []
+    const freshSourceReceipts = []
     let pendingReads = []
     let remaining = maxCalls
     for (;;) {
@@ -245,8 +252,32 @@ export async function runNativeToolLoop({
                 tokens -= estimateTokens(message.content) - estimateTokens(compactContent)
                 message.content = compactContent
             }
+            for (const { message, minimum } of seenSourceReceipts) {
+                if (tokens <= budget) break
+                tokens -= estimateTokens(message.content) - estimateTokens(minimum)
+                message.content = minimum
+            }
+            if (tokens > budget && freshSourceReceipts.length) {
+                // Reserve every complete report and its coverage before distributing room for supplemental observations.
+                let extra = budget - tokens
+                for (const { message, minimum } of freshSourceReceipts) extra += estimateTokens(message.content) - estimateTokens(minimum)
+                if (extra >= 0) {
+                    for (const [i, { message, minimum, fit }] of freshSourceReceipts.entries()) {
+                        const floor = estimateTokens(minimum)
+                        const available = floor + Math.floor(extra / (freshSourceReceipts.length - i))
+                        const fitted = fit(available * CHARS_PER_TOKEN)
+                        const cost = estimateTokens(fitted)
+                        tokens += cost - estimateTokens(message.content)
+                        extra -= cost - floor
+                        message.content = fitted
+                    }
+                }
+            }
             if (tokens > budget) throw new HarnessError('context_limit', 'The native agent exhausted its turn context.')
         }
+        // For the next pass retain only the minimum already-issued presentation of this batch.
+        seenSourceReceipts = freshSourceReceipts.map(({ message, minimum }) => ({ message, minimum }))
+        freshSourceReceipts.length = 0
         const reply = await complete(transcript, tools)
         readResults.push(...pendingReads)
         pendingReads = []
@@ -282,6 +313,7 @@ export async function runNativeToolLoop({
             const content = typeof result === 'string' ? result : result.content
             const message = { role: 'tool', tool_call_id: call.id, content }
             transcript.push(message)
+            if (result[verifiedSourceEvidence]) freshSourceReceipts.push({ message, ...result[verifiedSourceEvidence] })
             if (result.compactContent && result.compactContent.length < content.length)
                 pendingReads.push({ message, compactContent: result.compactContent })
         }

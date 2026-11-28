@@ -16,7 +16,7 @@ DEPTH = 12
 OUTPUT = 8192
 VIEWS = (type({}.keys()), type({}.values()), type({}.items()))
 ITERABLES = (tuple, list, dict, range, zip, enumerate) + VIEWS
-FUNCTIONS = {"len", "sum", "min", "max", "sorted", "enumerate", "zip", "range", "list", "dict", "str", "int", "float"}
+FUNCTIONS = {"len", "sum", "min", "max", "sorted", "enumerate", "zip", "range", "list", "dict", "str", "int", "float", "json.loads", "json.dumps"}
 METHODS = {"get", "items", "keys", "values", "upper", "lower", "strip", "split"}
 ARITY = {
     "zip": (2, 2), "enumerate": (1, 2), "range": (1, 3), "list": (0, 1), "dict": (0, 1),
@@ -61,14 +61,19 @@ def assignment(target, depth):
         local(target)
 
 
-def shape(node, depth=0, iterable=False):
+def shape(node, depth=0, iterable=False, json_cell=False):
     """Validate every branch, including the bodies of loops with zero rows."""
     require(depth <= DEPTH)
     children = []
     if isinstance(node, ast.Module):
-        require(node.body and isinstance(node.body[0], ast.Assign))
-        require(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(node)))
+        require(node.body and (isinstance(node.body[0], ast.Assign) or json_cell and isinstance(node.body[0], ast.Expr)))
+        require(any(hasattr(stmt, "csv_output") for stmt in node.body) or
+                any(named_call(n, "print") for n in ast.walk(node)))
         children = node.body
+    elif isinstance(node, ast.With) and hasattr(node, "csv_output"):
+        children = [expr for _, expr in node.csv_operations if expr is not None]
+        if node.csv_fields is not None:
+            children.append(node.csv_fields)
     elif isinstance(node, ast.Assign):
         require(len(node.targets) == 1)
         assignment(node.targets[0], depth)
@@ -193,6 +198,7 @@ class Rows:
         self.steps = 0
         self.output = []
         self.written = 0
+        self.csv_file = None
 
     def tick(self):
         self.steps += 1
@@ -202,6 +208,11 @@ class Rows:
         args = [self.value(arg) for arg in node.args]
         if isinstance(node.func, ast.Name):
             name = node.func.id
+            if name == "json.loads":
+                require(type(args[0]) is str)
+                return json.loads(args[0])
+            if name == "json.dumps":
+                return json.dumps(bounded(args[0]), **node.json_options)
             if name == "range":
                 require(all(type(v) is int for v in args))
                 interval = range(*args)
@@ -317,11 +328,42 @@ class Rows:
             return result
         return bounded(result)
 
+    def write_csv(self, stmt):
+        with io.StringIO(newline="") as buffer:
+            if stmt.csv_fields is None:
+                writer = csv.writer(buffer)
+            else:
+                fields = self.value(stmt.csv_fields)
+                require(isinstance(fields, (list, tuple)) and 1 <= len(fields) <= 64
+                        and all(type(name) is str for name in fields) and len(set(fields)) == len(fields))
+                writer = csv.DictWriter(buffer, fieldnames=fields)
+            for operation, expr in stmt.csv_operations:
+                self.tick()
+                if operation == "writeheader":
+                    writer.writeheader()
+                else:
+                    value = self.value(expr)
+                    items = [value] if operation == "writerow" else value
+                    require(isinstance(items, (list, tuple)) and len(items) <= ITEMS)
+                    for item in items:
+                        self.tick()
+                        require(isinstance(item, dict if stmt.csv_fields is not None else (list, tuple)) and len(item) <= 64)
+                        for cell in item.values() if isinstance(item, dict) else item:
+                            scalar(cell)
+                        writer.writerow(item)
+                        require(buffer.tell() <= OUTPUT)
+                require(buffer.tell() <= OUTPUT)
+            raw = buffer.getvalue().encode("utf-8")
+            require(len(raw) <= OUTPUT)
+            self.csv_file = {"path": stmt.csv_output, "base64": base64.b64encode(raw).decode("ascii")}
+
     def run(self, statements):
         for stmt in statements:
             self.tick()
             if isinstance(stmt, ast.Assign):
                 self.assign(stmt.targets[0], self.value(stmt.value))
+            elif isinstance(stmt, ast.With) and hasattr(stmt, "csv_output"):
+                self.write_csv(stmt)
             elif isinstance(stmt, ast.AugAssign):
                 left, right = self.value(stmt.target), self.value(stmt.value)
                 require(type(left) in (int, float) and type(right) in (int, float))
@@ -358,13 +400,116 @@ def named_call(node, name):
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
 
 
+def json_options(call):
+    options = {}
+    for entry in call.keywords:
+        key, value = entry.arg, entry.value
+        require(key not in options)
+        if key in ("ensure_ascii", "sort_keys"):
+            require(isinstance(value, ast.Constant) and type(value.value) is bool)
+            options[key] = value.value
+        elif key == "indent":
+            require(isinstance(value, ast.Constant) and (value.value is None or type(value.value) is int and 0 <= value.value <= 4))
+            options[key] = value.value
+        elif key == "separators":
+            require(isinstance(value, ast.Tuple) and len(value.elts) == 2 and all(isinstance(v, ast.Constant) for v in value.elts))
+            comma, colon = (v.value for v in value.elts)
+            require(comma in (",", ", ") and colon in (":", ": "))
+            options[key] = (comma, colon)
+        else:
+            raise Unsupported()
+    return options
+
+
+def data_imports(tree):
+    """Declare structured data formats. No Python import statement is executed."""
+    modules = set()
+    while tree.body and isinstance(tree.body[0], ast.Import):
+        for alias in tree.body.pop(0).names:
+            require(alias.name in {"csv", "json"} and alias.asname is None and alias.name not in modules)
+            modules.add(alias.name)
+    require(tree.body)
+    if "csv" in modules:
+        # These names designate the verified input and managed output declarations.
+        require(not any(isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+                        and node.id in {"csv", "open"} for node in ast.walk(tree)))
+    if "json" in modules:
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "json"):
+                continue
+            name = node.func.attr
+            require(name in {"loads", "dumps"} and len(node.args) == 1 and (name == "dumps" or not node.keywords))
+            node.json_options = json_options(node)
+            node.keywords = []
+            # A dotted name cannot appear as a bare Python identifier in the source.
+            node.func = ast.Name(id="json." + name, ctx=ast.Load())
+        require(not any(isinstance(node, ast.Name) and node.id == "json" for node in ast.walk(tree)))
+    return modules
+
+
+def csv_output(tree):
+    """Describe one managed artifact. No source path or Python file handle is opened."""
+    path = None
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.With) or len(stmt.items) != 1:
+            continue
+        opening = stmt.items[0].context_expr
+        if not (named_call(opening, "open") and len(opening.args) == 2 and isinstance(opening.args[1], ast.Constant)
+                and opening.args[1].value == "w"):
+            continue
+        require(path is None and isinstance(opening.args[0], ast.Constant))
+        path = opening.args[0].value
+        require(type(path) is str and re.fullmatch(r"output/[A-Za-z0-9][A-Za-z0-9_ .-]{0,78}\.csv", path))
+        options = {}
+        for option in opening.keywords:
+            require(option.arg in {"encoding", "newline"} and option.arg not in options and isinstance(option.value, ast.Constant))
+            options[option.arg] = option.value.value
+        require(options.get("encoding", "utf-8") == "utf-8" and options.get("newline", "") == "")
+        handle = local(stmt.items[0].optional_vars)
+        require(len(stmt.body) >= 2)
+        setup = stmt.body[0]
+        require(isinstance(setup, ast.Assign) and len(setup.targets) == 1)
+        binding = local(setup.targets[0])
+        factory = setup.value
+        require(handle != binding and isinstance(factory, ast.Call) and isinstance(factory.func, ast.Attribute)
+                and isinstance(factory.func.value, ast.Name) and factory.func.value.id == "csv")
+        require(factory.func.attr in {"writer", "DictWriter"} and factory.args
+                and isinstance(factory.args[0], ast.Name) and factory.args[0].id == handle)
+        stmt.csv_fields = None
+        if factory.func.attr == "writer":
+            require(len(factory.args) == 1 and not factory.keywords)
+        elif len(factory.args) == 2:
+            require(not factory.keywords)
+            stmt.csv_fields = factory.args[1]
+        else:
+            require(len(factory.args) == 1 and len(factory.keywords) == 1 and factory.keywords[0].arg == "fieldnames")
+            stmt.csv_fields = factory.keywords[0].value
+        stmt.csv_operations = []
+        for line in stmt.body[1:]:
+            call = line.value if isinstance(line, ast.Expr) else None
+            require(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == binding and not call.keywords)
+            method = call.func.attr
+            require((method == "writeheader" and stmt.csv_fields is not None and not call.args)
+                    or (method in {"writerow", "writerows"} and len(call.args) == 1))
+            stmt.csv_operations.append((method, call.args[0] if call.args else None))
+        # The opaque handles have no other meaning in this evaluator, including in dead branches.
+        hidden = {handle, binding}
+        for sibling in tree.body:
+            if sibling is not stmt:
+                require(not any(isinstance(n, ast.Name) and n.id in hidden for n in ast.walk(sibling)))
+        operands = [v for _, v in stmt.csv_operations if v is not None]
+        if stmt.csv_fields is not None:
+            operands.append(stmt.csv_fields)
+        require(not any(isinstance(n, ast.Name) and n.id in hidden for expr in operands for n in ast.walk(expr)))
+        stmt.csv_output = path
+    return path
+
+
 def csv_input(tree):
     """Recognize one declarative CSV input. The supplied source is never opened."""
-    if not tree.body or not isinstance(tree.body[0], ast.Import):
-        return None
-    imports = tree.body[0].names
-    require(len(imports) == 1 and imports[0].name == "csv" and imports[0].asname is None and len(tree.body) >= 2)
-    stmt = tree.body[1]
+    stmt = tree.body[0]
     managed = isinstance(stmt, ast.With)
     if managed:
         require(len(stmt.items) == 1 and len(stmt.body) == 1)
@@ -400,7 +545,7 @@ def csv_input(tree):
     encoding = options.get("encoding", "utf-8")
     require(encoding in ("utf-8", "utf-8-sig") and options.get("newline") in ("", None))
     # Replace only the recognized input declaration. Validate every remaining statement normally.
-    tree.body[:2] = [ast.Assign(targets=stmt.targets, value=ast.Constant(value=None))]
+    tree.body[:1] = [ast.Assign(targets=stmt.targets, value=ast.Constant(value=None))]
     return target, name.value, encoding, delimiter, options.get("newline")
 
 
@@ -464,10 +609,14 @@ def main(request):
     require(len(source) <= 8192)
     tree = ast.parse(source)
     require(sum(1 for _ in ast.walk(tree)) <= 768)
-    source = csv_input(tree)
-    shape(tree)
+    formats = data_imports(tree)
+    source = csv_input(tree) if "csv" in formats else None
+    output_path = csv_output(tree) if source else None
+    shape(tree, json_cell="json" in formats)
     if request["action"] == "validate":
-        return {"valid": True, **({"source": source[1]} if source else {})}
+        return {"valid": True, **({"source": source[1]} if source else {}), **({"outputPath": output_path} if output_path else {})}
+    if output_path:
+        require(request.get("outputPath") == output_path)
     rows = Rows()
     try:
         if source:
@@ -480,9 +629,10 @@ def main(request):
             return {"output": "".join(rows.output), "confirmedInlineTotal": confirmed}
         else:
             rows.run(tree.body)
-        return {"output": "".join(rows.output)}
+        return {"output": "".join(rows.output), **({"csvFile": rows.csv_file} if rows.csv_file else {})}
     except (KeyError, IndexError, NameError, TypeError, ValueError, OverflowError, RuntimeError) as exc:
-        return {"output": "".join(rows.output), "error": type(exc).__name__ + ": " + str(exc)[:512]}
+        kind = "json.decoder.JSONDecodeError" if isinstance(exc, json.JSONDecodeError) else type(exc).__name__
+        return {"output": "".join(rows.output), "error": kind + ": " + str(exc)[:512]}
 
 
 if __name__ == "__main__":

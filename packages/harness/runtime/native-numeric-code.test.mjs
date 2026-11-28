@@ -297,3 +297,161 @@ test('saved table idioms group rows, filter projected values and preserve local 
     ])
         await assert.rejects(tool.validate('execute_code', { code }), { code: 'native_unsupported' })
 })
+
+test('JSON row inputs and outputs preserve Python formatting and the same verified CSV binding', async () => {
+    const decode = 'import json\nrows = json.loads(\'[{"q":4},{"q":-1}]\')\nprint(sum([row["q"] for row in rows]))'
+    const encode =
+        'import json\nrow = {"z":"café","a":[True,None]}\nprint(json.dumps(row, sort_keys=True, ensure_ascii=False, separators=(",",":")))'
+    const jsonTool = openNativeNumericCode(role, 'on-demand')
+    for (const [code, expected] of [
+        [decode, '3\n'],
+        [encode, '{"a":[true,null],"z":"café"}\n']
+    ]) {
+        await jsonTool.validate('execute_code', { code })
+        const result = JSON.parse(await jsonTool.execute('execute_code', { code }))
+        assert.equal(result.status, 'success')
+        assert.equal(result.output, expected)
+        assert.equal(result.stdout_bytes_captured, Buffer.byteLength(expected))
+    }
+    const csv = 'A,B\n3,4\n'
+    const rowsRead = []
+    const bound = openNativeNumericCode(role, 'on-demand', {
+        accepts: () => false,
+        csvRows: (source, read) => {
+            assert.equal(source, 'managed/me.csv')
+            rowsRead.push(read)
+            return read ? { source, data: Buffer.from(csv).toString('base64') } : undefined
+        }
+    })
+    for (const imports of ['import json, csv', 'import csv\nimport json']) {
+        const args = { code: imports + '\nrows=list(csv.DictReader(open("managed/me.csv")))\nprint(json.dumps(rows, sort_keys=True))' }
+        await bound.validate('execute_code', args)
+        assert.equal(JSON.parse(await bound.execute('execute_code', args)).output, '[{"A": "3", "B": "4"}]\n')
+    }
+    assert.deepEqual(rowsRead, [false, true, false, false, true, false])
+})
+
+test('JSON data operations reject undeclared modules, callbacks, excessive data and custom file codecs', async () => {
+    const rows = 'data = []\n'
+    for (const code of [
+        rows + 'print(json.dumps(data))',
+        'import json\njson = {}\nprint(json.dumps(json))',
+        'import json\n' + rows + 'print(json.dumps(data, default=print))',
+        'import json\n' + rows + 'print(json.dumps(data, indent=20))',
+        'import json\n' + rows + 'print(json.load("file.json"))',
+        'import json\n' + rows + 'print(json.loads("1", parse_int=str))',
+        'import json\n' + rows + 'print(json.dumps(data, separators=(";",":")))',
+        'import json\n' + rows + 'if False:\n    json.dump(data,"out")'
+    ]) {
+        await assert.rejects(async () => tool.validate('execute_code', { code }), { code: 'native_unsupported' })
+        await assert.rejects(async () => tool.execute('execute_code', { code }), { code: 'native_unsupported' })
+    }
+    const oversize = 'import json\nrows=json.loads("[' + Array(129).fill(1).join(',') + ']")\nprint(len(rows))'
+    await assert.rejects(async () => tool.execute('execute_code', { code: oversize }), { code: 'native_unsupported' })
+    const malformed = 'import json\nprint("start")\nrows=json.loads("{")'
+    const packet = JSON.parse(await tool.execute('execute_code', { code: malformed }))
+    assert.equal(packet.exit_code, 1)
+    assert.equal(packet.stdout_bytes_captured, 6)
+    assert.equal(packet.output, 'start\n\n--- stderr ---\n' + packet.error + '\n')
+    assert.match(packet.error, /^json\.decoder\.JSONDecodeError:/)
+})
+
+test('a verified CSV can produce one byte-exact file with the current File Access grant', async () => {
+    const path = 'uploads/orders.csv'
+    let contents = 'SKU,Units\r\n"Blue, A",5\r\n"café ""X""",13\r\n'
+    const checks = []
+    const written = []
+    const sampler = {
+        accepts: () => false,
+        csvRows(source, read) {
+            if (source !== path) throw Object.assign(new Error('unverified input'), { code: 'native_unsupported' })
+            checks.push(read)
+            if (read) return { source, data: Buffer.from(contents).toString('base64') }
+        }
+    }
+    const files = {
+        async execute(name, args) {
+            assert.equal(name, 'write_csv_output')
+            written.push(args)
+            return { error: false }
+        }
+    }
+    const roleWithFiles = { ...role, fileAccess: true }
+    const writer = openNativeNumericCode(roleWithFiles, 'on-demand', sampler, undefined, undefined, files)
+    const read = 'import csv\nwith open("uploads/orders.csv", "r", newline="") as original:\n    rows = list(csv.DictReader(original))\n'
+    const opening = 'with open("output/result.csv", "w", newline="", encoding="utf-8") as destination:\n'
+    const dict =
+        read +
+        opening +
+        '    writer = csv.DictWriter(destination, fieldnames=["SKU","Units"])\n    writer.writeheader()\n    writer.writerows(rows)'
+    const simple =
+        read +
+        opening +
+        '    writer = csv.writer(destination)\n    writer.writerow(["SKU","Units"])\n    writer.writerows([[row["SKU"], row["Units"]] for row in rows])'
+    for (const code of [dict, simple]) {
+        checks.length = 0
+        const args = { code }
+        await writer.validate('execute_code', args)
+        const result = JSON.parse(await writer.execute('execute_code', args))
+        assert.deepEqual(checks, [false, true, false, false])
+        assert.equal(result.output, '')
+        assert.equal(result.exit_code, 0)
+        assert.deepEqual(written.at(-1), { path: 'output/result.csv', content: contents })
+    }
+    contents = 'SKU,Units\r\n'
+    assert.equal(JSON.parse(await writer.execute('execute_code', { code: dict })).exit_code, 0)
+    assert.equal(written.at(-1).content, contents)
+    contents = 'SKU,Units,Extra\r\nA,12,private\r\n'
+    const previous = written.length
+    const missingField = JSON.parse(await writer.execute('execute_code', { code: dict }))
+    assert.equal(missingField.exit_code, 1)
+    assert.match(missingField.error, /^ValueError:/)
+    assert.equal(written.length, previous)
+    for (const code of [
+        dict.replace('uploads/orders.csv', 'uploads/other.csv'),
+        dict.replace('output/result.csv', '../result.csv'),
+        dict.replace(opening, 'csv = 0\n' + opening),
+        dict.replace(opening, 'open = []\n' + opening),
+        dict.replace('output/result.csv', 'output/sub/result.csv'),
+        dict.replace('output/result.csv', 'output/result.txt'),
+        dict.replace('"w"', '"a"'),
+        dict.replace('    writer.writeheader()', '    destination.flush()'),
+        dict + '\nprint(destination)',
+        dict + '\n' + opening + '    other = csv.writer(destination)\n    other.writerow([])',
+        'import csv\nrows=[]\n' + opening + '    writer = csv.writer(destination)\n    writer.writerows(rows)'
+    ]) {
+        await assert.rejects(async () => writer.validate('execute_code', { code }), { code: 'native_unsupported' })
+        await assert.rejects(async () => writer.execute('execute_code', { code }), { code: 'native_unsupported' })
+    }
+    for (const unauthorized of [
+        openNativeNumericCode(role, 'on-demand', sampler, undefined, undefined, files),
+        openNativeNumericCode(roleWithFiles, 'on-demand', sampler),
+        openNativeNumericCode(roleWithFiles, 'on-demand', undefined, undefined, undefined, files)
+    ])
+        await assert.rejects(async () => unauthorized.execute('execute_code', { code: dict }), { code: 'native_unsupported' })
+    contents = 'SKU,Units\r\nA,1\r\n'
+    const large =
+        read +
+        'text = "é".upper()\n' +
+        opening +
+        '    writer = csv.writer(destination)\n    writer.writerows([[text * 200] for row in range(24)])'
+    await assert.rejects(writer.execute('execute_code', { code: large }), { code: 'native_unsupported' })
+    assert.equal(written.length, previous)
+    const revoked = openNativeNumericCode(
+        roleWithFiles,
+        'on-demand',
+        {
+            accepts: () => false,
+            csvRows(source, read) {
+                if (!read && checks.at(-1) === true) throw Object.assign(new Error('changed publication'), { code: 'harness_changed' })
+                return sampler.csvRows(source, read)
+            }
+        },
+        undefined,
+        undefined,
+        files
+    )
+    checks.length = 0
+    await assert.rejects(revoked.execute('execute_code', { code: dict }), { code: 'harness_changed' })
+    assert.equal(written.length, previous)
+})

@@ -134,3 +134,129 @@ test('canvas round trip and profile refresh preserve a scoped override and updat
     assert.equal(getHarness(roster.name).specialists[1].evidenceBytes, undefined)
     delete process.env.CUTTLELY_HARNESS_EVIDENCE_BYTES
 })
+
+test('native fits supplemental pin evidence to remaining context and preserves the complete reviewed Markdown', async () => {
+    const { runNativeToolLoop } = await import('./runtime/native-prime.mjs')
+    const { modelSourceReceipt, verifiedSourceEvidence } = await import('./runtime/native-analyst.mjs')
+    const contract = { pin: 'pq_inventory', hash: 'ab'.repeat(32), mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    const specialist = { trustedOutputs: [contract], trustedInterpretation: true, trustedInterpretationPaths: ['rows.0.items'] }
+    const report = '## Inventory\n\nCounted forty-eight blue boxes.\n'
+    const body = {
+        rows: [{ report, items: Array.from({ length: 120 }, (_, i) => ({ bin: i, label: 'Blue inventory box ' + i })) }],
+        pinned: { name: contract.pin, hash: contract.hash, version: 1 }
+    }
+    const full = trustedOutputReceipt(specialist, contract.pin, body, 'turn-1')
+    const first = modelSourceReceipt(specialist, contract.pin, full)
+    let shown
+    const call = (name) => ({ id: 'call-' + name, function: { name, arguments: '{}' } })
+    let completeCalls, executions
+    async function turn(results, budget) {
+        completeCalls = 0
+        executions = 0
+        const names = Object.keys(results)
+        return runNativeToolLoop({
+            messages: [{ role: 'user', content: 'Report the saved inventory.' }],
+            tools: names.map((name) => ({ function: { name } })),
+            maxCalls: names.length,
+            budget,
+            complete: async (messages) => {
+                completeCalls++
+                if (completeCalls === 1) return { content: '', toolCalls: names.map(call) }
+                shown = messages.filter((message) => message.role === 'tool').map((message) => message.content)
+                return { content: messages.at(-1).content, toolCalls: [] }
+            },
+            execute: (name) => {
+                executions++
+                return results[name]
+            }
+        })
+    }
+
+    const unlimited = await turn({ pin: first }, 0)
+    assert.equal(unlimited, full)
+    const limited = await turn({ pin: first }, 1100)
+    const receipt = JSON.parse(limited)
+    assert(limited.length < full.length)
+    assert.equal(receipt.callId, 'turn-1')
+    assert.equal(receipt.hash, contract.hash)
+    assert.equal(receipt.status, 'source_captured')
+    assert.deepEqual(receipt.sourceOverview, { text: report, complete: true })
+    assert.equal(receipt.interpretationEvidence.evidenceCoverage.complete, false)
+    assert(receipt.interpretationEvidence.evidenceCoverage.omittedFields > 0)
+    assert.equal(sourceMarkdown(body, contract), report)
+    assert.equal(body.rows[0].items.length, 120)
+    assert.equal(executions, 1)
+
+    for (const bad of [
+        { truncated: true },
+        { cursor: 'next' },
+        { error: 'source unavailable' },
+        { pinned: { ...body.pinned, hash: 'cd'.repeat(32) } }
+    ])
+        assert.equal(trustedOutputReceipt(specialist, contract.pin, { ...body, ...bad }, 'turn-1'), null)
+    assert.equal(modelSourceReceipt({ ...specialist, trustedOutputs: [contract, contract] }, contract.pin, full), full)
+    const missing = trustedOutputReceipt(specialist, contract.pin, { ...body, rows: [{ items: [] }] }, 'turn-1')
+    assert.equal(modelSourceReceipt(specialist, contract.pin, missing), missing)
+
+    const otherContract = { ...contract, pin: 'pq_second_inventory', hash: 'ac'.repeat(32) }
+    const otherRole = { ...specialist, trustedOutputs: [otherContract] }
+    const otherBody = {
+        ...body,
+        rows: [{ ...body.rows[0], report: 'Another complete report.' }],
+        pinned: { ...body.pinned, name: otherContract.pin, hash: otherContract.hash }
+    }
+    const second = trustedOutputReceipt(otherRole, otherContract.pin, otherBody, 'turn-2')
+    const other = modelSourceReceipt(otherRole, otherContract.pin, second)
+    const reportBudget = 2000
+    await turn({ pin: first, otherPin: other }, reportBudget)
+    assert.deepEqual(
+        shown.map((text) => JSON.parse(text).sourceOverview.text),
+        [report, 'Another complete report.']
+    )
+    for (const packet of shown.map(JSON.parse)) {
+        assert.equal(packet.sourceOverview.complete, true)
+        assert.equal(packet.interpretationEvidence.evidenceCoverage.complete, false)
+        assert(packet.interpretationEvidence.evidenceCoverage.omittedFields > 0)
+        assert(packet.interpretationEvidence.sourceEvidence.length > 0)
+    }
+    const displayed = shown
+    await turn({ pin: first, otherPin: other }, reportBudget)
+    assert.deepEqual(shown, displayed)
+    await assert.rejects(turn({ pin: first, otherPin: other }, 500), { code: 'context_limit' })
+
+    // The next model exchange may add another ordinary tool answer. Only a minimum
+    // presentation of the already seen batch is needed to fit it, with no source replay.
+    let rounds = 0
+    const packetBudget = Math.ceil((full.length + 460) / 4)
+    await runNativeToolLoop({
+        messages: [{ role: 'user', content: 'Use the two assigned sources.' }],
+        tools: ['pin', 'labels'].map((name) => ({ function: { name } })),
+        maxCalls: 2,
+        budget: packetBudget,
+        complete: async (messages) => {
+            rounds++
+            if (rounds === 1) return { content: '', toolCalls: [call('pin')] }
+            if (rounds === 2) {
+                assert.equal(messages.at(-1).content, full)
+                return { content: '', toolCalls: [call('labels')] }
+            }
+            const packets = messages.filter((message) => message.role === 'tool')
+            assert.equal(packets[0].content, first[verifiedSourceEvidence].minimum)
+            assert.equal(packets[1].content, 'blue '.repeat(200))
+            return { content: 'Done.', toolCalls: [] }
+        },
+        execute: (name) => (name === 'pin' ? first : 'blue '.repeat(200))
+    })
+    assert.equal(rounds, 3)
+
+    // No new context authority from outwardly identical JSON in another tool's answer.
+    await assert.rejects(turn({ other: full }, 1100), { code: 'context_limit' })
+    assert.equal(completeCalls, 1)
+    await assert.rejects(turn({ other: 'Unrelated response '.repeat(400), pin: first }, 1100), {
+        code: 'context_limit'
+    })
+    assert.equal(completeCalls, 1)
+    assert.equal(executions, 2)
+    await assert.rejects(turn({ pin: first }, 90), { code: 'context_limit' })
+    assert.equal(completeCalls, 1)
+})

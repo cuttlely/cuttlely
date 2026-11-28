@@ -481,4 +481,81 @@ test('an admitted PostgreSQL specialist uses the signed saved report and relatio
         assert.ok(files.text.includes(file.name))
     }
     assert.ok(!files.text.includes('Fabricated file report'))
+
+    await t.test('two destination-tested pins share one native model window and preserve both captured reports', async () => {
+        const { runNativeToolLoop } = await import('../../runtime/native-prime.mjs')
+        const summaries = ['Verified northern inventory.', 'Verified southern inventory.']
+        const producer = new Client(connection)
+        await producer.connect()
+        try {
+            for (const [index, summary] of summaries.entries()) {
+                const items = Array.from({ length: 120 }, (_, n) => ({ bin: n, label: 'Test inventory item ' + n }))
+                await producer.query('UPDATE public.native_reports SET table_payload = $1 WHERE id = $2', [
+                    JSON.stringify({ summary, items }),
+                    index + 1
+                ])
+            }
+        } finally {
+            await producer.end()
+        }
+        const role = {
+            ...specialist,
+            trustedOutputs: reports.map(({ contract }) => ({
+                ...contract,
+                mode: 'markdown',
+                fields: [{ path: 'rows.0.table_payload.summary' }]
+            })),
+            trustedInterpretation: true,
+            trustedInterpretationPaths: ['rows.0.table_payload.items'],
+            mcpServers: [
+                {
+                    ...binding,
+                    inputs: {
+                        ...binding.inputs,
+                        allowPinDefinitions: false,
+                        mcpActions: [],
+                        pinnedQueries: reports.map(({ query }) => query)
+                    }
+                }
+            ]
+        }
+        const both = asCaller(person, { chatId: randomUUID(), roster: { ...record, specialists: [role] } })
+        const source = await openNativeAnalyst({ context: both, specialist: role, assertCurrent() {}, fitEvidence: true })
+        try {
+            const names = reports.map(({ query }) => query.name)
+            assert.deepEqual(source.tools.map((tool) => tool.function.name).sort(), names)
+            let round = 0
+            await runNativeToolLoop({
+                messages: [{ role: 'user', content: 'Return both inventory reports.' }],
+                tools: source.tools,
+                budget: 2000,
+                maxCalls: 2,
+                complete: async (messages) => {
+                    if (!round++)
+                        return { content: '', toolCalls: names.map((name) => ({ id: randomUUID(), function: { name, arguments: '{}' } })) }
+                    const receipts = messages.filter(({ role }) => role === 'tool').map(({ content }) => JSON.parse(content))
+                    assert.deepEqual(
+                        receipts.map(({ sourceOverview }) => sourceOverview.text),
+                        summaries
+                    )
+                    assert(
+                        receipts.every(
+                            ({ sourceOverview, interpretationEvidence }) =>
+                                sourceOverview.complete && interpretationEvidence.evidenceCoverage.omittedFields > 0
+                        )
+                    )
+                    return { content: 'Use the verified reports.', toolCalls: [] }
+                },
+                execute: (name, args) => source.execute(name, args)
+            })
+            assert.equal(round, 2)
+            const sourceTurn = specialistSessionId(role.profileName, both.chatId, both.turnId)
+            const captures = takeAnalystResults({ ...analystCaptureIdentity(both), specialist: role.name, sourceTurn })
+            assert.equal(captures.length, 2)
+            const rendered = await renderTrustedOutputs(role, captures)
+            for (const summary of summaries) assert(rendered.text.includes(summary))
+        } finally {
+            source.close()
+        }
+    })
 })

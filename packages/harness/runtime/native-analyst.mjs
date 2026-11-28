@@ -59,6 +59,56 @@ export function nativeAnalystSpecialistSupported(specialist) {
     return specialist.trustedOutputs.every((contract) => pins.has(contract.pin))
 }
 
+// This symbol stays in-process. A tool returning similarly shaped JSON cannot offer a smaller, trusted presentation.
+export const verifiedSourceEvidence = Symbol('verified source evidence')
+
+export function modelSourceReceipt(specialist, pin, encoded) {
+    const contracts = specialist.trustedOutputs?.filter((entry) => entry.pin === pin) || []
+    if (contracts.length !== 1 || contracts[0].mode !== 'markdown') return encoded
+    const receipt = JSON.parse(encoded)
+    const evidence = receipt.interpretationEvidence
+    const entries = evidence?.sourceEvidence
+    if (
+        receipt.status !== 'source_captured' ||
+        receipt.hash !== contracts[0].hash ||
+        !receipt.sourceOverview?.complete ||
+        !Array.isArray(entries) ||
+        !entries.length
+    )
+        return encoded
+    const coverage = evidence.evidenceCoverage
+    const shortened = (kept) =>
+        JSON.stringify({
+            ...receipt,
+            interpretationEvidence: {
+                ...evidence,
+                sourceEvidence: entries.slice(0, kept),
+                evidenceCoverage: { ...coverage, complete: false, omittedFields: coverage.omittedFields + entries.length - kept }
+            }
+        })
+    const minimum = shortened(0)
+    if (minimum.length >= encoded.length) return encoded
+    return {
+        content: encoded,
+        [verifiedSourceEvidence]: {
+            minimum,
+            fit(maxChars) {
+                if (encoded.length <= maxChars) return encoded
+                // Add whole observations. The omission count can only shrink as entries are restored.
+                let kept = 0,
+                    used = minimum.length
+                for (const entry of entries) {
+                    const size = JSON.stringify(entry).length + (kept === 0 ? 0 : 1)
+                    if (used + size > maxChars) break
+                    used += size
+                    kept++
+                }
+                return kept ? shortened(kept) : minimum
+            }
+        }
+    }
+}
+
 // Native and bundled lookups use different namespaces, including when a client supplies a crafted chat ID.
 export function analystCaptureIdentity(context, native = context?.nativeSpecialists) {
     if (!native) return { harness: context?.name, chatId: context?.chatId }
@@ -89,7 +139,7 @@ export async function prepareEmptyAnalystCard(context, binding, assertCurrent) {
 
 // The binding's real node discovers and checks its saved actions, stamps, credential and guard settings.
 // Route metadata lives for one delegation. Source receipts use the unique specialist turn. Cursors use the admitted owner and canvas generation.
-export async function openNativeAnalyst({ context, specialist, assertCurrent }) {
+export async function openNativeAnalyst({ context, specialist, assertCurrent, fitEvidence = false }) {
     const bindings = [...(specialist.modules || []), ...(specialist.mcpServers || [])].filter(nativeAnalystBinding)
     if (!bindings.length) return { tools: [], close() {} }
     if (!specialist.profileName || typeof assertCurrent !== 'function')
@@ -160,8 +210,10 @@ export async function openNativeAnalyst({ context, specialist, assertCurrent }) 
                     chatId: identity.chatId,
                     scope,
                     sourceTurn,
-                    moduleOptions
+                    moduleOptions,
+                    formatSourceReceipt: fitEvidence ? (receipt) => modelSourceReceipt(specialist, name, receipt) : undefined
                 })
+                if (result?.[verifiedSourceEvidence]) return result
                 const content = typeof result === 'string' ? result : JSON.stringify(result)
                 let body
                 try {

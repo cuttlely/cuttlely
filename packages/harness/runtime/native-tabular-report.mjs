@@ -24,7 +24,7 @@ function invalid(message) {
 }
 
 // The ETL parser validates quoting and UTF-8. Frame complete records first so quoted line breaks survive.
-function* records(bytes) {
+export function* csvRecords(bytes) {
     let start = bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) ? 3 : 0
     let quoted = false
     for (let i = start; i <= bytes.length; i++) {
@@ -71,7 +71,7 @@ function resultValue(bucket, operation) {
 }
 
 async function summarize(bytes, options, check) {
-    const rows = records(bytes)
+    const rows = csvRecords(bytes)
     const headers = rows.next().value
     if (
         !headers?.length ||
@@ -209,7 +209,7 @@ function optionsFor(args, uploads) {
 }
 
 // Show untrusted column names and categories as literal table cells, including line breaks and bidi controls.
-function visibleLabel(value) {
+export function visibleLabel(value) {
     return String(value).replace(
         /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
         (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
@@ -250,11 +250,16 @@ export function renderTabularEvidence(records) {
 }
 
 // Model-written delegation text and data prepended by file extraction cannot choose this capability.
-export function confirmedReportQuestion(proof, input, source) {
+export function originalUploadQuestion(proof, input) {
     if (!Number.isSafeInteger(proof?.length) || proof.length < 1 || proof.length > 2048 || typeof input !== 'string') return
     const raw = input.slice(-proof.length)
     if (raw.length !== proof.length || createHash('sha256').update(raw).digest('hex') !== proof.hash) return
-    const question = raw.trim()
+    return raw.trim()
+}
+
+export function confirmedReportQuestion(proof, input, source) {
+    const question = originalUploadQuestion(proof, input)
+    if (!question) return
     let args
     try {
         const command = /^\/analyze_csv_report\s+([\s\S]+)$/.exec(question)

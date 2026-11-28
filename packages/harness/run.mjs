@@ -3,6 +3,7 @@ import { publishedSearchCredential, preparePublishedSearch, publishedBrowserSear
 import { openUploadShell } from './runtime/native-upload-shell.mjs'
 import { openManagedFiles, openUploadSampler, withManagedUploads } from './runtime/native-files.mjs'
 import { publishedCanvasSource } from './canvas-ownership.mjs'
+import { openUploadPlot, requestedUploadPlot } from './runtime/native-upload-plot.mjs'
 import { openNativeTabularReport, renderTabularEvidence, requestedMixedReport } from './runtime/native-tabular-report.mjs'
 import { harnessUsesPostgres } from './side-store-postgres.mjs'
 import { journalTeam, journalTurnId } from './roster-journal.mjs'
@@ -101,7 +102,7 @@ import {
     useNativeSpecialists,
     selectAgentEngine
 } from './runtime/native-prime.mjs'
-import { approvedStaticPage, openStaticPage } from './runtime/native-static-page.mjs'
+import { approvedStaticPage, asksForStaticLink, openStaticPage } from './runtime/native-static-page.mjs'
 import { openNativeNumericCode } from './runtime/native-numeric-code.mjs'
 import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
@@ -830,10 +831,13 @@ async function runTurnBody(
         checkRole: rolePin
             ? (role) => {
                   context.assertNativeAuthority()
-                  if (!requestedMixedReport(context, role))
+                  if (!requestedMixedReport(context, role) && !requestedUploadPlot(context, role))
                       assertNativeRoleSupported(
                           role,
-                          Boolean(approvedStaticPage(context, role) || publishedBrowserSearch(context.roster, role)),
+                          Boolean(
+                              approvedStaticPage(context, role) ||
+                                  (publishedBrowserSearch(context.roster, role) && !asksForStaticLink(context))
+                          ),
                           Boolean(openUploadShell(context, role))
                       )
               }
@@ -4199,7 +4203,12 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
     const books = specialist.playbooks || []
     const playbookContext = prepareNativePlaybooks(context.roster, specialist, context.chatId, context.turnId)
     if (playbookContext.gaps.length) throw new HarnessError('native_unsupported', playbookContext.gaps.join(', '))
-    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    const plot = openUploadPlot(context, specialist)
+    const browser = !plot && openStaticPage(context, specialist)
+    // A reviewed source task gets only the read-only browser. Dormant cards must
+    // not load, resolve credentials, contact their services or acquire a tool name.
+    const modules = browser ? [] : specialist.modules || []
+    const all = [...modules, ...(specialist.mcpServers || [])]
     const services = all.filter((binding) => nativeMcpBindingSupported(binding, context.roster.workspaceId))
     let mcp, analyst
     const sources = []
@@ -4214,7 +4223,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 assertCurrent,
                 scope: nativeMcpCircuitScope(context, specialist)
             })
-        if (all.some(nativeAnalystBinding)) analyst = await openNativeAnalyst({ context, specialist, assertCurrent })
+        if (all.some(nativeAnalystBinding)) analyst = await openNativeAnalyst({ context, specialist, assertCurrent, fitEvidence: true })
         const tools = []
         const handlers = new Map()
         function register(spec, execute) {
@@ -4253,18 +4262,18 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 }
             )
         }
+        if (plot) register(plot.tool, (args) => plot.execute(args))
         const requestedReport = requestedMixedReport(context, specialist)
-        const files = specialist.fileAccess && !requestedReport ? openManagedFiles(context, specialist) : null
+        const files = specialist.fileAccess && !plot && !requestedReport ? openManagedFiles(context, specialist) : null
         for (const tool of files?.tools || [])
             register(tool, (args) => {
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
-        const searchOnly = context.checkRole && publishedBrowserSearch(context.roster, specialist)
+        const searchOnly = !browser && context.checkRole && publishedBrowserSearch(context.roster, specialist)
         let observedSearch = false
-        const shell = openUploadShell(context, specialist)
+        const shell = !plot && openUploadShell(context, specialist)
         if (shell) register(shell.tool, (args) => shell.execute(args))
-        const browser = openStaticPage(context, specialist)
         for (const tool of browser?.tools || []) register(tool, (args) => browser.execute(tool.function.name, args))
         const sampler =
             context.checkRole && specialist.codeExecution === true && !specialist.shell && !specialist.browser && openUploadSampler(context)
@@ -4277,16 +4286,17 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             context.moduleOptions.flowOptions?.nestedFlowDepth === 0 &&
             context.roster.specialists.some((role) => role.trustedOutputs?.length) &&
             inlineRowTotal(context.moduleOptions.nativeSourceTurn?.question)
-        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler, signal, supplied)
+        const numeric =
+            !plot && openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler, signal, supplied, files)
         for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
-        const report = openNativeTabularReport(context, specialist, requestedReport)
+        const report = !plot && openNativeTabularReport(context, specialist, requestedReport)
         if (report) register(report.tool, (args) => report.execute(args))
         const used = new Set(handlers.keys())
         const gatewayRole = context.nativePrime || needsAgentLoop(specialist)
         let bridgeAliases
         // The released gateway reserves MCP-advertised names before allocating a stable name to each canvas node.
         const bridgeNames =
-            gatewayRole && specialist.modules?.some((binding) => ['retrieverTool', 'serpAPI'].includes(binding.nodeName))
+            gatewayRole && modules.some((binding) => ['retrieverTool', 'serpAPI'].includes(binding.nodeName))
                 ? new Map(
                       specialistToolBindings(specialist, new Set(mcp?.tools.map((tool) => tool.function.name))).map(({ binding, name }) => [
                           binding,
@@ -4294,7 +4304,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                       ])
                   )
                 : null
-        for (const [index, binding] of (specialist.modules || []).entries()) {
+        for (const [index, binding] of modules.entries()) {
             if (nativeAnalystBinding(binding) || nativeMcpBindingSupported(binding, context.roster.workspaceId)) continue
             assertCurrent()
             const searchCredential = publishedSearchCredential(context.roster, specialist, binding)
@@ -4436,8 +4446,9 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             aliases: bridgeAliases,
             limitCode: 'tool_limit',
             validateCall:
-                (numeric || browser || shell || workbookTool || requestedReport) &&
+                (plot || numeric || browser || shell || workbookTool || requestedReport) &&
                 ((name, args) => {
+                    if (plot && name === 'execute_code') return plot.validate(args)
                     if (shell && name === 'terminal') shell.validate(args)
                     if (requestedReport && name === 'analyze_csv_report') report.validate(args)
                     if (browser?.tools.some((tool) => tool.function.name === name)) browser.validate(name, args)
@@ -4485,6 +4496,12 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             throw new HarnessError('empty_output', 'The static page reader did not return a completed page report.')
         if (numeric && !text?.trim() && !specialist.trustedOutputs?.length)
             throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned an empty answer.`)
+        if (plot) {
+            const { artifact, text: verified } = plot.finish()
+            ;(context.turnImages ||= []).push([artifact])
+            emitSpecialistPartial(context, specialist, verified)
+            return { text: verified, sources: [], csvReportProduced: true, uploadReport: verified }
+        }
         let uploadReport,
             csvReportProduced = false
         if (requestedReport && !report?.evidence().length)

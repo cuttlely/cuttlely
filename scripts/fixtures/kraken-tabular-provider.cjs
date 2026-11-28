@@ -23,6 +23,19 @@ Module._load = function (request, parent) {
                         const reply = last._getType() === 'tool'
                         if (tools.some((x) => x.function.name === 'run_specialist'))
                             return reply ? text('Invented turnover 9876543') : call('run_specialist', { name: 'operator', task })
+                        const plot = tools.find(
+                            (tool) =>
+                                tool.function.name === 'execute_code' &&
+                                tool.function.description.startsWith('Draw the exact caller-approved uploaded CSV chart.')
+                        )
+                        if (plot) {
+                            if (reply) {
+                                assert.equal(JSON.parse(last.content).status, 'success')
+                                return text('Chart created.')
+                            }
+                            const code = plot.function.description.split('code argument:\n')[1]
+                            return call('execute_code', { code })
+                        }
                         const report = tools.find((x) => x.function.name === 'analyze_csv_report')
                         assert.ok(report, 'This saved specialist needs an admitted CSV and report grant.')
                         if (reply) {

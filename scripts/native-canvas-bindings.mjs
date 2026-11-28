@@ -272,3 +272,12 @@ export function unboundNativeSerp(binding) {
     const nested = binding.inputs?.FLOWISE_CREDENTIAL_ID
     return (nested == null || nested === '') && matches(binding, { ...supported.serpAPI, credential: false })
 }
+
+// These read-only card families may stay dormant during a caller-approved static
+// page read. This does not validate credentials or construct any of their tools.
+export function dormantStaticPageCard(binding) {
+    return (
+        ['currentDateTime', 'retrieverTool', 'serpAPI', 'webBrowser'].includes(binding?.nodeName) &&
+        (supportsNativeCanvasBinding(binding) || unboundNativeSerp(binding))
+    )
+}

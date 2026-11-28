@@ -7,7 +7,8 @@ const worker = fileURLToPath(new URL('./managed-files/data_rows.py', import.meta
 // Only an explicitly initialized data collection enters this path. Scalar expressions
 // and the existing single-line integer operations retain their own grammar.
 export function startsDataRows(source) {
-    if (/^(?:[ \t]*(?:#[^\r\n]*)?\r?\n)*import[ \t]+csv[ \t]*(?:#[^\r\n]*)?\r?\n/.test(source)) return true
+    if (/^(?:[ \t]*(?:#[^\r\n]*)?\r?\n)*import[ \t]+(?:csv|json)(?:[ \t]*,[ \t]*(?:csv|json))?[ \t]*(?:#[^\r\n]*)?\r?\n/.test(source))
+        return true
     return /^(?:[ \t]*(?:#[^\r\n]*)?\r?\n)*[A-Za-z][A-Za-z0-9_]{0,47}[ \t]*=[ \t]*(?:\[|\{|\(|(?:list|dict)[ \t]*\()/.test(source)
 }
 

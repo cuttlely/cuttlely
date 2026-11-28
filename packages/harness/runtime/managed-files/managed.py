@@ -112,7 +112,7 @@ class Files:
             return ReadResult(error="File not found", not_found=True)
         return ReadResult(content=self.files[path].decode("utf8", "surrogateescape"))
 
-    def write_file(self, path, content, pre_content=None):
+    def write_file(self, path, content, pre_content=None, *, csv_output=False):
         path = key(path)
         if not isinstance(content, str):
             return WriteResult(error="A text file needs string content.")
@@ -123,10 +123,16 @@ class Files:
         ) or has_binary_extension(path):
             return WriteResult(error="Use a text filename for text writes.")
         raw = old.decode("utf8", "surrogateescape")
-        ending = _detect_line_ending(raw)
-        text = _normalize_line_endings(content, ending) if ending else content
-        if raw.startswith("\ufeff") and not text.startswith("\ufeff"):
-            text = "\ufeff" + text
+        if csv_output:
+            # The CSV writer already serialized the exact UTF-8 bytes, including quoted newlines.
+            if not path.startswith("output/") or suffix != ".csv" or len(content.encode("utf8")) > 8192:
+                return WriteResult(error="Use a managed CSV output of at most 8192 bytes.")
+            text = content
+        else:
+            ending = _detect_line_ending(raw)
+            text = _normalize_line_endings(content, ending) if ending else content
+            if raw.startswith("\ufeff") and not text.startswith("\ufeff"):
+                text = "\ufeff" + text
         checker = CHECKS.get(suffix)
         if checker:
             ok, detail = checker(content)
@@ -195,12 +201,12 @@ class Files:
                 ]
             return out
         p = key(args["path"])
-        if name == "write_file":
+        if name in ("write_file", "write_csv_output"):
             if p in self.files and self.known.get(p) != digest(self.files[p]):
                 return {
                     "error": "Read the full current file before replacing its contents. Use patch for a targeted edit."
                 }
-            result = self.write_file(p, args["content"])
+            result = self.write_file(p, args["content"], csv_output=name == "write_csv_output")
             return (
                 result.to_dict()
                 if result.error

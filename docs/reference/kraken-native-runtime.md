@@ -60,6 +60,19 @@ import csv
 rows = list(csv.DictReader(open("uploads/sales.csv")))
 ```
 
+For JSON text in a cell, declare `import json` and use `json.loads(text)` or `json.dumps(value)`. JSON output supports literal `sort_keys` and `ensure_ascii` flags, indentation of zero through four spaces, and standard comma and colon separators. Each string is limited to 1,024 UTF-8 bytes. A data cell can declare both JSON and CSV.
+
+A specialist with **Code Execution** and **File Access** can turn the caller’s verified CSV upload into one downloadable CSV per cell. Start with the CSV input declaration above. Write a new filename under `output/` with `csv.writer` or `csv.DictWriter`. The writer supports `writerow`, `writerows` and dictionary headers. Output uses UTF-8 and the standard CSV dialect, including quoting, embedded newlines and CRLF record endings. Each file can contain up to 8,192 bytes. Chat delivery skips zero-byte files. Write a header to return an empty table. For example, to preserve the two selected columns and their order:
+
+```python
+import csv
+rows = list(csv.DictReader(open("uploads/orders.csv")))
+with open("output/orders.csv", "w", newline="", encoding="utf-8") as result:
+    writer = csv.DictWriter(result, fieldnames=["SKU", "Units"])
+    writer.writeheader()
+    writer.writerows([{"SKU": row["SKU"], "Units": row["Units"]} for row in rows])
+```
+
 The processor reads the bytes attached to this turn. It accepts UTF-8 CSV or TSV up to 64 KiB, 64 columns and 128 rows, subject to the cell’s working-data limit. Use `delimiter="\t"` for tab-separated data. A CSV with a UTF-8 byte order mark can use `encoding="utf-8-sig"` in the input declaration. The row processor accepts lists, tuples, dictionaries, field lookup, per-key totals, conditions, single-loop list comprehensions, bounded loops, `append`, `extend`, scalar conversions, and simple numeric arithmetic. Use bounded `range`, `zip`, `enumerate` or dictionary `items()` in a loop or materialize them with `list`. One cell permits 128 items per collection, 64 local names, 8,192 evaluation steps and 8,192 bytes of output. Each materialized value has a budget of 8,192 units. Each visited item and each UTF-8 byte of string data uses one unit. Each serving process runs up to four row processors and queues up to 64 waiting calls. Each chat has independent cell data. Cancelling a queued call frees that place immediately. The worker uses the host's standard `/usr/bin/python3`. A request outside the supported scope fails the turn. General Python, persistent kernels, arbitrary file access and network calls still require the bundled runtime.
 
 A mixed team can calculate a total from integers supplied in the current message. For example, ask `Sum units and count the rows in this inline table: [{"units":9},{"units":-4},{"units":9}]`. For an on-demand agent, a single completed code delegation must sum those exact integers and count the matching rows. The resulting answer is `14 units from 3 rows.` A request to compare the supplied rows with a database still goes through the team’s protected analyst.
@@ -109,6 +122,8 @@ Restart those processes and rehearse a search through the published team with a 
 An operator can enable a limited page read for an existing specialist whose only work capability is Browser. The published team must use native **on-demand** role selection. On a stripped host, this route stays unavailable until the matching Playwright Chromium build and its system libraries are installed. The browser must be able to start with its sandbox enabled. Set `PLAYWRIGHT_BROWSERS_PATH` before starting each serving process if the browser installation uses a shared location. Strict compatibility inventory continues to list the complete Browser capability as unsupported.
 
 Create an explicit grant in `CUTTLELY_NATIVE_STATIC_PAGES` on the API and each worker that will serve the team. Obtain the workspace ID, canvas ID and server-issued generation from the saved team record. The generation is its `createdAt` value. A replacement team needs a new grant. For example:
+
+A published browser specialist with saved read-only clock, retrieval, search or web page cards can follow one explicitly requested link between two reviewed pages. For example, ask `Follow the link from SOURCE to DESTINATION and report its text.` Only the static browser tools are offered for that task. A separate search request continues to use its saved search grant. A request mixing a link visit with another service needs separate turns.
 
 ```json
 [
@@ -200,6 +215,18 @@ The saved Upload team’s Python specialist can sample a verified CSV or TSV up 
 For a saved role with file access, code, shell and browser grants together, on-demand mode can run one CSV report from a fresh, authenticated upload. Use an upload-enabled calling chatflow and attach one CSV of up to 4 MiB. For example, ask `Create a report from the attached CSV, summing "Net" by "Region" with a bar chart.` The same form supports counting rows, averaging, minimizing and maximizing. For the complete tool options, send `/analyze_csv_report {"source":"uploads/sales.csv","operation":"sum","valueColumn":"Net","groupBy":"Region","format":"table","documentFormats":["xlsx"]}` with the file. The fixed document renderer must be installed for PDF, DOCX or XLSX. The role can read its assigned playbooks and return the verified aggregate and downloads. A later turn needs a fresh upload. Strict preflight continues to list the general code, shell and browser grants. Other selected requests keep the unsupported-role response.
 
 Attach an XLSX workbook of up to 4 MiB and ask the Upload specialist to sample a named sheet or the first visible sheet. It returns visible sheet names, headers, the row count and previews of the first and last five data rows. A numeric `amount` column produces a sum. The preview shortens wide or long values to keep the report within 4,000 characters. The selected worksheet can have up to 5,000 rows and 64 columns. The reader refuses external relationships, macros and formula cells on the selected sheet. Export a values-only copy if the workbook relies on those features. Workers need the native report assets for the XLSX reader. [Native report setup](#reporting-on-an-uploaded-csv)
+
+### Plot individual rows from an uploaded CSV
+
+In on-demand mode, attach one CSV to the published prediction chatflow and ask `Create a line chart of "Net" by "Region" from the attached CSV.` Use `bar` for vertical bars. An API client may send `/plot_csv {"kind":"line","x":"Region","y":"Net"}` as the original question with the upload. The download is a single `chart.png`. Categories follow the input row order, including when the labels look like dates or numbers.
+
+Select a specialist with saved File Access and Code Execution. It may have playbooks or the combined shell and browser grants supported for explicit upload reports. A pinned source, trusted-output contract, or assigned external service needs its own execution path. Supply two distinct CSV columns and 1–32 unique, nonempty category labels up to 80 characters each. Line charts need at least two rows. Numeric values accept signed decimals with up to 12 integer and 8 fractional digits. Missing values, repeated labels and malformed rows require a corrected upload. The upload limit is 4 MiB.
+
+The specialist receives a fixed `execute_code` recipe for the approved chart. It uses `csv.DictReader`, `plt.subplots()`, `ax.bar` or `ax.plot`, axis labels and `fig.savefig("chart.png")`. The native renderer uses its own 1024 × 480 layout. Add `"title":"Weekly volume"` or `"layout":"tight"`, or use both fields, to the JSON command for a left-aligned bold title and margins fitted to the uploaded labels and axis values. Titles accept up to 80 printable characters. Layout uses the native renderer’s measured font widths within its fixed image size. Custom styles, legends, horizontal bars, multiple series, in-memory streams, persistent figure state and additional Python statements fall outside this operation. The signed-in owner downloads the PNG after the service verifies the saved team at delivery.
+
+The published chatflow containing the Harness card served 32 simultaneous uploads in distinct chats under one scoped key in the PostgreSQL test. Each downloaded chart contained its caller’s expected data. Direct predictions on the harness canvas use the admission rules in [Running several published chats with one key](#running-several-published-chats-with-one-key).
+
+For an API client using a scoped access key, the prediction and the file download each count toward the key’s requests-per-minute setting. The default is 60. If an attachment download returns HTTP 429, keep the returned file reference and chat token, wait the number of seconds in `Retry-After`, then repeat the download. The original answer and file are already saved. [Access keys](./access-keys.md)
 
 ### Reporting on an uploaded CSV
 

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +13,7 @@ import { formatUploadStub } from '../packages/harness/uploads.mjs'
 import { openPostgresFiles } from '../packages/etl/postgres-files.mjs'
 import { managedFilesReady } from '../packages/harness/runtime/native-files.mjs'
 import { dataEnv, freePort, request, startServer, waitForPing } from './upgrade-check.mjs'
+import { nativePackageRoot } from './kraken-package-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const canvas = (name) => JSON.parse(JSON.parse(fs.readFileSync(path.join(root, 'samples', name + '.json'))).flowData)
@@ -279,5 +281,144 @@ test(
         }
         observation(prediction)
         assert.deepEqual(mixedAttachments, { agent: [], router: [] })
+    }
+)
+
+test(
+    'a signed chart request on a published mixed role delivers only its owner’s plotted upload',
+    { skip: !ready && process.env.CUTTLELY_TEST_NATIVE_FILES_REQUIRED !== '1' },
+    async (t) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'signed-upload-plot-'))
+        const name = 'qa-csv-plot',
+            modelKey = randomUUID(),
+            account = { email: 'plot@example.invalid', password: randomUUID() + 'Z82a!' }
+        const port = await freePort(),
+            origin = 'http://127.0.0.1:' + port,
+            base = origin + '/api/v1/'
+        let app
+        t.after(async () => {
+            try {
+                await app?.stop()
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true })
+            }
+        })
+        const installation = nativePackageRoot() || root
+        app = await startServer(
+            installation,
+            dataEnv(dir, port, {
+                CUTTLELY_LOCAL_USERS: 'true',
+                CUTTLELY_INITIAL_OWNER_EMAIL: account.email,
+                CUTTLELY_INITIAL_OWNER_PASSWORD: account.password,
+                CUTTLELY_SECRETKEY_OVERWRITE: randomUUID(),
+                INBOUND_ACCESS_V2: 'on',
+                CUTTLELY_NATIVE_PRIME_TEAMS: name,
+                CUTTLELY_NATIVE_ROLE_POLICY: 'on-demand',
+                KRAKEN_REPORT_MODEL_KEY: modelKey
+            }),
+            { preload: [path.join(root, 'scripts/fixtures/kraken-tabular-provider.cjs')] }
+        )
+        await waitForPing(origin, app)
+        const login = await request(base + 'auth/local/login', { method: 'POST', body: account })
+        assert.equal(login.status, 200)
+        async function save(route, body) {
+            const r = await request(base + route, { method: 'POST', cookie: login.cookie, body })
+            assert.ok([200, 201].includes(r.status), route + ' ' + r.status)
+            return r.json
+        }
+        const credential = await save('credentials', {
+            name: 'local chart model',
+            credentialName: 'xaiApi',
+            plainDataObj: { xaiApiKey: modelKey }
+        })
+        const graph = canvas('harnesses/ops.canvas')
+        graph.nodes.find((n) => n.data.name === 'chatXAI').data.credential = credential.id
+        const role = graph.nodes.find((n) => n.data.name === 'harnessSpecialist').data
+        Object.assign(role.inputs, {
+            enableFileAccess: true,
+            enableCodeExecution: true,
+            enableBrowser: true,
+            enableShell: true,
+            instructions: 'Plot the two CSV columns requested by the caller.'
+        })
+        const mcp = graph.nodes.find((n) => n.data.name === 'customMCP').id
+        graph.nodes = graph.nodes.filter((n) => n.id !== mcp)
+        graph.edges = graph.edges.filter((e) => e.source !== mcp && e.target !== mcp)
+        const team = await save('chatflows', {
+            name,
+            type: 'HARNESS',
+            deployed: true,
+            isPublic: false,
+            apiAccessMode: 'private',
+            flowData: JSON.stringify(graph)
+        })
+        const caller = canvas('chatflows/ops.chatflow')
+        caller.nodes.find((n) => n.data.name === 'harness').data.inputs.harnessName = name
+        const flow = await save('chatflows', {
+            name: 'signed plot caller',
+            type: 'CHATFLOW',
+            apiAccessMode: 'private',
+            flowData: JSON.stringify(caller),
+            chatbotConfig: JSON.stringify({ fullFileUpload: { status: true, allowedUploadFileTypes: 'text/csv' } })
+        })
+        async function principal(keyName) {
+            const result = await save('apikey', {
+                keyName,
+                permissions: ['chatflows:view', 'agentflows:view'],
+                accessPolicy: { scopes: ['predict', 'stream', 'upload', 'harness:run', 'harness:read'] },
+                resources: [
+                    { resourceType: 'HARNESS', resourceId: team.id },
+                    { resourceType: 'CHATFLOW', resourceId: flow.id }
+                ]
+            })
+            return result.find((k) => k.keyName === keyName).apiKey
+        }
+        const actor = await principal('plot-owner'),
+            neighbor = await principal('other-owner')
+        const value = 20 + (parseInt(randomUUID().slice(0, 4), 16) % 60)
+        const bytes = Buffer.from('Region,Net\nA,-30\nB,' + value + '\nC,100\nD,0\n')
+        const headers = { authorization: 'Bearer ' + actor, 'content-type': 'application/json' }
+        const response = await fetch(base + 'prediction/' + flow.id, {
+            method: 'POST',
+            headers,
+            signal: AbortSignal.timeout(45000),
+            body: JSON.stringify({
+                question: 'Create a bar chart of "Net" by "Region" from the attached CSV.',
+                chatId: randomUUID(),
+                uploads: [
+                    { type: 'file:full', name: 'sales.csv', mime: 'text/csv', data: 'data:text/csv;base64,' + bytes.toString('base64') }
+                ]
+            })
+        })
+        const prediction = await response.json()
+        assert.equal(response.status, 200, prediction.message)
+        assert.deepEqual(
+            prediction.artifacts.map((a) => a.type),
+            ['png']
+        )
+        const params = new URLSearchParams({
+            chatflowId: flow.id,
+            chatId: prediction.chatId,
+            fileName: prediction.artifacts[0].data.replace(/^FILE-STORAGE::/, '')
+        })
+        const download = (key) =>
+            fetch(base + 'get-upload-file?' + params, {
+                headers: {
+                    authorization: 'Bearer ' + key,
+                    ...(key === actor && prediction.sessionToken ? { 'x-cuttlely-session-token': prediction.sessionToken } : {})
+                }
+            })
+        assert.notEqual((await download(neighbor)).status, 200)
+        const png = await download(actor)
+        assert.equal(png.status, 200)
+        const { createCanvas, loadImage } = createRequire(path.join(installation, 'packages/harness/package.json'))('@napi-rs/canvas')
+        const image = await loadImage(Buffer.from(await png.arrayBuffer())),
+            ctx = createCanvas(image.width, image.height).getContext('2d')
+        ctx.drawImage(image, 0, 0)
+        assert.equal(image.width, 1024)
+        const y = Math.round(362 - ((value + 30) / 130) * 316)
+        const rgb = (dy) => Array.from(ctx.getImageData(431, y + dy, 1, 1).data).slice(0, 3)
+        assert.deepEqual(rgb(5), [35, 116, 151])
+        assert.deepEqual(rgb(-5), [255, 255, 255])
     }
 )
