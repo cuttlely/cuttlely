@@ -17,11 +17,12 @@ function unsupported() {
 }
 
 // Parse one literal-list form. BigInt keeps the integer result exact at the documented size limit.
-function parseCollection(name, args) {
+function parseCollection(name, args, sampler) {
     if (name !== 'execute_code' || !args || typeof args !== 'object' || Array.isArray(args)) unsupported()
     if (Object.keys(args).some((key) => key !== 'code' && key !== 'reset') || (Object.hasOwn(args, 'reset') && args.reset !== false))
         unsupported()
     if (typeof args.code !== 'string' || args.code.length > sourceLimit) unsupported()
+    if (sampler?.accepts(args.code)) return { sample: args.code }
     const match = collection.exec(args.code)
     if (!match || match[0] !== args.code) unsupported()
     const operation = match[1]
@@ -62,7 +63,7 @@ function calculate({ operation, values, descending, limit }) {
     }
 }
 
-export function openNativeNumericCode(specialist, rolePolicy) {
+export function openNativeNumericCode(specialist, rolePolicy, sampler) {
     if (rolePolicy !== 'on-demand' || specialist?.codeExecution !== true || specialist.shell || specialist.browser) return null
     return {
         tools: [
@@ -70,7 +71,7 @@ export function openNativeNumericCode(specialist, rolePolicy) {
                 type: 'function',
                 function: {
                     name: 'execute_code',
-                    description: usage,
+                    description: sampler ? usage + ' ' + sampler.note : usage,
                     parameters: {
                         type: 'object',
                         properties: {
@@ -92,31 +93,36 @@ export function openNativeNumericCode(specialist, rolePolicy) {
             }
         ],
         validate(name, args) {
-            parseCollection(name, args)
+            parseCollection(name, args, sampler)
         },
         execute(name, args) {
             const start = performance.now()
-            const { value, error } = calculate(parseCollection(name, args))
-            const output = error ? '\n--- stderr ---\n' + error + '\n' : String(value) + '\n'
-            const bytes = error ? 0 : Buffer.byteLength(output)
-            return JSON.stringify({
-                status: error ? 'error' : 'success',
-                ...(error && { error }),
-                output,
-                exit_code: error ? 1 : 0,
-                tool_calls_made: 0,
-                duration_seconds: Math.round((performance.now() - start) / 10) / 100,
-                kernel: {
-                    mode: 'stateless',
-                    reused: false,
-                    execution_count: 1,
-                    state_reset: false
-                },
-                stdout_truncated: false,
-                stdout_bytes_captured: bytes,
-                stdout_bytes_total: bytes,
-                stdout_bytes_omitted: 0
-            })
+            const parsed = parseCollection(name, args, sampler)
+            if (parsed.sample !== undefined) return sampler.execute(parsed.sample).then((output) => resultPacket(start, output))
+            const { value, error } = calculate(parsed)
+            return resultPacket(start, error ? '\n--- stderr ---\n' + error + '\n' : String(value) + '\n', error)
         }
     }
+}
+
+function resultPacket(start, output, error) {
+    const bytes = error ? 0 : Buffer.byteLength(output)
+    return JSON.stringify({
+        status: error ? 'error' : 'success',
+        ...(error && { error }),
+        output,
+        exit_code: error ? 1 : 0,
+        tool_calls_made: 0,
+        duration_seconds: Math.round((performance.now() - start) / 10) / 100,
+        kernel: {
+            mode: 'stateless',
+            reused: false,
+            execution_count: 1,
+            state_reset: false
+        },
+        stdout_truncated: false,
+        stdout_bytes_captured: bytes,
+        stdout_bytes_total: bytes,
+        stdout_bytes_omitted: 0
+    })
 }

@@ -1,4 +1,4 @@
-import { openManagedFiles, withManagedUploads } from './runtime/native-files.mjs'
+import { openManagedFiles, openUploadSampler, withManagedUploads } from './runtime/native-files.mjs'
 import { publishedCanvasSource } from './canvas-ownership.mjs'
 import { openNativeTabularReport, renderTabularEvidence } from './runtime/native-tabular-report.mjs'
 import { harnessUsesPostgres } from './side-store-postgres.mjs'
@@ -858,7 +858,12 @@ async function runTurnBody(
           })
     beginGuardedQueryTurns(roster.specialists || [], chatId, context.turnId, sessionKey(name, chatId), sqlAttemptLimit)
     try {
-        if (nativeSpecialists && roster.specialists.some((s) => s.fileAccess))
+        const sampleReceipt =
+            context.checkRole && !context.replay && context.managedUploadReceipts?.some((upload) => /\.(?:csv|tsv)$/i.test(upload.name))
+        if (
+            nativeSpecialists &&
+            roster.specialists.some((s) => s.fileAccess || (sampleReceipt && s.codeExecution === true && !s.shell && !s.browser))
+        )
             return await withManagedUploads(context, input, (question) =>
                 mode === 'agent' ? runAgentChief(context, question) : runRosterWithUploads(context, question)
             )
@@ -4152,7 +4157,11 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
-        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict')
+        const numeric = openNativeNumericCode(
+            specialist,
+            context.checkRole ? 'on-demand' : 'strict',
+            specialist.codeExecution && openUploadSampler(context)
+        )
         for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
         const report = openNativeTabularReport(context, specialist)
         if (report) register(report.tool, (args) => report.execute(args))
@@ -4277,11 +4286,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 context,
                 specialist,
                 task,
-                [
-                    soul,
-                    files?.note,
-                    numeric && 'The native execute_code tool supports the stateless integer-list operations described in its schema.'
-                ]
+                [soul, files?.note, numeric && 'The native execute_code tool supports only the fixed operations described in its schema.']
                     .filter(Boolean)
                     .join('\n'),
                 context.promptMessages,

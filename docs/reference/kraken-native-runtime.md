@@ -121,6 +121,10 @@ On a full installation with a healthy bundled runtime, a native canary blocked b
 
 Before switching engines, back up the affected workspace and verify that the backup opens. Have each owner identify which files belong in each chat. Archive the original files outside the live legacy workspace, then retry native prediction and re-upload only the needed copies through the intended chat using that owner’s account or scoped key. Keep the backup until each owner has opened the uploaded files and checked the required outputs.
 
+### Sampling a CSV or TSV upload
+
+The saved Upload team’s Python specialist can sample a verified CSV or TSV up to 4 MiB in on-demand mode. Attach the file to the current prediction and ask for a sample. The specialist uses the packaged sampler to return the row count, headers, first and last five rows and, when the columns are present, amount totals and means for the five leading regions. Output is capped at 4,000 characters. Each caller sees only the upload admitted for that chat. Resend the attachment if its stored bytes change before the worker reads it.
+
 ### Reporting on an uploaded CSV
 
 A direct request to repeat a short caller-supplied literal can complete without invoking an Analyst. A conditional answer, request for data, or request for a verified report still needs source evidence.

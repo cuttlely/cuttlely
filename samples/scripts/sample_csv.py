@@ -26,7 +26,13 @@ def main() -> int:
         print(f"error: not a file: {path}", file=sys.stderr)
         return 1
 
-    size = path.stat().st_size
+    with path.open(newline="", encoding="utf-8", errors="replace") as handle:
+        print(sample(handle, str(path), path.stat().st_size), end="")
+    return 0
+
+
+def sample(handle, display_path: str, size: int) -> str:
+    """Build the same capped sampling report for a path or a verified byte stream."""
     headers: list[str] = []
     first5: list[list[str]] = []
     last5: list[list[str]] = []
@@ -35,42 +41,41 @@ def main() -> int:
     region_n: dict[str, int] = defaultdict(int)
     amount_idx = None
     region_idx = None
-    delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+    delimiter = "\t" if Path(display_path).suffix.lower() == ".tsv" else ","
 
-    with path.open(newline="", encoding="utf-8", errors="replace") as handle:
-        reader = csv.reader(handle, delimiter=delimiter)
+    reader = csv.reader(handle, delimiter=delimiter)
+    try:
+        headers = next(reader)
+    except StopIteration:
+        headers = []
+    if headers:
         try:
-            headers = next(reader)
-        except StopIteration:
-            headers = []
-        if headers:
-            try:
-                amount_idx = headers.index("amount")
-            except ValueError:
-                amount_idx = None
-            try:
-                region_idx = headers.index("region")
-            except ValueError:
-                region_idx = None
+            amount_idx = headers.index("amount")
+        except ValueError:
+            amount_idx = None
+        try:
+            region_idx = headers.index("region")
+        except ValueError:
+            region_idx = None
 
-        for row in reader:
-            row_count += 1
-            if len(first5) < 5:
-                first5.append(row)
-            last5.append(row)
-            if len(last5) > 5:
-                last5.pop(0)
-            if amount_idx is not None and region_idx is not None and len(row) > max(amount_idx, region_idx):
-                try:
-                    amt = float(row[amount_idx])
-                except ValueError:
-                    continue
-                region = row[region_idx]
-                region_sum[region] += amt
-                region_n[region] += 1
+    for row in reader:
+        row_count += 1
+        if len(first5) < 5:
+            first5.append(row)
+        last5.append(row)
+        if len(last5) > 5:
+            last5.pop(0)
+        if amount_idx is not None and region_idx is not None and len(row) > max(amount_idx, region_idx):
+            try:
+                amt = float(row[amount_idx])
+            except ValueError:
+                continue
+            region = row[region_idx]
+            region_sum[region] += amt
+            region_n[region] += 1
 
     lines: list[str] = []
-    lines.append(f"path={path}")
+    lines.append(f"path={display_path}")
     lines.append(f"size_bytes={size}")
     lines.append(f"row_count={row_count}")
     lines.append(f"headers={headers}")
@@ -91,8 +96,7 @@ def main() -> int:
     text = "\n".join(lines) + "\n"
     if len(text) > MAX_CHARS:
         text = text[: MAX_CHARS - 80] + "\n...[TRUNCATED by sample_csv.py hard cap]\n"
-    sys.stdout.write(text[:MAX_CHARS])
-    return 0
+    return text[:MAX_CHARS]
 
 
 if __name__ == "__main__":

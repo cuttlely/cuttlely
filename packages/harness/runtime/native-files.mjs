@@ -13,6 +13,7 @@ import { defaultUploadRoots, parseUploadStubs, uploadSource } from '../uploads.m
 
 const worker = fileURLToPath(new URL('./managed-files/managed.py', import.meta.url))
 const reportWorker = fileURLToPath(new URL('./managed-files/fixed_report.py', import.meta.url))
+const sampleWorker = fileURLToPath(new URL('./managed-files/sample.py', import.meta.url))
 const schema = JSON.parse(fs.readFileSync(new URL('./managed-files/tools.json', import.meta.url), 'utf8'))
 const maxBytes = 64 * 1024 ** 2
 const maxEntries = 256
@@ -124,6 +125,36 @@ export function renderFixedDocuments(table, signal) {
     return executeWorker(table, signal, reportWorker)
 }
 
+// The model can select only a source from server-issued receipts validated during this turn.
+export function openUploadSampler(context) {
+    if (!context.managedFileOwner || context.replay || !context.sampleInputs?.size) return null
+    const call = (quotedSource) =>
+        'import subprocess\nprint(subprocess.check_output(["python", "uploads/sample_csv.py", ' + quotedSource + '], text=True), end="")'
+    const calls = new Map([...context.sampleInputs].map((source) => [call(JSON.stringify(source)), source]))
+    const check = () => {
+        context.workSignal?.throwIfAborted()
+        context.assertNativeAuthority()
+    }
+    return {
+        note:
+            'To sample a verified CSV or TSV, replace SOURCE with its quoted uploads/ name in this exact code:\n' +
+            call('SOURCE') +
+            '\nVerified sources: ' +
+            JSON.stringify([...context.sampleInputs]),
+        accepts: (code) => calls.has(code),
+        async execute(code) {
+            check()
+            const source = calls.get(code)
+            if (!source) throw new HarnessError('native_unsupported', 'Choose a verified CSV or TSV from the current turn.')
+            const result = await executeWorker({ source, data: context.managedUploads[source] }, context.workSignal, sampleWorker)
+            check()
+            if (result.error) throw new HarnessError('sample_failed', 'The verified CSV or TSV could not be sampled on this deployment.')
+            if (typeof result.output !== 'string' || [...result.output].length > 4000) throw unavailable()
+            return result.output
+        }
+    }
+}
+
 export async function withManagedUploads(context, input, run) {
     const flow = context.moduleOptions.flowOptions
     const actor = managedUploadActor(flow.nestedFlowCaller)
@@ -141,6 +172,7 @@ export async function withManagedUploads(context, input, run) {
     let used = 0
     let question = String(input)
     const admitted = context.managedUploadReceipts || []
+    const sampleInputs = new Set()
     const paths = new Set(admitted.map((receipt) => receipt.path).filter(Boolean))
     const legacy = parseUploadStubs(input).filter((stub) => stub.path && !paths.has(stub.path))
     for (const [index, stub] of [...admitted, ...legacy].entries()) {
@@ -154,6 +186,13 @@ export async function withManagedUploads(context, input, run) {
             key = assertRelative('uploads/' + basename)
             used += stored.body.length
             uploads[key] = stored.body.toString('base64')
+            if (
+                index < admitted.length &&
+                /\.(?:csv|tsv)$/i.test(stored.name) &&
+                /\.(?:csv|tsv)$/i.test(key) &&
+                stored.body.length <= 4 * 1024 ** 2
+            )
+                sampleInputs.add(key)
             sources.push(uploadSource({ name: basename, absolutePath: key, size: stored.body.length, mime: stub.mime, rows: stub.rows }))
         } catch {
             if (index < admitted.length)
@@ -166,6 +205,7 @@ export async function withManagedUploads(context, input, run) {
         }
     }
     context.managedFileOwner = await managedFileOwnerTag(flow.nestedFlowCaller, scope.workspace, scope.chat)
+    context.sampleInputs = sampleInputs
     context.managedUploads = uploads
     context.uploadSources = sources
     return run(question)
