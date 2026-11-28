@@ -175,6 +175,36 @@ test('a PostgreSQL job claim sees a contended admission and rolls back an invali
     }
 })
 
+test('an idle PostgreSQL worker takes the writer lock only when it sees committed work', { skip: skipReason }, async () => {
+    const fixture = await createTestDatabase()
+    const { Client } = createRequire(new URL('../server/package.json', import.meta.url))('pg')
+    const writer = new Client(fixture.connection)
+    try {
+        await writer.connect()
+        closeQueueDb()
+        configureHarnessPostgres({ ...fixture.connection, options: '-c lock_timeout=750ms' })
+        database()
+        const { claimJob } = await import('./queue.mjs')
+        const fence = "BEGIN; SELECT pg_advisory_xact_lock(hashtext('cuttlely_harness_queue'))"
+        await writer.query(fence)
+        await writer.query(`INSERT INTO cuttlely_harness_queue.jobs(id,session_key,status,payload,created_at,updated_at)
+                            VALUES ('new-job','team:chat','queued','{}',1,1)`)
+        assert.equal(claimJob(true), null)
+        await writer.query('COMMIT')
+        await writer.query(fence)
+        // The availability check grants no claim. A visible job still needs the original writer lock.
+        assert.throws(() => claimJob(true), /Harness PostgreSQL operation failed/)
+        await writer.query('COMMIT')
+        assert.deepEqual(claimJob(true), { id: 'new-job', payload: {}, cancelRequested: false })
+        assert.equal(claimJob(true), null)
+    } finally {
+        await writer.end().catch(() => {})
+        closeQueueDb()
+        configureHarnessPostgres(undefined)
+        await fixture.cleanup()
+    }
+})
+
 test('renewal extends only its owner, reads the live TTL, and ignores released rows', (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: 1800000000000 })
     t.after(() => delete process.env.CUTTLELY_HARNESS_LOCK_MS)

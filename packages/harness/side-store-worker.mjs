@@ -259,6 +259,15 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
     }
     const claim = op === 'claimQueuedJob'
     if (claim && (scope !== 'queue' || params?.length !== 1 || !Number.isSafeInteger(params[0]))) throw new Error('Invalid queue claim.')
+    if (claim && action === 'poll' && !active) {
+        // An idle timer can check committed work without taking the queue writer lock.
+        // A positive observation still goes through the ordinary locked claim. A new
+        // arrival after an empty snapshot wakes workers or is found on the next poll.
+        const pending = await pool.query(
+            `SELECT 1 FROM ${queueSchema}.jobs WHERE status OPERATOR(pg_catalog.=) 'queued'::pg_catalog.text LIMIT 1`
+        )
+        if (pending.rowCount === 0) return
+    }
     const client = active || (claim ? await pool.connect() : await begin(scope, eventJobId, leaseWrite))
     let result
     try {

@@ -242,12 +242,12 @@ export function enqueueHarnessJob(args) {
     return { id, sessionKey: key }
 }
 
-export function claimJob() {
+export function claimJob(idlePoll = false) {
     if (jobsStopped()) return null
     // The statement claims the first queued job and returns that same row to exactly one worker.
     const db = database()
     const now = Date.now()
-    const row = db.dialect === 'postgres' ? db.claimQueuedJob(now) : db.prepare(claimQueuedJobSql).get(now)
+    const row = db.dialect === 'postgres' ? db.claimQueuedJob(now, idlePoll) : db.prepare(claimQueuedJobSql).get(now)
     if (!row) return null
     return { id: row.id, payload: JSON.parse(row.payload), cancelRequested: row.cancel_requested === 1 }
 }
@@ -283,11 +283,40 @@ export function markCancel(id) {
     requestJobCancellation(database(), id)
 }
 
+// The waiter and an inline worker can observe the same disconnect. Only a successful
+// queue commit satisfies it. Event handlers leave a storage failure for the waiter to retry.
+function jobDisconnect(id) {
+    let attempted = false
+    let committed = false
+    const persist = () => {
+        if (committed) return
+        // A previous commit may only have lost its acknowledgement.
+        if (!attempted || !cancelRequested(id)) {
+            attempted = true
+            markCancel(id)
+        }
+        committed = true
+    }
+    return {
+        persist,
+        get committed() {
+            return committed
+        },
+        onAbort() {
+            try {
+                persist()
+            } catch {
+                // Abort events cannot report a store error to their asynchronous caller.
+            }
+        }
+    }
+}
+
 // The same writer fence used to finish jobs decides which side of the deadline won.
 // A previously requested cancellation does not renew the lease or settle the job.
-function statusAtWaitTimeout(id) {
+function statusAtWaitTimeout(id, cancellationCommitted) {
     return immediate((db) => {
-        requestJobCancellation(db, id)
+        if (!cancellationCommitted) requestJobCancellation(db, id)
         const row = db.prepare('SELECT status FROM jobs WHERE id = ?').get(id)
         if (!row) throw new HarnessError('not_found', `Harness job ${id} was not found.`)
         return row.status
@@ -476,15 +505,27 @@ export async function executeJob(job) {
 }
 
 async function executeClaimedJob(job) {
-    const local = localRuns.get(job.id)
+    const request = localRuns.get(job.id)
+    const local = request?.args
     const controller = new AbortController()
     const onLocalAbort = () => {
-        markCancel(job.id)
+        request.disconnect.onAbort()
         controller.abort()
     }
     local?.signal?.addEventListener('abort', onLocalAbort)
+    // Poll cancellation on every tick. Renew the durable worker timestamp well inside
+    // the stale-worker grace period, including on the first tick after a delayed claim.
+    let nextHeartbeat = 0
     const timer = setInterval(() => {
-        if (touchJob(job.id) || local?.signal?.aborted) controller.abort()
+        let cancelled
+        const now = performance.now()
+        if (now >= nextHeartbeat) {
+            nextHeartbeat = now + 500
+            cancelled = touchJob(job.id)
+        } else {
+            cancelled = cancelRequested(job.id)
+        }
+        if (cancelled || local?.signal?.aborted) controller.abort()
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
     let savedId = ''
@@ -637,14 +678,24 @@ function readSQLiteJobUpdate(id, seq, onEvent) {
 }
 
 export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
-    const onAbort = () => markCancel(id)
-    signal?.addEventListener('abort', onAbort)
+    const disconnect = signal && (localRuns.get(id)?.disconnect || jobDisconnect(id))
+    signal?.addEventListener('abort', disconnect.onAbort)
+    let retryCancellation = true
     let seq = 0
     const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : 0
     try {
         for (;;) {
             assertJobsAllowed()
-            if (signal?.aborted) markCancel(id)
+            if (signal?.aborted && !disconnect.committed) {
+                try {
+                    disconnect.persist()
+                } catch (error) {
+                    if (!retryCancellation) throw error
+                    retryCancellation = false
+                    await new Promise((resolve) => setTimeout(resolve, 15))
+                    continue
+                }
+            }
             const db = database()
             const update =
                 db.dialect === 'postgres' ? await readPostgresJobUpdate(db, id, seq, onEvent) : readSQLiteJobUpdate(id, seq, onEvent)
@@ -669,7 +720,7 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
                 continue
             }
             if (deadline && Date.now() >= deadline) {
-                const status = statusAtWaitTimeout(id)
+                const status = statusAtWaitTimeout(id, disconnect?.committed)
                 // Flush terminal events committed after this poll, using its advanced cursor.
                 if (status === 'succeeded' || status === 'cancelled' || status === 'failed') continue
                 throw new HarnessError('worker_timeout', 'The harness job did not finish before its wait elapsed.')
@@ -677,7 +728,7 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
             await waitForNextPoll(db)
         }
     } finally {
-        signal?.removeEventListener('abort', onAbort)
+        signal?.removeEventListener('abort', disconnect.onAbort)
     }
 }
 
@@ -723,7 +774,7 @@ export async function runQueuedHarness(args) {
         throw error
     }
     if (queueHooks.afterEnqueue) await queueHooks.afterEnqueue(job)
-    localRuns.set(job.id, args)
+    localRuns.set(job.id, { args, disconnect: args.signal && jobDisconnect(job.id) })
     try {
         kickInline()
         return await waitForJob(job.id, { onEvent: args.onEvent, signal: args.signal, timeoutMs: args.timeoutMs })
@@ -790,24 +841,26 @@ export function startWorkerLoop() {
             const timer = setTimeout(() => {
                 // After a hint that another worker already consumed, keep the ordinary idle interval.
                 hinted = false
-                done()
+                done(true)
             }, 50)
-            function done() {
+            function done(timedOut = false) {
                 clearTimeout(timer)
                 wake = undefined
-                resolve()
+                resolve(timedOut)
             }
             wake = done
         })
     }
     const finished = (async () => {
         console.info(`[harness] worker ${process.pid} started`)
+        let idlePoll = false
         while (!stopped) {
-            const job = claimJob()
+            const job = claimJob(idlePoll)
             if (!job) {
-                await waitForWork()
+                idlePoll = await waitForWork()
                 continue
             }
+            idlePoll = false
             hinted = false
             try {
                 await executeJob(job)

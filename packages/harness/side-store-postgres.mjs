@@ -175,8 +175,8 @@ export function openHarnessPostgres(scope) {
         dialect: 'postgres',
         ...(scope === 'queue' && {
             pollJob,
-            claimQueuedJob(now) {
-                return request({ scope, op: 'claimQueuedJob', params: [now] })
+            claimQueuedJob(now, idlePoll) {
+                return request({ scope, op: 'claimQueuedJob', params: [now], action: idlePoll ? 'poll' : undefined })
             },
             writeTurnLease(action, params) {
                 return request({ scope, op: 'writeTurnLease', action, params })
