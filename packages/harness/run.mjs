@@ -101,7 +101,7 @@ import {
 import { openNativeNumericCode } from './runtime/native-numeric-code.mjs'
 import { queueNativeTool } from './runtime/native-journal.mjs'
 import { executeAgentRun } from './runtime/agent-run.mjs'
-import { openNativeMcpTools, nativeMcpBindingSupported } from './runtime/native-mcp.mjs'
+import { openNativeMcpTools, nativeMcpBindingSupported, nativeMcpCircuitScope } from './runtime/native-mcp.mjs'
 import {
     analystCaptureIdentity,
     emptyNativeAnalystCard,
@@ -4105,13 +4105,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 flowOptions: context.moduleOptions.flowOptions,
                 signal,
                 assertCurrent,
-                scope: [
-                    context.roster.workspaceId,
-                    context.roster.chatflowId || context.name,
-                    context.roster.tryId || '',
-                    context.chatId,
-                    specialist.name
-                ]
+                scope: nativeMcpCircuitScope(context, specialist)
             })
         if (all.some(nativeAnalystBinding)) analyst = await openNativeAnalyst({ context, specialist, assertCurrent })
         const tools = []

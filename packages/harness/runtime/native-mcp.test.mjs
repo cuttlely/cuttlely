@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto'
+import { openNativeRecall } from './native-memory.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
 import { rosterFromFlow } from '../sync-from-flow.mjs'
-import { nativeMcpBindingSupported, openNativeMcpTools } from './native-mcp.mjs'
+import { nativeMcpBindingSupported, openNativeMcpTools, nativeMcpCircuitScope } from './native-mcp.mjs'
 
 const components = createRequire(new URL('../../components/package.json', import.meta.url))
 const canvas = JSON.parse(fs.readFileSync(new URL('../../../samples/harnesses/ops.canvas.json', import.meta.url)))
@@ -23,6 +25,27 @@ function setGrant(t) {
         t.after(() => (original === undefined ? delete process.env[key] : (process.env[key] = original)))
     }
 }
+
+test('MCP cooldown follows its verified conversation and specialist through subsequent turns', () => {
+    const roster = { workspaceId: 'workspace', chatflowId: 'canvas', name: 'ops-team', createdAt: '2026-01-01T00:00:00Z' }
+    const caller = { via: 'api_key', apiKeyId: 'first-key' }
+    const specialist = { name: 'operator' }
+    function scope({ record = roster, actor = caller, chat = 'conversation', role = specialist } = {}) {
+        const context = { roster: record, caller: actor, chatId: chat, turnId: randomUUID(), assertCurrent() {} }
+        context.recall = openNativeRecall(context)
+        return nativeMcpCircuitScope(context, role)
+    }
+    const first = scope()
+    assert.deepEqual(scope(), first)
+    assert.notDeepEqual(scope({ actor: { ...caller, apiKeyId: 'another-key' } }), first)
+    assert.notDeepEqual(scope({ actor: { via: 'session', tryOwner: 'user:first-key' } }), first)
+    assert.notDeepEqual(scope({ record: { ...roster, createdAt: '2026-01-02T00:00:00Z' } }), first)
+    assert.notDeepEqual(scope({ record: { ...roster, workspaceId: 'another-workspace' } }), first)
+    assert.notDeepEqual(scope({ chat: 'another-conversation' }), first)
+    assert.notDeepEqual(scope({ role: { name: 'another-operator' } }), first)
+    assert.notDeepEqual(scope({ actor: null }), scope({ actor: null }))
+    assert.throws(() => nativeMcpCircuitScope({}, specialist), { code: 'forbidden' })
+})
 
 test('a saved read-only MCP binding runs its selected action with the same bytes and schema as its released canvas tool', async (t) => {
     setGrant(t)

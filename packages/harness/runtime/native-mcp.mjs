@@ -85,6 +85,13 @@ function checkCircuit(key) {
     }
 }
 
+export function nativeMcpCircuitScope(context, specialist) {
+    // Only an owned chat can retain cooldown state across turns.
+    const owner = context.recall?.receipt?.ownerScope
+    if (!owner && !context.turnId) throw new HarnessError('forbidden', 'An admitted turn is required for an MCP tool.')
+    return [owner || context.turnId, specialist.name]
+}
+
 export async function openNativeMcpTools(bindings, { signal, assertCurrent, scope, flowOptions }) {
     const controller = new AbortController()
     const activeSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
