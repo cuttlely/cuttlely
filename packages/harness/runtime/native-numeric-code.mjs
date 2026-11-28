@@ -4,8 +4,12 @@ const sourceLimit = 8192
 const itemLimit = 128
 const digitsLimit = 64
 const usage =
-    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. Each call is stateless.'
-const form = /^print[ \t]*\([ \t]*(sum|len|min|max|sorted)[ \t]*\([ \t]*\[([\d,+\- \t]*)\][ \t]*\)[ \t]*\)[ \t]*(?:\r?\n)?$/
+    'Use print(operation([integer, ...])), where operation is sum, len, min, max, or sorted. For ranked values use print(sorted([integer, ...], reverse=True)[:N]); reverse=True or False and the 0–128 item prefix are optional. Supply up to 128 signed decimal integers, 64 digits per integer, and 8192 source characters. Each call is stateless.'
+// Match the literal list first. The two bounded suffixes cannot admit expressions as sort keys or slice bounds.
+const collection = /^print[ \t]*\([ \t]*(sum|len|min|max|sorted)[ \t]*\([ \t]*\[([\d,+\- \t]*)\]([\s\S]*)$/
+const plainEnd = /^[ \t]*\)[ \t]*\)[ \t]*(?:\r?\n)?$/
+const rankedEnd =
+    /^[ \t]*(?:,[ \t]*reverse[ \t]*=[ \t]*(True|False)[ \t]*)?\)[ \t]*(?:\[[ \t]*:[ \t]*(0|[1-9]\d{0,2})[ \t]*\][ \t]*)?\)[ \t]*(?:\r?\n)?$/
 const integer = /^[+-]?(?:0|[1-9]\d*)$/
 
 function unsupported() {
@@ -18,11 +22,15 @@ function parseCollection(name, args) {
     if (Object.keys(args).some((key) => key !== 'code' && key !== 'reset') || (Object.hasOwn(args, 'reset') && args.reset !== false))
         unsupported()
     if (typeof args.code !== 'string' || args.code.length > sourceLimit) unsupported()
-    const match = form.exec(args.code)
+    const match = collection.exec(args.code)
     if (!match || match[0] !== args.code) unsupported()
     const operation = match[1]
+    const suffix = (operation === 'sorted' ? rankedEnd : plainEnd).exec(match[3])
+    if (!suffix || suffix[0] !== match[3]) unsupported()
+    const descending = suffix[1] === 'True'
+    const limit = suffix[2] === undefined ? itemLimit : Number(suffix[2])
+    if (limit > itemLimit) unsupported()
     const body = match[2].trim()
-    if (!body) return { operation, values: [] }
     const items = body.split(',')
     if (!items.at(-1).trim()) items.pop()
     if (items.length > itemLimit) unsupported()
@@ -32,10 +40,10 @@ function parseCollection(name, args) {
         if (!integer.test(literal) || literal.replace(/^[+-]/, '').length > digitsLimit) unsupported()
         values.push(BigInt(literal))
     }
-    return { operation, values }
+    return { operation, values, descending, limit }
 }
 
-function calculate({ operation, values }) {
+function calculate({ operation, values, descending, limit }) {
     if (!values.length && (operation === 'min' || operation === 'max'))
         return { error: `ValueError: ${operation}() iterable argument is empty` }
     switch (operation) {
@@ -49,7 +57,8 @@ function calculate({ operation, values }) {
             return { value: values.reduce((a, b) => (a > b ? a : b)) }
         case 'sorted':
             values.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-            return { value: '[' + values.join(', ') + ']' }
+            if (descending) values.reverse()
+            return { value: '[' + values.slice(0, limit).join(', ') + ']' }
     }
 }
 
@@ -88,7 +97,7 @@ export function openNativeNumericCode(specialist, rolePolicy) {
         execute(name, args) {
             const start = performance.now()
             const { value, error } = calculate(parseCollection(name, args))
-            const output = error ? '\n--- stderr ---\n' + error : String(value) + '\n'
+            const output = error ? '\n--- stderr ---\n' + error + '\n' : String(value) + '\n'
             const bytes = error ? 0 : Buffer.byteLength(output)
             return JSON.stringify({
                 status: error ? 'error' : 'success',

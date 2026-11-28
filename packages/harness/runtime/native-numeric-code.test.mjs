@@ -83,9 +83,52 @@ test('ordinary and empty integer collections produce Python list and aggregate o
             assert.equal(result.exit_code, 1)
             assert.equal(result.error, 'ValueError: ' + op + '() iterable argument is empty')
             assert.equal(result.stdout_bytes_total, 0)
+            assert.equal(result.output, '\n--- stderr ---\n' + result.error + '\n')
         }
     }
     assert.equal(sum('print(sorted([9007199254740993, 0, -9007199254740994]))').output, '[-9007199254740994, 0, 9007199254740993]\n')
     reject(() => sum('print(abs([-2]))'))
-    reject(() => sum('print(sorted([1,2], reverse=True))'))
+})
+
+test('ranked literal collection prefixes use Python ordering, signs and list formatting', () => {
+    for (const [code, output] of [
+        ['print(sorted([25,-7,23,0,24,25], reverse=True)[:5])', '[25, 25, 24, 23, 0]'],
+        ['print(sorted([3,-5,3], reverse=True))', '[3, 3, -5]'],
+        ['print(sorted([2,5,-9], reverse=False))', '[-9, 2, 5]'],
+        ['print(sorted([4,-8,0,3])[:2])', '[-8, 0]'],
+        ['print(sorted([4,-8], reverse=True)[:0])', '[]'],
+        ['print(sorted([1,-1], reverse=True)[:128])', '[1, -1]'],
+        [
+            'print(sorted([-9007199254740995, 9007199254740993, 9007199254740992], reverse=True)[:2])',
+            '[9007199254740993, 9007199254740992]'
+        ],
+        ['print(sorted([], reverse=True)[:5])', '[]'],
+        ['print( sorted( [2, 1,] , reverse = True ) [ : 1 ] )', '[2]']
+    ]) {
+        tool.validate('execute_code', { code })
+        const packet = sum(code)
+        assert.equal(packet.output, output + '\n')
+        assert.equal(packet.stdout_bytes_total, Buffer.byteLength(packet.output))
+        assert.equal(packet.exit_code, 0)
+    }
+})
+
+test('the sort accepts only its fixed Boolean direction and bounded literal prefix', () => {
+    for (const code of [
+        'print(max([1],reverse=True))',
+        'print(len([1])[:1])',
+        'print(sorted([1],reverse=1))',
+        'print(sorted([1],reverse=true))',
+        'print(sorted([1],reverse=True,reverse=True))',
+        'print(sorted([1], key=abs))',
+        'print(sorted([1], key=lambda v: v))',
+        'print(sorted([1])[0])',
+        'print(sorted([1])[:-2])',
+        'print(sorted([1])[:len([1])])',
+        'print(sorted([1])[:129])',
+        'print(sorted([1])[:1:1])',
+        'print(sorted([1])[:01])',
+        'print(sorted([1],reverse=True))\nprint(2)'
+    ])
+        for (const method of ['validate', 'execute']) reject(() => tool[method]('execute_code', { code }))
 })

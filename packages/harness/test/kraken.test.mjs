@@ -422,6 +422,7 @@ test('on-demand native runs keep saved role grants and refuse the selected block
     const roles = []
     let choice = 'math'
     let numericRequest, numericFollowup
+    let expectedNumericAnswer = '851'
     const calls = []
     let changeOnRoute
     class FixtureModel {
@@ -441,7 +442,7 @@ test('on-demand native runs keep saved role grants and refuse the selected block
                             })
                         }
                     }
-                    const answer = choice === 'count' ? '851' : '51'
+                    const answer = choice === 'count' ? expectedNumericAnswer : '51'
                     assert.ok(messages.some((item) => String(item.content).includes(answer)))
                     return { content: answer }
                 },
@@ -525,11 +526,17 @@ test('on-demand native runs keep saved role grants and refuse the selected block
     }
     for (const mode of ['router', 'agent']) {
         choice = 'count'
-        numericRequest = ['print(sum([125, 250, 476]))']
-        events.length = 0
-        const result = await runHarness(args(mode))
-        assert.equal(result.text, '851')
-        assert.ok(events.some((e) => e.type === 'tool' && e.phase === 'done' && e.name === 'execute_code' && !e.error))
+        for (const [source, answer] of [
+            ['print(sum([125, 250, 476]))', '851'],
+            ['print(sorted([25,-7,23,0,24,25], reverse=True)[:5])', '[25, 25, 24, 23, 0]']
+        ]) {
+            numericRequest = [source]
+            expectedNumericAnswer = answer
+            events.length = 0
+            const result = await runHarness(args(mode))
+            assert.equal(result.text, answer)
+            assert.ok(events.some((e) => e.type === 'tool' && e.phase === 'done' && e.name === 'execute_code' && !e.error))
+        }
         // A later nonnumeric request invalidates the entire batch before a tool receipt is opened.
         numericRequest.push('print("not a number")')
         events.length = 0
