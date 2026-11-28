@@ -42,6 +42,9 @@ export class AccessKeyUnavailableError extends AppError {
         super(503, message)
     }
 }
+export function quotaStoreError(error: unknown): AppError {
+    return error instanceof AppError ? error : new AccessKeyUnavailableError('Access key quota store is unavailable.')
+}
 /** Dash Flows storage is mid-move: the caller gets the store's own 503 text instead of the generic one. */
 export class AccessKeyDashFlowsMidMoveError extends AccessKeyUnavailableError {}
 export class AccessKeyLimitError extends AppError {

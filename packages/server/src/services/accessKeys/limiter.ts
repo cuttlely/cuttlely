@@ -4,7 +4,7 @@ import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyUsage } from '../../database/entities/ApiKeyUsage'
 import { AppError } from '../../errors/appError'
 import { Operation } from './policy'
-import { AccessKeyLimitError } from './errors'
+import { AccessKeyLimitError, quotaStoreError } from './errors'
 import { postgresKeyQuota, usesSharedKeyQuotas } from './postgresQuota'
 
 // Serializes SQLite transactions and minute admission in this process. SQL conditional increments enforce quotas.
@@ -115,8 +115,7 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
         if (policy.rpm) res?.setHeader('X-RateLimit-Remaining', String(Math.max(0, policy.rpm - (minutes.get(ids[0])?.count || 0))))
         res?.setHeader('X-RateLimit-Reset', String((minute + 1) * 60))
     }).catch((error) => {
-        if (error instanceof AppError) throw error
-        throw new AppError(503, 'Access key quota store is unavailable.')
+        throw quotaStoreError(error)
     })
 }
 
@@ -145,7 +144,6 @@ export async function assertCapacity(data: DataSource, key: ApiKey, operation: O
             if ((row?.accepted || 0) >= limit) limited(res, reset, now)
         }
     } catch (error) {
-        if (error instanceof AppError) throw error
-        throw new AppError(503, 'Access key quota store is unavailable.')
+        throw quotaStoreError(error)
     }
 }

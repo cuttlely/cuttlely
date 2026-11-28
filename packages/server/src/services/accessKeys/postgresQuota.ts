@@ -2,8 +2,7 @@ import { Response } from 'express'
 import { DataSource, EntityManager, In } from 'typeorm'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyUsage } from '../../database/entities/ApiKeyUsage'
-import { AppError } from '../../errors/appError'
-import { AccessKeyAuthenticationError, AccessKeyLimitError } from './errors'
+import { AccessKeyAuthenticationError, AccessKeyLimitError, AccessKeyUnavailableError, quotaStoreError } from './errors'
 import { AccessPolicy, Operation, readPolicy } from './policy'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -12,7 +11,7 @@ export function usesSharedKeyQuotas(data: DataSource): boolean {
     const instances = Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1')
     if (instances === 1) return false
     if (Number.isSafeInteger(instances) && instances > 1 && data.options?.type === 'postgres') return true
-    throw new AppError(503, 'Shared access-key quotas require PostgreSQL and a positive integer API instance count.')
+    throw new AccessKeyUnavailableError('Shared access-key quotas require PostgreSQL and a positive integer API instance count.')
 }
 
 type Window = { period: string; limit: number; reset: number; prefix: string }
@@ -115,7 +114,6 @@ export async function postgresKeyQuota(
         }
         if (charge) for (const [name, value] of reply.headers) res?.setHeader(name, value)
     } catch (error) {
-        if (error instanceof AppError) throw error
-        throw new AppError(503, 'Access key quota store is unavailable.')
+        throw quotaStoreError(error)
     }
 }
