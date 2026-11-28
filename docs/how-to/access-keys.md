@@ -26,7 +26,7 @@ The figures below were captured on product 1.6.1 at feature head `5c08b125`, bef
 
 <!-- SCREENSHOT PENDING AK02: actual mode-change review and APPLY, before committing the change; docs/images/access-keys/enforcement-review.png. Action-only shot not captured. -->
 
-Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute counters are process-local and reset on restart; do not promise exact cross-replica limits. MySQL/MariaDB schema changes may commit partially on failure; the release has not validated those migrations against a live server. Read the reference before planning that upgrade.
+The default `CUTTLELY_API_KEY_INSTANCES=1` keeps minute quotas in process memory. On PostgreSQL, set the same integer replica count greater than one on every API instance to share minute, day and month quotas across restarts and replicas. Other database engines support one API instance. See [Access-key controls](../reference/access-keys.md#caller-policies-and-counters). MySQL/MariaDB schema changes may commit partially on failure; the release has not validated those migrations against a live server. Read the reference before planning that upgrade.
 
 ## 2. Create the key
 

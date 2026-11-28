@@ -383,7 +383,7 @@ Then read the `resultUrl` every few seconds until `finished` is `true`:
 }
 ```
 
-The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. Removing a grant or revoking a key blocks subsequent requests; an admitted run may finish. Rotation shares the same policy and counters. The key sees only the runs it started. Its configured limits apply alongside the Harness API's process-local caps of 60 starts and 600 reads a minute. Minute counters reset on restart; shared Redis limiting is not implemented. The full request and response are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. Removing a grant or revoking a key blocks subsequent requests; an admitted run may finish. Rotation shares the same policy and counters. The key sees only the runs it started. Its configured limits apply alongside the Harness API caps of 60 starts and 600 reads a minute. A single API process uses its existing per-route counters. A PostgreSQL deployment configured with two or more API replicas shares these caps per caller across the named harness endpoints and preserves them through restarts. The full request and response are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
 
 ## Run it on a schedule
 

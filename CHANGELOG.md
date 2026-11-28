@@ -8,8 +8,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Instance Operators can select **Stop all jobs** in the storage upgrade panel to cancel active work, clear abandoned waits and pause new jobs through cutover. [Storage upgrade guide](docs/how-to/postgres-side-stores.md#before-the-upgrade)
 
+-   PostgreSQL API replicas can share scoped access-key quotas and named harness request limits. Set the same `CUTTLELY_API_KEY_INSTANCES` value on every replica when enabling this mode. [Access-key deployment guide](docs/how-to/access-keys.md)
+
 ### Fixed
 
+-   On the native runtime, repeated MCP failures pause the affected conversation and specialist. Two owners can choose the same chat ID independently. [Native runtime](docs/reference/kraken-native-runtime.md)
+-   Queued turns write fewer worker heartbeats while waiting for a provider and record a client disconnect once after the database confirms cancellation.
 -   Imported Retriever Tool cards now honor **Return Source Documents** when the saved value is the string `"false"`. To include document metadata in the result, enable the switch and republish the flow. [Upgrade notes](docs/upgrading.md#testing-the-kraken-20-preview)
 
 ## [1.7.17] - 2026-11-27
