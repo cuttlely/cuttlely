@@ -466,7 +466,8 @@ describe('identity postgres schema', () => {
                     'AddScimProvisioning1801200000000',
                     'AddScimGroups1801200000001',
                     'AccessKeys1801300000000',
-                    'AddImportVerify1801400000000'
+                    'AddImportVerify1801400000000',
+                    'HarnessRequestWindows1801500000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

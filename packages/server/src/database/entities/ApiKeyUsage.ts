@@ -1,6 +1,6 @@
 import { Column, Entity, PrimaryColumn } from 'typeorm'
 
-/** Only current UTC day/month buckets are retained. No request payloads or request log. */
+/** Current UTC day/month buckets and, in shared mode, the current minute. No request payloads or request log. */
 @Entity('apikey_usage')
 export class ApiKeyUsage {
     @PrimaryColumn({ type: 'varchar', length: 36 })

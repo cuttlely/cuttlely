@@ -167,3 +167,159 @@ test(
         }
     }
 )
+
+test(
+    'two PostgreSQL API pools share committed UTC quota windows across credentials and restart',
+    {
+        skip: !process.env.CUTTLELY_TEST_PG_REQUIRED && !process.env.CUTTLELY_TEST_PG_PASSWORD && !process.env.PGPASSWORD
+    },
+    async (t) => {
+        const { Client } = serverRequire('pg')
+        const { DataSource } = serverRequire('typeorm')
+        const { ApiKey } = serverRequire('./src/database/entities/ApiKey.ts')
+        const { ApiKeyUsage } = serverRequire('./src/database/entities/ApiKeyUsage.ts')
+        const { parsePolicy } = serverRequire('./src/services/accessKeys/policy.ts')
+        const { consume, assertCapacity } = serverRequire('./src/services/accessKeys/limiter.ts')
+        const pg = {
+            host: process.env.CUTTLELY_TEST_PG_HOST || '127.0.0.1',
+            port: Number(process.env.CUTTLELY_TEST_PG_PORT || 5432),
+            user: process.env.CUTTLELY_TEST_PG_USER || 'postgres',
+            password: process.env.CUTTLELY_TEST_PG_PASSWORD || process.env.PGPASSWORD
+        }
+        const admin = new Client({ ...pg, database: 'postgres' })
+        await admin.connect()
+        const db = 'cuttlely_shared_key_' + randomUUID().replaceAll('-', '')
+        await admin.query(`CREATE DATABASE "${db}"`)
+        const open = () =>
+            new DataSource({ ...pg, type: 'postgres', username: pg.user, database: db, entities: [ApiKey, ApiKeyUsage] }).initialize()
+        const original = process.env.CUTTLELY_API_KEY_INSTANCES
+        process.env.CUTTLELY_API_KEY_INSTANCES = '2'
+        const pools = []
+        t.after(async () => {
+            if (original === undefined) delete process.env.CUTTLELY_API_KEY_INSTANCES
+            else process.env.CUTTLELY_API_KEY_INSTANCES = original
+            try {
+                for (const ds of pools) if (ds.isInitialized) await ds.destroy()
+            } finally {
+                await admin.query(`DROP DATABASE "${db}"`)
+                await admin.end()
+            }
+        })
+        const a = await open()
+        pools.push(a)
+        // Isolated unit of the public schema; the preceding route fixture separately runs released migrations.
+        await a.synchronize()
+        const b = await open()
+        pools.push(b)
+        const api = a.getRepository(ApiKey),
+            usage = a.getRepository(ApiKeyUsage)
+        const key = await api.save({
+            id: randomUUID(),
+            workspaceId: randomUUID(),
+            apiKey: '',
+            apiSecret: '',
+            keyName: 'fixture',
+            permissions: [],
+            accessPolicy: parsePolicy({ rpm: 5, daily: 9, monthly: 11 })
+        })
+        const foreign = await api.save({ ...key, id: randomUUID(), workspaceId: randomUUID() })
+        const hdr = () => ({
+            values: new Map(),
+            setHeader(name, value) {
+                this.values.set(name, value)
+            }
+        })
+        const submit = async (ds, operation) => {
+            const headers = hdr()
+            try {
+                await consume(ds, key, operation, headers)
+                return { status: 200, headers: headers.values }
+            } catch (err) {
+                return { status: err.statusCode, headers: headers.values }
+            }
+        }
+        // Keep the race and process replacement inside one real database minute even when CI starts on a boundary.
+        const [{ now }] = await a.query('SELECT clock_timestamp() AS now')
+        if (now.getUTCSeconds() >= 50) await new Promise((r) => setTimeout(r, (61 - now.getUTCSeconds()) * 1000))
+        const preflightHeaders = hdr()
+        await Promise.all([assertCapacity(a, key, 'predict', preflightHeaders), assertCapacity(b, key, 'feedback:read', preflightHeaders)])
+        assert.equal(preflightHeaders.values.size, 0)
+        assert.equal(await usage.countBy({ principalId: key.id }), 0)
+        const [{ beforeRace }] = await a.query('SELECT clock_timestamp() AS "beforeRace"')
+        const out = await Promise.all(Array.from({ length: 16 }, (_, i) => submit(i % 2 ? a : b, i % 2 ? 'predict' : 'feedback:read')))
+        const [{ afterRace }] = await a.query('SELECT clock_timestamp() AS "afterRace"')
+        const yes = out.filter((x) => x.status === 200),
+            denied = out.filter((x) => x.status === 429)
+        assert.equal(yes.length, 5)
+        assert.equal(denied.length, 11)
+        for (const [name, expected] of [
+            ['X-RateLimit-Remaining', [0, 1, 2, 3, 4]],
+            ['X-RateLimit-Day-Remaining', [4, 5, 6, 7, 8]],
+            ['X-RateLimit-Month-Remaining', [6, 7, 8, 9, 10]]
+        ])
+            assert.deepEqual(
+                yes.map((r) => Number(r.headers.get(name))).sort((l, r) => l - r),
+                expected
+            )
+        const minuteReset = (Math.floor(beforeRace.getTime() / 60000) + 1) * 60000
+        const dayReset = Date.UTC(beforeRace.getUTCFullYear(), beforeRace.getUTCMonth(), beforeRace.getUTCDate() + 1)
+        const monthReset = Date.UTC(beforeRace.getUTCFullYear(), beforeRace.getUTCMonth() + 1, 1)
+        for (const r of yes) {
+            assert.equal(r.headers.get('X-RateLimit-Reset'), String(minuteReset / 1000))
+            assert.equal(r.headers.get('X-RateLimit-Day-Reset'), String(dayReset / 1000))
+            assert.equal(r.headers.get('X-RateLimit-Month-Reset'), String(monthReset / 1000))
+        }
+        for (const r of denied) {
+            assert.deepEqual([...r.headers.keys()], ['Retry-After'])
+            const retry = Number(r.headers.get('Retry-After'))
+            assert.ok(
+                retry >= Math.max(1, Math.ceil((minuteReset - afterRace.getTime()) / 1000)) &&
+                    retry <= Math.ceil((minuteReset - beforeRace.getTime()) / 1000)
+            )
+        }
+        await b.destroy()
+        const replacement = await open()
+        pools.push(replacement)
+        await assert.rejects(assertCapacity(replacement, key, 'predict'), { statusCode: 429 })
+        assert.equal((await submit(replacement, 'predict')).status, 429)
+        await consume(replacement, foreign, 'predict')
+        await assert.rejects(assertCapacity(replacement, { ...key, workspaceId: foreign.workspaceId }, 'predict'), { statusCode: 401 })
+        await assert.rejects(consume(replacement, { ...key, workspaceId: foreign.workspaceId }, 'predict'), { statusCode: 401 })
+        const before = await usage.find({ where: { principalId: key.id }, order: { period: 'ASC', operation: 'ASC' } })
+        for (const row of before.filter((r) => r.operation === '*')) assert.equal(row.accepted, 5)
+        for (const period of new Set(before.map((r) => r.period)))
+            assert.equal(
+                before.filter((r) => r.period === period && r.operation !== '*').reduce((n, r) => n + r.accepted, 0),
+                5
+            )
+        assert.equal(await usage.countBy({ principalId: foreign.id }), 6)
+        // Simulate existing daily/monthly charges and expiry of an older minute. Local mode's historical counters are retained.
+        const monthly = before.find((r) => r.operation === '*' && /^\d{4}-\d{2}$/.test(r.period))
+        const day = before.find((r) => r.operation === '*' && /^\d{4}-\d{2}-\d{2}$/.test(r.period))
+        await usage.update({ principalId: key.id, period: before.find((r) => r.period.startsWith('m')).period }, { period: 'm1' })
+        await usage.update({ principalId: key.id, period: monthly.period, operation: '*' }, { accepted: 11 })
+        let deniedHeaders = hdr()
+        await assert.rejects(consume(a, key, 'upload', deniedHeaders), { statusCode: 429 })
+        assert.deepEqual([...deniedHeaders.values.keys()], ['Retry-After'])
+        assert.equal(await usage.countBy({ principalId: key.id, operation: 'upload' }), 0)
+        assert.equal((await usage.findOneBy({ principalId: key.id, period: day.period, operation: '*' })).accepted, 5)
+        await usage.update({ principalId: key.id, period: monthly.period, operation: '*' }, { accepted: 5 })
+        await usage.update({ principalId: key.id, period: day.period, operation: '*' }, { accepted: 9 })
+        await assert.rejects(consume(a, key, 'upload'), { statusCode: 429 })
+        await usage.update({ principalId: key.id, period: day.period, operation: '*' }, { accepted: 5 })
+        await usage.save({ principalId: key.id, period: '1999-01-01', operation: '*', accepted: 30 })
+        await consume(replacement, key, 'upload')
+        assert.equal(await usage.countBy({ principalId: key.id, period: 'm1' }), 0)
+        assert.equal(await usage.countBy({ principalId: key.id, period: '1999-01-01' }), 0)
+        // A failure inside SQL rolls back all six changes and never advertises accepted remaining/reset headers.
+        await a.query(
+            "CREATE FUNCTION refuse_key_charge() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture failure'; END $$"
+        )
+        await a.query('CREATE TRIGGER refuse_key_charge BEFORE UPDATE ON apikey_usage FOR EACH ROW EXECUTE FUNCTION refuse_key_charge()')
+        const committed = await usage.find({ where: { principalId: key.id }, order: { period: 'ASC', operation: 'ASC' } })
+        deniedHeaders = hdr()
+        await assert.rejects(consume(replacement, key, 'predict', deniedHeaders), { statusCode: 503 })
+        assert.equal(deniedHeaders.values.size, 0)
+        assert.deepEqual(await usage.find({ where: { principalId: key.id }, order: { period: 'ASC', operation: 'ASC' } }), committed)
+    }
+)

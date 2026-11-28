@@ -35,3 +35,23 @@ it('refuses consume when the principal has no access policy', async () => {
         message: 'Access policy unavailable.'
     })
 })
+
+it('requires a whole replica count and a PostgreSQL primary for shared principal quotas', async () => {
+    const { usesSharedKeyQuotas } = await import('./postgresQuota')
+    const original = process.env.CUTTLELY_API_KEY_INSTANCES
+    const source = (type: string) => ({ options: { type } } as unknown as DataSource)
+    try {
+        for (const count of ['0', '2.5', 'NaN', '-2', 'Infinity', '9007199254740992']) {
+            process.env.CUTTLELY_API_KEY_INSTANCES = count
+            expect(() => usesSharedKeyQuotas(source('postgres'))).toThrow()
+        }
+        process.env.CUTTLELY_API_KEY_INSTANCES = '2'
+        for (const type of ['sqlite', 'mysql', 'mariadb', 'unknown']) expect(() => usesSharedKeyQuotas(source(type))).toThrow()
+        expect(usesSharedKeyQuotas(source('postgres'))).toBe(true)
+        process.env.CUTTLELY_API_KEY_INSTANCES = '1'
+        for (const type of ['sqlite', 'mysql', 'mariadb', 'postgres']) expect(usesSharedKeyQuotas(source(type))).toBe(false)
+    } finally {
+        if (original === undefined) delete process.env.CUTTLELY_API_KEY_INSTANCES
+        else process.env.CUTTLELY_API_KEY_INSTANCES = original
+    }
+})

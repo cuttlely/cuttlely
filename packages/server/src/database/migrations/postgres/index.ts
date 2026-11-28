@@ -1,4 +1,5 @@
 import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
+import { HarnessRequestWindows1801500000000 } from './1801500000000-HarnessRequestWindows'
 import { AddImportVerify1801400000000 } from './1801400000000-AddImportVerify'
 import { Init1693891895163 } from './1693891895163-Init'
 import { ModifyChatFlow1693995626941 } from './1693995626941-ModifyChatFlow'
@@ -177,5 +178,6 @@ export const postgresMigrations = [
     AddScimGroups1801200000001,
     // AccessKeys stays last. A test drops the final entry and applies that migration itself.
     AddImportVerify1801400000000,
+    HarnessRequestWindows1801500000000,
     AccessKeys1801300000000
 ]

@@ -5,6 +5,7 @@ import { ApiKeyUsage } from '../../database/entities/ApiKeyUsage'
 import { AppError } from '../../errors/appError'
 import { Operation } from './policy'
 import { AccessKeyLimitError } from './errors'
+import { postgresKeyQuota, usesSharedKeyQuotas } from './postgresQuota'
 
 // Serializes SQLite transactions and minute admission in this process. SQL conditional increments enforce quotas.
 let tail: Promise<unknown> = Promise.resolve()
@@ -62,10 +63,10 @@ function limited(res: Response | undefined, reset: number, now: number): never {
     throw new AccessKeyLimitError()
 }
 export async function consume(data: DataSource, key: ApiKey, operation: Operation, res?: Response, now = Date.now()): Promise<void> {
-    if (Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1') !== 1)
-        throw new AppError(503, 'Access key limiting requires one API instance until a shared limiter is configured.')
+    const shared = usesSharedKeyQuotas(data)
     const policy = key.accessPolicy
     if (!policy) throw new AppError(403, 'Access policy unavailable.')
+    if (shared) return postgresKeyQuota(data, key, operation, true, res)
     await serial(async () => {
         const minute = Math.floor(now / 60000)
         for (const [id, bucket] of minutes) if (bucket.minute !== minute) minutes.delete(id)
@@ -123,8 +124,7 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
 export async function assertCapacity(data: DataSource, key: ApiKey, operation: Operation, res?: Response, now = Date.now()): Promise<void> {
     const policy = key.accessPolicy
     if (!policy) throw new AppError(403, 'Access policy unavailable.')
-    if (Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1') !== 1)
-        throw new AppError(503, 'A shared limiter is required for multiple API instances.')
+    if (usesSharedKeyQuotas(data)) return postgresKeyQuota(data, key, operation, false, res)
     const minute = Math.floor(now / 60000)
     if (
         policy.rpm &&

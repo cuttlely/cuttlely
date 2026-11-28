@@ -96,9 +96,10 @@ const ReviewDialog = ({ open, rows, sections, saving, onClose, onSave }) => {
                     <Alert severity='warning' sx={{ mt: 2, borderRadius: 2.5 }} data-testid='rollout-confirmation'>
                         This changes access-key enforcement for every workspace on this service on the next request. Existing keys migrate
                         with compatibility and keep their bearer values. Under On, private custom ASSISTANT key integrations return 401;
-                        unmatched Harness names lose access; RPM, quotas, origin and IP restrictions apply. Only one API instance is
-                        supported (CUTTLELY_API_KEY_INSTANCES=1). Check migration diagnostics and Shadow decisions first. You can disable
-                        enforcement by returning to Off; scoped keys are then refused. The host environment is unchanged.
+                        unmatched Harness names lose access; RPM, quotas, origin and IP restrictions apply. Single-instance admission
+                        defaults to CUTTLELY_API_KEY_INSTANCES=1. For multiple API instances, configure shared quotas on PostgreSQL. Check
+                        migration diagnostics and Shadow decisions first. You can disable enforcement by returning to Off; scoped keys are
+                        then refused. The host environment is unchanged.
                     </Alert>
                 )}
                 {typed && (

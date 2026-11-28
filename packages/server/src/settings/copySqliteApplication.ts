@@ -158,8 +158,9 @@ export async function copySqliteApplication(file: string, env: Record<string, st
                 .some((col) => col.name === 'createdDate')
         )
             await runner.query('ALTER TABLE public.apikey ADD COLUMN IF NOT EXISTS "createdDate" timestamp')
+        // PostgreSQL creates its replica admission counters empty. A same-named operator table on SQLite is still unknown.
         const expected: Array<{ name: string }> = await runner.query(
-            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' AND table_name <> 'migrations'"
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' AND table_name NOT IN ('migrations', 'harness_request_window')"
         )
         if (tables.length !== expected.length || tables.some((name) => !expected.some((row) => row.name === name)))
             throw new Error('Source tables differ from the application schema. Account for extension and workflow tables before migrating.')

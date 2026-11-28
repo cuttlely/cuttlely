@@ -1,7 +1,7 @@
 import express from 'express'
 import harnessesController from '../../controllers/harnesses'
 import { requireAnyPermission } from '../../identity/rbac'
-import { harnessRunRateLimit, requireHarnessAccess } from '../../services/harnesses/apiAccess'
+import { namedHarnessRateLimit, requireHarnessAccess } from '../../services/harnesses/apiAccess'
 import { accessContext } from '../../services/accessKeys/authorization'
 
 const router = express.Router()
@@ -26,42 +26,42 @@ router.post(
 )
 router.get(
     '/:name/runs',
-    harnessRunRateLimit('read'),
+    namedHarnessRateLimit('read'),
     requireAnyPermission('chatflows:view,agentflows:view'),
     requireHarnessAccess(),
     harnessesController.listRuns
 )
 router.post(
     '/:name/runs/async',
-    harnessRunRateLimit('start'),
+    namedHarnessRateLimit('start'),
     requireRunPermission,
     requireHarnessAccess({ auditDenial: true }),
     harnessesController.startBackgroundRun
 )
 router.get(
     '/:name/runs/:runId/result',
-    harnessRunRateLimit('read'),
+    namedHarnessRateLimit('read'),
     requireAnyPermission('chatflows:view,agentflows:view'),
     requireHarnessAccess(),
     harnessesController.getRunResult
 )
 router.get(
     '/:name/runs/:runId',
-    harnessRunRateLimit('read'),
+    namedHarnessRateLimit('read'),
     requireAnyPermission('chatflows:view,agentflows:view'),
     requireHarnessAccess(),
     harnessesController.getRun
 )
 router.get(
     '/:name/runs/:runId/diagnostics',
-    harnessRunRateLimit('read'),
+    namedHarnessRateLimit('read'),
     requireAnyPermission('chatflows:update,agentflows:create'),
     requireHarnessAccess(),
     harnessesController.getRunDiagnostics
 )
 router.post(
     '/:name/runs',
-    harnessRunRateLimit('start'),
+    namedHarnessRateLimit('start'),
     requireRunPermission,
     requireHarnessAccess({ auditDenial: true }),
     harnessesController.createRun
@@ -74,25 +74,25 @@ router.get(
 )
 router.put(
     '/:name/schedule',
-    harnessRunRateLimit('schedule'),
+    namedHarnessRateLimit('schedule'),
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
     harnessesController.saveSchedule
 )
 router.post(
     '/:name/schedule/pause',
-    harnessRunRateLimit('schedule'),
+    namedHarnessRateLimit('schedule'),
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
     harnessesController.pauseSchedule
 )
 router.post(
     '/:name/schedule/resume',
-    harnessRunRateLimit('schedule'),
+    namedHarnessRateLimit('schedule'),
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
     harnessesController.resumeSchedule
 )
 router.delete(
     '/:name/schedule',
-    harnessRunRateLimit('schedule'),
+    namedHarnessRateLimit('schedule'),
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
     harnessesController.deleteSchedule
 )

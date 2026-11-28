@@ -854,7 +854,10 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                     .filter((u) => u.operation === '*')
                                     .map((u) => (
                                         <Typography key={u.period}>
-                                            {u.period} UTC: {u.accepted} accepted; last used {u.lastUsedAt || 'Never'}
+                                            {/^m\d{1,9}$/.test(u.period)
+                                                ? new Date(Number(u.period.slice(1)) * 60000).toISOString().slice(0, 16).replace('T', ' ')
+                                                : u.period}{' '}
+                                            UTC: {u.accepted} accepted; last used {u.lastUsedAt || 'Never'}
                                         </Typography>
                                     ))}
                             </Box>

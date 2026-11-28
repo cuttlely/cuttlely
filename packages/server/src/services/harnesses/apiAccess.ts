@@ -8,6 +8,7 @@ import { AuditType, safeRecordAudit } from '../../identity/auditLog'
 import type { IHarnessCaller } from '../../Interface'
 import { rateLimitClientKey } from '../../utils/rateLimit'
 import logger from '../../utils/logger'
+import { claimHarnessRequest } from './sharedRateLimit'
 
 export const HARNESS_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const HARNESS_ALLOWLIST_MAX = 200
@@ -594,13 +595,39 @@ export function harnessRunRateLimit(kind: 'start' | 'read' | 'schedule', max?: n
         standardHeaders: true,
         legacyHeaders: false,
         keyGenerator: harnessRateKey,
-        handler: (req, res) => {
-            logger.warn(
-                `[harness] ${kind} rate limit reached for ${harnessRateKey(req).split(':')[0]} on ${safeHarnessName(req.params.name)}`
-            )
-            res.status(StatusCodes.TOO_MANY_REQUESTS).json({
-                message: `Too many ${RATE_NOUNS[kind]}. The limit is ${limit} a minute.`
-            })
-        }
+        handler: (req, res) => rejectHarnessRate(req, res, kind, limit)
     })
+}
+
+function rejectHarnessRate(req: Request, res: Response, kind: keyof typeof RATE_LIMITS, limit: number) {
+    logger.warn(`[harness] ${kind} rate limit reached for ${harnessRateKey(req).split(':')[0]} on ${safeHarnessName(req.params.name)}`)
+    res.status(StatusCodes.TOO_MANY_REQUESTS).json({ message: `Too many ${RATE_NOUNS[kind]}. The limit is ${limit} a minute.` })
+}
+
+/** Named harness endpoints share one budget per caller and operation across configured PostgreSQL API replicas. */
+export function namedHarnessRateLimit(kind: keyof typeof RATE_LIMITS): RequestHandler {
+    const local = harnessRunRateLimit(kind)
+    const limit = RATE_LIMITS[kind]
+    return async (req, res, next) => {
+        const instances = Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1')
+        if (instances === 1) return local(req, res, next)
+        try {
+            if (!Number.isSafeInteger(instances) || instances < 2) throw new Error('Invalid API replica count.')
+            const { getDataSource } = await import('../../DataSource')
+            const budget = await claimHarnessRequest(getDataSource(), kind, harnessRateKey(req), limit)
+            res.setHeader('RateLimit-Policy', `${limit};w=60`)
+            res.setHeader('RateLimit-Limit', limit)
+            res.setHeader('RateLimit-Remaining', budget.remaining)
+            res.setHeader('RateLimit-Reset', budget.resetSeconds)
+            if (!budget.accepted) {
+                res.setHeader('Retry-After', budget.resetSeconds)
+                return rejectHarnessRate(req, res, kind, limit)
+            }
+        } catch {
+            res.setHeader('Retry-After', '1')
+            res.status(StatusCodes.SERVICE_UNAVAILABLE).json({ message: 'Shared harness request limiting is unavailable.' })
+            return
+        }
+        next()
+    }
 }

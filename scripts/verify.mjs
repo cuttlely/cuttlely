@@ -108,6 +108,7 @@ export const STEPS = [
             path.join(ROOT, 'packages', 'harness', 'node-pool-limits.test.mjs'),
             path.join(ROOT, 'scripts', 'admin-limits-ui.test.mjs'),
             path.join(ROOT, 'scripts', 'access-keys-postgres.test.cjs'),
+            path.join(ROOT, 'scripts', 'harness-request-limits-postgres.test.cjs'),
             path.join(ROOT, 'scripts', 'access-rollout-admin.test.cjs'),
             path.join(ROOT, 'scripts', 'breakglass-operator.test.cjs'),
             path.join(ROOT, 'scripts', 'settings-no-way-in.test.cjs'),

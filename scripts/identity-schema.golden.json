@@ -7088,6 +7088,42 @@
                 }
             ]
         },
+        "harness_request_window": {
+            "columns": [
+                {
+                    "name": "minute",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "kind",
+                    "type": "varchar(8)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "caller",
+                    "type": "bytea",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "hits",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "harness_request_window_pkey",
+                    "unique": true,
+                    "columns": ["minute", "kind", "caller"]
+                }
+            ]
+        },
         "lead": {
             "columns": [
                 {
