@@ -148,6 +148,8 @@ Before switching engines, back up the affected workspace and verify that the bac
 
 ### Sampling a CSV or TSV upload
 
+The native distribution can run a saved Tool Agent whose tool inputs are connected directly to named Harness cards, with an installed chat model and Buffer Memory or Buffer Window Memory. The original Upload chatflow uses this arrangement. Each named team must be available in the workspace and authorized for the caller. Dynamic tool or team selection requires a separate compatibility check.
+
 The saved Upload team’s Python specialist can sample a verified CSV or TSV up to 4 MiB in on-demand mode. Attach the file to the current prediction and ask for a sample. The specialist uses the packaged sampler to return the row count, headers, first and last five rows and, when the columns are present, amount totals and means for the five leading regions. Output is capped at 4,000 characters. Each caller sees only the upload admitted for that chat. Resend the attachment if its stored bytes change before the worker reads it.
 
 ### Sampling an Excel workbook

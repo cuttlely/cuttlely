@@ -62,6 +62,64 @@ describe('runtime admission', () => {
         }
     })
 
+    test('a saved Tool Agent checks its statically connected team in the caller workspace while the bundled runtime is unavailable', async () => {
+        fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state: 'down' }))
+        const availability = require('../../../harness/availability.cjs')
+        const target = jest.spyOn(availability, 'assertSelectedHarnessAvailable').mockImplementation(() => undefined)
+        const selected = jest
+            .spyOn(availability, 'selectAgentEngine')
+            .mockImplementation((name: unknown) => (name === 'upload' ? 'native' : 'hermes'))
+        const sample = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../..', 'samples/chatflows/upload.chatflow.json'), 'utf8'))
+        const original = JSON.parse(sample.flowData)
+        const check = (graph: typeof original, overrides?: unknown) =>
+            assertFlowRuntimeAvailable({ type: 'CHATFLOW', workspaceId: 'owner-workspace', flowData: JSON.stringify(graph) }, overrides)
+        try {
+            await check(original, { sessionId: 'a' })
+            expect(target).toHaveBeenCalledTimes(1)
+            expect(target).toHaveBeenCalledWith('upload', { workspaceId: 'owner-workspace' })
+            target.mockClear()
+            for (const modify of [
+                (g: typeof original) => {
+                    g.nodes.push(null)
+                },
+                (g: typeof original) => {
+                    g.nodes[0].data.name = 'chatflowTool'
+                    g.nodes[0].data.category = 'Chat Models'
+                },
+                (g: typeof original) => {
+                    g.nodes[2].data.inputs.harnessName = '{{caller.target}}'
+                },
+                (g: typeof original) => {
+                    g.nodes[2].data.inputs.harnessName = 'foreign'
+                },
+                (g: typeof original) => {
+                    g.nodes[2].id = g.nodes[0].id
+                },
+                (g: typeof original) => {
+                    g.nodes[3].data.inputs.tools = ['{{caller.tools}}']
+                },
+                (g: typeof original) => {
+                    g.nodes[3].data.inputs.tools = [{ agentSelectedTool: 'harness' }]
+                },
+                (g: typeof original) => {
+                    g.edges[0].target = g.nodes[2].id
+                },
+                (g: typeof original) => {
+                    g.edges[0] = g.edges[1]
+                }
+            ]) {
+                const modified = JSON.parse(sample.flowData)
+                modify(modified)
+                expect(() => check(modified)).toThrow(/runtime is unavailable/i)
+            }
+            expect(() => check(original, { harnessName: 'foreign' })).toThrow(/runtime is unavailable/i)
+            expect(target).not.toHaveBeenCalled()
+        } finally {
+            target.mockRestore()
+            selected.mockRestore()
+        }
+    })
+
     test.each(['up', 'degraded'])('allows execution while runtime is %s', (state) => {
         fs.writeFileSync(path.join(dir, 'hermes-supervisor.json'), JSON.stringify({ state }))
         expect(() => assertRuntimeAvailable()).not.toThrow()

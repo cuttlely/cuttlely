@@ -29,11 +29,41 @@ export function isRuntimeUnavailableError(error: unknown): error is Error & {
 type CanvasSelection = { flowData: string; published: boolean; tryOwner?: string }
 type RuntimeFlow = { id?: string; name?: string; workspaceId?: string; type?: string | null; flowData: string }
 
+type CanvasNode = { id?: string; data?: { name?: string; inputs?: Record<string, unknown> } }
+type CanvasGraph = { nodes?: CanvasNode[]; edges?: { source?: string; target?: string }[] }
+
+const { nodes } = require('@cuttlely/components/module-catalog') as { nodes: { name: string; category: string }[] }
+const modelNames = new Set(nodes.filter((node) => node.category === 'Chat Models').map((node) => node.name))
+
+// A Tool Agent can call a statically connected Harness card. Only the installed model catalog and built-in
+// memory nodes qualify as companions. Graph-supplied category labels do not establish their behavior.
+function staticHarnessToolAgent(canvas: CanvasGraph, harnesses: CanvasNode[]) {
+    const nodes = canvas.nodes || []
+    if (nodes.some((node) => !node || typeof node.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(node.id))) return false
+    const agent = nodes.find((node) => node.data?.name === 'toolAgent')
+    const model = nodes.find((node) => modelNames.has(node.data?.name || ''))
+    const memory = nodes.find((node) => ['bufferMemory', 'bufferWindowMemory'].includes(node.data?.name || ''))
+    if (!agent || !model || !memory || nodes.length !== harnesses.length + 3) return false
+    if (new Set(nodes.map((node) => node.id)).size !== nodes.length) return false
+    const ref = (node: CanvasNode) => '{{' + node.id + '.data.instance}}'
+    const selected = agent.data?.inputs
+    if (selected?.model !== ref(model) || selected?.memory !== ref(memory) || !Array.isArray(selected?.tools)) return false
+    const tools = new Set(selected.tools)
+    if (selected.tools.length !== harnesses.length || tools.size !== harnesses.length || !harnesses.every((node) => tools.has(ref(node))))
+        return false
+    const sources = new Set([model.id, memory.id, ...harnesses.map((node) => node.id)])
+    return (
+        Array.isArray(canvas.edges) &&
+        canvas.edges.length === sources.size &&
+        canvas.edges.every((edge) => edge?.target === agent.id && sources.delete(edge.source))
+    )
+}
+
 /** Check only an authorized flow. Resolve a saved caller target only within its own workspace. */
 export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknown, readSelection?: () => Promise<CanvasSelection>) {
     if (flow.type === 'HARNESS') return assertSelectedHarnessAvailable(flow.name, { canvas: flow, readSelection })
-    type CanvasNode = { data?: { name?: string; inputs?: Record<string, unknown> } }
-    let canvas: { nodes?: CanvasNode[] }
+    if (!supervisorUnavailable()) return
+    let canvas: CanvasGraph
     try {
         canvas = JSON.parse(flow.flowData)
     } catch {
@@ -53,7 +83,7 @@ export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknow
     // Neither session selection nor a caller-supplied receipt field can choose a team.
     // Only the private server-side upload registry can supply file authority.
     if (
-        direct.length !== canvas.nodes.length ||
+        (direct.length !== canvas.nodes.length && !staticHarnessToolAgent(canvas, direct)) ||
         (overrides != null &&
             (typeof overrides !== 'object' ||
                 Array.isArray(overrides) ||
@@ -61,6 +91,14 @@ export function assertFlowRuntimeAvailable(flow: RuntimeFlow, overrides?: unknow
     )
         return assertRuntimeAvailable()
     const names = [...new Set(direct.map((node) => node.data?.inputs?.harnessName))]
-    if (names.some((name) => availability.selectAgentEngine(name) !== 'native')) return assertRuntimeAvailable()
-    return Promise.all(names.map((name) => assertSelectedHarnessAvailable(name, { workspaceId: flow.workspaceId }))).then(() => {})
+    if (
+        names.some(
+            (name) =>
+                typeof name !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name) || availability.selectAgentEngine(name) !== 'native'
+        )
+    )
+        return assertRuntimeAvailable()
+    return Promise.all(names.map((name) => availability.assertSelectedHarnessAvailable(name, { workspaceId: flow.workspaceId }))).then(
+        () => {}
+    )
 }
