@@ -409,6 +409,7 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'kraken-canvas-book.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-inline-upload.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-upload-sampler.test.mjs'),
+            path.join(ROOT, 'scripts', 'kraken-upload-workbook.test.mjs'),
             path.join(ROOT, 'scripts', 'kraken-tabular-report.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'test', 'native-playbook-assignment.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'runtime', 'native-tabular-report.test.mjs'),

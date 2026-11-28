@@ -130,27 +130,74 @@ export function openUploadSampler(context) {
     if (!context.managedFileOwner || context.replay || !context.sampleInputs?.size) return null
     const call = (quotedSource) =>
         'import subprocess\nprint(subprocess.check_output(["python", "uploads/sample_csv.py", ' + quotedSource + '], text=True), end="")'
-    const calls = new Map([...context.sampleInputs].map((source) => [call(JSON.stringify(source)), source]))
+    const csv = [...context.sampleInputs].filter((source) => /\.(csv|tsv)$/i.test(source))
+    const workbooks = [...context.sampleInputs].filter((source) => /\.xlsx$/i.test(source))
+    const calls = new Map(csv.map((source) => [call(JSON.stringify(source)), source]))
+    const validateWorkbook = (args) => {
+        if (
+            !args ||
+            typeof args !== 'object' ||
+            Object.keys(args).some((key) => !['source', 'sheet'].includes(key)) ||
+            !workbooks.includes(args.source) ||
+            (Object.hasOwn(args, 'sheet') && (typeof args.sheet !== 'string' || !args.sheet.length || args.sheet.length > 31))
+        )
+            throw new HarnessError('native_unsupported', 'Choose a verified workbook from this turn and an optional visible worksheet.')
+    }
     const check = () => {
         context.workSignal?.throwIfAborted()
         context.assertNativeAuthority()
     }
+    async function sample(source, sheet) {
+        check()
+        const result = await executeWorker(
+            { source, data: context.managedUploads[source], ...(sheet === undefined ? {} : { sheet }) },
+            context.workSignal,
+            sampleWorker
+        )
+        check()
+        if (result.error)
+            throw new HarnessError(
+                'sample_failed',
+                source.toLowerCase().endsWith('.xlsx')
+                    ? 'The verified workbook could not be sampled. Use a bounded XLSX file with local data and a visible, formula-free selected sheet.'
+                    : 'The verified CSV or TSV could not be sampled on this deployment.'
+            )
+        if (typeof result.output !== 'string' || [...result.output].length > 4000) throw unavailable()
+        return result.output
+    }
     return {
-        note:
-            'To sample a verified CSV or TSV, replace SOURCE with its quoted uploads/ name in this exact code:\n' +
-            call('SOURCE') +
-            '\nVerified sources: ' +
-            JSON.stringify([...context.sampleInputs]),
+        workbookTool: workbooks.length
+            ? {
+                  type: 'function',
+                  function: {
+                      name: 'sample_workbook',
+                      description:
+                          'Sample a verified XLSX file. Lists visible sheets and returns headers, first/last rows, row count and a numeric sum when available. Default: first visible sheet.',
+                      parameters: {
+                          type: 'object',
+                          properties: { source: { type: 'string', enum: workbooks }, sheet: { type: 'string', maxLength: 31 } },
+                          required: ['source'],
+                          additionalProperties: false
+                      }
+                  }
+              }
+            : null,
+        validateWorkbook,
+        executeWorkbook(args) {
+            validateWorkbook(args)
+            return sample(args.source, args.sheet)
+        },
+        note: !csv.length
+            ? ''
+            : 'To sample a verified CSV or TSV, replace SOURCE with its quoted uploads/ name in this exact code:\n' +
+              call('SOURCE') +
+              '\nVerified sources: ' +
+              JSON.stringify(csv),
         accepts: (code) => calls.has(code),
         async execute(code) {
-            check()
             const source = calls.get(code)
             if (!source) throw new HarnessError('native_unsupported', 'Choose a verified CSV or TSV from the current turn.')
-            const result = await executeWorker({ source, data: context.managedUploads[source] }, context.workSignal, sampleWorker)
-            check()
-            if (result.error) throw new HarnessError('sample_failed', 'The verified CSV or TSV could not be sampled on this deployment.')
-            if (typeof result.output !== 'string' || [...result.output].length > 4000) throw unavailable()
-            return result.output
+            return sample(source)
         }
     }
 }
@@ -188,8 +235,8 @@ export async function withManagedUploads(context, input, run) {
             uploads[key] = stored.body.toString('base64')
             if (
                 index < admitted.length &&
-                /\.(?:csv|tsv)$/i.test(stored.name) &&
-                /\.(?:csv|tsv)$/i.test(key) &&
+                /\.(?:csv|tsv|xlsx)$/i.test(stored.name) &&
+                /\.(?:csv|tsv|xlsx)$/i.test(key) &&
                 stored.body.length <= 4 * 1024 ** 2
             )
                 sampleInputs.add(key)

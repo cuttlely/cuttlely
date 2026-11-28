@@ -26,4 +26,4 @@ export HUSKY=0 CI=true PUPPETEER_SKIP_DOWNLOAD=true CYPRESS_INSTALL_BINARY=0
     node scripts/check-static-ui-image.mjs
 )
 export CUTTLELY_TEST_NATIVE_PACKAGE="$install"
-node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-upload-sampler.test.mjs scripts/kraken-upgrade.test.mjs scripts/kraken-local-research-prediction.test.mjs packages/harness/test/pinned/native-analyst.test.mjs packages/harness/runtime/native-numeric-code.test.mjs
+node --test --test-concurrency=1 scripts/kraken-ops.test.mjs scripts/kraken-public-transports.test.mjs scripts/kraken-managed-files.test.mjs scripts/kraken-upload-sampler.test.mjs scripts/kraken-upload-workbook.test.mjs scripts/kraken-upgrade.test.mjs scripts/kraken-local-research-prediction.test.mjs packages/harness/test/pinned/native-analyst.test.mjs packages/harness/runtime/native-numeric-code.test.mjs

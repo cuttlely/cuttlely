@@ -859,7 +859,9 @@ async function runTurnBody(
     beginGuardedQueryTurns(roster.specialists || [], chatId, context.turnId, sessionKey(name, chatId), sqlAttemptLimit)
     try {
         const sampleReceipt =
-            context.checkRole && !context.replay && context.managedUploadReceipts?.some((upload) => /\.(?:csv|tsv)$/i.test(upload.name))
+            context.checkRole &&
+            !context.replay &&
+            context.managedUploadReceipts?.some((upload) => /\.(?:csv|tsv|xlsx)$/i.test(upload.name))
         if (
             nativeSpecialists &&
             roster.specialists.some((s) => s.fileAccess || (sampleReceipt && s.codeExecution === true && !s.shell && !s.browser))
@@ -4157,11 +4159,9 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 const file = tool.function.name === 'read_file' && assignedPlaybookFile(books, playbookContext, args.path)
                 return file ? files.readAssigned(file, args) : files.execute(tool.function.name, args)
             })
-        const numeric = openNativeNumericCode(
-            specialist,
-            context.checkRole ? 'on-demand' : 'strict',
-            specialist.codeExecution && openUploadSampler(context)
-        )
+        const sampler =
+            context.checkRole && specialist.codeExecution === true && !specialist.shell && !specialist.browser && openUploadSampler(context)
+        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler)
         for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
         const report = openNativeTabularReport(context, specialist)
         if (report) register(report.tool, (args) => report.execute(args))
@@ -4281,6 +4281,9 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         }
         assertCurrent()
         if (!tools.length) throw new HarnessError('bad_binding', 'This specialist has no available saved tools.')
+        // Preserve any already-admitted tool with this name, including a saved canvas tool.
+        const workbookTool = sampler?.workbookTool && !handlers.has('sample_workbook')
+        if (workbookTool) register(sampler.workbookTool, (args) => sampler.executeWorkbook(args))
         const text = await runNativeToolLoop({
             messages: specialistPrompt(
                 context,
@@ -4303,6 +4306,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 numeric &&
                 ((name, args) => {
                     if (name === 'execute_code') numeric.validate(name, args)
+                    if (workbookTool && name === 'sample_workbook') sampler.validateWorkbook(args)
                 }),
             complete: (messages, offered) => {
                 assertCurrent()

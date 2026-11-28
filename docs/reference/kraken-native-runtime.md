@@ -125,6 +125,10 @@ Before switching engines, back up the affected workspace and verify that the bac
 
 The saved Upload team’s Python specialist can sample a verified CSV or TSV up to 4 MiB in on-demand mode. Attach the file to the current prediction and ask for a sample. The specialist uses the packaged sampler to return the row count, headers, first and last five rows and, when the columns are present, amount totals and means for the five leading regions. Output is capped at 4,000 characters. Each caller sees only the upload admitted for that chat. Resend the attachment if its stored bytes change before the worker reads it.
 
+### Sampling an Excel workbook
+
+Attach an XLSX workbook of up to 4 MiB and ask the Upload specialist to sample a named sheet or the first visible sheet. It returns visible sheet names, headers, the row count and previews of the first and last five data rows. A numeric `amount` column produces a sum. The preview shortens wide or long values to keep the report within 4,000 characters. The selected worksheet can have up to 5,000 rows and 64 columns. The reader refuses external relationships, macros and formula cells on the selected sheet. Export a values-only copy if the workbook relies on those features. Workers need the native report assets for the XLSX reader. [Native report setup](#reporting-on-an-uploaded-csv)
+
 ### Reporting on an uploaded CSV
 
 A direct request to repeat a short caller-supplied literal can complete without invoking an Analyst. A conditional answer, request for data, or request for a verified report still needs source evidence.
