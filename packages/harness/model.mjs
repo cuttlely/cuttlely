@@ -1,4 +1,5 @@
 import { modelCallTimeoutMs } from './budget.mjs'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
@@ -186,8 +187,10 @@ function toLangChain(messages) {
         if (role === 'assistant' || role === 'ai') {
             const calls = rawToolCalls(message)
             if (!calls.length) return new AIMessage(content)
+            const responseItems = calls.filter((call) => call.response_item_id).map((call) => [call.id, call.response_item_id])
             return new AIMessage({
                 content,
+                ...(responseItems.length && { additional_kwargs: { __openai_function_call_ids__: Object.fromEntries(responseItems) } }),
                 tool_calls: calls.map((call, index) => {
                     const shaped = toolCallOf(call, index)
                     let args = {}
@@ -284,6 +287,52 @@ function toolCallOf(call, index) {
     }
 }
 
+// Normalize a fresh provider batch before any call is dispatched. The assistant history and
+// the tool results must use the same pairing IDs, including when the provider reuses one.
+function providerToolCalls(result) {
+    const calls = rawToolCalls(result)
+    if (!calls.length) return []
+    const seen = new Set()
+    const nextSuffix = new Map()
+    const itemIds = result.additional_kwargs?.__openai_function_call_ids__
+    const mappedCalls = new Map()
+    const batch = calls.map((call, index) => {
+        const shaped = toolCallOf(call, index)
+        const raw = typeof call?.id === 'string' ? call.id.trim() : ''
+        const [wireId, item] = raw.split('|')
+        const explicit = typeof call?.call_id === 'string' ? call.call_id.trim() : ''
+        const fn = shaped.function
+        const original =
+            explicit ||
+            wireId.trim() ||
+            `call_${createHash('sha256').update(`${fn.name}:${fn.arguments}:${index}`).digest('hex').slice(0, 12)}`
+        let id = original
+        if (seen.has(id)) {
+            let n = nextSuffix.get(original) || 2
+            do {
+                id = `${original}_d${n++}`
+            } while (seen.has(id))
+            nextSuffix.set(original, n)
+        }
+        seen.add(id)
+        shaped.id = id
+        const explicitItem = call?.response_item_id || item?.trim() || (explicit && raw.startsWith('fc_') && raw !== explicit && raw)
+        if (typeof explicitItem === 'string' && explicitItem) shaped.response_item_id = explicitItem
+        if (itemIds && Object.hasOwn(itemIds, original) && typeof itemIds[original] === 'string') {
+            mappedCalls.set(original, mappedCalls.has(original) ? null : shaped)
+        }
+        return shaped
+    })
+    if (mappedCalls.size) {
+        // LangChain indexes response items by the incoming call ID. A reused ID makes
+        // that map ambiguous; only an explicit per-call item ID can disambiguate it.
+        for (const [original, call] of mappedCalls) {
+            if (call && !call.response_item_id) call.response_item_id = itemIds[original]
+        }
+    }
+    return batch
+}
+
 // Prompt tokens the provider served from its prompt cache. They are part of the prompt count and cost less.
 // OpenAI sends prompt_tokens_details.cached_tokens, LangChain input_token_details.cache_read, Hermes cache_read_tokens.
 export function cachedPromptTokens(usage) {
@@ -348,7 +397,7 @@ function chatResult(result, json) {
     const content = messageText(result?.content)
     return {
         content: json ? lenientJson(content) : content,
-        toolCalls: rawToolCalls(result).map(toolCallOf),
+        toolCalls: providerToolCalls(result),
         usage: reportedUsage(result),
         ...completionReason(result)
     }
@@ -381,7 +430,7 @@ async function streamChat(chat, messages, options, json, onDelta) {
     if (combined && typeof combined.concat === 'function') return chatResult(combined, json)
     return {
         content: json ? lenientJson(content) : content,
-        toolCalls: rawToolCalls(combined).map(toolCallOf),
+        toolCalls: providerToolCalls(combined),
         usage: reportedUsage(combined),
         ...completionReason(combined)
     }

@@ -141,6 +141,7 @@ export const STEPS = [
             path.join(ROOT, 'scripts', 'hermes-max-concurrent-runs.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-terminal-limits.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'model-timeout.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'test', 'model-tool-pairing.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'profile-limits.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-analyst-scope.test.mjs'),
             path.join(ROOT, 'scripts', 'live-e2e-pick.test.mjs'),
