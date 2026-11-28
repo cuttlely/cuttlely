@@ -224,6 +224,8 @@ The same card shows in the canvas chat, in a chatflow chat, and on the harness p
 
 While a run is in progress, the card also shows a live status line and a timer; see [While a run works](#while-a-run-works).
 
+If a specialist finishes its tool call and the router’s final answer omits the result, expand **Context cut in N places** in the run trace. An entry for `chief.toolResult` means that Harness Prime received shortened specialist text. API clients can inspect `trace.truncated`. Check the chief instructions and the specialist step together. When the model supports a larger input, an operator can raise `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS` and repeat the same question. A larger handoff can use more provider tokens.
+
 Harness Prime reads up to 4,000 characters of each specialist's answer before it writes the reply. To change that for one specialist, set **Handoff limit** under **Additional Parameters** on its Harness Specialist, from 160 to 20,000 characters, or `-1` for no limit. Empty or `0` means the default of 4,000; a decimal is rounded down first. A long knowledge answer may need more. With `-1`, Harness Prime reads the whole answer, unless its context is full. When Harness Prime's context is full, these limits shrink first, and the card says `Context cut`.
 
 Turn on **Answer direct** under a Harness Specialist's **Additional Parameters** to return its eligible single-step answer directly. It defaults to off. Harness Prime's instructions, persona and Handoff limit do not apply to that reply.
