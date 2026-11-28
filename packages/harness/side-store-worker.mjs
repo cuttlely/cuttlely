@@ -21,7 +21,7 @@ const postgresLeaseStatements = new Map(
 )
 
 // Keep each statement separate so a queue operation starts with a new snapshot after its lock is held.
-function transactionStart(scope, eventJobId, leaseWrite = false) {
+function transactionStart(scope, eventJobId, leaseWrite = false, freshSnapshot = false) {
     const schema = harnessSchema(scope)
     const schemaKey = `pg_catalog.hashtext(${escapeLiteral(schema)})`
     const append = typeof eventJobId === 'string'
@@ -33,14 +33,14 @@ function transactionStart(scope, eventJobId, leaseWrite = false) {
             eventJobId
         )}))`
     }
-    const transaction = scope === 'queue' ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
+    const transaction = scope === 'queue' || freshSnapshot ? 'BEGIN ISOLATION LEVEL READ COMMITTED' : 'BEGIN'
     return `${transaction}; SET LOCAL search_path TO ${escapeIdentifier(schema)}, pg_catalog; ${lock}`
 }
 
-async function begin(scope, eventJobId, leaseWrite = false) {
+async function begin(scope, eventJobId, leaseWrite = false, freshSnapshot = false) {
     const client = await pool.connect()
     try {
-        await client.query(transactionStart(scope, eventJobId, leaseWrite))
+        await client.query(transactionStart(scope, eventJobId, leaseWrite, freshSnapshot))
         return client
     } catch (error) {
         client.release(true)
@@ -177,9 +177,11 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         leases.delete(owner)
         return
     }
-    if (op === 'begin') {
+    if (op === 'begin' || op === 'beginTranscriptAppend') {
+        const append = op === 'beginTranscriptAppend'
+        if (append && scope === 'queue') throw new Error('Transcript appends require a session store.')
         if (transactions.has(scope)) throw new Error('Nested harness store transaction.')
-        transactions.set(scope, await begin(scope))
+        transactions.set(scope, await begin(scope, undefined, false, append))
         return
     }
     const active = transactions.get(scope)
@@ -268,7 +270,7 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
         )
         if (pending.rowCount === 0) return
     }
-    const client = active || (claim ? await pool.connect() : await begin(scope, eventJobId, leaseWrite))
+    const client = active || (claim ? await pool.connect() : await begin(scope, eventJobId, leaseWrite, op === 'open'))
     let result
     try {
         if (claim) {
@@ -285,8 +287,17 @@ async function execute({ scope, op, sql, params, owner, key, payload, usage, dea
             result = response.rows[0]
         } else if (op === 'open') {
             const schema = harnessSchema(scope)
-            await client.query(`CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(schema)}; ${postgresHarnessDdl(scope)}`)
-            await registerSideSchema((sql, params = []) => client.query(sql, params), schema)
+            // A new reader sees the previous writer after acquiring the schema fence. Missing
+            // scopes stay missing until a real write; existing scopes still run their upgrade DDL.
+            if (
+                action === 'existing' &&
+                !(await client.query('SELECT pg_catalog.to_regnamespace($1) IS NOT NULL AS present', [schema])).rows[0].present
+            ) {
+                result = false
+            } else {
+                await client.query(`CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(schema)}; ${postgresHarnessDdl(scope)}`)
+                await registerSideSchema((sql, params = []) => client.query(sql, params), schema)
+            }
         } else if (op === 'dropDraft') {
             if (!/^draft:[a-f0-9]{64}$/.test(scope)) throw new Error('Invalid draft scope.')
             const schema = harnessSchema(scope)

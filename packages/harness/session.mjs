@@ -105,7 +105,7 @@ function openSqliteSession(file, expected) {
     }
 }
 
-function connection(harnessName, { create, scope }) {
+function connection(harnessName, { create, scope, existingOnly = false }) {
     assertStorageReady()
     const postgres = harnessUsesPostgres()
     const diskPath = dbPath(harnessName, scope, postgres ? false : create)
@@ -119,7 +119,8 @@ function connection(harnessName, { create, scope }) {
         closeConnection(file)
     }
     if (!postgres && !create && !stat) return null
-    const opened = postgres ? { db: openHarnessPostgres(identity) } : openSqliteSession(file, stat)
+    const opened = postgres ? { db: openHarnessPostgres(identity, { existingOnly }) } : openSqliteSession(file, stat)
+    if (!opened.db) return null
     const { db } = opened
     const entry = {
         ...opened,
@@ -217,7 +218,8 @@ function writeMessages(harnessName, chatId, messages, selections, scope, recall,
     const key = sessionKey(harnessName, chatId)
     const entry = connection(harnessName, { create: true, scope })
     const now = new Date().toISOString()
-    entry.db.exec('BEGIN')
+    if (entry.db.beginTranscriptAppend) entry.db.beginTranscriptAppend()
+    else entry.db.exec('BEGIN')
     try {
         entry.ensure.run(key, harnessName, chatId, now)
         storeManagedWorkspaces(entry, managedWorkspaces)
@@ -489,7 +491,7 @@ export function sessionExists(harnessName, chatId) {
 // without a receipt, roles from another session, and unowned chats are never candidates.
 export function readRecallTurns(name, receipt, { runtimeId, after, before, limit, contentChars }) {
     const legacy = legacyRecallRows(receipt, { runtimeId, after, before, limit, contentChars })
-    const db = connection(name, { create: false, scope: receipt.storeScope })?.db
+    const db = connection(name, { create: false, scope: receipt.storeScope, existingOnly: true })?.db
     if (!db || (runtimeId && legacy.length)) return legacy
     const conditions = ['r.owner_scope = ?', 'r.session_key = ?', 'r.runtime_id <> ?']
     const params = [receipt.ownerScope, receipt.sessionKey, receipt.runtimeId]

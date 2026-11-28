@@ -169,10 +169,13 @@ function dispatchPolls(batch) {
     }
 }
 
-export function openHarnessPostgres(scope) {
-    request({ scope, op: 'open' })
+export function openHarnessPostgres(scope, { existingOnly = false } = {}) {
+    if (request({ scope, op: 'open', ...(existingOnly && { action: 'existing' }) }) === false) return null
     return {
         dialect: 'postgres',
+        ...(scope !== 'queue' && {
+            beginTranscriptAppend: () => request({ scope, op: 'beginTranscriptAppend' })
+        }),
         ...(scope === 'queue' && {
             pollJob,
             claimQueuedJob(now, idlePoll) {

@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { fork } from 'node:child_process'
+import { once } from 'node:events'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
-import { createTestDatabase, skipReason } from '../../etl/check/pg-source.mjs'
+import { createTestDatabase, createTestSource, skipReason } from '../../etl/check/pg-source.mjs'
 import { database, closeQueueDb } from '../lock.mjs'
-import { appendTurn, closeSessions, readPromptContext } from '../session.mjs'
+import { appendTurn, closeSessions, readPromptContext, readRecallTurns } from '../session.mjs'
 import { configureHarnessPostgres } from '../side-store-postgres.mjs'
+import { harnessSchema } from '../side-store-identity.mjs'
+import { publishedSessionScope } from '../session-scope.mjs'
 import { openNativeRecall } from './native-memory.mjs'
 
 const name = 'warehouse',
@@ -176,3 +180,82 @@ for (const backend of ['sqlite', 'postgres'])
             assert.deepEqual(prompt(open({ via: 'api_key', apiKeyId: reader.tryOwner })).messages, [])
         }
     )
+
+test(
+    'an empty PostgreSQL transcript stays absent until another process writes, while verified restored turns remain readable',
+    {
+        skip: skipReason,
+        timeout: 30000
+    },
+    async (t) => {
+        const pg = await createTestSource()
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'owned-transcript-'))
+        const before = process.env.CUTTLELY_DATA_DIR
+        process.env.CUTTLELY_DATA_DIR = root
+        const connection = { ...pg.connection, options: '-c default_transaction_isolation=repeatable\\ read' }
+        const children = []
+        t.after(async () => {
+            for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
+            closeSessions()
+            closeQueueDb()
+            configureHarnessPostgres(null)
+            if (before === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = before
+            await pg.cleanup()
+            fs.rmSync(root, { recursive: true, force: true })
+        })
+        configureHarnessPostgres(connection)
+        const schema = harnessSchema(publishedSessionScope(name))
+        const exists = async () => (await pg.query('SELECT pg_catalog.to_regnamespace($1) IS NOT NULL AS present', [schema]))[0].present
+        const owned = () => readRecallTurns(name, open(person).receipt, { limit: 20, contentChars: 400 })
+        assert.deepEqual(owned(), [])
+        assert.equal(await exists(), false)
+        ticket({ input: 'Released question', output: 'Released answer' })
+        assert.deepEqual(
+            owned().map((r) => r.answer),
+            ['Released answer']
+        )
+        assert.equal(await exists(), false)
+
+        // Both independent workers begin with an empty connection cache. Start both first writes together.
+        const writes = ['First receipt', 'Second receipt'].map((answer) => {
+            const c = fork(new URL('../fixtures/owned-transcript-writer.mjs', import.meta.url), [], { silent: true })
+            children.push(c)
+            c.stderr.on('data', (buffer) => process.stderr.write(buffer))
+            const ready = once(c, 'message')
+            const ended = once(c, 'exit')
+            c.send({
+                name,
+                chat,
+                receipt: open(person).receipt,
+                question: 'Question for ' + answer,
+                answer,
+                connection
+            })
+            return { c, ready, ended }
+        })
+        await Promise.all(writes.map(async ({ ready }) => assert.equal((await ready)[0], 'ready')))
+        for (const { c } of writes) c.send('append')
+        await Promise.all(writes.map(async ({ ended }) => assert.deepEqual(await ended, [0, null])))
+        assert.equal(await exists(), true)
+        const expected = ['First receipt', 'Released answer', 'Second receipt']
+        assert.deepEqual(
+            owned()
+                .map((r) => r.answer)
+                .sort(),
+            expected
+        )
+        assert.deepEqual(readRecallTurns(name, open(key).receipt, { limit: 20 }), [])
+
+        closeSessions()
+        closeQueueDb()
+        configureHarnessPostgres(null)
+        configureHarnessPostgres(connection)
+        assert.deepEqual(
+            owned()
+                .map((r) => r.answer)
+                .sort(),
+            expected
+        )
+    }
+)
