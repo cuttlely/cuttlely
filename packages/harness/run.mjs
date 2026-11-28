@@ -1,3 +1,4 @@
+import { inlineRowTotal } from './runtime/inline-row-total.mjs'
 import { publishedSearchCredential, preparePublishedSearch, publishedBrowserSearch } from './runtime/native-search-credential.mjs'
 import { openUploadShell } from './runtime/native-upload-shell.mjs'
 import { openManagedFiles, openUploadSampler, withManagedUploads } from './runtime/native-files.mjs'
@@ -1192,6 +1193,10 @@ async function nativeChiefAnswer(context, input, delegate, messages, budget, rec
             .filter(Boolean)
             .join('\n\n')
     if (!protectedAnalysts.length || context.nativeResults.some((result) => result?.trustedOutput)) return answer
+    if (context.nativeResults.length === 1 && context.nativeResults[0].status === 'completed' && context.nativeResults[0].callerTotal) {
+        context.assertNativeAuthority()
+        return context.nativeResults[0].callerTotal
+    }
     // A direct Prime answer carries no provenance. Ask the saved owner when a verified team never got a source call.
     // A mixed team can still complete unrelated work through its designated non-Analyst specialists.
     if ((context.nativeResults.length || repeatsCallerLiteral(input, answer)) && !analystDataTask(context, input)) return answer
@@ -4263,7 +4268,16 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
         for (const tool of browser?.tools || []) register(tool, (args) => browser.execute(tool.function.name, args))
         const sampler =
             context.checkRole && specialist.codeExecution === true && !specialist.shell && !specialist.browser && openUploadSampler(context)
-        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler, signal)
+        const supplied =
+            context.nativePrime &&
+            context.checkRole &&
+            specialist.codeExecution &&
+            !specialist.trustedOutputs?.length &&
+            !analyst &&
+            context.moduleOptions.flowOptions?.nestedFlowDepth === 0 &&
+            context.roster.specialists.some((role) => role.trustedOutputs?.length) &&
+            inlineRowTotal(context.moduleOptions.nativeSourceTurn?.question)
+        const numeric = openNativeNumericCode(specialist, context.checkRole ? 'on-demand' : 'strict', sampler, signal, supplied)
         for (const tool of numeric?.tools || []) register(tool, (args) => numeric.execute(tool.function.name, args))
         const report = openNativeTabularReport(context, specialist, requestedReport)
         if (report) register(report.tool, (args) => report.execute(args))
@@ -4494,6 +4508,11 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
             ;(context.turnFiles ||= []).push(artifacts.filter((item) => !['png', 'jpeg'].includes(item.type)))
         }
         if (analyst && !context.nativePrime) attachCapturedAnalystResults(context, specialist, started, firstTool)
+        // A single successful journalled operation, in this delegation, established its own numerical answer.
+        const actions = supplied && context.toolLog.slice(firstTool)
+        const callerTotal =
+            actions?.length === 1 && actions[0].name === 'execute_code' && actions[0].status === 'done' && numeric?.confirmedInlineTotal()
+        if (callerTotal) return { text: callerTotal, callerTotal, sources: [] }
         if (!csvReportProduced || uploadReport) emitSpecialistPartial(context, specialist, uploadReport || text)
         return { text, sources, ...(csvReportProduced ? { csvReportProduced: true, uploadReport } : {}) }
     } finally {

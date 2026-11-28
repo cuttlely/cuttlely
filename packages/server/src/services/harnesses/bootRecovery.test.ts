@@ -1,4 +1,8 @@
-import * as running from '../../utils/getRunningExpressApp'
+const mockFindOne = jest.fn()
+jest.mock('../../utils/getRunningExpressApp', () => ({
+    getRunningExpressApp: () => ({ AppDataSource: { getRepository: () => ({ findOne: mockFindOne }) }, nodesPool: {} })
+}))
+
 import { recompileOutdatedHarnessProfiles, setHarnessModuleLoader } from './index'
 
 describe('bundled external queue after loss of a published profile', () => {
@@ -9,7 +13,6 @@ describe('bundled external queue after loss of a published profile', () => {
     const chief = { model: { nodeName: 'chatXAI', credential: 'fixture' } }
     const specialists = [{ name: 'assistant', modules: [] }]
     const saved = { name, workspaceId, chatflowId, createdAt, updatedAt: createdAt, chief, specialists }
-    const findOne = jest.fn()
     const getHarness = jest.fn()
     const compile = jest.fn()
     const rosterFromFlow = jest.fn()
@@ -18,14 +21,10 @@ describe('bundled external queue after loss of a published profile', () => {
     beforeEach(() => {
         priorEngine = process.env.CUTTLELY_NATIVE_PRIME_TEAMS
         delete process.env.CUTTLELY_NATIVE_PRIME_TEAMS
-        findOne.mockReset().mockResolvedValue({ flowData: 'published' })
+        mockFindOne.mockReset().mockResolvedValue({ flowData: 'published' })
         getHarness.mockReset().mockReturnValue(saved)
         compile.mockReset().mockReturnValue([])
         rosterFromFlow.mockReset().mockReturnValue({ chief, specialists })
-        jest.spyOn(running, 'getRunningExpressApp').mockReturnValue({
-            AppDataSource: { getRepository: () => ({ findOne }) },
-            nodesPool: {}
-        } as unknown as ReturnType<typeof running.getRunningExpressApp>)
         setHarnessModuleLoader(async (file: string) => {
             if (file === 'store.mjs') return { getHarness, listHarnessNames: () => [name] }
             if (file === 'profile.mjs') return { needsPublishedProfileRecovery: () => true, recompileOutdatedProfiles: compile }
@@ -39,20 +38,27 @@ describe('bundled external queue after loss of a published profile', () => {
         if (priorEngine === undefined) delete process.env.CUTTLELY_NATIVE_PRIME_TEAMS
         else process.env.CUTTLELY_NATIVE_PRIME_TEAMS = priorEngine
         setHarnessModuleLoader(null)
-        jest.restoreAllMocks()
     })
 
     test('validates the exact saved published workspace, canvas, chief and specialists', async () => {
         await recompileOutdatedHarnessProfiles()
-        expect(findOne.mock.calls[0][0].where).toEqual({ id: chatflowId, workspaceId, name, type: 'HARNESS' })
+        expect(mockFindOne.mock.calls[0][0].where).toEqual({ id: chatflowId, workspaceId, name, type: 'HARNESS' })
+        expect(compile).toHaveBeenCalledWith([saved], expect.objectContaining({ recoverMissing: true }))
+    })
+
+    test('materializes a private named Live roster without using its unpublished draft', async () => {
+        mockFindOne.mockResolvedValue({ deployed: false, isPublic: false, flowData: 'published', draftFlowData: 'other' })
+        await recompileOutdatedHarnessProfiles()
+        expect(rosterFromFlow).toHaveBeenCalledWith(expect.objectContaining({ flowData: 'published' }), { inheritSavedFields: false })
         expect(compile).toHaveBeenCalledWith([saved], expect.objectContaining({ recoverMissing: true }))
     })
 
     test.each(['missing', 'draft only', 'changed specialist grant', 'changed chief credential'])(
         'holds missing materialization for %s',
         async (state) => {
-            if (state === 'missing') findOne.mockResolvedValue(null)
-            if (state === 'draft only') findOne.mockResolvedValue({ flowData: 'placeholder' })
+            if (state === 'missing') mockFindOne.mockResolvedValue(null)
+            if (state === 'draft only')
+                mockFindOne.mockResolvedValue({ deployed: true, flowData: 'placeholder', draftFlowData: 'published' })
             if (state === 'changed specialist grant')
                 rosterFromFlow.mockReturnValue({ chief, specialists: [{ ...specialists[0], fileAccess: true }] })
             if (state === 'changed chief credential')
@@ -71,7 +77,7 @@ describe('bundled external queue after loss of a published profile', () => {
     test('native teams use the existing boot sweep', async () => {
         process.env.CUTTLELY_NATIVE_PRIME_TEAMS = name
         await recompileOutdatedHarnessProfiles()
-        expect(findOne).not.toHaveBeenCalled()
+        expect(mockFindOne).not.toHaveBeenCalled()
         expect(compile).toHaveBeenCalledWith([saved], { log: expect.anything() })
     })
 })

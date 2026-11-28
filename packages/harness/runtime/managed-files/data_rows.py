@@ -418,6 +418,47 @@ def read_csv_rows(data, encoding, delimiter, newline):
     return bounded(rows)
 
 
+def run_inline_total(rows, statements, claim):
+    """Capture operands when a trailing sum or count is evaluated, including named results."""
+    last = statements[-1]
+    if not (isinstance(last, ast.Expr) and named_call(last.value, "print") and len(last.value.args) == 2):
+        rows.run(statements)
+        return False
+    start = len(statements) - 1
+    while start:
+        stmt = statements[start - 1]
+        if not (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name)
+                and (isinstance(stmt.value, ast.Name) or named_call(stmt.value, "sum") or named_call(stmt.value, "len"))):
+            break
+        start -= 1
+    rows.run(statements[:start])
+    expected = claim["values"]
+    names = {}
+
+    def witness(expr):
+        if isinstance(expr, ast.Name):
+            return names.get(expr.id)
+        if not ((named_call(expr, "sum") or named_call(expr, "len")) and len(expr.args) == 1 and isinstance(expr.args[0], ast.Name)):
+            return None
+        items = rows.names.get(expr.args[0].id)
+        if not isinstance(items, (list, tuple)) or len(items) != len(expected):
+            return None
+        if all(type(item) is int and item == supplied for item, supplied in zip(items, expected)):
+            return expr.func.id
+        if named_call(expr, "len") and all(type(row) is dict and type(row.get(claim["field"])) is int
+                                          and row[claim["field"]] == val for row, val in zip(items, expected)):
+            return "len"
+        return None
+
+    for stmt in statements[start:-1]:
+        origin = witness(stmt.value)
+        rows.run([stmt])
+        names[stmt.targets[0].id] = origin
+    outputs = [witness(arg) for arg in last.value.args]
+    rows.run([last])
+    return len(rows.output) == 1 and set(outputs) == {"sum", "len"}
+
+
 def main(request):
     source = request["code"]
     require(len(source) <= 8192)
@@ -434,6 +475,9 @@ def main(request):
             require(request.get("source") == path)
             rows.names[name] = read_csv_rows(request.get("data"), encoding, delimiter, newline)
             rows.run(tree.body[1:])
+        elif request.get("inlineTotal"):
+            confirmed = run_inline_total(rows, tree.body, request["inlineTotal"])
+            return {"output": "".join(rows.output), "confirmedInlineTotal": confirmed}
         else:
             rows.run(tree.body)
         return {"output": "".join(rows.output)}

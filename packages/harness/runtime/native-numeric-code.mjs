@@ -65,8 +65,9 @@ function calculate({ operation, values, descending, limit }) {
     }
 }
 
-export function openNativeNumericCode(specialist, rolePolicy, sampler, signal) {
+export function openNativeNumericCode(specialist, rolePolicy, sampler, signal, inlineTotal) {
     if (rolePolicy !== 'on-demand' || specialist?.codeExecution !== true || specialist.shell || specialist.browser) return null
+    let confirmedInlineTotal
     const validatedSources = new WeakMap()
     async function rowSource(args) {
         const known = validatedSources.get(args)
@@ -80,6 +81,7 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler, signal) {
         return source
     }
     return {
+        confirmedInlineTotal: () => confirmedInlineTotal,
         tools: [
             {
                 type: 'function',
@@ -118,7 +120,15 @@ export function openNativeNumericCode(specialist, rolePolicy, sampler, signal) {
                     // A plain literal table never needs to resolve an upload.
                     const source = /\bimport[ \t]+csv\b/.test(parsed.rows) ? await rowSource(args) : undefined
                     const input = source === undefined ? undefined : sampler.csvRows(source, true)
-                    const { output, error } = await dataRows('run', parsed.rows, signal, input)
+                    const proof =
+                        source === undefined && inlineTotal
+                            ? { inlineTotal: { field: inlineTotal.field, values: inlineTotal.values } }
+                            : input
+                    const { output, error, confirmedInlineTotal: confirmed } = await dataRows('run', parsed.rows, signal, proof)
+                    if (confirmed && !error) {
+                        const [sum, count] = inlineTotal.output.trimEnd().split(' ')
+                        if (output === inlineTotal.output || output === count + ' ' + sum + '\n') confirmedInlineTotal = inlineTotal.summary
+                    }
                     if (source !== undefined) sampler.csvRows(source, false)
                     return resultPacket(start, output, error)
                 })()
