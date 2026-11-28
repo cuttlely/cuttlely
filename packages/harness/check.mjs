@@ -1540,6 +1540,22 @@ check(
         results: [{ name: 'librarian', status: 'completed', task: 'Opening hours', text: knowledge, tools: ['search'] }],
         chiefBudget: 400
     })
+    const oversizedChief = fitHandoff({
+        system: 'Summarize verified orders. '.repeat(1000),
+        request: 'How many units shipped?',
+        results: [{ name: 'orders', status: 'completed', task: 'Count units', text: '851 units shipped.', tools: ['sum'] }],
+        chiefBudget: 6000
+    })
+    check(
+        'oversized chief instructions leave space for the caller and a short verified result at the default budget',
+        oversizedChief.truncated.includes('chief.instructions') &&
+            !oversizedChief.truncated.includes('chief.toolResult') &&
+            !oversizedChief.truncated.includes('chief.request') &&
+            oversizedChief.messages.at(-1).content.includes('How many units shipped?') &&
+            oversizedChief.messages.at(-1).content.includes('851 units shipped.') &&
+            estimateTokens(oversizedChief.messages.map((message) => message.content).join('\n')) <= 6000,
+        JSON.stringify(oversizedChief.truncated)
+    )
     const rowsText = Array.from({ length: 40 }, (_, i) => `| ${i + 1} | demo item ${i + 1} | ${(i + 1) * 3} |`).join('\n')
     const mixed = fitHandoff({
         system: 'Combine.',

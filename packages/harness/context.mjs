@@ -200,6 +200,12 @@ export function fitHandoff({ system, memory = '', history = [], request = '', re
         messages = build()
         if (messages.map((message) => message.content).join('\n') !== before) mark(name)
     }
+    const fitInstructions = () => {
+        systemText = fitText(systemText, Math.max(16, Math.floor(chiefBudget / 2))).text
+    }
+    // When the instructions alone exceed the budget, shortening every answer cannot make the prompt fit.
+    // Apply the existing instruction limit before spending the space available for the request and its results.
+    if (estimateTokens(systemText) > chiefBudget) shrink('chief.instructions', fitInstructions)
     // Paged analyst rows stay whole up to the row limit; every other answer still shrinks.
     for (const next of HANDOFF_SHRINK_STEPS) {
         shrink('chief.toolResult', () => {
@@ -227,9 +233,7 @@ export function fitHandoff({ system, memory = '', history = [], request = '', re
         const keep = estimateTokens(messages[0]?.content || '')
         requestText = fitText(requestText, Math.max(0, chiefBudget - keep)).text
     })
-    shrink('chief.instructions', () => {
-        systemText = fitText(systemText, Math.max(16, Math.floor(chiefBudget / 2))).text
-    })
+    shrink('chief.instructions', fitInstructions)
     return { messages, truncated }
 }
 
