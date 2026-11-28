@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Security
 
 -   The agent runtime's OpenTelemetry SDK moves to 1.45.2, which fixes a quadratic traceparent parsing DoS ([GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg)).
+-   The public website moves to Astro 7.4.12, which fixes attribute injection through dynamic tag names ([GHSA-mh32-jxcr-mh9f](https://github.com/advisories/GHSA-mh32-jxcr-mh9f)) and an image endpoint that could read a case-variant sibling of the output directory ([GHSA-r3h5-4585-7x3w](https://github.com/advisories/GHSA-r3h5-4585-7x3w)).
 
 ## [1.7.17] - 2026-11-27
 
