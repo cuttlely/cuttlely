@@ -25,7 +25,10 @@ export interface NativeSourceTurn {
 
 function requestedPage(question: string, requested: URL): URL | undefined {
     if (requested.port) return
-    for (const [candidate] of question.matchAll(/\bhttps?:\/\/[^\s<>"'`]+/gi)) {
+    for (const match of question.matchAll(/\bhttps?:\/\/[^\s<>"`]+/gi)) {
+        // Apostrophes may be part of a path (such as a merchant name). Only a surrounding
+        // single-quoted URL has a quote delimiter to remove after its last path character.
+        const candidate = question[(match.index ?? 0) - 1] === "'" ? match[0].replace(/'[.,;:!?)\]}]*$/, '') : match[0]
         // Try both verbatim and sentence/Markdown-delimited URLs. Preserve an
         // explicitly written trailing slash even though the legacy tool parser strips it.
         for (const text of [candidate, candidate.replace(/[.,;:!?)\]}]+$/, '')]) {

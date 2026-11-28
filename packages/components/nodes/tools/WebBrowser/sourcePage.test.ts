@@ -93,3 +93,30 @@ test('native source reads use the original user URL, survive same-site redirects
         /redirected/
     )
 })
+
+test('native source reads keep an apostrophe inside the caller-selected public URL', async () => {
+    const url = "https://example.org/catalog/O'Brien"
+    const response = {
+        ok: true,
+        status: 200,
+        url,
+        headers: { get: () => 'text/plain' },
+        text: async () => 'The catalog is open.'
+    }
+    const page = jest.fn(async () => response)
+    const released = await readSourcePage(url, page)
+    for (const question of [`Read ${url}.`, `Read '${url}', please.`, `Read [the catalog](${url}).`]) {
+        const turn = { question, assertCurrent: jest.fn() }
+        expect(await readSourcePage(url, page, turn)).toBe(released)
+        expect(page.mock.calls.at(-1)).toEqual([
+            url,
+            expect.objectContaining({ size: 2097152 }),
+            5,
+            { publicPageOrigin: 'https://example.org' }
+        ])
+        expect(turn.assertCurrent).toHaveBeenCalledTimes(2)
+        const calls = page.mock.calls.length
+        await expect(readSourcePage('https://example.org/catalog/other', page, turn)).rejects.toThrow(/exact public page URL/)
+        expect(page).toHaveBeenCalledTimes(calls)
+    }
+})
