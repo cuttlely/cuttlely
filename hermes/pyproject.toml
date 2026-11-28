@@ -635,7 +635,7 @@ override-dependencies = [
   # webhooks), oauthlib (requests-oauthlib) and multidict (aiohttp, yarl).
   # oauthlib 4.0.0's breaking changes are in the OAuth2 provider, which
   # nothing here runs; requests-oauthlib only uses the client side.
-  "tornado>=6.5.9",
+  "tornado>=6.6.1",
   "oauthlib>=4.0.1,<5",  # GHSA-3jp2-3mrg-2vxc (CVE-2026-49272): 4.0.0 skips device_code validation in DeviceCodeGrant
   "multidict>=6.9.1,<7",
   # browser-harness 0.1.13 (its latest release) pins pillow==12.3.0. Keep this

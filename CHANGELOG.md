@@ -13,6 +13,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The agent runtime's OpenTelemetry SDK moves to 1.45.2, which fixes a quadratic traceparent parsing DoS ([GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg)).
 -   The public website moves to Astro 7.4.12, which fixes attribute injection through dynamic tag names ([GHSA-mh32-jxcr-mh9f](https://github.com/advisories/GHSA-mh32-jxcr-mh9f)) and an image endpoint that could read a case-variant sibling of the output directory ([GHSA-r3h5-4585-7x3w](https://github.com/advisories/GHSA-r3h5-4585-7x3w)).
 -   The workspace `basic-ftp` override moves from `^6.2.3` to `^6.2.4`, which fixes a crash in the FTP directory-listing parser when a server sends a `__proto__` fact name ([GHSA-5pm8-86m8-9m6r](https://github.com/advisories/GHSA-5pm8-86m8-9m6r)); the lockfile resolves 6.2.6.
+-   The bundled agent runtime raises the tornado floor to 6.6.1 in `hermes/uv.lock`, which fixes an open redirect through triple-slash redirect paths ([GHSA-5cjw-f85j-cv6r](https://github.com/advisories/GHSA-5cjw-f85j-cv6r)).
 
 ## [1.7.17] - 2026-11-27
 
