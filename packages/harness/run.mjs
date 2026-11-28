@@ -1486,7 +1486,11 @@ async function runRosterWithUploads(context, input, dir) {
             sessionWriteOptions(context)
         )
     }
-    const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
+    const timings = {
+        routeMs: routed - started,
+        specialistsMs: finished - routed,
+        handoffMs: context.handoffSkipped || context.directReply ? 0 : Date.now() - finished
+    }
     const agents = results.map((result) => {
         const specialist = (context.roster.specialists || []).find((item) => item.name === result.name)
         return publicAgent(context, specialist || { name: result.name }, result)
