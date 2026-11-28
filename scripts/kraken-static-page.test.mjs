@@ -239,6 +239,25 @@ test(
                 ['/details', false]
             ]).flat()
         )
+        for (const route of [prediction, named]) {
+            const begin = hits.length
+            const got = await call(route, follow + ' Then return to the index.', 'agent')
+            assert.equal(got.status, 200, got.body.message)
+            assert.equal(got.body.text, marker)
+            assert.deepEqual(
+                hits.slice(begin).map((hit) => hit.route),
+                ['/index', '/details']
+            )
+        }
+        for (const control of ['back before reading', 'back twice']) {
+            const begin = hits.length
+            const denied = await call(prediction, follow + ' ' + control, 'agent')
+            assert.equal(denied.status, 422, denied.body.message)
+            assert.deepEqual(
+                hits.slice(begin).map((hit) => hit.route),
+                ['/index', '/details']
+            )
+        }
         for (const q of [
             'Compare ' + source + ' with ' + destination,
             'Click @e4 from our previous message.',

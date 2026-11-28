@@ -28,7 +28,8 @@ const linkedSnapshot = schema('browser_snapshot', 'Read the current approved pag
 })
 const click = schema('browser_click', 'Follow the caller-approved link by its snapshot reference.', { ref: { type: 'string' } }, ['ref'])
 const actions = [navigate, snapshot]
-const linkActions = [navigate, linkedSnapshot, click]
+const back = schema('browser_back', 'Return to the previous approved page in this delegation.', {})
+const linkActions = [navigate, linkedSnapshot, click, back]
 const tags = new Set(
     'html head title body main section article header footer h1 h2 h3 h4 h5 h6 p b strong i em div span br ul ol li dl dt dd table thead tbody tr th td'.split(
         ' '
@@ -289,6 +290,7 @@ export function openStaticPage(context, specialist) {
     const initial = approvedStaticPage(context, specialist)
     if (!initial) return
     let read,
+        previous,
         started = false,
         delivered = false,
         followed = false
@@ -298,6 +300,7 @@ export function openStaticPage(context, specialist) {
     }
     function validate(name, args) {
         if (!args || typeof args !== 'object' || Array.isArray(args)) throw refuse()
+        if (name === 'browser_back' && followed && previous && read && Object.keys(args).length === 0) return
         if (
             initial.target &&
             name === 'browser_click' &&
@@ -329,9 +332,16 @@ export function openStaticPage(context, specialist) {
         async execute(name, args) {
             validate(name, args)
             current()
+            context.workSignal?.throwIfAborted()
+            if (name === 'browser_back') {
+                const { url, source } = previous
+                read = source
+                previous = undefined
+                return result({ success: true, url })
+            }
             if (name === 'browser_snapshot') {
                 if (!read) throw refuse()
-                delivered = !initial.target || followed
+                if (!initial.target || (followed && previous)) delivered = true
                 return result(
                     initial.target
                         ? { success: true, snapshot: args.full ? read.tree : read.compact, element_count: read.elementCount }
@@ -389,6 +399,7 @@ export function openStaticPage(context, specialist) {
             signal.throwIfAborted()
             current()
             if (clicking) return result({ success: true, clicked: '@' + args.ref.replace(/^@/, '') })
+            if (initial.target) previous = { url: response.url, source: read }
             return result({
                 success: true,
                 url: response.url,

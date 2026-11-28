@@ -6,7 +6,9 @@ const approved = 'http://catalog.example.invalid/shipping'
 const linked = 'http://catalog.example.invalid/index'
 const read = (messages) => messages.map((m) => String(m.content || ''))
 const linkTask = (history) => {
-    const option = ['bad ref', 'other ref', 'bare ref', 'refresh ref'].find((word) => history.includes(word))
+    const option = ['bad ref', 'other ref', 'bare ref', 'refresh ref', 'return to the index', 'back before reading', 'back twice'].find(
+        (word) => history.includes(word)
+    )
     return 'Read the linked shipping detail.' + (option ? ' ' + option : '')
 }
 const say = (content) => ({ content, usage_metadata: { input_tokens: 10, output_tokens: 4 } })
@@ -45,6 +47,7 @@ function answer(tools, messages) {
                     '- main\n  - heading "Details" [level=1, ref=e1]\n  - paragraph\n    - StaticText ' + JSON.stringify(marker)
                 )
             }
+            if (history.includes('return to the index') || history.includes('back twice')) return call('browser_back', {})
             return say(marker)
         }
         if (names.includes('browser_click')) {
@@ -52,12 +55,25 @@ function answer(tools, messages) {
             const item = value ? JSON.parse(value) : {}
             if (item.clicked) {
                 assert.equal(item.clicked, '@e2')
+                if (history.includes('back before reading')) return call('browser_back', {})
                 if (history.includes('refresh ref')) return call('browser_snapshot', { full: false })
                 return call('browser_snapshot', { full: true })
             }
             if (item.snapshot && !item.url && /heading "Details"/.test(item.snapshot)) {
                 assert.equal(item.snapshot, '- main\n  - heading "Details" [level=1, ref=e1]')
                 return call('browser_snapshot', { full: true })
+            }
+            if (item.url === linked && !item.snapshot) {
+                assert.deepEqual(item, { success: true, url: linked })
+                if (history.includes('back twice')) return call('browser_back', {})
+                return call('browser_snapshot', { full: true })
+            }
+            if (item.snapshot?.includes('heading "Catalog"') && !item.url && /"success":true,"url":"[^"]+"\}/.test(history)) {
+                assert.match(item.snapshot, /link "Shipping details" \[ref=e2\]/)
+                const earlier = history.match(/Shipping reference [a-f0-9]{8}\./)?.[0]
+                if (history.includes('back before reading')) return say('The destination was never read.')
+                assert.ok(earlier)
+                return say(earlier)
             }
             if (item.url || item.snapshot) {
                 if (item.url) assert.equal(item.url, linked)

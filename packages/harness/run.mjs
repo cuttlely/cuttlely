@@ -4440,7 +4440,7 @@ async function runNativeSpecialistTools(context, specialist, task, model, soul) 
                 ((name, args) => {
                     if (shell && name === 'terminal') shell.validate(args)
                     if (requestedReport && name === 'analyze_csv_report') report.validate(args)
-                    if (browser && ['browser_navigate', 'browser_snapshot', 'browser_click'].includes(name)) browser.validate(name, args)
+                    if (browser?.tools.some((tool) => tool.function.name === name)) browser.validate(name, args)
                     if (numeric && name === 'execute_code') return numeric.validate(name, args)
                     if (workbookTool && name === 'sample_workbook') sampler.validateWorkbook(args)
                 }),
